@@ -3,6 +3,13 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { Deal } from "@/lib/types";
+import {
+  shouldShowBoomerang,
+  shouldShowEventReminder,
+  eventReminderLabel,
+  formatFollowupDate,
+} from "@/lib/boomerang";
+import { fmtEasternDate, daysUntilEvent } from "@/lib/dateFormat";
 
 function fmtMoney(n: number | null): string {
   if (n == null) return "";
@@ -10,20 +17,6 @@ function fmtMoney(n: number | null): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   })}`;
-}
-
-function fmtDate(d: string | null): string {
-  if (!d) return "no date";
-  try {
-    const dt = new Date(d + "T00:00:00");
-    return dt.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return d;
-  }
 }
 
 function fullName(deal: Deal): string {
@@ -37,6 +30,16 @@ function CardBody({ deal, floating }: { deal: Deal; floating?: boolean }) {
   const paid = deal.payment_status === "Paid in Full";
   const depositPaid = deal.payment_status === "Deposit Paid";
   const contact = fullName(deal);
+  const showBoomerang = shouldShowBoomerang(deal);
+  const showEventReminder = shouldShowEventReminder(deal);
+  const lastTouch = formatFollowupDate(deal.last_outbound_at);
+  const reminderLabel = eventReminderLabel(deal);
+  const days = daysUntilEvent(deal.event_date);
+  // Urgent shade for today/tomorrow, softer amber for 2 days out.
+  const reminderClasses =
+    days != null && days <= 1
+      ? "bg-rose-500/25 text-rose-200 border-rose-500/40"
+      : "bg-amber-500/25 text-amber-200 border-amber-500/40";
 
   return (
     <div
@@ -50,20 +53,44 @@ function CardBody({ deal, floating }: { deal: Deal; floating?: boolean }) {
         <div className="font-medium text-sm text-slate-100 truncate">
           {deal.company || contact || "Untitled deal"}
         </div>
-        {deal.boomerang_reason && (
-          <span
-            title={`Boomerang: ${deal.boomerang_reason}`}
-            className="flex-shrink-0 text-[10px] uppercase tracking-wide bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded px-1.5 py-0.5"
-          >
-            ↩
-          </span>
-        )}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {showEventReminder && (
+            <span className="relative group">
+              <span
+                className={`block text-[10px] uppercase tracking-wide ${reminderClasses} border rounded px-1.5 py-0.5`}
+              >
+                ⏰
+              </span>
+              <span className="pointer-events-none absolute right-0 top-full mt-1 z-30 whitespace-nowrap rounded-md bg-slate-950 border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-200 shadow-lg opacity-0 group-hover:opacity-100 transition">
+                <span className="block text-rose-300 font-semibold uppercase tracking-wide text-[10px]">
+                  {reminderLabel}
+                </span>
+                <span className="block">
+                  Send a day-before reminder
+                </span>
+              </span>
+            </span>
+          )}
+          {showBoomerang && (
+            <span className="relative group">
+              <span className="block text-[10px] uppercase tracking-wide bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded px-1.5 py-0.5">
+                ↩
+              </span>
+              <span className="pointer-events-none absolute right-0 top-full mt-1 z-30 whitespace-nowrap rounded-md bg-slate-950 border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-200 shadow-lg opacity-0 group-hover:opacity-100 transition">
+                <span className="block text-amber-300 font-semibold uppercase tracking-wide text-[10px]">
+                  {deal.boomerang_reason}
+                </span>
+                <span className="block">Last followed up: {lastTouch}</span>
+              </span>
+            </span>
+          )}
+        </div>
       </div>
       {contact && deal.company && (
         <div className="text-xs text-slate-400 mt-0.5 truncate">{contact}</div>
       )}
       <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-        <span>{fmtDate(deal.event_date)}</span>
+        <span>{fmtEasternDate(deal.event_date) || "no date"}</span>
         {deal.guest_count != null && (
           <span className="text-slate-500">{deal.guest_count} guests</span>
         )}

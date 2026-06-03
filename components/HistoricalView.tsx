@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { STAGE_COLOURS, type Stage } from "@/lib/stages";
 import type { Deal } from "@/lib/types";
+import { fmtEasternDate } from "@/lib/dateFormat";
 import SearchBar from "./SearchBar";
 import DealDetailDrawer from "./DealDetailDrawer";
 
@@ -15,20 +16,6 @@ function fmtMoney(n: number | null): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   })}`;
-}
-
-function fmtDate(d: string | null): string {
-  if (!d) return "";
-  try {
-    const dt = new Date(d + "T00:00:00");
-    return dt.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return d;
-  }
 }
 
 export default function HistoricalView() {
@@ -154,7 +141,7 @@ export default function HistoricalView() {
                       )}
                     </td>
                     <td className="px-4 py-2 text-slate-300">
-                      {fmtDate(d.event_date)}
+                      {fmtEasternDate(d.event_date)}
                     </td>
                     <td className="px-4 py-2">
                       <span className="inline-flex items-center gap-1.5 text-xs text-slate-300">

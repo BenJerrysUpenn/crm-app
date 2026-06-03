@@ -3,6 +3,11 @@
 import { useEffect } from "react";
 import type { Deal } from "@/lib/types";
 import { STAGE_COLOURS, STAGES, type Stage } from "@/lib/stages";
+import {
+  fmtEasternDate,
+  fmtEasternDateTime,
+  fmtEasternTime,
+} from "@/lib/dateFormat";
 
 function Row({
   label,
@@ -114,9 +119,9 @@ export default function DealDetailDrawer({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Event
             </h3>
-            <Row label="Date" value={deal.event_date} />
-            <Row label="Start" value={deal.event_start_time} />
-            <Row label="End" value={deal.event_end_time} />
+            <Row label="Date" value={fmtEasternDate(deal.event_date)} />
+            <Row label="Start" value={fmtEasternTime(deal.event_start_time)} />
+            <Row label="End" value={fmtEasternTime(deal.event_end_time)} />
             <Row label="Type" value={deal.event_type} />
             <Row label="Guests" value={deal.guest_count} />
             <Row label="Venue" value={deal.venue_name} />
@@ -159,7 +164,7 @@ export default function DealDetailDrawer({
               Pipeline
             </h3>
             <Row label="Boomerang" value={deal.boomerang_reason} />
-            <Row label="Last outbound" value={deal.last_outbound_at} />
+            <Row label="Last outbound" value={fmtEasternDateTime(deal.last_outbound_at)} />
             <Row label="Active" value={boolish(deal.is_active)} />
             <Row label="Lead source" value={deal.lead_source} />
             <Row label="How heard" value={deal.how_did_you_hear} />
@@ -180,8 +185,8 @@ export default function DealDetailDrawer({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Meta
             </h3>
-            <Row label="Created" value={deal.created_at} />
-            <Row label="Updated" value={deal.updated_at} />
+            <Row label="Created" value={fmtEasternDateTime(deal.created_at)} />
+            <Row label="Updated" value={fmtEasternDateTime(deal.updated_at)} />
           </section>
         </div>
       </aside>
