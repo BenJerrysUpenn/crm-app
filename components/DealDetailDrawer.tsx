@@ -8,6 +8,7 @@ import {
   fmtEasternDateTime,
   fmtEasternTime,
 } from "@/lib/dateFormat";
+import MessageTimeline from "./MessageTimeline";
 
 function Row({
   label,
@@ -63,10 +64,11 @@ export default function DealDetailDrawer({
       onClick={onClose}
     >
       <aside
-        className="bg-slate-900 w-full max-w-md h-full overflow-y-auto shadow-2xl border-l border-slate-800"
+        className="bg-slate-900 w-full max-w-5xl h-full flex flex-col shadow-2xl border-l border-slate-800"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-4 border-b border-slate-800 sticky top-0 bg-slate-900 flex items-start justify-between z-10">
+        {/* Sticky header spans both columns. */}
+        <div className="px-5 py-4 border-b border-slate-800 bg-slate-900 flex items-start justify-between flex-shrink-0">
           <div className="flex-1 min-w-0">
             <h2 className="font-semibold text-lg text-slate-100 truncate">
               {deal.company || contact || `Deal #${deal.id}`}
@@ -103,91 +105,111 @@ export default function DealDetailDrawer({
             ×
           </button>
         </div>
-        <div className="px-5 py-4 space-y-4">
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-              Contact
-            </h3>
-            <Row label="Name" value={contact} />
-            <Row label="Email" value={deal.contact_email} />
-            <Row label="Phone" value={deal.contact_phone} />
-            <Row label="Day-of contact" value={deal.day_of_contact_name} />
-            <Row label="Day-of phone" value={deal.day_of_contact_phone} />
-          </section>
 
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-              Event
-            </h3>
-            <Row label="Date" value={fmtEasternDate(deal.event_date)} />
-            <Row label="Start" value={fmtEasternTime(deal.event_start_time)} />
-            <Row label="End" value={fmtEasternTime(deal.event_end_time)} />
-            <Row label="Type" value={deal.event_type} />
-            <Row label="Guests" value={deal.guest_count} />
-            <Row label="Venue" value={deal.venue_name} />
-            <Row label="Address" value={deal.venue_address} />
-          </section>
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-              Menu
-            </h3>
-            <Row label="Package" value={deal.package_name} />
-            <Row label="Flavors" value={deal.flavors} />
-            <Row label="Toppings" value={deal.toppings} />
-            <Row label="Extras" value={deal.extras} />
-          </section>
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-              Staffing
-            </h3>
-            <Row label="Staff count" value={deal.staff_count} />
-            <Row label="Labor hours" value={deal.labor_hours} />
-          </section>
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-              Money
-            </h3>
-            <Row label="Subtotal pre-tax" value={money(deal.subtotal_pretax)} />
-            <Row label="Total with tax" value={money(deal.total_with_tax)} />
-            <Row label="Signed total" value={money(deal.signed_contract_total)} />
-            <Row label="Deposit" value={money(deal.deposit_amount)} />
-            <Row label="Amount paid" value={money(deal.amount_paid)} />
-            <Row label="Payment status" value={deal.payment_status} />
-            <Row label="Tax exempt" value={boolish(deal.tax_exempt)} />
-          </section>
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-              Pipeline
-            </h3>
-            <Row label="Boomerang" value={deal.boomerang_reason} />
-            <Row label="Last outbound" value={fmtEasternDateTime(deal.last_outbound_at)} />
-            <Row label="Active" value={boolish(deal.is_active)} />
-            <Row label="Lead source" value={deal.lead_source} />
-            <Row label="How heard" value={deal.how_did_you_hear} />
-          </section>
-
-          {deal.notes && (
-            <section>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                Notes
+        {/* Two columns: message timeline on the left, details on the right. */}
+        <div className="flex flex-1 min-h-0">
+          {/* Left: chat-style message timeline. */}
+          <div className="flex-1 min-w-0 flex flex-col bg-slate-950/40 border-r border-slate-800">
+            <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Email history
               </h3>
-              <div className="text-sm text-slate-200 whitespace-pre-wrap bg-slate-800 rounded p-3 border border-slate-700">
-                {deal.notes}
-              </div>
-            </section>
-          )}
+              <span className="text-[11px] text-slate-500">oldest → newest</span>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <MessageTimeline dealId={deal.id} />
+            </div>
+          </div>
 
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-              Meta
-            </h3>
-            <Row label="Created" value={fmtEasternDateTime(deal.created_at)} />
-            <Row label="Updated" value={fmtEasternDateTime(deal.updated_at)} />
-          </section>
+          {/* Right: detail fields. */}
+          <div className="w-[420px] flex-shrink-0 overflow-y-auto">
+            <div className="px-5 py-4 space-y-4">
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Contact
+                </h3>
+                <Row label="Name" value={contact} />
+                <Row label="Email" value={deal.contact_email} />
+                <Row label="Phone" value={deal.contact_phone} />
+                <Row label="Day-of contact" value={deal.day_of_contact_name} />
+                <Row label="Day-of phone" value={deal.day_of_contact_phone} />
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Event
+                </h3>
+                <Row label="Date" value={fmtEasternDate(deal.event_date)} />
+                <Row label="Start" value={fmtEasternTime(deal.event_start_time)} />
+                <Row label="End" value={fmtEasternTime(deal.event_end_time)} />
+                <Row label="Type" value={deal.event_type} />
+                <Row label="Guests" value={deal.guest_count} />
+                <Row label="Venue" value={deal.venue_name} />
+                <Row label="Address" value={deal.venue_address} />
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Menu
+                </h3>
+                <Row label="Package" value={deal.package_name} />
+                <Row label="Flavors" value={deal.flavors} />
+                <Row label="Toppings" value={deal.toppings} />
+                <Row label="Extras" value={deal.extras} />
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Staffing
+                </h3>
+                <Row label="Staff count" value={deal.staff_count} />
+                <Row label="Labor hours" value={deal.labor_hours} />
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Money
+                </h3>
+                <Row label="Subtotal pre-tax" value={money(deal.subtotal_pretax)} />
+                <Row label="Total with tax" value={money(deal.total_with_tax)} />
+                <Row label="Signed total" value={money(deal.signed_contract_total)} />
+                <Row label="Deposit" value={money(deal.deposit_amount)} />
+                <Row label="Amount paid" value={money(deal.amount_paid)} />
+                <Row label="Payment status" value={deal.payment_status} />
+                <Row label="Tax exempt" value={boolish(deal.tax_exempt)} />
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Pipeline
+                </h3>
+                <Row label="Boomerang" value={deal.boomerang_reason} />
+                <Row label="Last outbound" value={fmtEasternDateTime(deal.last_outbound_at)} />
+                <Row label="Active" value={boolish(deal.is_active)} />
+                <Row label="Lead source" value={deal.lead_source} />
+                <Row label="How heard" value={deal.how_did_you_hear} />
+              </section>
+
+              {deal.notes && (
+                <section>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                    Notes
+                  </h3>
+                  <div className="text-sm text-slate-200 whitespace-pre-wrap bg-slate-800 rounded p-3 border border-slate-700">
+                    {deal.notes}
+                  </div>
+                </section>
+              )}
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Meta
+                </h3>
+                <Row label="Created" value={fmtEasternDateTime(deal.created_at)} />
+                <Row label="Updated" value={fmtEasternDateTime(deal.updated_at)} />
+              </section>
+            </div>
+          </div>
         </div>
       </aside>
     </div>

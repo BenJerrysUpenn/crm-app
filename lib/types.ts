@@ -38,3 +38,16 @@ export type Deal = {
   created_at: string;
   updated_at: string;
 };
+
+export type ThreadMessage = {
+  id: number;
+  deal_id: number;
+  gmail_message_id: string;
+  direction: "inbound" | "outbound";
+  sender: string | null;
+  recipient: string | null;
+  sent_at: string | null;
+  subject: string | null;
+  body: string | null;
+  body_full: string | null;
+};
