@@ -21,7 +21,7 @@ export default function Toast({
       className={`fixed bottom-6 right-6 z-50 max-w-sm shadow-lg rounded-md px-4 py-3 text-sm border ${
         kind === "error"
           ? "bg-rose-950 text-rose-200 border-rose-900"
-          : "bg-zinc-800 text-zinc-100 border-zinc-700"
+          : "bg-slate-800 text-slate-100 border-slate-700"
       }`}
     >
       <div className="flex items-start gap-3">

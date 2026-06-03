@@ -30,17 +30,17 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+    <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <form
         onSubmit={handleSubmit}
-        className="bg-zinc-900 rounded-lg shadow-xl p-8 w-full max-w-sm space-y-4 border border-zinc-800"
+        className="bg-slate-900 rounded-lg shadow-xl p-8 w-full max-w-sm space-y-4 border border-slate-800"
       >
         <div>
-          <h1 className="text-xl font-semibold text-zinc-100">Withers CRM</h1>
-          <p className="text-sm text-zinc-400 mt-1">Sign in to continue.</p>
+          <h1 className="text-xl font-semibold text-slate-100">Withers CRM</h1>
+          <p className="text-sm text-slate-400 mt-1">Sign in to continue.</p>
         </div>
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">
+          <label className="block text-xs font-medium text-slate-400 mb-1">
             Email
           </label>
           <input
@@ -49,11 +49,11 @@ export default function LoginPage() {
             autoFocus
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-500"
+            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500"
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">
+          <label className="block text-xs font-medium text-slate-400 mb-1">
             Password
           </label>
           <input
@@ -61,7 +61,7 @@ export default function LoginPage() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-500"
+            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500"
           />
         </div>
         {error && (
@@ -72,7 +72,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-zinc-100 text-zinc-900 rounded-md py-2 font-medium hover:bg-white disabled:opacity-50"
+          className="w-full bg-slate-100 text-slate-900 rounded-md py-2 font-medium hover:bg-white disabled:opacity-50"
         >
           {loading ? "Signing in..." : "Sign in"}
         </button>

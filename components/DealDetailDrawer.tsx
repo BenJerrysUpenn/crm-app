@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import type { Deal } from "@/lib/types";
-import { STAGE_COLOURS, type Stage } from "@/lib/stages";
+import { STAGE_COLOURS, STAGES, type Stage } from "@/lib/stages";
 
 function Row({
   label,
@@ -13,9 +13,9 @@ function Row({
 }) {
   if (value === null || value === undefined || value === "") return null;
   return (
-    <div className="grid grid-cols-3 gap-2 py-1.5 border-b border-zinc-800 text-sm">
-      <div className="text-zinc-500 col-span-1">{label}</div>
-      <div className="text-zinc-200 col-span-2 break-words">{String(value)}</div>
+    <div className="grid grid-cols-3 gap-2 py-1.5 border-b border-slate-800 text-sm">
+      <div className="text-slate-500 col-span-1">{label}</div>
+      <div className="text-slate-200 col-span-2 break-words">{String(value)}</div>
     </div>
   );
 }
@@ -33,9 +33,11 @@ function boolish(n: number | null | undefined): string | null {
 export default function DealDetailDrawer({
   deal,
   onClose,
+  onStageChange,
 }: {
   deal: Deal;
   onClose: () => void;
+  onStageChange?: (deal: Deal, newStage: Stage) => void;
 }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -56,26 +58,41 @@ export default function DealDetailDrawer({
       onClick={onClose}
     >
       <aside
-        className="bg-zinc-900 w-full max-w-md h-full overflow-y-auto shadow-2xl border-l border-zinc-800"
+        className="bg-slate-900 w-full max-w-md h-full overflow-y-auto shadow-2xl border-l border-slate-800"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-4 border-b border-zinc-800 sticky top-0 bg-zinc-900 flex items-start justify-between">
-          <div>
-            <h2 className="font-semibold text-lg text-zinc-100">
+        <div className="px-5 py-4 border-b border-slate-800 sticky top-0 bg-slate-900 flex items-start justify-between z-10">
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold text-lg text-slate-100 truncate">
               {deal.company || contact || `Deal #${deal.id}`}
             </h2>
-            <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1.5">
-              <span>#{deal.id}</span>
-              <span>·</span>
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-xs text-slate-500">#{deal.id}</span>
               {colour && (
                 <span className={`w-2 h-2 rounded-full ${colour.dot}`} />
               )}
-              <span>{deal.stage}</span>
-            </p>
+              {onStageChange ? (
+                <select
+                  value={deal.stage}
+                  onChange={(e) =>
+                    onStageChange(deal, e.target.value as Stage)
+                  }
+                  className="text-xs bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                >
+                  {STAGES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs text-slate-300">{deal.stage}</span>
+              )}
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-200 text-xl leading-none"
+            className="text-slate-500 hover:text-slate-200 text-xl leading-none ml-2"
             aria-label="Close"
           >
             ×
@@ -83,7 +100,7 @@ export default function DealDetailDrawer({
         </div>
         <div className="px-5 py-4 space-y-4">
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Contact
             </h3>
             <Row label="Name" value={contact} />
@@ -94,7 +111,7 @@ export default function DealDetailDrawer({
           </section>
 
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Event
             </h3>
             <Row label="Date" value={deal.event_date} />
@@ -107,7 +124,7 @@ export default function DealDetailDrawer({
           </section>
 
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Menu
             </h3>
             <Row label="Package" value={deal.package_name} />
@@ -117,7 +134,7 @@ export default function DealDetailDrawer({
           </section>
 
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Staffing
             </h3>
             <Row label="Staff count" value={deal.staff_count} />
@@ -125,7 +142,7 @@ export default function DealDetailDrawer({
           </section>
 
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Money
             </h3>
             <Row label="Subtotal pre-tax" value={money(deal.subtotal_pretax)} />
@@ -138,7 +155,7 @@ export default function DealDetailDrawer({
           </section>
 
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Pipeline
             </h3>
             <Row label="Boomerang" value={deal.boomerang_reason} />
@@ -150,17 +167,17 @@ export default function DealDetailDrawer({
 
           {deal.notes && (
             <section>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
                 Notes
               </h3>
-              <div className="text-sm text-zinc-200 whitespace-pre-wrap bg-zinc-800 rounded p-3 border border-zinc-700">
+              <div className="text-sm text-slate-200 whitespace-pre-wrap bg-slate-800 rounded p-3 border border-slate-700">
                 {deal.notes}
               </div>
             </section>
           )}
 
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Meta
             </h3>
             <Row label="Created" value={deal.created_at} />

@@ -27,7 +27,6 @@ export default function ColumnFilter({
     const next = new Set(visible);
     if (next.has(stage)) next.delete(stage);
     else next.add(stage);
-    // Preserve canonical order.
     onChange(STAGES.filter((s) => next.has(s)));
   }
 
@@ -36,10 +35,10 @@ export default function ColumnFilter({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md px-3 py-1.5 border border-zinc-700 inline-flex items-center gap-2"
+        className="text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md px-3 py-1.5 border border-slate-700 inline-flex items-center gap-2"
       >
         <span>Columns</span>
-        <span className="text-xs text-zinc-400">
+        <span className="text-xs text-slate-400">
           {visible.size}/{STAGES.length}
         </span>
         <svg
@@ -59,7 +58,7 @@ export default function ColumnFilter({
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-64 bg-zinc-900 border border-zinc-700 rounded-md shadow-xl z-30 p-1">
+        <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-md shadow-xl z-30 p-1">
           {STAGES.map((stage) => {
             const checked = visible.has(stage);
             const colour = STAGE_COLOURS[stage];
@@ -68,24 +67,24 @@ export default function ColumnFilter({
                 key={stage}
                 type="button"
                 onClick={() => toggle(stage)}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-zinc-800 text-left"
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-slate-800 text-left"
               >
                 <input
                   type="checkbox"
                   checked={checked}
                   readOnly
-                  className="accent-zinc-400"
+                  className="accent-slate-400"
                 />
                 <span className={`w-2 h-2 rounded-full ${colour.dot}`} />
-                <span className="text-sm text-zinc-200 flex-1">{stage}</span>
+                <span className="text-sm text-slate-200 flex-1">{stage}</span>
               </button>
             );
           })}
-          <div className="border-t border-zinc-800 mt-1 pt-1 flex gap-1">
+          <div className="border-t border-slate-800 mt-1 pt-1 flex gap-1">
             <button
               type="button"
               onClick={() => onChange([...STAGES])}
-              className="flex-1 text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-800"
+              className="flex-1 text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-slate-800"
             >
               All
             </button>
@@ -100,7 +99,7 @@ export default function ColumnFilter({
                   "Booked Paid",
                 ])
               }
-              className="flex-1 text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-800"
+              className="flex-1 text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-slate-800"
             >
               Working pipeline
             </button>

@@ -40,14 +40,14 @@ function CardBody({ deal, floating }: { deal: Deal; floating?: boolean }) {
 
   return (
     <div
-      className={`bg-zinc-800 border border-zinc-700 rounded-md p-2.5 shadow-sm select-none ${
+      className={`bg-slate-800 border border-slate-700 rounded-md p-2.5 shadow-sm select-none ${
         floating
-          ? "shadow-2xl rotate-1 cursor-grabbing ring-1 ring-zinc-500"
-          : "hover:border-zinc-600 cursor-grab"
+          ? "shadow-2xl rotate-1 cursor-grabbing ring-1 ring-slate-500"
+          : "hover:border-slate-600 cursor-grab"
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="font-medium text-sm text-zinc-100 truncate">
+        <div className="font-medium text-sm text-slate-100 truncate">
           {deal.company || contact || "Untitled deal"}
         </div>
         {deal.boomerang_reason && (
@@ -60,16 +60,16 @@ function CardBody({ deal, floating }: { deal: Deal; floating?: boolean }) {
         )}
       </div>
       {contact && deal.company && (
-        <div className="text-xs text-zinc-400 mt-0.5 truncate">{contact}</div>
+        <div className="text-xs text-slate-400 mt-0.5 truncate">{contact}</div>
       )}
-      <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
+      <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
         <span>{fmtDate(deal.event_date)}</span>
         {deal.guest_count != null && (
-          <span className="text-zinc-500">{deal.guest_count} guests</span>
+          <span className="text-slate-500">{deal.guest_count} guests</span>
         )}
       </div>
       <div className="mt-1 flex items-center justify-between text-xs">
-        <span className="font-medium text-zinc-200">
+        <span className="font-medium text-slate-200">
           {fmtMoney(deal.total_with_tax)}
         </span>
         {paid && (
@@ -96,7 +96,6 @@ export default function DealCard({
   onClick?: () => void;
   dragging?: boolean;
 }) {
-  // Floating render used inside DragOverlay: no draggable hook, no listeners.
   if (dragging) {
     return <CardBody deal={deal} floating />;
   }
