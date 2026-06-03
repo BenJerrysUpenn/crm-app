@@ -20,8 +20,8 @@ export default function Toast({
     <div
       className={`fixed bottom-6 right-6 z-50 max-w-sm shadow-lg rounded-md px-4 py-3 text-sm border ${
         kind === "error"
-          ? "bg-red-50 text-red-800 border-red-200"
-          : "bg-stone-900 text-white border-stone-900"
+          ? "bg-rose-950 text-rose-200 border-rose-900"
+          : "bg-zinc-800 text-zinc-100 border-zinc-700"
       }`}
     >
       <div className="flex items-start gap-3">
