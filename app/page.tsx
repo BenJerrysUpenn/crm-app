@@ -31,7 +31,10 @@ export default async function HomePage() {
             Could not load deals: {error.message}
           </div>
         ) : (
-          <KanbanBoard initialDeals={(deals ?? []) as Deal[]} />
+          <KanbanBoard
+            initialDeals={(deals ?? []) as Deal[]}
+            userEmail={user.email ?? undefined}
+          />
         )}
       </main>
     </div>

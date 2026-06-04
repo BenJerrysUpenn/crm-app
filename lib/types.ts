@@ -21,6 +21,9 @@ export type Deal = {
   extras: string | null;
   staff_count: number | null;
   labor_hours: number | null;
+  round_trip_miles: number | null;
+  transport_mode: string | null;
+  minimum_order_override: number;
   total_with_tax: number | null;
   subtotal_pretax: number | null;
   amount_paid: number | null;
@@ -50,4 +53,19 @@ export type ThreadMessage = {
   subject: string | null;
   body: string | null;
   body_full: string | null;
+};
+
+export type QuoteJobStatus = "pending" | "running" | "done" | "error";
+
+export type QuoteJob = {
+  id: number;
+  deal_id: number;
+  status: QuoteJobStatus;
+  created_at: string;
+  processed_at: string | null;
+  requested_by: string | null;
+  payload: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  error_message: string | null;
+  run_log: string | null;
 };

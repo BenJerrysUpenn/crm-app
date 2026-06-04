@@ -41,8 +41,10 @@ function loadVisible(): Stage[] {
 
 export default function KanbanBoard({
   initialDeals,
+  userEmail,
 }: {
   initialDeals: Deal[];
+  userEmail?: string;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [deals, setDeals] = useState<Deal[]>(initialDeals);
@@ -254,9 +256,16 @@ export default function KanbanBoard({
 
       {selectedDeal && (
         <DealDetailDrawer
+          key={selectedDeal.id}
           deal={selectedDeal}
           onClose={() => setSelectedDealId(null)}
           onStageChange={moveDealToStage}
+          onDealUpdate={(updated) =>
+            setDeals((prev) =>
+              prev.map((d) => (d.id === updated.id ? updated : d)),
+            )
+          }
+          userEmail={userEmail}
         />
       )}
 
