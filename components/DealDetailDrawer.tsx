@@ -133,6 +133,9 @@ export default function DealDetailDrawer({
   // never type a value into any field while a previous job's status
   // is still "done".
   const refetchedJobIdsRef = useRef<Set<number>>(new Set());
+  // Mobile-only: which column is showing. Desktop renders both
+  // side-by-side and ignores this state.
+  const [mobileTab, setMobileTab] = useState<"email" | "details">("details");
   useEffect(() => {
     if (quoteJob?.status !== "done") return;
     if (refetchedJobIdsRef.current.has(quoteJob.id)) return;
@@ -256,12 +259,12 @@ export default function DealDetailDrawer({
         className="bg-slate-900 w-full max-w-5xl h-full flex flex-col shadow-2xl border-l border-slate-800"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-4 border-b border-slate-800 bg-slate-900 flex items-start justify-between gap-3 flex-shrink-0">
+        <div className="px-3 sm:px-5 py-3 sm:py-4 border-b border-slate-800 bg-slate-900 flex items-start justify-between gap-2 sm:gap-3 flex-shrink-0">
           <div className="flex-1 min-w-0">
-            <h2 className="font-semibold text-lg text-slate-100 truncate">
+            <h2 className="font-semibold text-base sm:text-lg text-slate-100 truncate">
               {current.company || contact || `Deal #${current.id}`}
             </h2>
-            <div className="mt-1.5 flex items-center gap-2">
+            <div className="mt-1.5 flex items-center gap-2 flex-wrap">
               <span className="text-xs text-slate-500">#{current.id}</span>
               {colour && (
                 <span className={`w-2 h-2 rounded-full ${colour.dot}`} />
@@ -285,7 +288,7 @@ export default function DealDetailDrawer({
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end max-w-[60%] sm:max-w-none">
             {hasChanges && (
               <button
                 type="button"
@@ -299,7 +302,7 @@ export default function DealDetailDrawer({
               type="button"
               onClick={save}
               disabled={!hasChanges || saving}
-              className="text-sm bg-sky-500/20 text-sky-200 border border-sky-500/40 rounded-md px-3 py-1.5 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-xs sm:text-sm bg-sky-500/20 text-sky-200 border border-sky-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {saving ? "Saving…" : hasChanges ? `Save ${Object.keys(edits).length} change${Object.keys(edits).length === 1 ? "" : "s"}` : "Saved"}
             </button>
@@ -307,7 +310,7 @@ export default function DealDetailDrawer({
               type="button"
               onClick={() => requestJob("quote")}
               disabled={quoteRequesting || jobInFlight}
-              className="text-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 rounded-md px-3 py-1.5 hover:bg-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-xs sm:text-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Generate the quote PDF and attach as a Gmail draft reply"
             >
               {jobKind === "quote" && quoteRequesting
@@ -324,7 +327,7 @@ export default function DealDetailDrawer({
               type="button"
               onClick={() => requestJob("picklist")}
               disabled={quoteRequesting || jobInFlight}
-              className="text-sm bg-violet-500/20 text-violet-200 border border-violet-500/40 rounded-md px-3 py-1.5 hover:bg-violet-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-xs sm:text-sm bg-violet-500/20 text-violet-200 border border-violet-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-violet-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Render the picklist DOCX and draft an internal email to Sophia"
             >
               {jobKind === "picklist" && quoteRequesting
@@ -344,7 +347,7 @@ export default function DealDetailDrawer({
                 type="button"
                 onClick={() => requestJob("followup")}
                 disabled={quoteRequesting || jobInFlight}
-                className="text-sm bg-sky-500/20 text-sky-200 border border-sky-500/40 rounded-md px-3 py-1.5 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-xs sm:text-sm bg-sky-500/20 text-sky-200 border border-sky-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="Draft a polite follow-up email (uses boomerang reason: quote_reply / deposit_due / balance_due)"
               >
                 {jobKind === "followup" && quoteRequesting
@@ -362,7 +365,7 @@ export default function DealDetailDrawer({
               type="button"
               onClick={() => requestJob("retriage")}
               disabled={quoteRequesting || jobInFlight}
-              className="text-sm bg-slate-700/40 text-slate-200 border border-slate-600 rounded-md px-3 py-1.5 hover:bg-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-xs sm:text-sm bg-slate-700/40 text-slate-200 border border-slate-600 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Recompute drive_minutes, mileage rule, staff_count, labor_hours from venue + event times. Formulas only, no AI."
             >
               {jobKind === "retriage" && quoteRequesting
@@ -381,7 +384,7 @@ export default function DealDetailDrawer({
                   type="button"
                   onClick={() => requestJob("decline_below_min")}
                   disabled={quoteRequesting || jobInFlight}
-                  className="text-sm bg-amber-500/20 text-amber-200 border border-amber-500/40 rounded-md px-3 py-1.5 hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="text-xs sm:text-sm bg-amber-500/20 text-amber-200 border border-amber-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
                   title="Draft a polite decline pointing the customer to pick-up / Uber Eats (under $500 minimum)"
                 >
                   {jobKind === "decline_below_min" && quoteRequesting
@@ -401,7 +404,7 @@ export default function DealDetailDrawer({
                   type="button"
                   onClick={() => requestJob("decline_too_far")}
                   disabled={quoteRequesting || jobInFlight}
-                  className="text-sm bg-rose-500/20 text-rose-200 border border-rose-500/40 rounded-md px-3 py-1.5 hover:bg-rose-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="text-xs sm:text-sm bg-rose-500/20 text-rose-200 border border-rose-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-rose-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
                   title="Draft a polite decline (venue outside the driving range)"
                 >
                   {jobKind === "decline_too_far" && quoteRequesting
@@ -483,10 +486,42 @@ export default function DealDetailDrawer({
             </details>
           )}
 
+        {/* Mobile-only tab switcher. Hidden ≥sm where both columns
+            render side-by-side. */}
+        <div className="sm:hidden border-b border-slate-800 bg-slate-900 flex flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileTab("details")}
+            className={`flex-1 px-3 py-2 text-xs uppercase tracking-wide font-semibold ${
+              mobileTab === "details"
+                ? "text-slate-100 border-b-2 border-sky-500"
+                : "text-slate-500 border-b-2 border-transparent"
+            }`}
+          >
+            Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileTab("email")}
+            className={`flex-1 px-3 py-2 text-xs uppercase tracking-wide font-semibold ${
+              mobileTab === "email"
+                ? "text-slate-100 border-b-2 border-sky-500"
+                : "text-slate-500 border-b-2 border-transparent"
+            }`}
+          >
+            Email history
+          </button>
+        </div>
+
         <div className="flex flex-1 min-h-0">
-          {/* Left: chat-style message timeline. */}
-          <div className="flex-1 min-w-0 flex flex-col bg-slate-950/40 border-r border-slate-800">
-            <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
+          {/* Left: chat-style message timeline. Visible on mobile only
+              when the Email tab is active; always visible on ≥sm. */}
+          <div
+            className={`flex-1 min-w-0 flex-col bg-slate-950/40 sm:border-r sm:border-slate-800 ${
+              mobileTab === "email" ? "flex" : "hidden sm:flex"
+            }`}
+          >
+            <div className="hidden sm:flex px-5 py-3 border-b border-slate-800 items-center justify-between flex-shrink-0">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Email history
               </h3>
@@ -497,8 +532,13 @@ export default function DealDetailDrawer({
             </div>
           </div>
 
-          {/* Right: editable detail fields. */}
-          <div className="w-[460px] flex-shrink-0 overflow-y-auto">
+          {/* Right: editable detail fields. Full-width on mobile when
+              Details tab is active; fixed 460px column on ≥sm. */}
+          <div
+            className={`w-full sm:w-[460px] flex-shrink-0 overflow-y-auto ${
+              mobileTab === "details" ? "block" : "hidden sm:block"
+            }`}
+          >
             <div className="px-5 py-4 space-y-5">
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">

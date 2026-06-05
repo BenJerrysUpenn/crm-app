@@ -82,6 +82,9 @@ export default function CalendarView() {
     () => new Set([...DEFAULT_VISIBLE, "Event Complete"] as Stage[]),
   );
   const [selectedDealId, setSelectedDealId] = useState<number | null>(null);
+  // Mobile: filter rail is hidden by default and opens as an overlay
+  // when the user taps the "Filters" button.
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Load every deal with an event_date in the visible window (the month
   // plus a small buffer either side to cover the 6-week grid).
@@ -203,13 +206,33 @@ export default function CalendarView() {
   }
 
   return (
-    <div className="h-full flex">
-      {/* Left rail: stage filters. */}
-      <aside className="w-56 flex-shrink-0 border-r border-slate-800 bg-slate-950 px-3 py-4 overflow-y-auto">
+    <div className="h-full flex relative">
+      {/* Mobile overlay backdrop for the filter sheet. */}
+      {filtersOpen && (
+        <div
+          className="sm:hidden fixed inset-0 bg-black/60 z-40"
+          onClick={() => setFiltersOpen(false)}
+        />
+      )}
+      {/* Left rail: stage filters. Desktop: always visible.
+          Mobile: slides in as a sheet when filtersOpen. */}
+      <aside
+        className={`${
+          filtersOpen ? "fixed left-0 top-0 bottom-0 z-50" : "hidden"
+        } sm:static sm:flex sm:block w-56 flex-shrink-0 border-r border-slate-800 bg-slate-950 px-3 py-4 overflow-y-auto`}
+      >
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
             Filter by stage
           </h3>
+          <button
+            type="button"
+            onClick={() => setFiltersOpen(false)}
+            className="sm:hidden text-slate-500 hover:text-slate-200 text-lg leading-none"
+            aria-label="Close filters"
+          >
+            ×
+          </button>
         </div>
         <div className="flex gap-1 mb-3 text-[11px]">
           <button
@@ -256,8 +279,16 @@ export default function CalendarView() {
 
       {/* Calendar grid. */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="px-4 py-2 flex items-center justify-between border-b border-slate-800 bg-slate-950">
-          <div className="flex items-center gap-2">
+        <div className="px-2 sm:px-4 py-2 flex items-center justify-between border-b border-slate-800 bg-slate-950 gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(true)}
+              className="sm:hidden text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md px-2 py-1 flex-shrink-0"
+              aria-label="Open filters"
+            >
+              ☰
+            </button>
             <button
               type="button"
               onClick={prevMonth}
@@ -277,15 +308,15 @@ export default function CalendarView() {
             <button
               type="button"
               onClick={goToday}
-              className="text-xs text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md px-2 py-1 ml-1"
+              className="text-xs text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md px-2 py-1 hidden sm:inline-block"
             >
               Today
             </button>
-            <h2 className="text-base font-semibold text-slate-100 ml-3">
+            <h2 className="text-sm sm:text-base font-semibold text-slate-100 ml-1 sm:ml-3 truncate">
               {MONTH_NAMES[view.getMonth()]} {view.getFullYear()}
             </h2>
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-slate-500 hidden sm:block">
             {loading ? "Loading…" : `${deals.length} deals in window`}
           </div>
         </div>
@@ -314,7 +345,7 @@ export default function CalendarView() {
               return (
                 <div
                   key={key}
-                  className={`min-h-[110px] flex flex-col px-1.5 py-1.5 ${
+                  className={`min-h-[70px] sm:min-h-[110px] flex flex-col px-1 sm:px-1.5 py-1 sm:py-1.5 ${
                     inMonth ? "bg-slate-900" : "bg-slate-900/40"
                   }`}
                 >

@@ -266,8 +266,8 @@ export default function KanbanBoard({
               <ColumnFilter visible={visibleSet} onChange={setVisibleStages} />
             </div>
           </div>
-          <div className="flex-1 overflow-x-auto overflow-y-hidden px-4 py-4">
-            <div className="flex gap-3 min-w-max h-full">
+          <div className="flex-1 overflow-y-auto sm:overflow-x-auto sm:overflow-y-hidden px-2 sm:px-4 py-3 sm:py-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:min-w-max sm:h-full">
               {visibleStages.length === 0 ? (
                 <div className="text-sm text-slate-500 italic px-4 py-8">
                   No columns selected. Click <span className="font-semibold">Columns</span> top right to pick stages to show.

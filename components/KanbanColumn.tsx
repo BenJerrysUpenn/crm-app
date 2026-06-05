@@ -26,7 +26,7 @@ export default function KanbanColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`w-72 flex-shrink-0 flex flex-col rounded-lg overflow-hidden border border-slate-800 ${
+      className={`w-full sm:w-72 flex-shrink-0 flex flex-col rounded-lg overflow-hidden border border-slate-800 ${
         terminal ? "opacity-95" : ""
       } ${isOver ? "ring-2 ring-white/30" : ""}`}
     >
