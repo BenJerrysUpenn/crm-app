@@ -69,3 +69,21 @@ export function formatFollowupDate(iso: string | null): string {
   if (!iso) return "never";
   return fmtEasternDateTime(iso) || iso;
 }
+
+// Whole calendar days since `iso`. Negative if iso is in the future,
+// null if iso is missing or unparseable.
+export function daysSince(iso: string | null, now: Date = new Date()): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  return Math.floor((now.getTime() - t) / (24 * 60 * 60 * 1000));
+}
+
+// Short chip text for the days-since-last-outbound indicator.
+// 0 → "today", 1 → "1d", 14 → "14d", etc. Null when no outbound yet.
+export function lastOutboundChipText(deal: Deal, now: Date = new Date()): string | null {
+  const d = daysSince(deal.last_outbound_at, now);
+  if (d === null) return "never";
+  if (d <= 0) return "today";
+  return `${d}d`;
+}

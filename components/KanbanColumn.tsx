@@ -9,10 +9,15 @@ export default function KanbanColumn({
   stage,
   deals,
   onCardClick,
+  onTogglePayment,
 }: {
   stage: Stage;
   deals: Deal[];
   onCardClick: (deal: Deal) => void;
+  onTogglePayment?: (
+    deal: Deal,
+    next: "Deposit Paid" | "Paid in Full",
+  ) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   const colour = STAGE_COLOURS[stage];
@@ -42,6 +47,11 @@ export default function KanbanColumn({
               key={deal.id}
               deal={deal}
               onClick={() => onCardClick(deal)}
+              onTogglePayment={
+                onTogglePayment
+                  ? (next) => onTogglePayment(deal, next)
+                  : undefined
+              }
             />
           ))
         )}

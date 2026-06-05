@@ -12,6 +12,7 @@ export type Deal = {
   event_start_time: string | null;
   event_end_time: string | null;
   event_type: string | null;
+  event_name: string | null;
   venue_name: string | null;
   venue_address: string | null;
   guest_count: number | null;
@@ -23,6 +24,8 @@ export type Deal = {
   labor_hours: number | null;
   round_trip_miles: number | null;
   transport_mode: string | null;
+  mileage_charge_eligible: number | null;
+  departure_time: string | null;
   minimum_order_override: number;
   total_with_tax: number | null;
   subtotal_pretax: number | null;
@@ -32,10 +35,15 @@ export type Deal = {
   payment_status: string;
   boomerang_reason: string | null;
   last_outbound_at: string | null;
+  next_action_verb: string | null;
+  next_action_reason: string | null;
+  next_action_category: string | null;
+  next_action_computed_at: string | null;
   is_active: number;
   archived: number;
   tax_exempt: number;
   notes: string | null;
+  picklist_notes: string | null;
   lead_source: string | null;
   how_did_you_hear: string | null;
   created_at: string;
@@ -56,11 +64,19 @@ export type ThreadMessage = {
 };
 
 export type QuoteJobStatus = "pending" | "running" | "done" | "error";
+export type QuoteJobKind =
+  | "quote"
+  | "picklist"
+  | "decline_below_min"
+  | "decline_too_far"
+  | "followup"
+  | "retriage";
 
 export type QuoteJob = {
   id: number;
   deal_id: number;
   status: QuoteJobStatus;
+  kind: QuoteJobKind;
   created_at: string;
   processed_at: string | null;
   requested_by: string | null;

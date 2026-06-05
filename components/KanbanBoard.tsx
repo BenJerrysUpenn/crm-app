@@ -118,6 +118,39 @@ export default function KanbanBoard({
     return map;
   }, [filteredDeals]);
 
+  // Inline payment-status toggle (click the Deposit/Paid pill on a
+  // card). Optimistic update with rollback on error.
+  const togglePaymentStatus = useCallback(
+    async (deal: Deal, next: "Deposit Paid" | "Paid in Full") => {
+      if (deal.payment_status === next) return;
+      const previous = deal.payment_status;
+      setDeals((prev) =>
+        prev.map((d) =>
+          d.id === deal.id ? { ...d, payment_status: next } : d,
+        ),
+      );
+      const { error } = await supabase
+        .from("deals")
+        .update({
+          payment_status: next,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", deal.id);
+      if (error) {
+        setDeals((prev) =>
+          prev.map((d) =>
+            d.id === deal.id ? { ...d, payment_status: previous } : d,
+          ),
+        );
+        setToast({
+          message: `Could not update payment: ${error.message}`,
+          kind: "error",
+        });
+      }
+    },
+    [supabase],
+  );
+
   // Unified stage-change handler used by drag-drop and the drawer dropdown.
   const moveDealToStage = useCallback(
     async (deal: Deal, newStage: Stage) => {
@@ -127,7 +160,8 @@ export default function KanbanBoard({
       const previousStage = deal.stage;
       const previousBoomerang = deal.boomerang_reason;
       const previousActive = deal.is_active;
-      const patch = buildStagePatch(newStage);
+      const previousPaymentStatus = deal.payment_status;
+      const patch = buildStagePatch(newStage, deal.payment_status);
 
       setDeals((prev) =>
         prev.map((d) =>
@@ -138,6 +172,7 @@ export default function KanbanBoard({
                 boomerang_reason: patch.boomerang_reason,
                 is_active: patch.is_active,
                 updated_at: patch.updated_at,
+                payment_status: patch.payment_status ?? d.payment_status,
               }
             : d,
         ),
@@ -154,6 +189,7 @@ export default function KanbanBoard({
                   stage: previousStage,
                   boomerang_reason: previousBoomerang,
                   is_active: previousActive,
+                  payment_status: previousPaymentStatus,
                 }
               : d,
           ),
@@ -243,6 +279,7 @@ export default function KanbanBoard({
                     stage={stage}
                     deals={byStage.get(stage) ?? []}
                     onCardClick={(deal) => setSelectedDealId(deal.id)}
+                    onTogglePayment={togglePaymentStatus}
                   />
                 ))
               )}

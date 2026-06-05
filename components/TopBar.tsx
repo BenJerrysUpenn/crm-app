@@ -8,7 +8,9 @@ export default function TopBar({ email }: { email: string }) {
 
   const tabs = [
     { href: "/", label: "Board" },
+    { href: "/calendar", label: "Calendar" },
     { href: "/historical", label: "Historical" },
+    { href: "/price-book", label: "Price book" },
   ];
 
   return (

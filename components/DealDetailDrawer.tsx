@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Deal, QuoteJob } from "@/lib/types";
 import { STAGE_COLOURS, STAGES, type Stage } from "@/lib/stages";
 import {
@@ -36,6 +36,7 @@ import {
 } from "./EditableField";
 import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
+import { missingRequiredFields } from "@/lib/required";
 
 function ReadOnlyRow({
   label,
@@ -120,6 +121,38 @@ export default function DealDetailDrawer({
     return () => clearInterval(t);
   }, [supabase, quoteJob?.id, quoteJob?.status]);
 
+  // When a job finishes successfully, re-fetch the deal row so any
+  // fields the worker wrote (drive_minutes, staff_count, labor_hours,
+  // mileage_charge_eligible, last_outbound_at, etc.) appear in the
+  // drawer without a manual reload. Errors leave the row alone.
+  //
+  // refetchedJobIdsRef guards against re-firing on every render. The
+  // parent passes a fresh `onDealUpdate` arrow function each render
+  // (its identity changes constantly), so without this ref the effect
+  // would call setEdits({}) on every keystroke and the user could
+  // never type a value into any field while a previous job's status
+  // is still "done".
+  const refetchedJobIdsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (quoteJob?.status !== "done") return;
+    if (refetchedJobIdsRef.current.has(quoteJob.id)) return;
+    refetchedJobIdsRef.current.add(quoteJob.id);
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("deals")
+        .select("*")
+        .eq("id", deal.id)
+        .single();
+      if (cancelled || error || !data) return;
+      setEdits({});
+      onDealUpdate?.(data as Deal);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, quoteJob?.status, quoteJob?.id, deal.id, onDealUpdate]);
+
   const current = useMemo(() => ({ ...deal, ...edits }) as Deal, [deal, edits]);
   const hasChanges = Object.keys(edits).length > 0;
   const contact = [current.contact_first_name, current.contact_last_name]
@@ -139,6 +172,16 @@ export default function DealDetailDrawer({
       ...edits,
       updated_at: new Date().toISOString(),
     };
+    // Keep cart_service column in sync with whether "Ice Cream Cart"
+    // is present in the extras list. They're stored separately but
+    // semantically the same signal; without this sync the staff math
+    // keeps forcing min 2 staff on a deal where the cart was removed.
+    if ("extras" in edits) {
+      const extrasStr =
+        typeof edits.extras === "string" ? edits.extras : current.extras ?? "";
+      const hasCart = /ice\s*cream\s*cart/i.test(extrasStr);
+      updates.cart_service = hasCart ? 1 : 0;
+    }
     const { error } = await supabase
       .from("deals")
       .update(updates)
@@ -157,10 +200,18 @@ export default function DealDetailDrawer({
     setError(null);
   }
 
-  async function generateQuote() {
+  async function requestJob(
+    kind:
+      | "quote"
+      | "picklist"
+      | "decline_below_min"
+      | "decline_too_far"
+      | "followup"
+      | "retriage",
+  ) {
     if (quoteRequesting) return;
     if (hasChanges) {
-      setError("Save changes before generating a quote.");
+      setError(`Save changes before queueing ${kind}.`);
       return;
     }
     setQuoteRequesting(true);
@@ -170,6 +221,7 @@ export default function DealDetailDrawer({
       .insert({
         deal_id: deal.id,
         status: "pending",
+        kind,
         requested_by: userEmail ?? null,
       })
       .select()
@@ -182,10 +234,18 @@ export default function DealDetailDrawer({
     setQuoteJob(data as QuoteJob);
   }
 
+  const jobInFlight =
+    quoteJob !== null &&
+    (quoteJob.status === "pending" || quoteJob.status === "running");
+  const jobKind = quoteJob?.kind ?? "quote";
+
   // Multi-select binding helpers.
   const flavorsSelected = parseFlavorsField(current.flavors);
   const extrasSelected = parseExtrasField(current.extras);
-  const isUber = current.transport_mode === "uber";
+  // Source of truth: mileage_charge_eligible (1 = we drove, charged mileage;
+  // 0 = we ubered). transport_mode is the picklist-side derived cache.
+  // Uber checked → mileage_charge_eligible = 0.
+  const isUber = current.mileage_charge_eligible === 0;
 
   return (
     <div
@@ -245,25 +305,120 @@ export default function DealDetailDrawer({
             </button>
             <button
               type="button"
-              onClick={generateQuote}
-              disabled={
-                quoteRequesting ||
-                (quoteJob !== null &&
-                  (quoteJob.status === "pending" || quoteJob.status === "running"))
-              }
+              onClick={() => requestJob("quote")}
+              disabled={quoteRequesting || jobInFlight}
               className="text-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 rounded-md px-3 py-1.5 hover:bg-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Generate the quote PDF and attach as a Gmail draft reply"
             >
-              {quoteRequesting
+              {jobKind === "quote" && quoteRequesting
                 ? "Queueing…"
-                : quoteJob?.status === "pending"
+                : jobKind === "quote" && quoteJob?.status === "pending"
                 ? "Queued…"
-                : quoteJob?.status === "running"
+                : jobKind === "quote" && quoteJob?.status === "running"
                 ? "Generating…"
-                : quoteJob?.status === "done"
+                : jobKind === "quote" && quoteJob?.status === "done"
                 ? "Quote ready ✓"
                 : "Generate quote"}
             </button>
+            <button
+              type="button"
+              onClick={() => requestJob("picklist")}
+              disabled={quoteRequesting || jobInFlight}
+              className="text-sm bg-violet-500/20 text-violet-200 border border-violet-500/40 rounded-md px-3 py-1.5 hover:bg-violet-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Render the picklist DOCX and draft an internal email to Sophia"
+            >
+              {jobKind === "picklist" && quoteRequesting
+                ? "Queueing…"
+                : jobKind === "picklist" && quoteJob?.status === "pending"
+                ? "Queued…"
+                : jobKind === "picklist" && quoteJob?.status === "running"
+                ? "Building…"
+                : jobKind === "picklist" && quoteJob?.status === "done"
+                ? "Picklist ready ✓"
+                : "Create picklist"}
+            </button>
+            {(current.stage === "Sent Quote" ||
+              current.stage === "Booked Unpaid" ||
+              current.stage === "Booked Paid") && (
+              <button
+                type="button"
+                onClick={() => requestJob("followup")}
+                disabled={quoteRequesting || jobInFlight}
+                className="text-sm bg-sky-500/20 text-sky-200 border border-sky-500/40 rounded-md px-3 py-1.5 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Draft a polite follow-up email (uses boomerang reason: quote_reply / deposit_due / balance_due)"
+              >
+                {jobKind === "followup" && quoteRequesting
+                  ? "Queueing…"
+                  : jobKind === "followup" && quoteJob?.status === "pending"
+                  ? "Queued…"
+                  : jobKind === "followup" && quoteJob?.status === "running"
+                  ? "Drafting…"
+                  : jobKind === "followup" && quoteJob?.status === "done"
+                  ? "Follow-up drafted ✓"
+                  : "Follow up"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => requestJob("retriage")}
+              disabled={quoteRequesting || jobInFlight}
+              className="text-sm bg-slate-700/40 text-slate-200 border border-slate-600 rounded-md px-3 py-1.5 hover:bg-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Recompute drive_minutes, mileage rule, staff_count, labor_hours from venue + event times. Formulas only, no AI."
+            >
+              {jobKind === "retriage" && quoteRequesting
+                ? "Queueing…"
+                : jobKind === "retriage" && quoteJob?.status === "pending"
+                ? "Queued…"
+                : jobKind === "retriage" && quoteJob?.status === "running"
+                ? "Recomputing…"
+                : jobKind === "retriage" && quoteJob?.status === "done"
+                ? "Recalculated ✓"
+                : "Recalculate"}
+            </button>
+            {current.stage === "Open" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => requestJob("decline_below_min")}
+                  disabled={quoteRequesting || jobInFlight}
+                  className="text-sm bg-amber-500/20 text-amber-200 border border-amber-500/40 rounded-md px-3 py-1.5 hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Draft a polite decline pointing the customer to pick-up / Uber Eats (under $500 minimum)"
+                >
+                  {jobKind === "decline_below_min" && quoteRequesting
+                    ? "Queueing…"
+                    : jobKind === "decline_below_min" &&
+                      quoteJob?.status === "pending"
+                    ? "Queued…"
+                    : jobKind === "decline_below_min" &&
+                      quoteJob?.status === "running"
+                    ? "Drafting…"
+                    : jobKind === "decline_below_min" &&
+                      quoteJob?.status === "done"
+                    ? "Below min drafted ✓"
+                    : "Below min"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => requestJob("decline_too_far")}
+                  disabled={quoteRequesting || jobInFlight}
+                  className="text-sm bg-rose-500/20 text-rose-200 border border-rose-500/40 rounded-md px-3 py-1.5 hover:bg-rose-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Draft a polite decline (venue outside the driving range)"
+                >
+                  {jobKind === "decline_too_far" && quoteRequesting
+                    ? "Queueing…"
+                    : jobKind === "decline_too_far" &&
+                      quoteJob?.status === "pending"
+                    ? "Queued…"
+                    : jobKind === "decline_too_far" &&
+                      quoteJob?.status === "running"
+                    ? "Drafting…"
+                    : jobKind === "decline_too_far" &&
+                      quoteJob?.status === "done"
+                    ? "Too far drafted ✓"
+                    : "Too far"}
+                </button>
+              </>
+            )}
             <button
               onClick={onClose}
               className="text-slate-500 hover:text-slate-200 text-xl leading-none ml-1"
@@ -274,6 +429,26 @@ export default function DealDetailDrawer({
           </div>
         </div>
 
+        {(() => {
+          const missing = missingRequiredFields(current);
+          if (missing.length === 0) return null;
+          if (current.stage.startsWith("Closed")) return null;
+          const labels = missing.map((m) => m.label).join(", ");
+          return (
+            <div className="px-5 py-1.5 border-b border-rose-900/60 bg-rose-950/30 text-xs text-rose-200/90 flex items-center gap-2">
+              <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500/30 text-rose-200 font-bold text-[10px] flex-shrink-0">
+                !
+              </span>
+              <span className="text-rose-300 font-medium uppercase tracking-wide text-[10px]">
+                Missing
+              </span>
+              <span className="text-rose-100 truncate">{labels}</span>
+              <span className="text-rose-500/70 text-[10px] ml-auto flex-shrink-0">
+                for {current.stage}
+              </span>
+            </div>
+          );
+        })()}
         {(error || quoteJob?.error_message) && (
           <div className="px-5 py-2 bg-rose-950 border-b border-rose-900 text-sm text-rose-200">
             {error || quoteJob?.error_message}
@@ -281,7 +456,16 @@ export default function DealDetailDrawer({
         )}
         {quoteJob?.status === "done" && (
           <div className="px-5 py-2 bg-emerald-950 border-b border-emerald-900 text-sm text-emerald-200">
-            Quote drafted in Gmail. Check your drafts folder to review and send.
+            {jobKind === "picklist"
+              ? "Picklist drafted in Gmail to Sophia. Check your drafts folder to review and send."
+              : jobKind === "decline_below_min" ||
+                jobKind === "decline_too_far"
+              ? "Decline drafted in Gmail. Check your drafts folder to review and send."
+              : jobKind === "followup"
+              ? "Follow-up drafted in Gmail. Check your drafts folder to review and send."
+              : jobKind === "retriage"
+              ? "Recalculation complete. Drive time, mileage rule, staff count, and labor hours refreshed from the venue / event times."
+              : "Quote drafted in Gmail. Check your drafts folder to review and send."}
           </div>
         )}
         {quoteJob?.run_log &&
@@ -392,10 +576,28 @@ export default function DealDetailDrawer({
                     onChange={(v) => setField("event_end_time", v || null)}
                   />
                 </FieldRow>
+                <FieldRow label="Departure">
+                  <TextInput
+                    type="time"
+                    value={current.departure_time ?? ""}
+                    onChange={(v) => setField("departure_time", v || null)}
+                  />
+                </FieldRow>
                 <FieldRow label="Type">
                   <TextInput
                     value={current.event_type ?? ""}
                     onChange={(v) => setField("event_type", v || null)}
+                  />
+                </FieldRow>
+                <FieldRow label="Event name">
+                  <TextInput
+                    value={current.event_name ?? ""}
+                    onChange={(v) => setField("event_name", v || null)}
+                    placeholder={
+                      [current.company, current.event_type]
+                        .filter(Boolean)
+                        .join(" ") || "Auto: {company} {type}"
+                    }
                   />
                 </FieldRow>
                 <FieldRow label="Guests">
@@ -498,7 +700,9 @@ export default function DealDetailDrawer({
                 <FieldRow label="Uber">
                   <Checkbox
                     checked={isUber}
-                    onChange={(v) => setField("transport_mode", v ? "uber" : "drive")}
+                    onChange={(v) =>
+                      setField("mileage_charge_eligible", v ? 0 : 1)
+                    }
                     label="Use Uber for this event"
                   />
                 </FieldRow>
@@ -573,15 +777,51 @@ export default function DealDetailDrawer({
               </section>
 
               <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                  Notes
-                </h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Picklist summary
+                  </h3>
+                  <span className="text-[11px] text-slate-500">
+                    auto-filled by the sweep
+                  </span>
+                </div>
                 <TextArea
-                  value={current.notes ?? ""}
-                  onChange={(v) => setField("notes", v || null)}
-                  rows={5}
-                  placeholder="Internal notes — visible to the team only."
+                  value={current.picklist_notes ?? ""}
+                  onChange={(v) => setField("picklist_notes", v || null)}
+                  rows={3}
+                  placeholder="Max 30 words. New vs returning client, outdoor, allergies, special requests. Skip what's already on the picklist (flavors, address, etc.)."
                 />
+                {(() => {
+                  const words = (current.picklist_notes ?? "")
+                    .trim()
+                    .split(/\s+/)
+                    .filter(Boolean).length;
+                  const over = words > 30;
+                  return (
+                    <div
+                      className={`mt-1 text-[11px] ${
+                        over ? "text-rose-300" : "text-slate-500"
+                      }`}
+                    >
+                      {words} / 30 words{over ? " — trim it" : ""}
+                    </div>
+                  );
+                })()}
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Activity log (auto, read-only)
+                </h3>
+                {current.notes ? (
+                  <div className="text-xs text-slate-300 whitespace-pre-wrap bg-slate-800/60 rounded p-3 border border-slate-800 max-h-48 overflow-y-auto font-mono">
+                    {current.notes}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500 italic">
+                    No entries.
+                  </div>
+                )}
               </section>
 
               <section>
