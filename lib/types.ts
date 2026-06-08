@@ -23,6 +23,7 @@ export type Deal = {
   staff_count: number | null;
   labor_hours: number | null;
   round_trip_miles: number | null;
+  drive_minutes: number | null;
   transport_mode: string | null;
   mileage_charge_eligible: number | null;
   departure_time: string | null;

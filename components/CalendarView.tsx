@@ -214,12 +214,14 @@ export default function CalendarView() {
           onClick={() => setFiltersOpen(false)}
         />
       )}
-      {/* Left rail: stage filters. Desktop: always visible.
-          Mobile: slides in as a sheet when filtersOpen. */}
+      {/* Left rail: stage filters. Desktop: always visible block.
+          Mobile: slides in as a fixed overlay when filtersOpen. */}
       <aside
-        className={`${
-          filtersOpen ? "fixed left-0 top-0 bottom-0 z-50" : "hidden"
-        } sm:static sm:flex sm:block w-56 flex-shrink-0 border-r border-slate-800 bg-slate-950 px-3 py-4 overflow-y-auto`}
+        className={`w-56 flex-shrink-0 border-r border-slate-800 bg-slate-950 px-3 py-4 overflow-y-auto ${
+          filtersOpen
+            ? "fixed left-0 top-0 bottom-0 z-50 sm:static sm:z-auto"
+            : "hidden sm:block"
+        }`}
       >
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">

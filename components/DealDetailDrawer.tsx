@@ -729,6 +729,15 @@ export default function DealDetailDrawer({
                     onChange={(v) => setField("labor_hours", numericInput(v))}
                   />
                 </FieldRow>
+                <FieldRow label="Drive minutes">
+                  <TextInput
+                    type="number"
+                    step="1"
+                    value={current.drive_minutes == null ? "" : String(current.drive_minutes)}
+                    onChange={(v) => setField("drive_minutes", numericInput(v))}
+                    placeholder="Auto-set by Recalculate"
+                  />
+                </FieldRow>
                 <FieldRow label="Round-trip miles">
                   <TextInput
                     type="number"
