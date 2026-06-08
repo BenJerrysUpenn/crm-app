@@ -616,11 +616,20 @@ export default function DealDetailDrawer({
                     onChange={(v) => setField("event_end_time", v || null)}
                   />
                 </FieldRow>
+                <FieldRow label="Arrival">
+                  <TextInput
+                    type="time"
+                    value={current.arrival_time ?? ""}
+                    onChange={(v) => setField("arrival_time", v || null)}
+                    placeholder="Auto-set by Recalculate"
+                  />
+                </FieldRow>
                 <FieldRow label="Departure">
                   <TextInput
                     type="time"
                     value={current.departure_time ?? ""}
                     onChange={(v) => setField("departure_time", v || null)}
+                    placeholder="Auto-set by Recalculate"
                   />
                 </FieldRow>
                 <FieldRow label="Type">

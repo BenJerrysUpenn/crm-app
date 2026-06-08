@@ -27,6 +27,7 @@ export type Deal = {
   transport_mode: string | null;
   mileage_charge_eligible: number | null;
   departure_time: string | null;
+  arrival_time: string | null;
   minimum_order_override: number;
   total_with_tax: number | null;
   subtotal_pretax: number | null;
