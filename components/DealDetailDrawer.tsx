@@ -730,6 +730,14 @@ export default function DealDetailDrawer({
                     onChange={(v) => setField("staff_count", numericInput(v))}
                   />
                 </FieldRow>
+                <FieldRow label="Setups">
+                  <TextInput
+                    type="number"
+                    value={current.setup_count == null ? "" : String(current.setup_count)}
+                    onChange={(v) => setField("setup_count", numericInput(v))}
+                    placeholder="1 setup (or 2 if scoopers split tables)"
+                  />
+                </FieldRow>
                 <FieldRow label="Labor hours">
                   <TextInput
                     type="number"

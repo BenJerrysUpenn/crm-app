@@ -21,6 +21,7 @@ export type Deal = {
   toppings: string | null;
   extras: string | null;
   staff_count: number | null;
+  setup_count: number | null;
   labor_hours: number | null;
   round_trip_miles: number | null;
   drive_minutes: number | null;
