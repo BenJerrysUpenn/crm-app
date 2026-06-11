@@ -47,7 +47,13 @@ const HARD_REQUIRED: Partial<Record<keyof Deal, Stage>> = {
   venue_address: "Quote Review",
   guest_count: "Quote Review",
   package_name: "Quote Review",
-  mileage_charge_eligible: "Quote Review",
+  // mileage_charge_eligible defaults to "we drove" (=1) when unset, so
+  // it's never actually missing. Removed from the required list per
+  // Alina 2026-06-11.
+  // round_trip_miles is required at Quote Review BUT skipped by isMissing
+  // when Uber is checked (mileage_charge_eligible === 0) — Uber events
+  // bill a flat fee, miles aren't part of the calculation.
+  round_trip_miles: "Quote Review",
   subtotal_pretax: "Quote Review",
   total_with_tax: "Quote Review",
   // Booked Unpaid
@@ -77,9 +83,9 @@ const FIELD_LABELS: Partial<Record<keyof Deal, string>> = {
   venue_address: "Venue address",
   guest_count: "Guest count",
   package_name: "Package",
-  mileage_charge_eligible: "Transport (Uber or drive)",
   subtotal_pretax: "Subtotal (pretax)",
   total_with_tax: "Total with tax",
+  round_trip_miles: "Round-trip miles",
   signed_contract_total: "Signed contract total",
   amount_paid: "Amount paid",
   flavors: "Flavours",
@@ -127,6 +133,12 @@ function parseListField(v: unknown): string[] {
 
 function isMissing(deal: Deal, field: keyof Deal): boolean {
   const v = (deal as Record<string, unknown>)[field];
+  // round_trip_miles isn't needed for Uber events — quote applies the
+  // flat Uber fee instead of per-mile billing. Skip the missing check
+  // when the Uber checkbox is on (mileage_charge_eligible === 0).
+  if (field === "round_trip_miles" && deal.mileage_charge_eligible === 0) {
+    return false;
+  }
   if (v === null || v === undefined) return true;
   // amount_paid > 0 specifically; zero or negative count as missing.
   if (field === "amount_paid") {
