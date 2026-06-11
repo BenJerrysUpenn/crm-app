@@ -50,9 +50,10 @@ const HARD_REQUIRED: Partial<Record<keyof Deal, Stage>> = {
   // mileage_charge_eligible defaults to "we drove" (=1) when unset, so
   // it's never actually missing. Removed from the required list per
   // Alina 2026-06-11.
-  // round_trip_miles is required at Quote Review BUT skipped by isMissing
-  // when Uber is checked (mileage_charge_eligible === 0) — Uber events
-  // bill a flat fee, miles aren't part of the calculation.
+  // round_trip_miles is required when we're billing per-mile (Uber
+  // unchecked). isMissing() below suppresses it when Uber is checked
+  // (mileage_charge_eligible === 0) — Uber events bill the flat fee
+  // and miles aren't part of the quote math.
   round_trip_miles: "Quote Review",
   subtotal_pretax: "Quote Review",
   total_with_tax: "Quote Review",
@@ -133,9 +134,10 @@ function parseListField(v: unknown): string[] {
 
 function isMissing(deal: Deal, field: keyof Deal): boolean {
   const v = (deal as Record<string, unknown>)[field];
-  // round_trip_miles isn't needed for Uber events — quote applies the
-  // flat Uber fee instead of per-mile billing. Skip the missing check
-  // when the Uber checkbox is on (mileage_charge_eligible === 0).
+  // round_trip_miles is only required when we're billing mileage.
+  // Uber events bill the flat fee — miles aren't needed. Suppress
+  // the check when the Uber checkbox is on (mileage_charge_eligible
+  // === 0). Null mce defaults to "we drove" → miles still required.
   if (field === "round_trip_miles" && deal.mileage_charge_eligible === 0) {
     return false;
   }
