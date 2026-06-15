@@ -45,6 +45,7 @@ export type Deal = {
   is_active: number;
   archived: number;
   tax_exempt: number;
+  is_outdoor: number | null;
   notes: string | null;
   picklist_notes: string | null;
   lead_source: string | null;

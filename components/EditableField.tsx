@@ -105,6 +105,60 @@ export function SelectInput({
   );
 }
 
+// Combo input: a text field with a native <datalist> dropdown. User
+// can pick from the suggestions OR type a custom value. Used for
+// fields like package_name where the canonical list covers 95% of
+// cases but Alina occasionally needs a one-off variant ("Sundae Party
+// — corporate dietary swap" etc).
+//
+// Why <datalist> over a custom combobox: zero deps, native keyboard
+// nav, native type-to-filter, works on mobile. The dropdown arrow
+// styling varies by browser but the behaviour is consistent.
+let _datalistIdCounter = 0;
+export function ComboInput({
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: ReadonlyArray<{ label: string; value: string } | string>;
+  placeholder?: string;
+}) {
+  // Stable id per render; React doesn't give us useId in a non-component
+  // module-level scope, but each ComboInput render uses a fresh id and
+  // the datalist is co-located in the same DOM subtree so collisions
+  // are harmless.
+  const listId = `combo-list-${++_datalistIdCounter}`;
+  return (
+    <>
+      <input
+        type="text"
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={inputCls}
+        autoComplete="off"
+      />
+      <datalist id={listId}>
+        {options.map((opt) => {
+          const v = typeof opt === "string" ? opt : opt.value;
+          const l = typeof opt === "string" ? opt : opt.label;
+          // Datalist <option> uses `value` as the actual suggestion and
+          // the text content as a hint. Using both keeps things tidy.
+          return (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          );
+        })}
+      </datalist>
+    </>
+  );
+}
+
 export function ToggleYesNo({
   value,
   onChange,

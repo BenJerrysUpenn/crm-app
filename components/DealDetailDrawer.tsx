@@ -31,6 +31,7 @@ import {
   TextInput,
   TextArea,
   SelectInput,
+  ComboInput,
   ToggleYesNo,
   Checkbox,
 } from "./EditableField";
@@ -669,6 +670,12 @@ export default function DealDetailDrawer({
                     rows={2}
                   />
                 </FieldRow>
+                <FieldRow label="Outdoor">
+                  <ToggleYesNo
+                    value={current.is_outdoor === 1}
+                    onChange={(v) => setField("is_outdoor", v ? 1 : 0)}
+                  />
+                </FieldRow>
               </section>
 
               <section>
@@ -676,11 +683,11 @@ export default function DealDetailDrawer({
                   Menu
                 </h3>
                 <FieldRow label="Package">
-                  <SelectInput
+                  <ComboInput
                     value={current.package_name ?? ""}
                     onChange={(v) => setField("package_name", v || null)}
                     options={PACKAGE_OPTIONS}
-                    placeholder="—"
+                    placeholder="Pick or type a package"
                   />
                 </FieldRow>
                 <FieldRow label="Flavors">
