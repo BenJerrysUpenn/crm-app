@@ -26,19 +26,25 @@ export default async function HomePage() {
     .order("clock_in_at", { ascending: false })
     .limit(7);
 
-  const startToday = new Date();
-  startToday.setHours(0, 0, 0, 0);
-  const endToday = new Date();
-  endToday.setHours(23, 59, 59, 999);
-  const { data: shifts } = await supabase
+  // Find today's shift using the Eastern calendar day (not the server's UTC day).
+  const todayEastern = new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/New_York",
+  });
+  const win = 36 * 3600000;
+  const { data: shiftWindow } = await supabase
     .from("shifts")
     .select("*")
     .eq("employee_id", profile.id)
     .eq("published", true)
-    .gte("starts_at", startToday.toISOString())
-    .lte("starts_at", endToday.toISOString())
-    .order("starts_at", { ascending: true })
-    .limit(1);
+    .gte("starts_at", new Date(Date.now() - win).toISOString())
+    .lte("starts_at", new Date(Date.now() + win).toISOString())
+    .order("starts_at", { ascending: true });
+  const shifts = (shiftWindow ?? []).filter(
+    (s) =>
+      new Date(s.starts_at).toLocaleDateString("en-CA", {
+        timeZone: "America/New_York",
+      }) === todayEastern,
+  );
 
   const { data: locs } = await supabase
     .from("locations")
