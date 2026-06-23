@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
-import AvailabilityEditor from "@/components/AvailabilityEditor";
+import AvailabilityGrid from "@/components/AvailabilityGrid";
 import ManagerAvailability from "@/components/ManagerAvailability";
 import type { Availability, Profile } from "@/lib/types";
 
@@ -49,8 +49,8 @@ export default async function AvailabilityPage() {
     <div className="min-h-screen flex flex-col">
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
       <main className="flex-1">
-        <div className="mx-auto max-w-2xl px-4 py-6">
-          <AvailabilityEditor initial={(mine as Availability[]) ?? []} />
+        <div className="mx-auto max-w-3xl px-4 py-6">
+          <AvailabilityGrid initial={(mine as Availability[]) ?? []} />
         </div>
       </main>
     </div>
