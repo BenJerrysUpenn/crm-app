@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  if (body.published && data) {
+  if (body.published && data && body.employee_id) {
     const emp = (data as any).profiles;
     const email = await emailForUser(body.employee_id);
     await notify({

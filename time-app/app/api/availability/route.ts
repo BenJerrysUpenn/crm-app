@@ -17,6 +17,8 @@ export async function POST(request: Request) {
       end_time: body.end_time ?? null,
       is_available: body.is_available ?? true,
       note: body.note ?? null,
+      // Time-off requests come in as pending; availability defaults approved.
+      status: body.status ?? (body.is_available === false ? "pending" : "approved"),
     })
     .select()
     .single();

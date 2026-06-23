@@ -13,3 +13,25 @@ export async function DELETE(
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ ok: true });
 }
+
+// Manager approves / denies a time-off request.
+export async function PATCH(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
+  const profile = await getProfile();
+  if (!profile || profile.role !== "manager")
+    return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const { status } = await request.json();
+  if (!["pending", "approved", "denied"].includes(status))
+    return NextResponse.json({ error: "Bad status" }, { status: 400 });
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("availability")
+    .update({ status })
+    .eq("id", params.id)
+    .select()
+    .single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ availability: data });
+}

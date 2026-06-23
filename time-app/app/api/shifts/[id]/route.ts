@@ -36,7 +36,7 @@ export async function PATCH(
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   const becamePublished = !before?.published && data?.published;
-  if (becamePublished) {
+  if (becamePublished && data.employee_id) {
     const emp = (data as any).profiles;
     const email = await emailForUser(data.employee_id);
     await notify({

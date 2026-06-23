@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtTime } from "@/lib/format";
+import { SHIFT_TYPES } from "@/lib/shiftTypes";
 import type { Profile, ShiftWithEmployee, Location } from "@/lib/types";
 
 const TZ = "America/New_York";
@@ -49,12 +50,32 @@ export default function ScheduleBoard({
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [copying, setCopying] = useState(false);
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
     d.setDate(d.getDate() + i);
     return d;
   });
+
+  async function copyLastWeek() {
+    setCopying(true);
+    setCopyMsg(null);
+    const res = await fetch("/api/shifts/copy-week", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weekStartISO }),
+    });
+    setCopying(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setCopyMsg(j.error ?? "Copy failed.");
+      return;
+    }
+    setCopyMsg(j.copied ? `Copied ${j.copied} shifts from last week (as drafts).` : "No shifts found last week.");
+    router.refresh();
+  }
 
   function shiftsForDay(d: Date) {
     const key = d.toLocaleDateString("en-CA", { timeZone: TZ });
@@ -86,7 +107,7 @@ export default function ScheduleBoard({
     setErr(null);
     setDraft({
       id: s.id,
-      employee_id: s.employee_id,
+      employee_id: s.employee_id ?? "",
       location_id: String(s.location_id ?? ""),
       starts_at: s.starts_at.slice(0, 16),
       ends_at: s.ends_at.slice(0, 16),
@@ -101,7 +122,7 @@ export default function ScheduleBoard({
     setBusy(true);
     setErr(null);
     const payload = {
-      employee_id: draft.employee_id,
+      employee_id: draft.employee_id || null,
       location_id: draft.location_id ? Number(draft.location_id) : null,
       starts_at: new Date(draft.starts_at).toISOString(),
       ends_at: new Date(draft.ends_at).toISOString(),
@@ -139,11 +160,17 @@ export default function ScheduleBoard({
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-semibold text-slate-100">Schedule</h1>
         <div className="flex items-center gap-2">
+          {isManager && (
+            <button onClick={copyLastWeek} disabled={copying} className="px-2 py-1 text-sm rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50">
+              {copying ? "Copying…" : "Copy last week"}
+            </button>
+          )}
           <button onClick={() => gotoWeek(-7)} className="px-2 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">‹ Prev</button>
           <button onClick={() => router.push("/schedule")} className="px-2 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">This week</button>
           <button onClick={() => gotoWeek(7)} className="px-2 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">Next ›</button>
         </div>
       </div>
+      {copyMsg && <div className="text-sm text-emerald-400 mb-3">{copyMsg}</div>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
         {days.map((d, i) => (
@@ -168,7 +195,11 @@ export default function ScheduleBoard({
                   }`}
                 >
                   <div className="font-medium">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
-                  {isManager && <div className="text-slate-400">{s.profiles?.full_name ?? "—"}</div>}
+                  {isManager && (
+                    <div className={s.employee_id ? "text-slate-400" : "text-amber-400"}>
+                      {s.employee_id ? (s.profiles?.full_name ?? "—") : "Open shift"}
+                    </div>
+                  )}
                   {s.position && <div className="text-slate-500">{s.position}</div>}
                   {!s.published && <div className="text-amber-400 mt-0.5">draft</div>}
                 </button>
@@ -184,6 +215,7 @@ export default function ScheduleBoard({
             <h2 className="font-semibold text-slate-100">{draft.id ? "Edit shift" : "New shift"}</h2>
             <label className="block text-xs text-slate-400">Employee
               <select value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100">
+                <option value="">Open (unassigned)</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
               </select>
             </label>
@@ -196,8 +228,11 @@ export default function ScheduleBoard({
               </label>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-400">Position
-                <input value={draft.position} onChange={(e) => setDraft({ ...draft, position: e.target.value })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" placeholder="Scooper" />
+              <label className="block text-xs text-slate-400">Shift type
+                <select value={draft.position} onChange={(e) => setDraft({ ...draft, position: e.target.value })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100">
+                  <option value="">—</option>
+                  {SHIFT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
               </label>
               <label className="block text-xs text-slate-400">Location
                 <select value={draft.location_id} onChange={(e) => setDraft({ ...draft, location_id: e.target.value })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100">

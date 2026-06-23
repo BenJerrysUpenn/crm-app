@@ -7,9 +7,11 @@ import type { Profile, Location } from "@/lib/types";
 export default function TeamAdmin({
   employees,
   locations,
+  emailById,
 }: {
   employees: Profile[];
   locations: Location[];
+  emailById: Record<string, string>;
 }) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -36,6 +38,7 @@ export default function TeamAdmin({
           <table className="w-full text-sm min-w-[640px]">
             <thead className="bg-slate-800/60 text-slate-400 text-xs">
               <tr>
+                <th className="text-left px-3 py-2">Email</th>
                 <th className="text-left px-3 py-2">Name</th>
                 <th className="text-left px-3 py-2">Phone</th>
                 <th className="text-left px-3 py-2">Role</th>
@@ -45,7 +48,7 @@ export default function TeamAdmin({
             </thead>
             <tbody>
               {employees.map((e) => (
-                <EmployeeRow key={e.id} e={e} saving={savingId === e.id} onSave={saveProfile} />
+                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} onSave={saveProfile} />
               ))}
             </tbody>
           </table>
@@ -59,10 +62,12 @@ export default function TeamAdmin({
 
 function EmployeeRow({
   e,
+  email,
   saving,
   onSave,
 }: {
   e: Profile;
+  email: string;
   saving: boolean;
   onSave: (id: string, patch: Partial<Profile>) => void;
 }) {
@@ -74,6 +79,7 @@ function EmployeeRow({
 
   return (
     <tr className="border-t border-slate-800">
+      <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{email || "—"}</td>
       <td className="px-3 py-2">
         <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 w-40" />
       </td>

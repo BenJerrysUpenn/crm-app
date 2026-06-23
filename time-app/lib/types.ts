@@ -22,7 +22,7 @@ export type Location = {
 
 export type Shift = {
   id: number;
-  employee_id: string;
+  employee_id: string | null;
   location_id: number | null;
   starts_at: string; // ISO timestamptz
   ends_at: string; // ISO timestamptz
@@ -76,5 +76,6 @@ export type Availability = {
   end_time: string | null;
   is_available: boolean;
   note: string | null;
+  status: "pending" | "approved" | "denied";
   created_at: string;
 };
