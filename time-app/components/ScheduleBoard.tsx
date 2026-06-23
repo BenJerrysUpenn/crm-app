@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtTime } from "@/lib/format";
 import { SHIFT_TYPES } from "@/lib/shiftTypes";
-import type { Profile, ShiftWithEmployee, Location } from "@/lib/types";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest } from "@/lib/types";
 
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -37,18 +37,22 @@ type Draft = {
   published: boolean;
 };
 
+type DropReq = ShiftRequest & { profiles?: Pick<Profile, "id" | "full_name"> };
+
 export default function ScheduleBoard({
   isManager,
   weekStart,
   shifts,
   employees,
   locations,
+  dropRequests,
 }: {
   isManager: boolean;
   weekStart: string; // YYYY-MM-DD (Sunday)
   shifts: ShiftWithEmployee[];
   employees: Profile[];
   locations: Location[];
+  dropRequests: DropReq[];
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -56,8 +60,63 @@ export default function ScheduleBoard({
   const [err, setErr] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const [claimingId, setClaimingId] = useState<number | null>(null);
+  const [actingReq, setActingReq] = useState<number | null>(null);
+  const [droppingId, setDroppingId] = useState<number | null>(null);
 
   const dates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const rateById = new Map(employees.map((e) => [e.id, e.hourly_rate ?? 0]));
+  const myPendingDrops = new Set(dropRequests.map((r) => r.shift_id));
+
+  function shiftHours(s: ShiftWithEmployee) {
+    return Math.max(0, (new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 3600000);
+  }
+  const weekHours = shifts.reduce((sum, s) => sum + shiftHours(s), 0);
+  const weekCost = isManager
+    ? shifts.reduce((sum, s) => sum + shiftHours(s) * (s.employee_id ? rateById.get(s.employee_id) ?? 0 : 0), 0)
+    : 0;
+
+  async function requestDrop(id: number) {
+    setDroppingId(id);
+    setCopyMsg(null);
+    const res = await fetch(`/api/shifts/${id}/drop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    setDroppingId(null);
+    if (!res.ok) {
+      setCopyMsg((await res.json().catch(() => ({}))).error ?? "Could not request drop.");
+      return;
+    }
+    setCopyMsg("Drop requested. A manager will review it.");
+    router.refresh();
+  }
+
+  async function decideReq(id: number, status: "approved" | "denied") {
+    setActingReq(id);
+    await fetch(`/api/shift-requests/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    setActingReq(null);
+    router.refresh();
+  }
+
+  async function claim(id: number) {
+    setClaimingId(id);
+    setCopyMsg(null);
+    const res = await fetch(`/api/shifts/${id}/claim`, { method: "POST" });
+    setClaimingId(null);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setCopyMsg(j.error ?? "Could not pick up that shift.");
+      return;
+    }
+    setCopyMsg("Shift added to your schedule.");
+    router.refresh();
+  }
 
   async function copyLastWeek() {
     setCopying(true);
@@ -182,12 +241,52 @@ export default function ScheduleBoard({
       </div>
       {copyMsg && <div className="text-sm text-emerald-400 mb-3">{copyMsg}</div>}
 
+      {/* Week totals */}
+      <div className="mb-3 text-sm text-slate-400">
+        {weekHours.toFixed(1)} scheduled hours this week
+        {isManager && weekCost > 0 && (
+          <span> · projected labor ${weekCost.toFixed(0)}</span>
+        )}
+      </div>
+
+      {/* Manager: pending drop requests */}
+      {isManager && dropRequests.length > 0 && (
+        <div className="bg-slate-900 border border-amber-900 rounded-lg p-4 mb-4">
+          <div className="text-sm font-medium text-amber-300 mb-2">
+            Drop requests ({dropRequests.length})
+          </div>
+          <div className="space-y-2">
+            {dropRequests.map((r) => {
+              const s = shifts.find((x) => x.id === r.shift_id);
+              return (
+                <div key={r.id} className="flex items-center justify-between gap-3 text-sm border-b border-slate-800 pb-2 last:border-0">
+                  <span className="text-slate-200">
+                    {r.profiles?.full_name ?? "Employee"} wants to drop{" "}
+                    {s ? `${dayLabel(nyDate(s.starts_at))} ${fmtTime(s.starts_at)}–${fmtTime(s.ends_at)}` : "a shift"}
+                    {r.note ? ` · ${r.note}` : ""}
+                  </span>
+                  <span className="flex gap-2 shrink-0">
+                    <button onClick={() => decideReq(r.id, "approved")} disabled={actingReq === r.id} className="text-xs px-2 py-1 rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Approve</button>
+                    <button onClick={() => decideReq(r.id, "denied")} disabled={actingReq === r.id} className="text-xs px-2 py-1 rounded-md border border-rose-800 text-rose-300 hover:bg-rose-950">Deny</button>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-slate-500 mt-2">Approving releases the shift back to open so others can pick it up.</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
         {dates.map((dateStr, i) => (
           <div key={i} className="bg-slate-900 border border-slate-800 rounded-lg p-3 min-h-[120px]">
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs font-medium text-slate-400">
                 {DAYS[i]} {dayLabel(dateStr)}
+                {(() => {
+                  const h = shiftsForDay(dateStr).reduce((sum, s) => sum + shiftHours(s), 0);
+                  return h > 0 ? <span className="text-slate-600"> · {h.toFixed(1)}h</span> : null;
+                })()}
               </div>
               {isManager && (
                 <button onClick={() => newShift(dateStr)} className="text-slate-400 hover:text-emerald-400 text-lg leading-none">+</button>
@@ -195,24 +294,50 @@ export default function ScheduleBoard({
             </div>
             <div className="space-y-2">
               {shiftsForDay(dateStr).map((s) => (
-                <button
+                <div
                   key={s.id}
                   onClick={() => isManager && editShift(s)}
-                  className={`w-full text-left rounded-md px-2 py-1.5 text-xs border ${
+                  className={`rounded-md px-2 py-1.5 text-xs border ${
+                    isManager ? "cursor-pointer" : ""
+                  } ${
                     s.published
                       ? "bg-emerald-950/40 border-emerald-900 text-emerald-200"
                       : "bg-slate-800 border-slate-700 text-slate-300"
                   }`}
                 >
                   <div className="font-medium">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
-                  {isManager && (
+                  {isManager ? (
                     <div className={s.employee_id ? "text-slate-400" : "text-amber-400"}>
                       {s.employee_id ? (s.profiles?.full_name ?? "—") : "Open shift"}
                     </div>
+                  ) : (
+                    !s.employee_id && <div className="text-amber-400">Open shift</div>
                   )}
                   {s.position && <div className="text-slate-500">{s.position}</div>}
                   {!s.published && <div className="text-amber-400 mt-0.5">draft</div>}
-                </button>
+                  {!isManager && !s.employee_id && (
+                    <button
+                      onClick={() => claim(s.id)}
+                      disabled={claimingId === s.id}
+                      className="mt-2 w-full rounded-md bg-emerald-500 text-slate-950 font-medium py-1 hover:bg-emerald-400 disabled:opacity-50"
+                    >
+                      {claimingId === s.id ? "Picking up…" : "Pick up"}
+                    </button>
+                  )}
+                  {!isManager && s.employee_id && (
+                    myPendingDrops.has(s.id) ? (
+                      <div className="mt-2 text-amber-400">Drop requested</div>
+                    ) : (
+                      <button
+                        onClick={() => requestDrop(s.id)}
+                        disabled={droppingId === s.id}
+                        className="mt-2 w-full rounded-md border border-slate-600 text-slate-200 py-1 hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        {droppingId === s.id ? "Requesting…" : "Drop shift"}
+                      </button>
+                    )
+                  )}
+                </div>
               ))}
             </div>
           </div>

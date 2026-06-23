@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import ScheduleBoard from "@/components/ScheduleBoard";
-import type { Profile, ShiftWithEmployee, Location } from "@/lib/types";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +44,29 @@ export default async function SchedulePage({
     .gte("starts_at", qStart)
     .lt("starts_at", qEnd)
     .order("starts_at", { ascending: true });
-  if (!isManager) q = q.eq("published", true).eq("employee_id", profile.id);
+  // Employees see their own published shifts plus any published open (unassigned) shifts.
+  if (!isManager)
+    q = q.eq("published", true).or(`employee_id.eq.${profile.id},employee_id.is.null`);
   const { data: shifts } = await q;
+
+  // Pending drop requests: managers see all (with who + which shift); employees
+  // see their own (to show a "drop requested" badge on the shift).
+  let dropReqs: (ShiftRequest & { profiles?: Pick<Profile, "id" | "full_name"> })[] = [];
+  if (isManager) {
+    const { data } = await supabase
+      .from("shift_requests")
+      .select("*, profiles(id, full_name)")
+      .eq("status", "pending")
+      .order("created_at", { ascending: true });
+    dropReqs = (data as typeof dropReqs) ?? [];
+  } else {
+    const { data } = await supabase
+      .from("shift_requests")
+      .select("*")
+      .eq("employee_id", profile.id)
+      .eq("status", "pending");
+    dropReqs = (data as typeof dropReqs) ?? [];
+  }
 
   let employees: Profile[] = [];
   let locations: Location[] = [];
@@ -71,6 +92,7 @@ export default async function SchedulePage({
             shifts={(shifts as ShiftWithEmployee[]) ?? []}
             employees={employees}
             locations={locations}
+            dropRequests={dropReqs}
           />
         </div>
       </main>

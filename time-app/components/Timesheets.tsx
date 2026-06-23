@@ -4,6 +4,16 @@ import { useRouter } from "next/navigation";
 import { fmtDate, fmtTime, hoursBetween } from "@/lib/format";
 import type { Profile, TimeEntryWithEmployee } from "@/lib/types";
 
+type Entry = TimeEntryWithEmployee & { shifts?: { starts_at: string } | null };
+
+// Minutes late = clock-in minus scheduled shift start (only if positive and a
+// shift is linked). 5-minute grace.
+function lateMinutes(e: Entry): number {
+  if (!e.shifts?.starts_at) return 0;
+  const diff = (new Date(e.clock_in_at).getTime() - new Date(e.shifts.starts_at).getTime()) / 60000;
+  return diff > 5 ? Math.round(diff) : 0;
+}
+
 export default function Timesheets({
   isManager,
   from,
@@ -17,7 +27,7 @@ export default function Timesheets({
   to: string;
   emp: string;
   employees: Profile[];
-  entries: TimeEntryWithEmployee[];
+  entries: Entry[];
 }) {
   const router = useRouter();
 
@@ -51,13 +61,14 @@ export default function Timesheets({
 
   function exportCsv() {
     const rows = [
-      ["Employee", "Date", "Clock in", "Clock out", "Hours", "Status", "In distance (m)"],
+      ["Employee", "Date", "Clock in", "Clock out", "Hours", "Late (min)", "Status", "In distance (m)"],
       ...entries.map((e) => [
         e.profiles?.full_name ?? e.employee_id,
         fmtDate(e.clock_in_at),
         fmtTime(e.clock_in_at),
         fmtTime(e.clock_out_at),
         String(hoursBetween(e.clock_in_at, e.clock_out_at)),
+        lateMinutes(e) ? String(lateMinutes(e)) : "",
         e.status,
         e.clock_in_distance_m != null ? String(e.clock_in_distance_m) : "",
       ]),
@@ -122,22 +133,27 @@ export default function Timesheets({
               <th className="text-left px-3 py-2">In</th>
               <th className="text-left px-3 py-2">Out</th>
               <th className="text-right px-3 py-2">Hours</th>
+              <th className="text-right px-3 py-2">Late</th>
               <th className="text-right px-3 py-2">Dist</th>
             </tr>
           </thead>
           <tbody>
             {entries.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">No entries in this range.</td></tr>
-            ) : entries.map((e) => (
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-500">No entries in this range.</td></tr>
+            ) : entries.map((e) => {
+              const late = lateMinutes(e);
+              return (
               <tr key={e.id} className="border-t border-slate-800">
                 {isManager && <td className="px-3 py-2 text-slate-300">{e.profiles?.full_name ?? "—"}</td>}
                 <td className="px-3 py-2 text-slate-300">{fmtDate(e.clock_in_at)}</td>
                 <td className="px-3 py-2 text-slate-400">{fmtTime(e.clock_in_at)}</td>
                 <td className="px-3 py-2 text-slate-400">{e.clock_out_at ? fmtTime(e.clock_out_at) : <span className="text-emerald-400">open</span>}</td>
                 <td className="px-3 py-2 text-right text-slate-300">{e.clock_out_at ? hoursBetween(e.clock_in_at, e.clock_out_at).toFixed(2) : "—"}</td>
+                <td className="px-3 py-2 text-right">{late ? <span className="text-amber-400">{late}m</span> : <span className="text-slate-600">—</span>}</td>
                 <td className="px-3 py-2 text-right text-slate-500">{e.clock_in_distance_m != null ? `${e.clock_in_distance_m}m` : "—"}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

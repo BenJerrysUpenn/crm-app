@@ -96,5 +96,39 @@ export async function GET(request: Request) {
     flagged.push(s.id as number);
   }
 
-  return NextResponse.json({ checked: shifts?.length ?? 0, flagged });
+  // ---- Pre-shift reminders: shifts starting in the next REMIND_MIN minutes ----
+  const REMIND_MIN = 30;
+  const reminded: number[] = [];
+  const { data: soon } = await supabase
+    .from("shifts")
+    .select("id, employee_id, starts_at, ends_at, position, profiles(full_name, phone)")
+    .eq("published", true)
+    .not("employee_id", "is", null)
+    .gte("starts_at", new Date(now).toISOString())
+    .lte("starts_at", new Date(now + REMIND_MIN * 60000).toISOString());
+  for (const s of soon ?? []) {
+    // Skip if already reminded for this shift.
+    const { data: already } = await supabase
+      .from("notifications")
+      .select("id")
+      .eq("type", "shift_reminder")
+      .eq("user_id", s.employee_id)
+      .ilike("body", `%#${s.id}%`)
+      .limit(1)
+      .maybeSingle();
+    if (already) continue;
+    const prof = (s as any).profiles;
+    const email = await emailForUser(s.employee_id as string);
+    await notify({
+      userId: s.employee_id as string,
+      type: "shift_reminder",
+      title: "Shift starting soon",
+      body: `Your ${fmtTime(s.starts_at)} shift${s.position ? " (" + s.position + ")" : ""} starts soon. Don't forget to clock in. (shift #${s.id})`,
+      phone: prof?.phone ?? null,
+      email,
+    }).catch(() => {});
+    reminded.push(s.id as number);
+  }
+
+  return NextResponse.json({ checked: shifts?.length ?? 0, flagged, reminded });
 }

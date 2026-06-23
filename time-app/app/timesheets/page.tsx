@@ -28,7 +28,7 @@ export default async function TimesheetsPage({
 
   let q = supabase
     .from("time_entries")
-    .select("*, profiles(id, full_name, hourly_rate)")
+    .select("*, profiles(id, full_name, hourly_rate), shifts(starts_at)")
     .gte("clock_in_at", fromTs)
     .lte("clock_in_at", toTs)
     .order("clock_in_at", { ascending: false });

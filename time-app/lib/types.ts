@@ -79,3 +79,13 @@ export type Availability = {
   status: "pending" | "approved" | "denied";
   created_at: string;
 };
+
+export type ShiftRequest = {
+  id: number;
+  shift_id: number;
+  employee_id: string;
+  type: "drop";
+  status: "pending" | "approved" | "denied" | "cancelled";
+  note: string | null;
+  created_at: string;
+};
