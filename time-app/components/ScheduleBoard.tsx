@@ -119,31 +119,46 @@ export default function ScheduleBoard({
 
   async function save(publish: boolean) {
     if (!draft) return;
-    setBusy(true);
-    setErr(null);
-    const payload = {
-      employee_id: draft.employee_id || null,
-      location_id: draft.location_id ? Number(draft.location_id) : null,
-      starts_at: new Date(draft.starts_at).toISOString(),
-      ends_at: new Date(draft.ends_at).toISOString(),
-      position: draft.position || null,
-      notes: draft.notes || null,
-      published: publish || draft.published,
-    };
-    const url = draft.id ? `/api/shifts/${draft.id}` : "/api/shifts";
-    const res = await fetch(url, {
-      method: draft.id ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setErr(j.error ?? "Save failed.");
+    const start = new Date(draft.starts_at);
+    const end = new Date(draft.ends_at);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      setErr("Pick a valid start and end time.");
       return;
     }
-    setDraft(null);
-    router.refresh();
+    if (end <= start) {
+      setErr("End time must be after the start time.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const payload = {
+        employee_id: draft.employee_id || null,
+        location_id: draft.location_id ? Number(draft.location_id) : null,
+        starts_at: start.toISOString(),
+        ends_at: end.toISOString(),
+        position: draft.position || null,
+        notes: draft.notes || null,
+        published: publish || draft.published,
+      };
+      const url = draft.id ? `/api/shifts/${draft.id}` : "/api/shifts";
+      const res = await fetch(url, {
+        method: draft.id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setErr(j.error ?? `Save failed (${res.status}).`);
+        return;
+      }
+      setDraft(null);
+      router.refresh();
+    } catch (e) {
+      setErr((e as Error)?.message ?? "Network error.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function remove() {
@@ -250,8 +265,8 @@ export default function ScheduleBoard({
                 <button onClick={remove} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
               ) : <span />}
               <div className="flex gap-2">
-                <button onClick={() => save(false)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800">Save draft</button>
-                <button onClick={() => save(true)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400">Publish</button>
+                <button onClick={() => save(false)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50">{busy ? "Saving…" : "Save draft"}</button>
+                <button onClick={() => save(true)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">{busy ? "Publishing…" : "Publish"}</button>
               </div>
             </div>
           </div>
