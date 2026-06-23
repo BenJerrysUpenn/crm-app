@@ -11,6 +11,7 @@ const links: { href: string; label: string; managerOnly?: boolean }[] = [
   { href: "/availability", label: "Availability" },
   { href: "/timesheets", label: "Timesheets" },
   { href: "/team", label: "Team", managerOnly: true },
+  { href: "/account", label: "Account" },
 ];
 
 export default function TopBar({
@@ -49,10 +50,10 @@ export default function TopBar({
             })}
         </nav>
         <NotificationBell />
-        <div className="hidden sm:flex flex-col items-end leading-tight">
+        <Link href="/account" className="hidden sm:flex flex-col items-end leading-tight hover:opacity-80">
           <span className="text-xs text-slate-300">{name || email}</span>
-          <span className="text-[10px] text-slate-500 capitalize">{role}</span>
-        </div>
+          <span className="text-[10px] text-slate-500 capitalize">{role} · account</span>
+        </Link>
         <form action="/api/logout" method="post">
           <button className="text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md px-2 py-1">
             Sign out

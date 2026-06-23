@@ -50,5 +50,27 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Manager-only gate. This Supabase project is shared with the time-clock app,
+  // whose employees must NOT be able to reach the CRM. Only profiles with
+  // role = 'manager' get in. Non-managers are bounced to /no-access (but can
+  // still log out). The deals RLS policy enforces the same rule at the DB level.
+  if (
+    user &&
+    !isPublic &&
+    path !== "/no-access" &&
+    !path.startsWith("/api/logout")
+  ) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    if (profile?.role !== "manager") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/no-access";
+      return NextResponse.redirect(url);
+    }
+  }
+
   return supabaseResponse;
 }
