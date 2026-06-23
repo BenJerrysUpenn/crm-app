@@ -9,16 +9,21 @@ import type { Profile, ShiftWithEmployee, Location } from "@/lib/types";
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function dayLabel(d: Date) {
-  return d.toLocaleDateString("en-US", { timeZone: TZ, month: "short", day: "numeric" });
+// All week math is done on YYYY-MM-DD strings in the business timezone so the
+// server (UTC) and the browser (Eastern) always agree on which day a shift is on.
+function addDays(d: string, n: number) {
+  const x = new Date(d + "T00:00:00Z");
+  x.setUTCDate(x.getUTCDate() + n);
+  return x.toISOString().slice(0, 10);
 }
-// Build a datetime-local value (local wall time) from a date + "HH:MM".
-function toLocalInput(d: Date, hhmm: string) {
-  const [h, m] = hhmm.split(":");
-  const x = new Date(d);
-  x.setHours(Number(h), Number(m), 0, 0);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}T${pad(x.getHours())}:${pad(x.getMinutes())}`;
+function nyDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
+}
+function dayLabel(dateStr: string) {
+  return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 type Draft = {
@@ -34,30 +39,25 @@ type Draft = {
 
 export default function ScheduleBoard({
   isManager,
-  weekStartISO,
+  weekStart,
   shifts,
   employees,
   locations,
 }: {
   isManager: boolean;
-  weekStartISO: string;
+  weekStart: string; // YYYY-MM-DD (Sunday)
   shifts: ShiftWithEmployee[];
   employees: Profile[];
   locations: Location[];
 }) {
   const router = useRouter();
-  const weekStart = new Date(weekStartISO);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
 
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    return d;
-  });
+  const dates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
   async function copyLastWeek() {
     setCopying(true);
@@ -65,7 +65,7 @@ export default function ScheduleBoard({
     const res = await fetch("/api/shifts/copy-week", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ weekStartISO }),
+      body: JSON.stringify({ weekStart }),
     });
     setCopying(false);
     const j = await res.json().catch(() => ({}));
@@ -77,26 +77,21 @@ export default function ScheduleBoard({
     router.refresh();
   }
 
-  function shiftsForDay(d: Date) {
-    const key = d.toLocaleDateString("en-CA", { timeZone: TZ });
-    return shifts.filter(
-      (s) => new Date(s.starts_at).toLocaleDateString("en-CA", { timeZone: TZ }) === key,
-    );
+  function shiftsForDay(dateStr: string) {
+    return shifts.filter((s) => nyDate(s.starts_at) === dateStr);
   }
 
   function gotoWeek(deltaDays: number) {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + deltaDays);
-    router.push(`/schedule?week=${d.toISOString()}`);
+    router.push(`/schedule?week=${addDays(weekStart, deltaDays)}`);
   }
 
-  function newShift(d: Date) {
+  function newShift(dateStr: string) {
     setErr(null);
     setDraft({
       employee_id: employees[0]?.id ?? "",
       location_id: String(locations.find((l) => l.is_default)?.id ?? locations[0]?.id ?? ""),
-      starts_at: toLocalInput(d, "09:00"),
-      ends_at: toLocalInput(d, "17:00"),
+      starts_at: `${dateStr}T09:00`,
+      ends_at: `${dateStr}T17:00`,
       position: "",
       notes: "",
       published: false,
@@ -188,18 +183,18 @@ export default function ScheduleBoard({
       {copyMsg && <div className="text-sm text-emerald-400 mb-3">{copyMsg}</div>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
-        {days.map((d, i) => (
+        {dates.map((dateStr, i) => (
           <div key={i} className="bg-slate-900 border border-slate-800 rounded-lg p-3 min-h-[120px]">
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs font-medium text-slate-400">
-                {DAYS[d.getDay()]} {dayLabel(d)}
+                {DAYS[i]} {dayLabel(dateStr)}
               </div>
               {isManager && (
-                <button onClick={() => newShift(d)} className="text-slate-400 hover:text-emerald-400 text-lg leading-none">+</button>
+                <button onClick={() => newShift(dateStr)} className="text-slate-400 hover:text-emerald-400 text-lg leading-none">+</button>
               )}
             </div>
             <div className="space-y-2">
-              {shiftsForDay(d).map((s) => (
+              {shiftsForDay(dateStr).map((s) => (
                 <button
                   key={s.id}
                   onClick={() => isManager && editShift(s)}

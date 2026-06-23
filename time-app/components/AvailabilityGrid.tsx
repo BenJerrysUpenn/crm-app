@@ -6,7 +6,7 @@ import { fmtDate } from "@/lib/format";
 import type { Availability } from "@/lib/types";
 
 // Grid covers START_HOUR:00 to END_HOUR:00 in 30-minute slots.
-const START_HOUR = 8;
+const START_HOUR = 0;
 const END_HOUR = 24;
 const SLOT_MIN = 30;
 const SLOTS = ((END_HOUR - START_HOUR) * 60) / SLOT_MIN;

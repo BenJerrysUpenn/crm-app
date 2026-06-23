@@ -7,11 +7,19 @@ import type { Profile, ShiftWithEmployee, Location } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-function weekStart(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  x.setDate(x.getDate() - x.getDay()); // Sunday start
-  return x;
+const TZ = "America/New_York";
+
+function addDays(d: string, n: number) {
+  const x = new Date(d + "T00:00:00Z");
+  x.setUTCDate(x.getUTCDate() + n);
+  return x.toISOString().slice(0, 10);
+}
+// Sunday (YYYY-MM-DD, Eastern) of the week containing the given date string,
+// or of "today in Eastern" when none is given.
+function sundayOf(dateStr?: string): string {
+  const day = dateStr ?? new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+  const dow = new Date(day + "T12:00:00Z").getUTCDay();
+  return addDays(day, -dow);
 }
 
 export default async function SchedulePage({
@@ -24,16 +32,17 @@ export default async function SchedulePage({
   const supabase = createClient();
   const isManager = profile.role === "manager";
 
-  const base = searchParams.week ? new Date(searchParams.week) : new Date();
-  const start = weekStart(base);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 7);
+  const weekStart = sundayOf(searchParams.week);
+  // Query a window padded a day on each side, then bucket precisely by Eastern
+  // date on the client. Avoids UTC-vs-Eastern off-by-one-day drift.
+  const qStart = addDays(weekStart, -1) + "T00:00:00Z";
+  const qEnd = addDays(weekStart, 8) + "T00:00:00Z";
 
   let q = supabase
     .from("shifts")
     .select("*, profiles(id, full_name)")
-    .gte("starts_at", start.toISOString())
-    .lt("starts_at", end.toISOString())
+    .gte("starts_at", qStart)
+    .lt("starts_at", qEnd)
     .order("starts_at", { ascending: true });
   if (!isManager) q = q.eq("published", true).eq("employee_id", profile.id);
   const { data: shifts } = await q;
@@ -58,7 +67,7 @@ export default async function SchedulePage({
         <div className="mx-auto max-w-5xl px-4 py-6">
           <ScheduleBoard
             isManager={isManager}
-            weekStartISO={start.toISOString()}
+            weekStart={weekStart}
             shifts={(shifts as ShiftWithEmployee[]) ?? []}
             employees={employees}
             locations={locations}
