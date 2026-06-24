@@ -134,6 +134,28 @@ export default function ScheduleBoard({
     router.refresh();
   }
 
+  async function autoFill() {
+    setCopying(true);
+    setCopyMsg(null);
+    const res = await fetch("/api/schedule/auto-fill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weekStart }),
+    });
+    setCopying(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setCopyMsg(j.error ?? "Auto-fill failed.");
+      return;
+    }
+    setCopyMsg(
+      j.assigned
+        ? `Auto-assigned ${j.assigned} open shift${j.assigned === 1 ? "" : "s"}${j.left ? `, ${j.left} left open (no one available).` : "."}`
+        : "No open shifts could be filled (check availability and time off).",
+    );
+    router.refresh();
+  }
+
   async function copyLastWeek() {
     setCopying(true);
     setCopyMsg(null);
@@ -246,9 +268,14 @@ export default function ScheduleBoard({
         <h1 className="text-lg font-semibold text-slate-100">Schedule</h1>
         <div className="flex items-center gap-2">
           {isManager && (
-            <button onClick={copyLastWeek} disabled={copying} className="px-2 py-1 text-sm rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50">
-              {copying ? "Copying…" : "Copy last week"}
-            </button>
+            <>
+              <button onClick={autoFill} disabled={copying} className="px-2 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
+                {copying ? "Working…" : "Auto-fill"}
+              </button>
+              <button onClick={copyLastWeek} disabled={copying} className="px-2 py-1 text-sm rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50">
+                {copying ? "…" : "Copy last week"}
+              </button>
+            </>
           )}
           <button onClick={() => gotoWeek(-7)} className="px-2 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">‹ Prev</button>
           <button onClick={() => router.push("/schedule")} className="px-2 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">This week</button>
