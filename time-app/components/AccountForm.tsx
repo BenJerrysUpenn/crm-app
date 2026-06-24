@@ -3,15 +3,21 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { CHANNELS, TYPES_BY_ROLE } from "@/lib/notifPrefs";
+import type { Role } from "@/lib/types";
 
 export default function AccountForm({
   initialName,
   initialPhone,
   profileId,
+  role,
+  initialPrefs,
 }: {
   initialName: string;
   initialPhone: string;
   profileId: string;
+  role: Role;
+  initialPrefs: Record<string, boolean>;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -20,6 +26,26 @@ export default function AccountForm({
   const [phone, setPhone] = useState(initialPhone);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
+
+  // Notification preferences (absent key = on).
+  const [prefs, setPrefs] = useState<Record<string, boolean>>(initialPrefs ?? {});
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [prefsMsg, setPrefsMsg] = useState<string | null>(null);
+  const isOn = (k: string) => prefs[k] !== false;
+  function toggle(k: string) {
+    setPrefs((p) => ({ ...p, [k]: !(p[k] !== false) }));
+    setPrefsMsg(null);
+  }
+  async function savePrefs() {
+    setSavingPrefs(true);
+    setPrefsMsg(null);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ notif_prefs: prefs })
+      .eq("id", profileId);
+    setSavingPrefs(false);
+    setPrefsMsg(error ? error.message : "Saved.");
+  }
 
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -97,6 +123,57 @@ export default function AccountForm({
           {savingPw ? "Updating…" : "Update password"}
         </button>
       </form>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="text-sm font-medium text-slate-300">Notifications</div>
+
+        <div>
+          <div className="text-xs text-slate-400 mb-2">How to reach me</div>
+          <div className="space-y-2">
+            {CHANNELS.map((c) => (
+              <Toggle key={c.key} label={c.label} on={isOn(c.key)} onToggle={() => toggle(c.key)} />
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-600 mt-2">In-app notifications always show in the bell.</p>
+        </div>
+
+        <div>
+          <div className="text-xs text-slate-400 mb-2">Notify me about</div>
+          <div className="space-y-2">
+            {TYPES_BY_ROLE[role].map((t) => (
+              <Toggle key={t.key} label={t.label} on={isOn(t.key)} onToggle={() => toggle(t.key)} />
+            ))}
+          </div>
+        </div>
+
+        {prefsMsg && <div className="text-sm text-emerald-400">{prefsMsg}</div>}
+        <button onClick={savePrefs} disabled={savingPrefs} className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-50">
+          {savingPrefs ? "Saving…" : "Save notification settings"}
+        </button>
+      </div>
     </div>
+  );
+}
+
+function Toggle({ label, on, onToggle }: { label: string; on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full flex items-center justify-between gap-3 text-left"
+    >
+      <span className="text-sm text-slate-300">{label}</span>
+      <span
+        className={`shrink-0 w-10 h-6 rounded-full p-0.5 transition-colors ${
+          on ? "bg-emerald-500" : "bg-slate-700"
+        }`}
+      >
+        <span
+          className={`block w-5 h-5 rounded-full bg-white transition-transform ${
+            on ? "translate-x-4" : "translate-x-0"
+          }`}
+        />
+      </span>
+    </button>
   );
 }

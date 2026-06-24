@@ -18,6 +18,8 @@ export default async function AccountPage() {
             initialName={profile.full_name ?? ""}
             initialPhone={profile.phone ?? ""}
             profileId={profile.id}
+            role={profile.role}
+            initialPrefs={profile.notif_prefs ?? {}}
           />
         </div>
       </main>

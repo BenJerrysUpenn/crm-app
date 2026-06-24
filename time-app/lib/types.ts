@@ -7,6 +7,7 @@ export type Profile = {
   role: Role;
   hourly_rate: number | null;
   active: boolean;
+  notif_prefs: Record<string, boolean> | null;
   created_at: string;
 };
 
