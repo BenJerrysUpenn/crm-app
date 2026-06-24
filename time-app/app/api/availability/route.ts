@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { notifyManagers } from "@/lib/notify";
+import { fmtDate } from "@/lib/format";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
@@ -35,6 +37,20 @@ export async function POST(request: Request) {
     }
     const { error } = await supabase.from("availability").insert(rows);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+    // Notify managers of a new time-off request.
+    if ((body.is_available ?? false) === false) {
+      const who = profile.full_name ?? "An employee";
+      const when =
+        start === end
+          ? fmtDate(start + "T12:00:00")
+          : `${fmtDate(start + "T12:00:00")}–${fmtDate(end + "T12:00:00")}`;
+      await notifyManagers({
+        type: "time_off_request",
+        title: "New time-off request",
+        body: `${who} requested time off for ${when}.${body.note ? " Note: " + body.note : ""}`,
+      }).catch(() => {});
+    }
     return NextResponse.json({ ok: true, days: rows.length, group });
   }
 

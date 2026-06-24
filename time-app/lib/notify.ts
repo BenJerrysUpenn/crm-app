@@ -93,6 +93,27 @@ export async function notify(args: NotifyArgs) {
   return { sent_email, sent_sms };
 }
 
+// Notify every active manager (respecting each one's preferences).
+export async function notifyManagers(args: { type: string; title: string; body?: string }) {
+  const supabase = createAdminClient();
+  const { data: managers } = await supabase
+    .from("profiles")
+    .select("id, phone")
+    .eq("role", "manager")
+    .eq("active", true);
+  for (const m of managers ?? []) {
+    const email = await emailForUser(m.id);
+    await notify({
+      userId: m.id,
+      type: args.type,
+      title: args.title,
+      body: args.body,
+      phone: m.phone ?? null,
+      email,
+    }).catch(() => {});
+  }
+}
+
 // Look up a user's email from auth.users (requires service role key).
 export async function emailForUser(userId: string): Promise<string | null> {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;

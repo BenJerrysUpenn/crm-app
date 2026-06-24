@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
+import { getSettings } from "@/lib/settings";
 import TopBar from "@/components/TopBar";
 import TeamAdmin from "@/components/TeamAdmin";
 import type { Profile, Location } from "@/lib/types";
@@ -40,6 +41,7 @@ export default async function TeamPage() {
             employees={(emps as Profile[]) ?? []}
             locations={(locs as Location[]) ?? []}
             emailById={emailById}
+            settings={await getSettings(supabase)}
           />
         </div>
       </main>

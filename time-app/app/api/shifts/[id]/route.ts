@@ -47,6 +47,18 @@ export async function PATCH(
       phone: emp?.phone ?? null,
       email,
     }).catch(() => {});
+  } else if (data?.published && data.employee_id) {
+    // An already-published, assigned shift was edited -> tell the employee.
+    const emp = (data as any).profiles;
+    const email = await emailForUser(data.employee_id);
+    await notify({
+      userId: data.employee_id,
+      type: "schedule_change",
+      title: "Your shift was updated",
+      body: `${fmtDate(data.starts_at)} · ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}`,
+      phone: emp?.phone ?? null,
+      email,
+    }).catch(() => {});
   }
   return NextResponse.json({ shift: data });
 }

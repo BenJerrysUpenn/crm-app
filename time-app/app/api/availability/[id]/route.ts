@@ -99,5 +99,45 @@ export async function PATCH(
     ? await query.eq("request_group", row.request_group)
     : await query.eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Tell the employee their request was approved/denied (once for the range).
+  if (status === "approved" || status === "denied") {
+    const affected = row?.request_group
+      ? await supabase
+          .from("availability")
+          .select("employee_id, specific_date")
+          .eq("request_group", row.request_group)
+      : await supabase
+          .from("availability")
+          .select("employee_id, specific_date")
+          .eq("id", params.id);
+    const rows = affected.data ?? [];
+    if (rows.length) {
+      const empId = rows[0].employee_id as string;
+      const dates = rows.map((r) => r.specific_date as string).sort();
+      const when =
+        dates[0] === dates[dates.length - 1]
+          ? fmtDate(dates[0] + "T12:00:00")
+          : `${fmtDate(dates[0] + "T12:00:00")}–${fmtDate(dates[dates.length - 1] + "T12:00:00")}`;
+      const email = await emailForUser(empId);
+      const { data: emp } = await supabase
+        .from("profiles")
+        .select("phone")
+        .eq("id", empId)
+        .maybeSingle();
+      await notify({
+        userId: empId,
+        type: "timeoff_decision",
+        title: status === "approved" ? "Time off approved" : "Time off denied",
+        body:
+          status === "approved"
+            ? `Your time off for ${when} is approved.`
+            : `Your time off request for ${when} was denied.`,
+        phone: emp?.phone ?? null,
+        email,
+      }).catch(() => {});
+    }
+  }
+
   return NextResponse.json({ ok: true });
 }

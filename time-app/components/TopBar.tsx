@@ -11,6 +11,7 @@ const links: { href: string; label: string; managerOnly?: boolean }[] = [
   { href: "/schedule", label: "Schedule" },
   { href: "/availability", label: "Availability" },
   { href: "/timesheets", label: "Timesheets" },
+  { href: "/attendance", label: "Attendance", managerOnly: true },
   { href: "/team", label: "Team", managerOnly: true },
   { href: "/account", label: "Account" },
 ];

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { getSettings } from "@/lib/settings";
 import TopBar from "@/components/TopBar";
 import Timesheets from "@/components/Timesheets";
 import type { Profile, TimeEntryWithEmployee } from "@/lib/types";
@@ -45,6 +46,8 @@ export default async function TimesheetsPage({
     employees = (emps as Profile[]) ?? [];
   }
 
+  const tardyGraceMin = (await getSettings(supabase)).tardy_grace_min;
+
   return (
     <div className="min-h-screen flex flex-col">
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
@@ -57,6 +60,7 @@ export default async function TimesheetsPage({
             emp={searchParams.emp ?? ""}
             employees={employees}
             entries={(entries as TimeEntryWithEmployee[]) ?? []}
+            tardyGraceMin={tardyGraceMin}
           />
         </div>
       </main>

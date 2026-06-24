@@ -7,11 +7,11 @@ import type { Profile, TimeEntryWithEmployee } from "@/lib/types";
 type Entry = TimeEntryWithEmployee & { shifts?: { starts_at: string } | null };
 
 // Minutes late = clock-in minus scheduled shift start (only if positive and a
-// shift is linked). 5-minute grace.
-function lateMinutes(e: Entry): number {
+// shift is linked), beyond the configured grace.
+function lateMinutes(e: Entry, graceMin: number): number {
   if (!e.shifts?.starts_at) return 0;
   const diff = (new Date(e.clock_in_at).getTime() - new Date(e.shifts.starts_at).getTime()) / 60000;
-  return diff > 5 ? Math.round(diff) : 0;
+  return diff > graceMin ? Math.round(diff) : 0;
 }
 
 export default function Timesheets({
@@ -21,6 +21,7 @@ export default function Timesheets({
   emp,
   employees,
   entries,
+  tardyGraceMin,
 }: {
   isManager: boolean;
   from: string;
@@ -28,6 +29,7 @@ export default function Timesheets({
   emp: string;
   employees: Profile[];
   entries: Entry[];
+  tardyGraceMin: number;
 }) {
   const router = useRouter();
 
@@ -68,7 +70,7 @@ export default function Timesheets({
         fmtTime(e.clock_in_at),
         fmtTime(e.clock_out_at),
         String(hoursBetween(e.clock_in_at, e.clock_out_at)),
-        lateMinutes(e) ? String(lateMinutes(e)) : "",
+        lateMinutes(e, tardyGraceMin) ? String(lateMinutes(e, tardyGraceMin)) : "",
         e.status,
         e.clock_in_distance_m != null ? String(e.clock_in_distance_m) : "",
       ]),
@@ -141,7 +143,7 @@ export default function Timesheets({
             {entries.length === 0 ? (
               <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-500">No entries in this range.</td></tr>
             ) : entries.map((e) => {
-              const late = lateMinutes(e);
+              const late = lateMinutes(e, tardyGraceMin);
               return (
               <tr key={e.id} className="border-t border-slate-800">
                 {isManager && <td className="px-3 py-2 text-slate-300">{e.profiles?.full_name ?? "—"}</td>}

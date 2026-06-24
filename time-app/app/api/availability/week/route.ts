@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { notifyManagers } from "@/lib/notify";
 import { NextResponse } from "next/server";
 
 // Replace the employee's "available" blocks for one week (date-based).
@@ -45,5 +46,12 @@ export async function PUT(request: Request) {
   }));
   const { error: insErr } = await supabase.from("availability").insert(rows);
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
+
+  await notifyManagers({
+    type: "availability_change",
+    title: "Availability updated",
+    body: `${profile.full_name ?? "An employee"} updated their availability.`,
+  }).catch(() => {});
+
   return NextResponse.json({ ok: true, inserted: rows.length });
 }

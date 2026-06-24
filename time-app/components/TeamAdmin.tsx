@@ -3,15 +3,18 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Profile, Location } from "@/lib/types";
+import type { AppSettings } from "@/lib/settings";
 
 export default function TeamAdmin({
   employees,
   locations,
   emailById,
+  settings,
 }: {
   employees: Profile[];
   locations: Location[];
   emailById: Record<string, string>;
+  settings: AppSettings;
 }) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -56,7 +59,65 @@ export default function TeamAdmin({
       </section>
 
       <LocationSection locations={locations} />
+
+      <SettingsSection settings={settings} />
     </div>
+  );
+}
+
+function SettingsSection({ settings }: { settings: AppSettings }) {
+  const [empGrace, setEmpGrace] = useState(String(settings.employee_clockin_grace_min));
+  const [mgrGrace, setMgrGrace] = useState(String(settings.manager_clockin_grace_min));
+  const [tardy, setTardy] = useState(String(settings.tardy_grace_min));
+  const [reminder, setReminder] = useState(String(settings.shift_reminder_lead_min));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setMsg(null);
+    const res = await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        employee_clockin_grace_min: Number(empGrace),
+        manager_clockin_grace_min: Number(mgrGrace),
+        tardy_grace_min: Number(tardy),
+        shift_reminder_lead_min: Number(reminder),
+      }),
+    });
+    setBusy(false);
+    setMsg(res.ok ? "Saved." : (await res.json().catch(() => ({}))).error ?? "Save failed.");
+  }
+
+  const Field = ({ label, value, set, hint }: { label: string; value: string; set: (v: string) => void; hint: string }) => (
+    <label className="block text-xs text-slate-400">
+      {label}
+      <div className="mt-1 flex items-center gap-2">
+        <input type="number" min={0} value={value} onChange={(e) => set(e.target.value)} className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-100" />
+        <span className="text-slate-500">minutes</span>
+      </div>
+      <span className="text-[11px] text-slate-600">{hint}</span>
+    </label>
+  );
+
+  return (
+    <section>
+      <h2 className="text-lg font-semibold text-slate-100 mb-1">Timing &amp; alerts</h2>
+      <p className="text-sm text-slate-400 mb-4">Grace periods used for reminders, missed-clock-in alerts, and attendance.</p>
+      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Employee missed clock-in" value={empGrace} set={setEmpGrace} hint="Nudge the employee this long after their shift starts." />
+        <Field label="Manager missed clock-in" value={mgrGrace} set={setMgrGrace} hint="Escalate to managers this long after the start." />
+        <Field label="Tardy threshold" value={tardy} set={setTardy} hint="Clock-ins later than this count as late on attendance." />
+        <Field label="Shift reminder lead" value={reminder} set={setReminder} hint="Remind employees this long before a shift." />
+        <div className="sm:col-span-2 flex items-center gap-3">
+          <button onClick={save} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-50">
+            {busy ? "Saving…" : "Save settings"}
+          </button>
+          {msg && <span className="text-sm text-emerald-400">{msg}</span>}
+        </div>
+      </div>
+    </section>
   );
 }
 
