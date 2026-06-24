@@ -37,6 +37,13 @@ export default function NotificationBell() {
     load();
   }
 
+  async function clearAll() {
+    const ids = items.map((i) => i.id);
+    if (ids.length === 0) return;
+    await supabase.from("notifications").delete().in("id", ids);
+    setItems([]);
+  }
+
   return (
     <div className="relative">
       <button
@@ -59,6 +66,14 @@ export default function NotificationBell() {
       </button>
       {open && (
         <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-auto bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-30">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800 sticky top-0 bg-slate-900">
+            <span className="text-xs font-medium text-slate-400">Notifications</span>
+            {items.length > 0 && (
+              <button onClick={clearAll} className="text-xs text-slate-400 hover:text-rose-400">
+                Clear all
+              </button>
+            )}
+          </div>
           {items.length === 0 ? (
             <div className="p-4 text-sm text-slate-500">No notifications.</div>
           ) : (

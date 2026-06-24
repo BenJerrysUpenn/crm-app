@@ -29,6 +29,7 @@ export type Shift = {
   position: string | null;
   notes: string | null;
   published: boolean;
+  acknowledged_at: string | null;
   created_at: string;
   updated_at: string;
 };

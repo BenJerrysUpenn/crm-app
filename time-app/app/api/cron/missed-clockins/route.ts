@@ -130,5 +130,11 @@ export async function GET(request: Request) {
     reminded.push(s.id as number);
   }
 
+  // Housekeeping: delete notifications older than 30 days so the bell stays tidy.
+  await supabase
+    .from("notifications")
+    .delete()
+    .lt("created_at", new Date(now - 30 * 24 * 3600000).toISOString());
+
   return NextResponse.json({ checked: shifts?.length ?? 0, flagged, reminded });
 }

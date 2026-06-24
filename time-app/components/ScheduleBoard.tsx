@@ -63,10 +63,26 @@ export default function ScheduleBoard({
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [actingReq, setActingReq] = useState<number | null>(null);
   const [droppingId, setDroppingId] = useState<number | null>(null);
+  const [ackingId, setAckingId] = useState<number | null>(null);
+
+  const OT_THRESHOLD = 40; // hours per week before overtime
 
   const dates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const rateById = new Map(employees.map((e) => [e.id, e.hourly_rate ?? 0]));
+  const nameById = new Map(employees.map((e) => [e.id, e.full_name ?? e.id]));
   const myPendingDrops = new Set(dropRequests.map((r) => r.shift_id));
+
+  async function ack(id: number) {
+    setAckingId(id);
+    setCopyMsg(null);
+    const res = await fetch(`/api/shifts/${id}/ack`, { method: "POST" });
+    setAckingId(null);
+    if (!res.ok) {
+      setCopyMsg((await res.json().catch(() => ({}))).error ?? "Could not confirm.");
+      return;
+    }
+    router.refresh();
+  }
 
   function shiftHours(s: ShiftWithEmployee) {
     return Math.max(0, (new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 3600000);
@@ -249,6 +265,38 @@ export default function ScheduleBoard({
         )}
       </div>
 
+      {/* Manager: hours by person, with overtime flagged */}
+      {isManager && (() => {
+        const byEmp = new Map<string, number>();
+        for (const s of shifts) {
+          if (!s.employee_id) continue;
+          byEmp.set(s.employee_id, (byEmp.get(s.employee_id) ?? 0) + shiftHours(s));
+        }
+        const rows = Array.from(byEmp.entries()).sort((a, b) => b[1] - a[1]);
+        const anyOT = rows.some(([, h]) => h > OT_THRESHOLD);
+        if (rows.length === 0) return null;
+        return (
+          <div className={`rounded-lg p-4 mb-4 border ${anyOT ? "border-amber-700 bg-amber-950/20" : "border-slate-800 bg-slate-900"}`}>
+            <div className="text-sm font-medium text-slate-300 mb-2">
+              Hours by person{anyOT && <span className="text-amber-400"> · overtime ahead</span>}
+            </div>
+            <div className="flex flex-wrap gap-x-6 gap-y-1">
+              {rows.map(([id, h]) => {
+                const ot = h > OT_THRESHOLD;
+                return (
+                  <span key={id} className="text-sm">
+                    <span className="text-slate-300">{nameById.get(id) ?? "—"}</span>{" "}
+                    <span className={ot ? "text-amber-400 font-medium" : "text-slate-400"}>
+                      {h.toFixed(1)}h{ot ? ` (OT +${(h - OT_THRESHOLD).toFixed(1)})` : ""}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Manager: pending drop requests */}
       {isManager && dropRequests.length > 0 && (
         <div className="bg-slate-900 border border-amber-900 rounded-lg p-4 mb-4">
@@ -315,6 +363,11 @@ export default function ScheduleBoard({
                   )}
                   {s.position && <div className="text-slate-500">{s.position}</div>}
                   {!s.published && <div className="text-amber-400 mt-0.5">draft</div>}
+                  {isManager && s.published && s.employee_id && (
+                    <div className={s.acknowledged_at ? "text-emerald-400 mt-0.5" : "text-slate-500 mt-0.5"}>
+                      {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
+                    </div>
+                  )}
                   {!isManager && !s.employee_id && (
                     <button
                       onClick={() => claim(s.id)}
@@ -325,17 +378,30 @@ export default function ScheduleBoard({
                     </button>
                   )}
                   {!isManager && s.employee_id && (
-                    myPendingDrops.has(s.id) ? (
-                      <div className="mt-2 text-amber-400">Drop requested</div>
-                    ) : (
-                      <button
-                        onClick={() => requestDrop(s.id)}
-                        disabled={droppingId === s.id}
-                        className="mt-2 w-full rounded-md border border-slate-600 text-slate-200 py-1 hover:bg-slate-800 disabled:opacity-50"
-                      >
-                        {droppingId === s.id ? "Requesting…" : "Drop shift"}
-                      </button>
-                    )
+                    <>
+                      {s.acknowledged_at ? (
+                        <div className="mt-2 text-emerald-400">✓ Confirmed</div>
+                      ) : (
+                        <button
+                          onClick={() => ack(s.id)}
+                          disabled={ackingId === s.id}
+                          className="mt-2 w-full rounded-md bg-emerald-500 text-slate-950 font-medium py-1 hover:bg-emerald-400 disabled:opacity-50"
+                        >
+                          {ackingId === s.id ? "Confirming…" : "Confirm"}
+                        </button>
+                      )}
+                      {myPendingDrops.has(s.id) ? (
+                        <div className="mt-2 text-amber-400">Drop requested</div>
+                      ) : (
+                        <button
+                          onClick={() => requestDrop(s.id)}
+                          disabled={droppingId === s.id}
+                          className="mt-1 w-full rounded-md border border-slate-600 text-slate-200 py-1 hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {droppingId === s.id ? "Requesting…" : "Drop shift"}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               ))}
