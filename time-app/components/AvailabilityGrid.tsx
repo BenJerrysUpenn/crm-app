@@ -280,22 +280,62 @@ function statusBadge(s: string) {
   return <span className="text-amber-400">pending</span>;
 }
 
+type TimeOffGroup = {
+  key: string;
+  anyId: number;
+  start: string;
+  end: string;
+  status: Availability["status"];
+  note: string | null;
+};
+
+function groupTimeOff(rows: Availability[]): TimeOffGroup[] {
+  const map = new Map<string, Availability[]>();
+  for (const r of rows) {
+    const key = r.request_group ?? `single-${r.id}`;
+    const arr = map.get(key) ?? [];
+    arr.push(r);
+    map.set(key, arr);
+  }
+  return Array.from(map.entries())
+    .map(([key, arr]) => {
+      const dates = arr.map((a) => a.specific_date!).sort();
+      return {
+        key,
+        anyId: arr[0].id,
+        start: dates[0],
+        end: dates[dates.length - 1],
+        status: arr[0].status,
+        note: arr[0].note,
+      };
+    })
+    .sort((a, b) => (a.start < b.start ? -1 : 1));
+}
+
 function TimeOff({ timeOff }: { timeOff: Availability[] }) {
   const router = useRouter();
-  const [date, setDate] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function add() {
-    if (!date) return;
+    if (!from) return;
     setBusy(true);
     await fetch("/api/availability", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ specific_date: date, is_available: false, note: note || null, status: "pending" }),
+      body: JSON.stringify({
+        start_date: from,
+        end_date: to || from,
+        is_available: false,
+        note: note || null,
+        status: "pending",
+      }),
     });
     setBusy(false);
-    setDate("");
+    setFrom("");
+    setTo("");
     setNote("");
     router.refresh();
   }
@@ -304,28 +344,37 @@ function TimeOff({ timeOff }: { timeOff: Availability[] }) {
     router.refresh();
   }
 
+  const groups = groupTimeOff(timeOff);
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
       <div className="text-sm font-medium text-slate-300">Time-off requests</div>
-      <p className="text-xs text-slate-500">A manager has to approve these.</p>
+      <p className="text-xs text-slate-500">Request a single day or a range. A manager has to approve these.</p>
       <div className="flex flex-wrap items-end gap-2">
-        <label className="text-xs text-slate-400">Date
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="ml-2 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100" />
+        <label className="text-xs text-slate-400">From
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ml-2 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100" />
+        </label>
+        <label className="text-xs text-slate-400">To
+          <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="ml-2 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100" />
         </label>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason (optional)" className="bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100 text-sm flex-1 min-w-[140px]" />
-        <button onClick={add} disabled={busy || !date} className="text-sm px-3 py-1.5 rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-40">Request</button>
+        <button onClick={add} disabled={busy || !from} className="text-sm px-3 py-1.5 rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-40">Request</button>
       </div>
-      {timeOff.length > 0 && (
+      <p className="text-[11px] text-slate-600">Leave “To” blank for a single day.</p>
+      {groups.length > 0 && (
         <div className="space-y-1 pt-1">
-          {timeOff.map((a) => (
-            <div key={a.id} className="flex items-center justify-between text-sm border-b border-slate-800 pb-1 last:border-0">
+          {groups.map((g) => (
+            <div key={g.key} className="flex items-center justify-between text-sm border-b border-slate-800 pb-1 last:border-0">
               <span className="text-slate-300">
-                {fmtDate(a.specific_date! + "T12:00:00")} · {statusBadge(a.status)}
-                {a.note ? ` · ${a.note}` : ""}
+                {g.start === g.end
+                  ? fmtDate(g.start + "T12:00:00")
+                  : `${fmtDate(g.start + "T12:00:00")} – ${fmtDate(g.end + "T12:00:00")}`}{" "}
+                · {statusBadge(g.status)}
+                {g.note ? ` · ${g.note}` : ""}
               </span>
-              {a.status !== "approved" && (
-                <button onClick={() => del(a.id)} className="text-slate-500 hover:text-rose-400 text-xs">Cancel</button>
-              )}
+              <button onClick={() => del(g.anyId)} className="text-slate-500 hover:text-rose-400 text-xs">
+                {g.status === "pending" ? "Cancel" : "Delete"}
+              </button>
             </div>
           ))}
         </div>

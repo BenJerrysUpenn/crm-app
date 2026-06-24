@@ -78,6 +78,7 @@ export type Availability = {
   is_available: boolean;
   note: string | null;
   status: "pending" | "approved" | "denied";
+  request_group: string | null;
   created_at: string;
 };
 

@@ -61,8 +61,46 @@ export default function ManagerAvailability({
     byEmp.set(r.employee_id, arr);
   }
 
-  const pending = timeOff.filter((r) => r.status === "pending");
-  const decided = timeOff.filter((r) => r.status !== "pending");
+  type TOGroup = {
+    key: string;
+    anyId: number;
+    name: string;
+    start: string;
+    end: string;
+    status: Row["status"];
+    note: string | null;
+  };
+  function group(rows: Row[]): TOGroup[] {
+    const map = new Map<string, Row[]>();
+    for (const r of rows) {
+      const key = `${r.employee_id}|${r.request_group ?? "single-" + r.id}`;
+      const arr = map.get(key) ?? [];
+      arr.push(r);
+      map.set(key, arr);
+    }
+    return Array.from(map.entries())
+      .map(([key, arr]) => {
+        const dates = arr.map((a) => a.specific_date!).sort();
+        return {
+          key,
+          anyId: arr[0].id,
+          name: arr[0].profiles?.full_name ?? arr[0].employee_id,
+          start: dates[0],
+          end: dates[dates.length - 1],
+          status: arr[0].status,
+          note: arr[0].note,
+        };
+      })
+      .sort((a, b) => (a.start < b.start ? -1 : 1));
+  }
+  function groupRange(g: TOGroup) {
+    return g.start === g.end
+      ? fmtDate(g.start + "T12:00:00")
+      : `${fmtDate(g.start + "T12:00:00")} – ${fmtDate(g.end + "T12:00:00")}`;
+  }
+
+  const pending = group(timeOff.filter((r) => r.status === "pending"));
+  const decided = group(timeOff.filter((r) => r.status !== "pending"));
 
   return (
     <div className="space-y-6">
@@ -82,15 +120,15 @@ export default function ManagerAvailability({
           <div className="text-slate-500 text-sm">No pending requests.</div>
         ) : (
           <div className="space-y-2">
-            {pending.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3 text-sm border-b border-slate-800 pb-2 last:border-0">
+            {pending.map((g) => (
+              <div key={g.key} className="flex items-center justify-between gap-3 text-sm border-b border-slate-800 pb-2 last:border-0">
                 <span className="text-slate-200">
-                  {r.profiles?.full_name ?? r.employee_id} · {fmtDate(r.specific_date! + "T12:00:00")}
-                  {r.note ? ` · ${r.note}` : ""}
+                  {g.name} · {groupRange(g)}
+                  {g.note ? ` · ${g.note}` : ""}
                 </span>
                 <span className="flex gap-2 shrink-0">
-                  <button onClick={() => decide(r.id, "approved")} disabled={busyId === r.id} className="text-xs px-2 py-1 rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Approve</button>
-                  <button onClick={() => decide(r.id, "denied")} disabled={busyId === r.id} className="text-xs px-2 py-1 rounded-md border border-rose-800 text-rose-300 hover:bg-rose-950">Deny</button>
+                  <button onClick={() => decide(g.anyId, "approved")} disabled={busyId === g.anyId} className="text-xs px-2 py-1 rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Approve</button>
+                  <button onClick={() => decide(g.anyId, "denied")} disabled={busyId === g.anyId} className="text-xs px-2 py-1 rounded-md border border-rose-800 text-rose-300 hover:bg-rose-950">Deny</button>
                 </span>
               </div>
             ))}
@@ -98,13 +136,13 @@ export default function ManagerAvailability({
         )}
         {decided.length > 0 && (
           <div className="mt-3 pt-3 border-t border-slate-800 space-y-1">
-            {decided.map((r) => (
-              <div key={r.id} className="flex items-center justify-between text-xs text-slate-500">
-                <span>{r.profiles?.full_name ?? r.employee_id} · {fmtDate(r.specific_date! + "T12:00:00")}</span>
+            {decided.map((g) => (
+              <div key={g.key} className="flex items-center justify-between text-xs text-slate-500">
+                <span>{g.name} · {groupRange(g)}</span>
                 <span className="flex items-center gap-2">
-                  <span className={r.status === "approved" ? "text-emerald-400" : "text-rose-400"}>{r.status}</span>
-                  <button onClick={() => decide(r.id, r.status === "approved" ? "denied" : "approved")} className="hover:text-slate-300 underline">
-                    {r.status === "approved" ? "deny" : "approve"}
+                  <span className={g.status === "approved" ? "text-emerald-400" : "text-rose-400"}>{g.status}</span>
+                  <button onClick={() => decide(g.anyId, g.status === "approved" ? "denied" : "approved")} className="hover:text-slate-300 underline">
+                    {g.status === "approved" ? "deny" : "approve"}
                   </button>
                 </span>
               </div>
