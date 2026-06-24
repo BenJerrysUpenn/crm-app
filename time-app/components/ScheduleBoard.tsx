@@ -87,9 +87,16 @@ export default function ScheduleBoard({
   function shiftHours(s: ShiftWithEmployee) {
     return Math.max(0, (new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 3600000);
   }
-  const weekHours = shifts.reduce((sum, s) => sum + shiftHours(s), 0);
+  // Only shifts that actually fall in the 7 visible days (the query pads a day
+  // on each side, so don't count those toward the week's totals).
+  const dateSet = new Set(dates);
+  const weekShifts = shifts.filter((s) => dateSet.has(nyDate(s.starts_at)));
+  // Employees: count only shifts assigned to them (ignore open shifts they could
+  // pick up). Managers: count all assigned coverage.
+  const countedShifts = isManager ? weekShifts : weekShifts.filter((s) => s.employee_id);
+  const weekHours = countedShifts.reduce((sum, s) => sum + shiftHours(s), 0);
   const weekCost = isManager
-    ? shifts.reduce((sum, s) => sum + shiftHours(s) * (s.employee_id ? rateById.get(s.employee_id) ?? 0 : 0), 0)
+    ? weekShifts.reduce((sum, s) => sum + shiftHours(s) * (s.employee_id ? rateById.get(s.employee_id) ?? 0 : 0), 0)
     : 0;
 
   async function requestDrop(id: number) {
@@ -264,22 +271,22 @@ export default function ScheduleBoard({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <h1 className="text-lg font-semibold text-slate-100">Schedule</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {isManager && (
             <>
-              <button onClick={autoFill} disabled={copying} className="px-2 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
+              <button onClick={autoFill} disabled={copying} className="px-2.5 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
                 {copying ? "Working…" : "Auto-fill"}
               </button>
-              <button onClick={copyLastWeek} disabled={copying} className="px-2 py-1 text-sm rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50">
+              <button onClick={copyLastWeek} disabled={copying} className="px-2.5 py-1 text-sm rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50">
                 {copying ? "…" : "Copy last week"}
               </button>
             </>
           )}
-          <button onClick={() => gotoWeek(-7)} className="px-2 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">‹ Prev</button>
-          <button onClick={() => router.push("/schedule")} className="px-2 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">This week</button>
-          <button onClick={() => gotoWeek(7)} className="px-2 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">Next ›</button>
+          <button onClick={() => gotoWeek(-7)} className="px-2.5 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">‹ Prev</button>
+          <button onClick={() => router.push("/schedule")} className="px-2.5 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">This week</button>
+          <button onClick={() => gotoWeek(7)} className="px-2.5 py-1 text-sm rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">Next ›</button>
         </div>
       </div>
       {copyMsg && <div className="text-sm text-emerald-400 mb-3">{copyMsg}</div>}
@@ -295,7 +302,7 @@ export default function ScheduleBoard({
       {/* Manager: hours by person, with overtime flagged */}
       {isManager && (() => {
         const byEmp = new Map<string, number>();
-        for (const s of shifts) {
+        for (const s of weekShifts) {
           if (!s.employee_id) continue;
           byEmp.set(s.employee_id, (byEmp.get(s.employee_id) ?? 0) + shiftHours(s));
         }
@@ -447,23 +454,23 @@ export default function ScheduleBoard({
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
               </select>
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block text-xs text-slate-400">Start
-                <input type="datetime-local" value={draft.starts_at} onChange={(e) => setDraft({ ...draft, starts_at: e.target.value })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" />
+                <input type="datetime-local" value={draft.starts_at} onChange={(e) => setDraft({ ...draft, starts_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" />
               </label>
               <label className="block text-xs text-slate-400">End
-                <input type="datetime-local" value={draft.ends_at} onChange={(e) => setDraft({ ...draft, ends_at: e.target.value })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" />
+                <input type="datetime-local" value={draft.ends_at} onChange={(e) => setDraft({ ...draft, ends_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" />
               </label>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block text-xs text-slate-400">Shift type
-                <select value={draft.position} onChange={(e) => setDraft({ ...draft, position: e.target.value })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100">
+                <select value={draft.position} onChange={(e) => setDraft({ ...draft, position: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100">
                   <option value="">—</option>
                   {SHIFT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </label>
               <label className="block text-xs text-slate-400">Location
-                <select value={draft.location_id} onChange={(e) => setDraft({ ...draft, location_id: e.target.value })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100">
+                <select value={draft.location_id} onChange={(e) => setDraft({ ...draft, location_id: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100">
                   <option value="">—</option>
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>

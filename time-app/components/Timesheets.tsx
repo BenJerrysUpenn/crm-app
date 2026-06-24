@@ -87,23 +87,23 @@ export default function Timesheets({
 
   return (
     <div>
+      <h1 className="text-lg font-semibold text-slate-100 mb-3">Timesheets</h1>
       <div className="flex flex-wrap items-end gap-3 mb-5">
-        <h1 className="text-lg font-semibold text-slate-100 mr-auto">Timesheets</h1>
-        <label className="text-xs text-slate-400">From
-          <input type="date" value={from} onChange={(e) => apply({ from: e.target.value })} className="ml-2 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100" />
+        <label className="flex flex-col text-xs text-slate-400">From
+          <input type="date" value={from} onChange={(e) => apply({ from: e.target.value })} className="mt-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100" />
         </label>
-        <label className="text-xs text-slate-400">To
-          <input type="date" value={to} onChange={(e) => apply({ to: e.target.value })} className="ml-2 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100" />
+        <label className="flex flex-col text-xs text-slate-400">To
+          <input type="date" value={to} onChange={(e) => apply({ to: e.target.value })} className="mt-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100" />
         </label>
         {isManager && (
-          <label className="text-xs text-slate-400">Employee
-            <select value={emp} onChange={(e) => apply({ emp: e.target.value })} className="ml-2 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100">
+          <label className="flex flex-col text-xs text-slate-400">Employee
+            <select value={emp} onChange={(e) => apply({ emp: e.target.value })} className="mt-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100">
               <option value="">All</option>
               {employees.map((x) => <option key={x.id} value={x.id}>{x.full_name ?? x.id}</option>)}
             </select>
           </label>
         )}
-        <button onClick={exportCsv} className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white">Export CSV</button>
+        <button onClick={exportCsv} className="ml-auto px-3 py-2 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white">Export CSV</button>
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-5">
