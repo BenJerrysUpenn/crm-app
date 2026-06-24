@@ -1,8 +1,23 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtDate, fmtTime, hoursBetween } from "@/lib/format";
 import type { Profile, TimeEntryWithEmployee } from "@/lib/types";
+
+function toLocalInput(iso: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+type EntryDraft = {
+  id?: number;
+  employee_id: string;
+  clock_in: string;
+  clock_out: string;
+};
 
 type Entry = TimeEntryWithEmployee & { shifts?: { starts_at: string } | null };
 
@@ -32,6 +47,57 @@ export default function Timesheets({
   tardyGraceMin: number;
 }) {
   const router = useRouter();
+  const [draft, setDraft] = useState<EntryDraft | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  function newEntry() {
+    setErr(null);
+    setDraft({ employee_id: emp || employees[0]?.id || "", clock_in: "", clock_out: "" });
+  }
+  function editEntry(e: Entry) {
+    setErr(null);
+    setDraft({
+      id: e.id,
+      employee_id: e.employee_id,
+      clock_in: toLocalInput(e.clock_in_at),
+      clock_out: toLocalInput(e.clock_out_at),
+    });
+  }
+  async function saveEntry() {
+    if (!draft) return;
+    if (!draft.employee_id || !draft.clock_in) {
+      setErr("Employee and clock-in are required.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    const payload = {
+      employee_id: draft.employee_id,
+      clock_in_at: new Date(draft.clock_in).toISOString(),
+      clock_out_at: draft.clock_out ? new Date(draft.clock_out).toISOString() : null,
+    };
+    const res = await fetch(draft.id ? `/api/time-entries/${draft.id}` : "/api/time-entries", {
+      method: draft.id ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setErr((await res.json().catch(() => ({}))).error ?? "Save failed.");
+      return;
+    }
+    setDraft(null);
+    router.refresh();
+  }
+  async function deleteEntry() {
+    if (!draft?.id) return;
+    setBusy(true);
+    await fetch(`/api/time-entries/${draft.id}`, { method: "DELETE" });
+    setBusy(false);
+    setDraft(null);
+    router.refresh();
+  }
 
   function apply(next: { from?: string; to?: string; emp?: string }) {
     const params = new URLSearchParams({ from, to });
@@ -105,7 +171,12 @@ export default function Timesheets({
             </select>
           </label>
         )}
-        <button onClick={exportCsv} className="ml-auto px-3 py-2 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white">Export CSV</button>
+        <div className="ml-auto flex gap-2">
+          {isManager && (
+            <button onClick={newEntry} className="px-3 py-2 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400">+ Add entry</button>
+          )}
+          <button onClick={exportCsv} className="px-3 py-2 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white">Export CSV</button>
+        </div>
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-5">
@@ -137,28 +208,73 @@ export default function Timesheets({
               <th className="text-right px-3 py-2">Hours</th>
               <th className="text-right px-3 py-2">Late</th>
               <th className="text-right px-3 py-2">Dist</th>
+              {isManager && <th className="px-3 py-2"></th>}
             </tr>
           </thead>
           <tbody>
             {entries.length === 0 ? (
-              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-500">No entries in this range.</td></tr>
+              <tr><td colSpan={isManager ? 8 : 7} className="px-3 py-6 text-center text-slate-500">No entries in this range.</td></tr>
             ) : entries.map((e) => {
               const late = lateMinutes(e, tardyGraceMin);
               return (
               <tr key={e.id} className="border-t border-slate-800">
-                {isManager && <td className="px-3 py-2 text-slate-300">{e.profiles?.full_name ?? "—"}</td>}
+                {isManager && (
+                  <td className="px-3 py-2 text-slate-300">
+                    {e.profiles?.full_name ?? "—"}
+                    {e.manual && <span className="ml-1 text-[10px] text-sky-400">(manual)</span>}
+                  </td>
+                )}
                 <td className="px-3 py-2 text-slate-300">{fmtDate(e.clock_in_at)}</td>
                 <td className="px-3 py-2 text-slate-400">{fmtTime(e.clock_in_at)}</td>
                 <td className="px-3 py-2 text-slate-400">{e.clock_out_at ? fmtTime(e.clock_out_at) : <span className="text-emerald-400">open</span>}</td>
                 <td className="px-3 py-2 text-right text-slate-300">{e.clock_out_at ? hoursBetween(e.clock_in_at, e.clock_out_at).toFixed(2) : "—"}</td>
                 <td className="px-3 py-2 text-right">{late ? <span className="text-amber-400">{late}m</span> : <span className="text-slate-600">—</span>}</td>
                 <td className="px-3 py-2 text-right text-slate-500">{e.clock_in_distance_m != null ? `${e.clock_in_distance_m}m` : "—"}</td>
+                {isManager && (
+                  <td className="px-3 py-2 text-right">
+                    <button onClick={() => editEntry(e)} className="text-xs text-slate-400 hover:text-slate-100">Edit</button>
+                  </td>
+                )}
               </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+
+      {draft && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(ev) => ev.stopPropagation()}>
+            <h2 className="font-semibold text-slate-100">{draft.id ? "Edit time entry" : "Add time entry"}</h2>
+            <label className="block text-xs text-slate-400">Employee
+              <select value={draft.employee_id} onChange={(ev) => setDraft({ ...draft, employee_id: ev.target.value })} disabled={!!draft.id} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100 disabled:opacity-60">
+                {employees.map((x) => <option key={x.id} value={x.id}>{x.full_name ?? x.id}</option>)}
+              </select>
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block text-xs text-slate-400">Clock in
+                <input type="datetime-local" value={draft.clock_in} onChange={(ev) => setDraft({ ...draft, clock_in: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" />
+              </label>
+              <label className="block text-xs text-slate-400">Clock out
+                <input type="datetime-local" value={draft.clock_out} onChange={(ev) => setDraft({ ...draft, clock_out: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" />
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-600">Leave clock out blank to leave the shift open.</p>
+            {err && <div className="text-sm text-rose-300">{err}</div>}
+            <div className="flex items-center justify-between pt-2">
+              {draft.id ? (
+                <button onClick={deleteEntry} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
+              ) : <span />}
+              <div className="flex gap-2">
+                <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800">Cancel</button>
+                <button onClick={saveEntry} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
+                  {busy ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

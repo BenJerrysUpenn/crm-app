@@ -50,6 +50,7 @@ export type TimeEntry = {
   clock_out_lng: number | null;
   clock_out_distance_m: number | null;
   status: "open" | "closed";
+  manual: boolean;
   created_at: string;
 };
 
