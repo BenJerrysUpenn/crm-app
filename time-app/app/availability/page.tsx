@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import AvailabilityCalendar from "@/components/AvailabilityCalendar";
@@ -94,7 +95,11 @@ export default async function AvailabilityPage({
     .eq("is_available", false)
     .order("specific_date", { ascending: true });
 
-  const { data: pub } = await supabase
+  // IMPORTANT: use the admin client so we see EVERY published shift, not just
+  // this employee's (row-level security would otherwise hide other people's
+  // shifts and the day wouldn't lock).
+  const admin = createAdminClient();
+  const { data: pub } = await admin
     .from("shifts")
     .select("starts_at")
     .eq("published", true)
@@ -105,7 +110,7 @@ export default async function AvailabilityPage({
   );
 
   // The latest published shift date anywhere; everything on/before it is locked.
-  const { data: lastPub } = await supabase
+  const { data: lastPub } = await admin
     .from("shifts")
     .select("starts_at")
     .eq("published", true)

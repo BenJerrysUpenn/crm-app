@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { notifyManagers } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
@@ -14,8 +15,10 @@ function todayEastern() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
 // The latest published shift date (Eastern); availability locks on/before it.
-async function postedThrough(supabase: ReturnType<typeof createClient>): Promise<string | null> {
-  const { data } = await supabase
+// Uses the admin client so it sees every employee's shifts, not just the caller's.
+async function postedThrough(): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data } = await admin
     .from("shifts")
     .select("starts_at")
     .eq("published", true)
@@ -65,7 +68,7 @@ export async function POST(request: Request) {
     }
 
     const today = todayEastern();
-    const pt = await postedThrough(supabase);
+    const pt = await postedThrough();
     const group = randomUUID();
     const rows: Record<string, unknown>[] = [];
     for (let d = start; d <= end; d = addDays(d, 1)) {
@@ -111,7 +114,7 @@ export async function POST(request: Request) {
   // optional time range, optional weekly repeat).
   // Block adding a preference for a past day or one on/before the posted schedule.
   if (body.specific_date) {
-    const pt = await postedThrough(supabase);
+    const pt = await postedThrough();
     if (body.specific_date < todayEastern() || (pt && body.specific_date <= pt)) {
       return NextResponse.json(
         { error: "You can't change availability for a day that's passed or already scheduled." },
