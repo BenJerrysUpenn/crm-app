@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import ScheduleBoard from "@/components/ScheduleBoard";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest } from "@/lib/types";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +33,7 @@ export default async function SchedulePage({
   const isManager = profile.role === "manager";
 
   const weekStart = sundayOf(searchParams.week);
+  const weekEnd = addDays(weekStart, 7);
   // Query a window padded a day on each side, then bucket precisely by Eastern
   // date on the client. Avoids UTC-vs-Eastern off-by-one-day drift.
   const qStart = addDays(weekStart, -1) + "T00:00:00Z";
@@ -68,8 +69,16 @@ export default async function SchedulePage({
     dropReqs = (data as typeof dropReqs) ?? [];
   }
 
+  const { data: shiftTypesData } = await supabase
+    .from("shift_types")
+    .select("*")
+    .eq("active", true)
+    .order("sort_order", { ascending: true });
+  const shiftTypes = (shiftTypesData as ShiftType[]) ?? [];
+
   let employees: Profile[] = [];
   let locations: Location[] = [];
+  let availability: Availability[] = [];
   if (isManager) {
     const { data: emps } = await supabase
       .from("profiles")
@@ -79,6 +88,13 @@ export default async function SchedulePage({
     employees = (emps as Profile[]) ?? [];
     const { data: locs } = await supabase.from("locations").select("*").order("id");
     locations = (locs as Location[]) ?? [];
+    // Everyone's availability + time off for the week, to show while drafting.
+    const { data: avail } = await supabase
+      .from("availability")
+      .select("*")
+      .gte("specific_date", weekStart)
+      .lt("specific_date", weekEnd);
+    availability = (avail as Availability[]) ?? [];
   }
 
   return (
@@ -93,6 +109,8 @@ export default async function SchedulePage({
             employees={employees}
             locations={locations}
             dropRequests={dropReqs}
+            shiftTypes={shiftTypes}
+            availability={availability}
           />
         </div>
       </main>

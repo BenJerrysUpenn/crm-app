@@ -77,17 +77,25 @@ export async function POST(request: Request) {
   // Approved availability (available windows) + approved time-off for the week.
   const { data: avail } = await supabase
     .from("availability")
-    .select("employee_id, specific_date, start_time, end_time, is_available, status")
+    .select("employee_id, specific_date, start_time, end_time, is_available, status, preference")
     .not("specific_date", "is", null)
     .gte("specific_date", weekStart)
     .lt("specific_date", weekEnd);
-  const availableBlocks = new Map<string, { date: string; start: number; end: number }[]>();
+  const availableBlocks = new Map<string, { date: string; start: number; end: number; preferred: boolean }[]>();
+  const cantWork = new Map<string, { date: string; start: number; end: number }[]>();
   const timeOff = new Set<string>(); // `${emp}|${date}`
   for (const a of avail ?? []) {
-    if (a.is_available && a.status === "approved" && a.start_time && a.end_time) {
-      const arr = availableBlocks.get(a.employee_id) ?? [];
-      arr.push({ date: a.specific_date as string, start: timeToMin(a.start_time)!, end: timeToMin(a.end_time)! });
-      availableBlocks.set(a.employee_id, arr);
+    if (a.is_available && a.start_time && a.end_time) {
+      const block = { date: a.specific_date as string, start: timeToMin(a.start_time)!, end: timeToMin(a.end_time)! };
+      if (a.preference === "unavailable") {
+        const arr = cantWork.get(a.employee_id) ?? [];
+        arr.push(block);
+        cantWork.set(a.employee_id, arr);
+      } else {
+        const arr = availableBlocks.get(a.employee_id) ?? [];
+        arr.push({ ...block, preferred: a.preference === "preferred" });
+        availableBlocks.set(a.employee_id, arr);
+      }
     }
     if (!a.is_available && a.status === "approved") {
       timeOff.add(`${a.employee_id}|${a.specific_date}`);
@@ -118,6 +126,11 @@ export async function POST(request: Request) {
     const candidates = employeeIds.filter((id) => {
       if (timeOff.has(`${id}|${date}`)) return false;
       if ((assignedMin.get(id) ?? 0) + dur > OT_THRESHOLD_MIN) return false;
+      // Reject if they marked any of this shift's time as "can't work".
+      const blocked = (cantWork.get(id) ?? []).some(
+        (b) => b.date === date && b.start < sEnd && sStart < b.end,
+      );
+      if (blocked) return false;
       // Must have an availability block on this date that covers the shift.
       const blocks = availableBlocks.get(id) ?? [];
       const covered = blocks.some((b) => b.date === date && b.start <= sStart && b.end >= sEnd);
@@ -128,8 +141,17 @@ export async function POST(request: Request) {
     });
     if (candidates.length === 0) continue;
 
-    // Balance: fewest already-assigned minutes wins.
-    candidates.sort((a, b) => (assignedMin.get(a) ?? 0) - (assignedMin.get(b) ?? 0));
+    // Prefer people who marked this slot "preferred", then balance by fewest hours.
+    const prefers = (id: string) =>
+      (availableBlocks.get(id) ?? []).some(
+        (b) => b.preferred && b.date === date && b.start <= sStart && b.end >= sEnd,
+      );
+    candidates.sort((a, b) => {
+      const pa = prefers(a) ? 0 : 1;
+      const pb = prefers(b) ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      return (assignedMin.get(a) ?? 0) - (assignedMin.get(b) ?? 0);
+    });
     const pick = candidates[0];
 
     const { error } = await supabase

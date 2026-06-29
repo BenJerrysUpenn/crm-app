@@ -81,6 +81,7 @@ export type Availability = {
   note: string | null;
   status: "pending" | "approved" | "denied";
   request_group: string | null;
+  preference: "available" | "preferred" | "unavailable";
   created_at: string;
 };
 
@@ -91,5 +92,14 @@ export type ShiftRequest = {
   type: "drop";
   status: "pending" | "approved" | "denied" | "cancelled";
   note: string | null;
+  created_at: string;
+};
+
+export type ShiftType = {
+  id: number;
+  name: string;
+  color: string;
+  sort_order: number;
+  active: boolean;
   created_at: string;
 };

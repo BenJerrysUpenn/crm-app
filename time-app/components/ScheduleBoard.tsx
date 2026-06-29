@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtTime } from "@/lib/format";
-import { SHIFT_TYPES } from "@/lib/shiftTypes";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest } from "@/lib/types";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability } from "@/lib/types";
 
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -46,6 +45,8 @@ export default function ScheduleBoard({
   employees,
   locations,
   dropRequests,
+  shiftTypes,
+  availability = [],
 }: {
   isManager: boolean;
   weekStart: string; // YYYY-MM-DD (Sunday)
@@ -53,7 +54,26 @@ export default function ScheduleBoard({
   employees: Profile[];
   locations: Location[];
   dropRequests: DropReq[];
+  shiftTypes: ShiftType[];
+  availability?: Availability[];
 }) {
+  const colorByType = new Map(shiftTypes.map((t) => [t.name, t.color]));
+
+  function fmtT(t: string | null) {
+    if (!t) return "any";
+    const [h, m] = t.split(":");
+    const hr = Number(h);
+    const ap = hr >= 12 ? "p" : "a";
+    const h12 = hr % 12 === 0 ? 12 : hr % 12;
+    return m === "00" ? `${h12}${ap}` : `${h12}:${m}${ap}`;
+  }
+  // Availability summary for an employee on a specific date (for the modal).
+  function availFor(employeeId: string, date: string) {
+    const rows = availability.filter((a) => a.employee_id === employeeId && a.specific_date === date);
+    const timeOff = rows.find((a) => !a.is_available);
+    const blocks = rows.filter((a) => a.is_available);
+    return { timeOff, blocks };
+  }
   const router = useRouter();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -379,12 +399,13 @@ export default function ScheduleBoard({
                 <div
                   key={s.id}
                   onClick={() => isManager && editShift(s)}
+                  style={s.position && colorByType.get(s.position) ? { borderLeft: `4px solid ${colorByType.get(s.position)}` } : undefined}
                   className={`rounded-md px-2 py-1.5 text-xs border ${
                     isManager ? "cursor-pointer" : ""
                   } ${
                     s.published
-                      ? "bg-emerald-950/40 border-emerald-900 text-emerald-200"
-                      : "bg-slate-800 border-slate-700 text-slate-300"
+                      ? "bg-slate-800/70 border-slate-700 text-slate-200"
+                      : "bg-slate-800/30 border-slate-800 text-slate-400"
                   }`}
                 >
                   <div className="font-medium">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
@@ -395,7 +416,13 @@ export default function ScheduleBoard({
                   ) : (
                     !s.employee_id && <div className="text-amber-400">Open shift</div>
                   )}
-                  {s.position && <div className="text-slate-500">{s.position}</div>}
+                  {s.position && (
+                    <div className="flex items-center gap-1 text-slate-400">
+                      <span className="inline-block w-2 h-2 rounded-full" style={{ background: colorByType.get(s.position) ?? "#64748b" }} />
+                      {s.position}
+                    </div>
+                  )}
+                  {s.notes && <div className="text-slate-400 italic mt-0.5">{s.notes}</div>}
                   {!s.published && <div className="text-amber-400 mt-0.5">draft</div>}
                   {isManager && s.published && s.employee_id && (
                     <div className={s.acknowledged_at ? "text-emerald-400 mt-0.5" : "text-slate-500 mt-0.5"}>
@@ -454,6 +481,23 @@ export default function ScheduleBoard({
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
               </select>
             </label>
+            {draft.employee_id && draft.starts_at && (() => {
+              const { timeOff, blocks } = availFor(draft.employee_id, draft.starts_at.slice(0, 10));
+              const by = (p: string) => blocks.filter((b) => (b.preference ?? "available") === p);
+              const pref = by("preferred"), avail = by("available"), unavail = by("unavailable");
+              return (
+                <div className="rounded-md border border-slate-700 bg-slate-800/40 px-3 py-2 text-xs space-y-1">
+                  <div className="text-slate-400">Availability that day</div>
+                  {timeOff && (
+                    <div className="text-rose-300">Time off ({timeOff.status})</div>
+                  )}
+                  {pref.length > 0 && <div className="text-sky-300">Prefers: {pref.map((b) => `${fmtT(b.start_time)}–${fmtT(b.end_time)}`).join(", ")}</div>}
+                  {avail.length > 0 && <div className="text-emerald-300">Available: {avail.map((b) => `${fmtT(b.start_time)}–${fmtT(b.end_time)}`).join(", ")}</div>}
+                  {unavail.length > 0 && <div className="text-rose-300">Can&apos;t work: {unavail.map((b) => `${fmtT(b.start_time)}–${fmtT(b.end_time)}`).join(", ")}</div>}
+                  {!timeOff && blocks.length === 0 && <div className="text-slate-500">No availability submitted.</div>}
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block text-xs text-slate-400">Start
                 <input type="datetime-local" value={draft.starts_at} onChange={(e) => setDraft({ ...draft, starts_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" />
@@ -466,7 +510,7 @@ export default function ScheduleBoard({
               <label className="block text-xs text-slate-400">Shift type
                 <select value={draft.position} onChange={(e) => setDraft({ ...draft, position: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100">
                   <option value="">—</option>
-                  {SHIFT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {shiftTypes.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
                 </select>
               </label>
               <label className="block text-xs text-slate-400">Location

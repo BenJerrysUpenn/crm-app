@@ -5,7 +5,7 @@ import { getProfile } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import TopBar from "@/components/TopBar";
 import TeamAdmin from "@/components/TeamAdmin";
-import type { Profile, Location } from "@/lib/types";
+import type { Profile, Location, ShiftType } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +20,11 @@ export default async function TeamPage() {
     .select("*")
     .order("full_name", { ascending: true });
   const { data: locs } = await supabase.from("locations").select("*").order("id");
+  const { data: shiftTypes } = await supabase
+    .from("shift_types")
+    .select("*")
+    .eq("active", true)
+    .order("sort_order", { ascending: true });
 
   // Map each profile id to its login email (needs the service role key).
   // Falls back to empty strings if the key isn't set (e.g. local dev).
@@ -42,6 +47,7 @@ export default async function TeamPage() {
             locations={(locs as Location[]) ?? []}
             emailById={emailById}
             settings={await getSettings(supabase)}
+            shiftTypes={(shiftTypes as ShiftType[]) ?? []}
           />
         </div>
       </main>

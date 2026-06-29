@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
   const { data: src, error } = await supabase
     .from("availability")
-    .select("specific_date, start_time, end_time")
+    .select("specific_date, start_time, end_time, preference")
     .eq("employee_id", profile.id)
     .eq("is_available", true)
     .gte("specific_date", srcStart)
@@ -48,6 +48,7 @@ export async function POST(request: Request) {
     end_time: r.end_time,
     is_available: true,
     status: "approved",
+    preference: r.preference ?? "available",
   }));
   const { error: insErr } = await supabase.from("availability").insert(rows);
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });

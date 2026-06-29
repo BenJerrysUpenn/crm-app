@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Profile, Location } from "@/lib/types";
+import type { Profile, Location, ShiftType } from "@/lib/types";
 import type { AppSettings } from "@/lib/settings";
 
 export default function TeamAdmin({
@@ -10,11 +10,13 @@ export default function TeamAdmin({
   locations,
   emailById,
   settings,
+  shiftTypes,
 }: {
   employees: Profile[];
   locations: Location[];
   emailById: Record<string, string>;
   settings: AppSettings;
+  shiftTypes: ShiftType[];
 }) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -58,9 +60,80 @@ export default function TeamAdmin({
         </div>
       </section>
 
+      <ShiftTypesSection shiftTypes={shiftTypes} />
+
       <LocationSection locations={locations} />
 
       <SettingsSection settings={settings} />
+    </div>
+  );
+}
+
+function ShiftTypesSection({ shiftTypes }: { shiftTypes: ShiftType[] }) {
+  const router = useRouter();
+  const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState("#10b981");
+  const [busy, setBusy] = useState(false);
+
+  async function add() {
+    if (!newName.trim()) return;
+    setBusy(true);
+    await fetch("/api/shift-types", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName.trim(), color: newColor, sort_order: shiftTypes.length + 1 }),
+    });
+    setBusy(false);
+    setNewName("");
+    router.refresh();
+  }
+  async function save(id: number, patch: Partial<ShiftType>) {
+    await fetch(`/api/shift-types/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    router.refresh();
+  }
+  async function remove(id: number) {
+    await fetch(`/api/shift-types/${id}`, { method: "DELETE" });
+    router.refresh();
+  }
+
+  return (
+    <section>
+      <h2 className="text-lg font-semibold text-slate-100 mb-1">Shift types</h2>
+      <p className="text-sm text-slate-400 mb-4">These appear in the schedule dropdown and color-code shifts.</p>
+      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+        {shiftTypes.map((t) => (
+          <ShiftTypeRow key={t.id} t={t} onSave={save} onRemove={remove} />
+        ))}
+        <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+          <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="w-9 h-9 rounded bg-slate-800 border border-slate-700" />
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="New shift type name" className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-100 text-sm" />
+          <button onClick={add} disabled={busy || !newName.trim()} className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-50">Add</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ShiftTypeRow({
+  t,
+  onSave,
+  onRemove,
+}: {
+  t: ShiftType;
+  onSave: (id: number, patch: Partial<ShiftType>) => void;
+  onRemove: (id: number) => void;
+}) {
+  const [name, setName] = useState(t.name);
+  const [color, setColor] = useState(t.color);
+  return (
+    <div className="flex items-center gap-2">
+      <input type="color" value={color} onChange={(e) => { setColor(e.target.value); onSave(t.id, { color: e.target.value }); }} className="w-9 h-9 rounded bg-slate-800 border border-slate-700" />
+      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== t.name && onSave(t.id, { name })} className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-100 text-sm" />
+      <button onClick={() => onRemove(t.id)} className="text-xs text-slate-500 hover:text-rose-400 px-2">Remove</button>
     </div>
   );
 }

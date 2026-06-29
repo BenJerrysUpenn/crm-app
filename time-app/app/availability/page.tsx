@@ -82,6 +82,21 @@ export default async function AvailabilityPage({
     .eq("is_available", false)
     .order("specific_date", { ascending: true });
 
+  // Locked days: any Eastern date this week with a published shift (schedule posted).
+  const { data: pub } = await supabase
+    .from("shifts")
+    .select("starts_at")
+    .eq("published", true)
+    .gte("starts_at", addDays(weekStart, -1) + "T00:00:00Z")
+    .lt("starts_at", addDays(weekStart, 8) + "T00:00:00Z");
+  const lockedDays = Array.from(
+    new Set(
+      (pub ?? []).map((s) =>
+        new Date(s.starts_at as string).toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
+      ),
+    ),
+  );
+
   return (
     <div className="min-h-screen flex flex-col">
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
@@ -91,6 +106,7 @@ export default async function AvailabilityPage({
             weekStart={weekStart}
             weekRows={(weekRows as Availability[]) ?? []}
             timeOff={(timeOff as Availability[]) ?? []}
+            lockedDays={lockedDays}
           />
         </div>
       </main>
