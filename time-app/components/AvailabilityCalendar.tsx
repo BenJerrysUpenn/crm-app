@@ -61,6 +61,7 @@ export default function AvailabilityCalendar({
   const router = useRouter();
   const lockedSet = new Set(lockedDays);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [viewing, setViewing] = useState<Availability | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -74,8 +75,13 @@ export default function AvailabilityCalendar({
     return { s, r, off };
   }
 
+  // A day is locked if it's in the past or already has a posted shift.
+  function isLocked(date: string) {
+    return date < today || lockedSet.has(date);
+  }
+
   function openAdd(date: string) {
-    if (lockedSet.has(date)) return;
+    if (isLocked(date)) return;
     setErr(null);
     setDraft({ date, kind: "unavailable", allDay: false, start: "09:00", end: "17:00", repeats: false, note: "" });
   }
@@ -122,8 +128,8 @@ export default function AvailabilityCalendar({
     const unavail = a.preference === "unavailable";
     return (
       <button
-        onClick={() => del(a.id)}
-        title="Click to remove"
+        onClick={() => setViewing(a)}
+        title="Click for details"
         className={`block w-full text-left truncate rounded px-1 py-0.5 text-[10px] mb-0.5 ${
           unavail
             ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300"
@@ -144,7 +150,7 @@ export default function AvailabilityCalendar({
         <button onClick={() => gotoMonth(1)} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">›</button>
       </div>
       <p className="text-sm text-slate-600 dark:text-slate-400">
-        Click a day to add a preference. <span className="text-rose-500">✕ unavailable</span>, <span className="text-sky-500">★ prefer to work</span>, ↻ repeats weekly. Tap a chip to remove it. Posted days are locked.
+        Click a day to add a preference. <span className="text-rose-500">✕ unavailable</span>, <span className="text-sky-500">★ prefer to work</span>, ↻ repeats weekly. Tap a chip to see it or remove it. Posted days are locked.
       </p>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
@@ -154,21 +160,23 @@ export default function AvailabilityCalendar({
         <div className="grid grid-cols-7">
           {days.map((date) => {
             const inMonth = date.slice(0, 7) === monthKey;
-            const locked = lockedSet.has(date);
+            const past = date < today;
+            const posted = lockedSet.has(date);
+            const locked = past || posted;
             const { s, r, off } = prefsFor(date);
             return (
               <div
                 key={date}
                 onClick={() => openAdd(date)}
                 className={`min-h-[92px] border-b border-r border-slate-200 dark:border-slate-800 p-1 ${
-                  locked ? "cursor-not-allowed" : "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  locked ? "cursor-not-allowed bg-slate-50 dark:bg-slate-950/40" : "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 } ${inMonth ? "" : "bg-slate-50/60 dark:bg-slate-950/40"}`}
               >
                 <div className="flex items-center justify-between">
-                  <span className={`text-[11px] ${date === today ? "bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center" : inMonth ? "text-slate-700 dark:text-slate-300" : "text-slate-400 dark:text-slate-600"}`}>
+                  <span className={`text-[11px] ${date === today ? "bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center" : past ? "text-slate-400 dark:text-slate-600" : inMonth ? "text-slate-700 dark:text-slate-300" : "text-slate-400 dark:text-slate-600"}`}>
                     {Number(date.slice(8, 10))}
                   </span>
-                  {locked && <span className="text-[10px]">🔒</span>}
+                  {posted && <span className="text-[10px]">🔒</span>}
                 </div>
                 <div className="mt-1" onClick={(e) => e.stopPropagation()}>
                   {off.map((a) => (
@@ -225,6 +233,26 @@ export default function AvailabilityCalendar({
             <div className="flex justify-end gap-2">
               <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
               <button onClick={save} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewing && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setViewing(null)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-sm space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+              {viewing.preference === "unavailable" ? "Unavailable to work" : "Prefer to work"}
+            </h2>
+            <div className="text-sm text-slate-700 dark:text-slate-300">
+              {viewing.weekday !== null ? `Every ${DOW[viewing.weekday]}` : new Date((viewing.specific_date ?? "") + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+              {" · "}
+              {viewing.start_time ? `${fmtT(viewing.start_time)}–${fmtT(viewing.end_time)}` : "all day"}
+            </div>
+            {viewing.note && <div className="text-sm text-slate-500">{viewing.note}</div>}
+            <div className="flex justify-between pt-2">
+              <button onClick={() => { del(viewing.id); setViewing(null); }} className="text-sm text-rose-500 hover:text-rose-400">Remove</button>
+              <button onClick={() => setViewing(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
             </div>
           </div>
         </div>

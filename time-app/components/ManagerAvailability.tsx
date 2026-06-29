@@ -128,7 +128,7 @@ export default function ManagerAvailability({
                 </span>
                 <span className="flex gap-2 shrink-0">
                   <button onClick={() => decide(g.anyId, "approved")} disabled={busyId === g.anyId} className="text-xs px-2 py-1 rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Approve</button>
-                  <button onClick={() => decide(g.anyId, "denied")} disabled={busyId === g.anyId} className="text-xs px-2 py-1 rounded-md border border-rose-800 text-rose-300 hover:bg-rose-950">Deny</button>
+                  <button onClick={() => decide(g.anyId, "denied")} disabled={busyId === g.anyId} className="text-xs px-2 py-1 rounded-md border border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950">Deny</button>
                 </span>
               </div>
             ))}
@@ -165,8 +165,15 @@ export default function ManagerAvailability({
                 .sort((a, b) => (a.specific_date! < b.specific_date! ? -1 : 1))
                 .map((a) => {
                   const col = dates.indexOf(a.specific_date!);
+                  const pref = a.preference ?? "available";
+                  const cls =
+                    pref === "unavailable"
+                      ? "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-900"
+                      : pref === "preferred"
+                        ? "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-900"
+                        : "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900";
                   return (
-                    <span key={a.id} className="text-xs rounded-md px-2 py-1 border bg-emerald-950/40 border-emerald-900 text-emerald-200">
+                    <span key={a.id} className={`text-xs rounded-md px-2 py-1 border ${cls}`}>
                       {col >= 0 ? DOW[col] : fmtDate(a.specific_date! + "T12:00:00")} {t(a.start_time)}–{t(a.end_time)}
                     </span>
                   );

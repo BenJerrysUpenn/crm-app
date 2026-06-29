@@ -206,6 +206,24 @@ export default function ScheduleBoard({
     router.refresh();
   }
 
+  async function publishWeek() {
+    setCopying(true);
+    setCopyMsg(null);
+    const res = await fetch("/api/shifts/publish-week", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weekStart }),
+    });
+    setCopying(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setCopyMsg(j.error ?? "Publish failed.");
+      return;
+    }
+    setCopyMsg(j.published ? `Published ${j.published} shift${j.published === 1 ? "" : "s"} for the week.` : "No draft shifts to publish.");
+    router.refresh();
+  }
+
   async function copyLastWeek() {
     setCopying(true);
     setCopyMsg(null);
@@ -260,7 +278,7 @@ export default function ScheduleBoard({
     });
   }
 
-  async function save(publish: boolean) {
+  async function save() {
     if (!draft) return;
     const start = new Date(draft.starts_at);
     const end = new Date(draft.ends_at);
@@ -282,7 +300,7 @@ export default function ScheduleBoard({
         ends_at: end.toISOString(),
         position: draft.position || null,
         notes: draft.notes || null,
-        published: publish || draft.published,
+        published: draft.published,
       };
       // Open shifts can be created in bulk (How Many).
       const count = !draft.id && !draft.employee_id ? Math.max(1, Math.min(20, howMany)) : 1;
@@ -324,6 +342,9 @@ export default function ScheduleBoard({
         <div className="flex flex-wrap items-center gap-2">
           {isManager && (
             <>
+              <button onClick={publishWeek} disabled={copying} className="px-3 py-1 text-sm rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">
+                {copying ? "…" : "Publish week"}
+              </button>
               <button onClick={autoFill} disabled={copying} className="px-2.5 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
                 {copying ? "Working…" : "Auto-fill"}
               </button>
@@ -405,8 +426,8 @@ export default function ScheduleBoard({
 
       {/* Manager: pending drop requests */}
       {isManager && dropRequests.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 border border-amber-900 rounded-lg p-4 mb-4">
-          <div className="text-sm font-medium text-amber-300 mb-2">
+        <div className="bg-amber-50 dark:bg-slate-900 border border-amber-200 dark:border-amber-900 rounded-lg p-4 mb-4">
+          <div className="text-sm font-medium text-amber-700 dark:text-amber-300 mb-2">
             Drop requests ({dropRequests.length})
           </div>
           <div className="space-y-2">
@@ -421,7 +442,7 @@ export default function ScheduleBoard({
                   </span>
                   <span className="flex gap-2 shrink-0">
                     <button onClick={() => decideReq(r.id, "approved")} disabled={actingReq === r.id} className="text-xs px-2 py-1 rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Approve</button>
-                    <button onClick={() => decideReq(r.id, "denied")} disabled={actingReq === r.id} className="text-xs px-2 py-1 rounded-md border border-rose-800 text-rose-300 hover:bg-rose-950">Deny</button>
+                    <button onClick={() => decideReq(r.id, "denied")} disabled={actingReq === r.id} className="text-xs px-2 py-1 rounded-md border border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950">Deny</button>
                   </span>
                 </div>
               );
@@ -665,8 +686,8 @@ export default function ScheduleBoard({
                 <button onClick={remove} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
               ) : <span />}
               <div className="flex gap-2">
-                <button onClick={() => save(false)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md border border-slate-400 dark:border-slate-600 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">{busy ? "Saving…" : "Save draft"}</button>
-                <button onClick={() => save(true)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">{busy ? "Publishing…" : "Publish"}</button>
+                <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+                <button onClick={save} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">{busy ? "Submitting…" : "Submit"}</button>
               </div>
             </div>
           </div>
@@ -714,7 +735,7 @@ function ManagerMatrix({
     );
   }
 
-  const cols = `170px repeat(7, minmax(120px, 1fr))`;
+  const cols = `170px repeat(7, minmax(150px, 1fr))`;
 
   function Chip({ s }: { s: ShiftWithEmployee }) {
     const color = s.position ? colorByType.get(s.position) : undefined;
@@ -728,8 +749,8 @@ function ManagerMatrix({
             : "bg-slate-100/60 dark:bg-slate-800/30 border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
         }`}
       >
-        <div className="font-medium">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
-        {s.position && <div className="text-slate-500">{s.position}</div>}
+        <div className="font-medium whitespace-nowrap">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
+        {s.position && <div className="text-slate-500 truncate">{s.position}</div>}
         {!s.published && <div className="text-amber-500">draft</div>}
         {s.published && s.employee_id && (
           <div className={s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}>

@@ -10,6 +10,9 @@ function addDays(d: string, n: number) {
   x.setUTCDate(x.getUTCDate() + n);
   return x.toISOString().slice(0, 10);
 }
+function todayEastern() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
 
 export async function POST(request: Request) {
   const profile = await getProfile();
@@ -49,9 +52,11 @@ export async function POST(request: Request) {
       }
     }
 
+    const today = todayEastern();
     const group = randomUUID();
     const rows: Record<string, unknown>[] = [];
     for (let d = start; d <= end; d = addDays(d, 1)) {
+      if (d < today) continue; // can't request off for past days
       if (lockedDays.has(d)) continue; // skip only the posted days
       rows.push({
         employee_id: profile.id,
@@ -90,8 +95,14 @@ export async function POST(request: Request) {
 
   // Single preference insert (a calendar "Add Preference": unavailable/prefer,
   // optional time range, optional weekly repeat).
-  // Block adding a preference for a day that's already posted.
+  // Block adding a preference for a past day or a day that's already posted.
   if (body.specific_date) {
+    if (body.specific_date < todayEastern()) {
+      return NextResponse.json(
+        { error: "You can't change availability for a day that's already passed." },
+        { status: 409 },
+      );
+    }
     const { data: pubChk } = await supabase
       .from("shifts")
       .select("starts_at")
