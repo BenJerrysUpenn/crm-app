@@ -60,21 +60,21 @@ export default function AttendanceView({ notices }: { notices: Notice[] }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <h1 className="text-lg font-semibold text-slate-100">Attendance notices</h1>
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Attendance notices</h1>
         {visible.length > 0 && (
-          <button onClick={clearAll} className="text-xs px-2 py-1 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">
+          <button onClick={clearAll} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
             Clear all
           </button>
         )}
       </div>
-      <p className="text-sm text-slate-400 mb-4">Last 7 days · late or missed clock-ins vs the schedule.</p>
+      <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Last 7 days · late or missed clock-ins vs the schedule.</p>
 
       {visible.length === 0 ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-center text-slate-500 text-sm">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center text-slate-500 text-sm">
           No attendance issues. Everyone's on time.
         </div>
       ) : (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl divide-y divide-slate-800">
           {visible.map((n) => (
             <div key={n.id} className="flex items-center justify-between gap-3 px-4 py-3">
               <div>
@@ -84,12 +84,12 @@ export default function AttendanceView({ notices }: { notices: Notice[] }) {
                   </span>
                   {n.kind !== "no_show" && <span className="text-rose-400"> ({dur(n.minutes)})</span>}
                 </div>
-                <div className="text-xs text-slate-400 mt-0.5">
+                <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                   {n.name} · {fmtDate(n.atISO)} at {fmtTime(n.atISO)}
                   {n.position ? ` · ${n.position}` : ""}
                 </div>
               </div>
-              <button onClick={() => dismiss(n.id)} className="text-slate-500 hover:text-slate-300 text-xs shrink-0">
+              <button onClick={() => dismiss(n.id)} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-xs shrink-0">
                 Dismiss
               </button>
             </div>

@@ -206,15 +206,15 @@ export default function AvailabilityGrid({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-lg font-semibold text-slate-100 mr-auto">My Availability</h1>
-        <button onClick={() => gotoWeek(-7)} className="text-xs px-2 py-1 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">‹ Prev</button>
-        <button onClick={() => router.push("/availability")} className="text-xs px-2 py-1 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">This week</button>
-        <button onClick={() => gotoWeek(7)} className="text-xs px-2 py-1 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">Next ›</button>
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mr-auto">My Availability</h1>
+        <button onClick={() => gotoWeek(-7)} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">‹ Prev</button>
+        <button onClick={() => router.push("/availability")} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">This week</button>
+        <button onClick={() => gotoWeek(7)} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Next ›</button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-sm text-slate-300 mr-auto">{rangeLabel}</div>
-        <button onClick={copyLastWeek} className="text-xs px-2 py-1 rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800">Copy last week</button>
+        <div className="text-sm text-slate-700 dark:text-slate-300 mr-auto">{rangeLabel}</div>
+        <button onClick={copyLastWeek} className="text-xs px-2 py-1 rounded-md border border-slate-400 dark:border-slate-600 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Copy last week</button>
         <button onClick={save} disabled={saving || !dirty} className="text-sm px-3 py-1.5 rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-40">
           {saving ? "Saving…" : dirty ? "Save" : "Saved"}
         </button>
@@ -227,7 +227,7 @@ export default function AvailabilityGrid({
             key={m}
             onClick={() => setMode(m)}
             className={`text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 ${
-              mode === m ? "border-slate-300 bg-slate-800 text-slate-100" : "border-slate-700 text-slate-400 hover:bg-slate-800"
+              mode === m ? "border-slate-300 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100" : "border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
             {m !== "erase" && <span className={`inline-block w-2.5 h-2.5 rounded-sm ${PREF_COLOR[m]}`} />}
@@ -235,17 +235,17 @@ export default function AvailabilityGrid({
           </button>
         ))}
       </div>
-      <p className="text-sm text-slate-400">Pick a mode, then click and drag to paint the hours. Days already scheduled are locked.</p>
+      <p className="text-sm text-slate-600 dark:text-slate-400">Pick a mode, then click and drag to paint the hours. Days already scheduled are locked.</p>
       {msg && <div className="text-sm text-emerald-400">{msg}</div>}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 overflow-x-auto">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 overflow-x-auto">
         <div className="select-none" style={{ touchAction: "none", minWidth: 560 }} onPointerMove={onPointerMove}>
           <div className="grid" style={{ gridTemplateColumns: `48px repeat(7, 1fr)` }}>
             <div />
             {dates.map((d, i) => {
               const locked = lockedSet.has(d);
               return (
-                <button key={i} onClick={() => clearCol(i)} disabled={locked} className={`text-xs font-medium pb-1 ${locked ? "text-slate-600" : "text-slate-400 hover:text-slate-200"}`}>
+                <button key={i} onClick={() => clearCol(i)} disabled={locked} className={`text-xs font-medium pb-1 ${locked ? "text-slate-600" : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"}`}>
                   {DOW[i]} {Number(d.slice(8, 10))}{locked ? " 🔒" : ""}
                 </button>
               );
@@ -269,8 +269,8 @@ export default function AvailabilityGrid({
                         data-col={col}
                         data-slot={slot}
                         onPointerDown={(e) => !locked && onPointerDown(e, col, slot)}
-                        className={`h-5 border-b border-l border-slate-800 ${onHour ? "border-t border-t-slate-700/60" : ""} ${
-                          locked ? "bg-slate-950/60 cursor-not-allowed" : "cursor-pointer hover:bg-slate-800/60"
+                        className={`h-5 border-b border-l border-slate-200 dark:border-slate-800 ${onHour ? "border-t border-t-slate-700/60" : ""} ${
+                          locked ? "bg-slate-100 dark:bg-slate-950/60 cursor-not-allowed" : "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60"
                         } ${pref ? PREF_COLOR[pref] : ""}`}
                       />
                     );
@@ -346,25 +346,25 @@ function TimeOff({ timeOff }: { timeOff: Availability[] }) {
   const groups = groupTimeOff(timeOff);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-      <div className="text-sm font-medium text-slate-300">Time-off requests</div>
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
+      <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Time-off requests</div>
       <p className="text-xs text-slate-500">Request a single day or a range. You can't request off once that day's schedule is posted.</p>
       <div className="flex flex-wrap items-end gap-2">
-        <label className="text-xs text-slate-400">From
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ml-2 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100" />
+        <label className="text-xs text-slate-600 dark:text-slate-400">From
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ml-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1 text-slate-900 dark:text-slate-100" />
         </label>
-        <label className="text-xs text-slate-400">To
-          <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="ml-2 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100" />
+        <label className="text-xs text-slate-600 dark:text-slate-400">To
+          <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="ml-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1 text-slate-900 dark:text-slate-100" />
         </label>
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason (optional)" className="bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-100 text-sm flex-1 min-w-[140px]" />
-        <button onClick={add} disabled={busy || !from} className="text-sm px-3 py-1.5 rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-40">Request</button>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason (optional)" className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1 text-slate-900 dark:text-slate-100 text-sm flex-1 min-w-[140px]" />
+        <button onClick={add} disabled={busy || !from} className="text-sm px-3 py-1.5 rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-40">Request</button>
       </div>
       {err && <div className="text-sm text-rose-300">{err}</div>}
       {groups.length > 0 && (
         <div className="space-y-1 pt-1">
           {groups.map((g) => (
-            <div key={g.key} className="flex items-center justify-between text-sm border-b border-slate-800 pb-1 last:border-0">
-              <span className="text-slate-300">
+            <div key={g.key} className="flex items-center justify-between text-sm border-b border-slate-200 dark:border-slate-800 pb-1 last:border-0">
+              <span className="text-slate-700 dark:text-slate-300">
                 {g.start === g.end ? fmtDate(g.start + "T12:00:00") : `${fmtDate(g.start + "T12:00:00")} – ${fmtDate(g.end + "T12:00:00")}`} · {statusBadge(g.status)}
                 {g.note ? ` · ${g.note}` : ""}
               </span>

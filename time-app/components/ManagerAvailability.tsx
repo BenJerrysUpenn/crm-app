@@ -105,15 +105,15 @@ export default function ManagerAvailability({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-lg font-semibold text-slate-100 mr-auto">Team availability</h1>
-        <button onClick={() => gotoWeek(-7)} className="text-xs px-2 py-1 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">‹ Prev</button>
-        <button onClick={() => router.push("/availability")} className="text-xs px-2 py-1 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">This week</button>
-        <button onClick={() => gotoWeek(7)} className="text-xs px-2 py-1 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">Next ›</button>
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mr-auto">Team availability</h1>
+        <button onClick={() => gotoWeek(-7)} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">‹ Prev</button>
+        <button onClick={() => router.push("/availability")} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">This week</button>
+        <button onClick={() => gotoWeek(7)} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Next ›</button>
       </div>
 
       {/* Time-off approvals */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div className="text-sm font-medium text-slate-300 mb-3">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+        <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
           Time-off requests {pending.length > 0 && <span className="text-amber-400">({pending.length} pending)</span>}
         </div>
         {pending.length === 0 ? (
@@ -121,8 +121,8 @@ export default function ManagerAvailability({
         ) : (
           <div className="space-y-2">
             {pending.map((g) => (
-              <div key={g.key} className="flex items-center justify-between gap-3 text-sm border-b border-slate-800 pb-2 last:border-0">
-                <span className="text-slate-200">
+              <div key={g.key} className="flex items-center justify-between gap-3 text-sm border-b border-slate-200 dark:border-slate-800 pb-2 last:border-0">
+                <span className="text-slate-800 dark:text-slate-200">
                   {g.name} · {groupRange(g)}
                   {g.note ? ` · ${g.note}` : ""}
                 </span>
@@ -135,13 +135,13 @@ export default function ManagerAvailability({
           </div>
         )}
         {decided.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-slate-800 space-y-1">
+          <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
             {decided.map((g) => (
               <div key={g.key} className="flex items-center justify-between text-xs text-slate-500">
                 <span>{g.name} · {groupRange(g)}</span>
                 <span className="flex items-center gap-2">
                   <span className={g.status === "approved" ? "text-emerald-400" : "text-rose-400"}>{g.status}</span>
-                  <button onClick={() => decide(g.anyId, g.status === "approved" ? "denied" : "approved")} className="hover:text-slate-300 underline">
+                  <button onClick={() => decide(g.anyId, g.status === "approved" ? "denied" : "approved")} className="hover:text-slate-700 dark:hover:text-slate-300 underline">
                     {g.status === "approved" ? "deny" : "approve"}
                   </button>
                 </span>
@@ -152,13 +152,13 @@ export default function ManagerAvailability({
       </div>
 
       {/* Week availability per employee */}
-      <div className="text-sm text-slate-400">{rangeLabel}</div>
+      <div className="text-sm text-slate-600 dark:text-slate-400">{rangeLabel}</div>
       {byEmp.size === 0 ? (
         <div className="text-slate-500 text-sm">No availability submitted for this week.</div>
       ) : (
         Array.from(byEmp.entries()).map(([id, list]) => (
-          <div key={id} className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <div className="text-sm font-medium text-slate-200 mb-3">{list[0].profiles?.full_name ?? id}</div>
+          <div key={id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+            <div className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3">{list[0].profiles?.full_name ?? id}</div>
             <div className="flex flex-wrap gap-2">
               {list
                 .slice()

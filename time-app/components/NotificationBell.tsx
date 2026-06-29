@@ -51,7 +51,7 @@ export default function NotificationBell() {
           setOpen((o) => !o);
           if (!open) markAll();
         }}
-        className="relative text-slate-300 hover:text-slate-100 p-1"
+        className="relative text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 p-1"
         aria-label="Notifications"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -65,11 +65,11 @@ export default function NotificationBell() {
         )}
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-auto bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-30">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800 sticky top-0 bg-slate-900">
-            <span className="text-xs font-medium text-slate-400">Notifications</span>
+        <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-auto bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg shadow-xl z-30">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-900">
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Notifications</span>
             {items.length > 0 && (
-              <button onClick={clearAll} className="text-xs text-slate-400 hover:text-rose-400">
+              <button onClick={clearAll} className="text-xs text-slate-600 dark:text-slate-400 hover:text-rose-400">
                 Clear all
               </button>
             )}
@@ -78,9 +78,9 @@ export default function NotificationBell() {
             <div className="p-4 text-sm text-slate-500">No notifications.</div>
           ) : (
             items.map((n) => (
-              <div key={n.id} className="px-3 py-2 border-b border-slate-800 last:border-0">
-                <div className="text-sm text-slate-200">{n.title}</div>
-                {n.body && <div className="text-xs text-slate-400 mt-0.5">{n.body}</div>}
+              <div key={n.id} className="px-3 py-2 border-b border-slate-200 dark:border-slate-800 last:border-0">
+                <div className="text-sm text-slate-800 dark:text-slate-200">{n.title}</div>
+                {n.body && <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{n.body}</div>}
                 <div className="text-[10px] text-slate-600 mt-1">{fmtDateTime(n.created_at)}</div>
               </div>
             ))

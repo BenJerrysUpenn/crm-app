@@ -155,17 +155,17 @@ export default function Timesheets({
 
   return (
     <div>
-      <h1 className="text-lg font-semibold text-slate-100 mb-3">Timesheets</h1>
+      <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-3">Timesheets</h1>
       <div className="flex flex-wrap items-end gap-3 mb-5">
-        <label className="flex flex-col text-xs text-slate-400">From
-          <input type="date" value={from} onChange={(e) => apply({ from: e.target.value })} className="mt-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100" />
+        <label className="flex flex-col text-xs text-slate-600 dark:text-slate-400">From
+          <input type="date" value={from} onChange={(e) => apply({ from: e.target.value })} className="mt-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100" />
         </label>
-        <label className="flex flex-col text-xs text-slate-400">To
-          <input type="date" value={to} onChange={(e) => apply({ to: e.target.value })} className="mt-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100" />
+        <label className="flex flex-col text-xs text-slate-600 dark:text-slate-400">To
+          <input type="date" value={to} onChange={(e) => apply({ to: e.target.value })} className="mt-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100" />
         </label>
         {isManager && (
-          <label className="flex flex-col text-xs text-slate-400">Employee
-            <select value={emp} onChange={(e) => apply({ emp: e.target.value })} className="mt-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100">
+          <label className="flex flex-col text-xs text-slate-600 dark:text-slate-400">Employee
+            <select value={emp} onChange={(e) => apply({ emp: e.target.value })} className="mt-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100">
               <option value="">All</option>
               {employees.map((x) => <option key={x.id} value={x.id}>{x.full_name ?? x.id}</option>)}
             </select>
@@ -175,31 +175,31 @@ export default function Timesheets({
           {isManager && (
             <button onClick={newEntry} className="px-3 py-2 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400">+ Add entry</button>
           )}
-          <button onClick={exportCsv} className="px-3 py-2 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white">Export CSV</button>
+          <button onClick={exportCsv} className="px-3 py-2 text-sm rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white">Export CSV</button>
         </div>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-5">
-        <div className="text-sm font-medium text-slate-300 mb-3">Totals</div>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 mb-5">
+        <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Totals</div>
         <div className="space-y-1">
           {Array.from(byEmp.entries()).map(([id, v]) => (
             <div key={id} className="flex justify-between text-sm">
-              <span className="text-slate-300">{v.name}</span>
-              <span className="text-slate-400">
+              <span className="text-slate-700 dark:text-slate-300">{v.name}</span>
+              <span className="text-slate-600 dark:text-slate-400">
                 {v.hours.toFixed(2)} h{v.rate ? ` · $${(v.hours * v.rate).toFixed(2)}` : ""}
               </span>
             </div>
           ))}
-          <div className="flex justify-between text-sm font-semibold border-t border-slate-800 pt-2 mt-2">
-            <span className="text-slate-200">Total</span>
-            <span className="text-slate-100">{grand.toFixed(2)} h</span>
+          <div className="flex justify-between text-sm font-semibold border-t border-slate-200 dark:border-slate-800 pt-2 mt-2">
+            <span className="text-slate-800 dark:text-slate-200">Total</span>
+            <span className="text-slate-900 dark:text-slate-100">{grand.toFixed(2)} h</span>
           </div>
         </div>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-slate-800/60 text-slate-400 text-xs">
+          <thead className="bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-xs">
             <tr>
               {isManager && <th className="text-left px-3 py-2">Employee</th>}
               <th className="text-left px-3 py-2">Date</th>
@@ -217,22 +217,22 @@ export default function Timesheets({
             ) : entries.map((e) => {
               const late = lateMinutes(e, tardyGraceMin);
               return (
-              <tr key={e.id} className="border-t border-slate-800">
+              <tr key={e.id} className="border-t border-slate-200 dark:border-slate-800">
                 {isManager && (
-                  <td className="px-3 py-2 text-slate-300">
+                  <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
                     {e.profiles?.full_name ?? "—"}
                     {e.manual && <span className="ml-1 text-[10px] text-sky-400">(manual)</span>}
                   </td>
                 )}
-                <td className="px-3 py-2 text-slate-300">{fmtDate(e.clock_in_at)}</td>
-                <td className="px-3 py-2 text-slate-400">{fmtTime(e.clock_in_at)}</td>
-                <td className="px-3 py-2 text-slate-400">{e.clock_out_at ? fmtTime(e.clock_out_at) : <span className="text-emerald-400">open</span>}</td>
-                <td className="px-3 py-2 text-right text-slate-300">{e.clock_out_at ? hoursBetween(e.clock_in_at, e.clock_out_at).toFixed(2) : "—"}</td>
+                <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{fmtDate(e.clock_in_at)}</td>
+                <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{fmtTime(e.clock_in_at)}</td>
+                <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{e.clock_out_at ? fmtTime(e.clock_out_at) : <span className="text-emerald-400">open</span>}</td>
+                <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{e.clock_out_at ? hoursBetween(e.clock_in_at, e.clock_out_at).toFixed(2) : "—"}</td>
                 <td className="px-3 py-2 text-right">{late ? <span className="text-amber-400">{late}m</span> : <span className="text-slate-600">—</span>}</td>
                 <td className="px-3 py-2 text-right text-slate-500">{e.clock_in_distance_m != null ? `${e.clock_in_distance_m}m` : "—"}</td>
                 {isManager && (
                   <td className="px-3 py-2 text-right">
-                    <button onClick={() => editEntry(e)} className="text-xs text-slate-400 hover:text-slate-100">Edit</button>
+                    <button onClick={() => editEntry(e)} className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">Edit</button>
                   </td>
                 )}
               </tr>
@@ -244,19 +244,19 @@ export default function Timesheets({
 
       {draft && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(ev) => ev.stopPropagation()}>
-            <h2 className="font-semibold text-slate-100">{draft.id ? "Edit time entry" : "Add time entry"}</h2>
-            <label className="block text-xs text-slate-400">Employee
-              <select value={draft.employee_id} onChange={(ev) => setDraft({ ...draft, employee_id: ev.target.value })} disabled={!!draft.id} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100 disabled:opacity-60">
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(ev) => ev.stopPropagation()}>
+            <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit time entry" : "Add time entry"}</h2>
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
+              <select value={draft.employee_id} onChange={(ev) => setDraft({ ...draft, employee_id: ev.target.value })} disabled={!!draft.id} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100 disabled:opacity-60">
                 {employees.map((x) => <option key={x.id} value={x.id}>{x.full_name ?? x.id}</option>)}
               </select>
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-400">Clock in
-                <input type="datetime-local" value={draft.clock_in} onChange={(ev) => setDraft({ ...draft, clock_in: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" />
+              <label className="block text-xs text-slate-600 dark:text-slate-400">Clock in
+                <input type="datetime-local" value={draft.clock_in} onChange={(ev) => setDraft({ ...draft, clock_in: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
               </label>
-              <label className="block text-xs text-slate-400">Clock out
-                <input type="datetime-local" value={draft.clock_out} onChange={(ev) => setDraft({ ...draft, clock_out: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 py-2 text-slate-100" />
+              <label className="block text-xs text-slate-600 dark:text-slate-400">Clock out
+                <input type="datetime-local" value={draft.clock_out} onChange={(ev) => setDraft({ ...draft, clock_out: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
               </label>
             </div>
             <p className="text-[11px] text-slate-600">Leave clock out blank to leave the shift open.</p>
@@ -266,7 +266,7 @@ export default function Timesheets({
                 <button onClick={deleteEntry} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
               ) : <span />}
               <div className="flex gap-2">
-                <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800">Cancel</button>
+                <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-400 dark:border-slate-600 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
                 <button onClick={saveEntry} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
                   {busy ? "Saving…" : "Save"}
                 </button>

@@ -23,28 +23,23 @@ export async function POST(request: Request) {
     const start: string = body.start_date;
     const end: string = body.end_date && body.end_date >= start ? body.end_date : start;
 
-    // Can't ask off for a day that already has a published shift.
+    // A day is locked only if THAT exact day already has a published shift.
     const { data: pub } = await supabase
       .from("shifts")
       .select("starts_at")
       .eq("published", true)
       .gte("starts_at", start + "T00:00:00Z")
-      .lt("starts_at", addDays(end, 2) + "T00:00:00Z");
+      .lt("starts_at", addDays(end, 1) + "T00:00:00Z");
     const lockedDays = new Set(
       (pub ?? [])
         .map((s) => new Date(s.starts_at as string).toLocaleDateString("en-CA", { timeZone: "America/New_York" }))
         .filter((d) => d >= start && d <= end),
     );
-    if (lockedDays.size > 0) {
-      return NextResponse.json(
-        { error: "The schedule is already posted for one or more of those days, so you can't request them off. Ask a manager." },
-        { status: 409 },
-      );
-    }
 
     const group = randomUUID();
     const rows: Record<string, unknown>[] = [];
     for (let d = start; d <= end; d = addDays(d, 1)) {
+      if (lockedDays.has(d)) continue; // skip only the posted days
       rows.push({
         employee_id: profile.id,
         specific_date: d,
@@ -54,6 +49,12 @@ export async function POST(request: Request) {
         request_group: group,
       });
       if (rows.length > 366) break; // safety
+    }
+    if (rows.length === 0) {
+      return NextResponse.json(
+        { error: "The schedule is already posted for those day(s), so you can't request them off. Ask a manager." },
+        { status: 409 },
+      );
     }
     const { error } = await supabase.from("availability").insert(rows);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

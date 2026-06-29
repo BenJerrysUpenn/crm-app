@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import type { Role } from "@/lib/types";
 import NotificationBell from "@/components/NotificationBell";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const links: { href: string; label: string; managerOnly?: boolean }[] = [
   { href: "/", label: "Clock" },
@@ -34,12 +35,12 @@ export default function TopBar({
   }
 
   return (
-    <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-20">
+    <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 backdrop-blur sticky top-0 z-20">
       <div className="mx-auto max-w-5xl px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-4">
         {/* Hamburger (mobile only) */}
         <button
           onClick={() => setOpen((o) => !o)}
-          className="sm:hidden text-slate-300 hover:text-slate-100 p-1 -ml-1"
+          className="sm:hidden text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 p-1 -ml-1"
           aria-label="Menu"
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -51,7 +52,7 @@ export default function TopBar({
           </svg>
         </button>
 
-        <div className="font-semibold text-slate-100 shrink-0">Withers Time</div>
+        <div className="font-semibold text-slate-900 dark:text-slate-100 shrink-0">Withers Time</div>
 
         {/* Desktop nav */}
         <nav className="hidden sm:flex items-center gap-1 flex-1 overflow-x-auto">
@@ -61,8 +62,8 @@ export default function TopBar({
               href={l.href}
               className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap ${
                 isActive(l.href)
-                  ? "bg-slate-100 text-slate-900 font-medium"
-                  : "text-slate-300 hover:bg-slate-800"
+                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               {l.label}
@@ -73,15 +74,16 @@ export default function TopBar({
         {/* Spacer on mobile to push the right cluster over */}
         <div className="flex-1 sm:hidden" />
 
+        <ThemeToggle />
         <NotificationBell />
 
         <Link href="/account" className="hidden md:flex flex-col items-end leading-tight hover:opacity-80">
-          <span className="text-xs text-slate-300">{name || email}</span>
+          <span className="text-xs text-slate-700 dark:text-slate-300">{name || email}</span>
           <span className="text-[10px] text-slate-500 capitalize">{role} · account</span>
         </Link>
 
         <form action="/api/logout" method="post">
-          <button className="text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md px-2 py-1 whitespace-nowrap">
+          <button className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1 whitespace-nowrap">
             Sign out
           </button>
         </form>
@@ -89,7 +91,7 @@ export default function TopBar({
 
       {/* Mobile dropdown menu */}
       {open && (
-        <nav className="sm:hidden border-t border-slate-800 px-2 py-2 flex flex-col gap-1">
+        <nav className="sm:hidden border-t border-slate-200 dark:border-slate-800 px-2 py-2 flex flex-col gap-1">
           {visible.map((l) => (
             <Link
               key={l.href}
@@ -97,8 +99,8 @@ export default function TopBar({
               onClick={() => setOpen(false)}
               className={`px-3 py-2 rounded-md text-sm ${
                 isActive(l.href)
-                  ? "bg-slate-100 text-slate-900 font-medium"
-                  : "text-slate-300 hover:bg-slate-800"
+                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               {l.label}

@@ -92,30 +92,30 @@ export default function AccountForm({
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-slate-100">My account</h1>
+      <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">My account</h1>
 
-      <form onSubmit={saveProfile} className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-        <div className="text-sm font-medium text-slate-300">Profile</div>
-        <label className="block text-xs text-slate-400">Name
-          <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-slate-100" />
+      <form onSubmit={saveProfile} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
+        <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Profile</div>
+        <label className="block text-xs text-slate-600 dark:text-slate-400">Name
+          <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-3 py-2 text-slate-900 dark:text-slate-100" />
         </label>
-        <label className="block text-xs text-slate-400">Phone (for text alerts)
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+12155551234" className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-slate-100" />
+        <label className="block text-xs text-slate-600 dark:text-slate-400">Phone (for text alerts)
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+12155551234" className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-3 py-2 text-slate-900 dark:text-slate-100" />
         </label>
         {profileMsg && <div className="text-sm text-emerald-400">{profileMsg}</div>}
-        <button disabled={savingProfile} className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-50">
+        <button disabled={savingProfile} className="px-3 py-1.5 text-sm rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-50">
           {savingProfile ? "Saving…" : "Save profile"}
         </button>
       </form>
 
-      <form onSubmit={savePassword} className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-        <div className="text-sm font-medium text-slate-300">Change password</div>
+      <form onSubmit={savePassword} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
+        <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Change password</div>
         <p className="text-xs text-slate-500">Set your own password. You won&apos;t need the temporary one again.</p>
-        <label className="block text-xs text-slate-400">New password
-          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-slate-100" />
+        <label className="block text-xs text-slate-600 dark:text-slate-400">New password
+          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-3 py-2 text-slate-900 dark:text-slate-100" />
         </label>
-        <label className="block text-xs text-slate-400">Confirm new password
-          <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-slate-100" />
+        <label className="block text-xs text-slate-600 dark:text-slate-400">Confirm new password
+          <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-3 py-2 text-slate-900 dark:text-slate-100" />
         </label>
         {pwErr && <div className="text-sm text-rose-300 bg-rose-950 border border-rose-900 rounded-md px-3 py-2">{pwErr}</div>}
         {pwMsg && <div className="text-sm text-emerald-400">{pwMsg}</div>}
@@ -124,11 +124,11 @@ export default function AccountForm({
         </button>
       </form>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <div className="text-sm font-medium text-slate-300">Notifications</div>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Notifications</div>
 
         <div>
-          <div className="text-xs text-slate-400 mb-2">How to reach me</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 mb-2">How to reach me</div>
           <div className="space-y-2">
             {CHANNELS.map((c) => (
               <Toggle key={c.key} label={c.label} on={isOn(c.key)} onToggle={() => toggle(c.key)} />
@@ -138,7 +138,7 @@ export default function AccountForm({
         </div>
 
         <div>
-          <div className="text-xs text-slate-400 mb-2">Notify me about</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 mb-2">Notify me about</div>
           <div className="space-y-2">
             {TYPES_BY_ROLE[role].map((t) => (
               <Toggle key={t.key} label={t.label} on={isOn(t.key)} onToggle={() => toggle(t.key)} />
@@ -147,7 +147,7 @@ export default function AccountForm({
         </div>
 
         {prefsMsg && <div className="text-sm text-emerald-400">{prefsMsg}</div>}
-        <button onClick={savePrefs} disabled={savingPrefs} className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-50">
+        <button onClick={savePrefs} disabled={savingPrefs} className="px-3 py-1.5 text-sm rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-50">
           {savingPrefs ? "Saving…" : "Save notification settings"}
         </button>
       </div>
@@ -162,7 +162,7 @@ function Toggle({ label, on, onToggle }: { label: string; on: boolean; onToggle:
       onClick={onToggle}
       className="w-full flex items-center justify-between gap-3 text-left"
     >
-      <span className="text-sm text-slate-300">{label}</span>
+      <span className="text-sm text-slate-700 dark:text-slate-300">{label}</span>
       <span
         className={`shrink-0 w-10 h-6 rounded-full p-0.5 transition-colors ${
           on ? "bg-emerald-500" : "bg-slate-700"

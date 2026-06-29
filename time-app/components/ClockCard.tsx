@@ -71,8 +71,8 @@ export default function ClockCard({
 
   return (
     <div className="space-y-6">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-center">
-        <div className="text-sm text-slate-400">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center">
+        <div className="text-sm text-slate-600 dark:text-slate-400">
           {clockedIn ? "On the clock since" : "You are clocked out"}
         </div>
         {clockedIn && (
@@ -104,10 +104,10 @@ export default function ClockCard({
         )}
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div className="text-sm font-medium text-slate-300 mb-1">Today&apos;s shift</div>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+        <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Today&apos;s shift</div>
         {todaysShift ? (
-          <div className="text-slate-200">
+          <div className="text-slate-800 dark:text-slate-200">
             {fmtTime(todaysShift.starts_at)} – {fmtTime(todaysShift.ends_at)}
             {todaysShift.position ? ` · ${todaysShift.position}` : ""}
           </div>
@@ -116,16 +116,16 @@ export default function ClockCard({
         )}
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div className="text-sm font-medium text-slate-300 mb-3">Recent</div>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+        <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Recent</div>
         {recent.length === 0 ? (
           <div className="text-slate-500 text-sm">No entries yet.</div>
         ) : (
           <div className="space-y-2">
             {recent.map((e) => (
-              <div key={e.id} className="flex justify-between text-sm border-b border-slate-800 pb-2 last:border-0">
-                <span className="text-slate-300">{fmtDateTime(e.clock_in_at)}</span>
-                <span className="text-slate-400">
+              <div key={e.id} className="flex justify-between text-sm border-b border-slate-200 dark:border-slate-800 pb-2 last:border-0">
+                <span className="text-slate-700 dark:text-slate-300">{fmtDateTime(e.clock_in_at)}</span>
+                <span className="text-slate-600 dark:text-slate-400">
                   {e.clock_out_at
                     ? `${hoursBetween(e.clock_in_at, e.clock_out_at)} h`
                     : "open"}

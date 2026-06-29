@@ -35,13 +35,13 @@ export default function TeamAdmin({
   return (
     <div className="space-y-8">
       <section>
-        <h1 className="text-lg font-semibold text-slate-100 mb-1">Team</h1>
-        <p className="text-sm text-slate-400 mb-4">
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Team</h1>
+        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
           Add people under Supabase → Authentication → Users (Auto Confirm on). They appear here automatically. Set their role, phone (for SMS), and pay rate.
         </p>
-        <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           <table className="w-full text-sm min-w-[640px]">
-            <thead className="bg-slate-800/60 text-slate-400 text-xs">
+            <thead className="bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-xs">
               <tr>
                 <th className="text-left px-3 py-2">Email</th>
                 <th className="text-left px-3 py-2">Name</th>
@@ -102,16 +102,16 @@ function ShiftTypesSection({ shiftTypes }: { shiftTypes: ShiftType[] }) {
 
   return (
     <section>
-      <h2 className="text-lg font-semibold text-slate-100 mb-1">Shift types</h2>
-      <p className="text-sm text-slate-400 mb-4">These appear in the schedule dropdown and color-code shifts.</p>
-      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Shift types</h2>
+      <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">These appear in the schedule dropdown and color-code shifts.</p>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 space-y-3">
         {shiftTypes.map((t) => (
           <ShiftTypeRow key={t.id} t={t} onSave={save} onRemove={remove} />
         ))}
-        <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
-          <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="w-9 h-9 rounded bg-slate-800 border border-slate-700" />
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="New shift type name" className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-100 text-sm" />
-          <button onClick={add} disabled={busy || !newName.trim()} className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-50">Add</button>
+        <div className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+          <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="w-9 h-9 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700" />
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="New shift type name" className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-slate-900 dark:text-slate-100 text-sm" />
+          <button onClick={add} disabled={busy || !newName.trim()} className="px-3 py-1.5 text-sm rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-50">Add</button>
         </div>
       </div>
     </section>
@@ -131,8 +131,8 @@ function ShiftTypeRow({
   const [color, setColor] = useState(t.color);
   return (
     <div className="flex items-center gap-2">
-      <input type="color" value={color} onChange={(e) => { setColor(e.target.value); onSave(t.id, { color: e.target.value }); }} className="w-9 h-9 rounded bg-slate-800 border border-slate-700" />
-      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== t.name && onSave(t.id, { name })} className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-100 text-sm" />
+      <input type="color" value={color} onChange={(e) => { setColor(e.target.value); onSave(t.id, { color: e.target.value }); }} className="w-9 h-9 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700" />
+      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== t.name && onSave(t.id, { name })} className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-slate-900 dark:text-slate-100 text-sm" />
       <button onClick={() => onRemove(t.id)} className="text-xs text-slate-500 hover:text-rose-400 px-2">Remove</button>
     </div>
   );
@@ -164,10 +164,10 @@ function SettingsSection({ settings }: { settings: AppSettings }) {
   }
 
   const Field = ({ label, value, set, hint }: { label: string; value: string; set: (v: string) => void; hint: string }) => (
-    <label className="block text-xs text-slate-400">
+    <label className="block text-xs text-slate-600 dark:text-slate-400">
       {label}
       <div className="mt-1 flex items-center gap-2">
-        <input type="number" min={0} value={value} onChange={(e) => set(e.target.value)} className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-100" />
+        <input type="number" min={0} value={value} onChange={(e) => set(e.target.value)} className="w-20 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-slate-900 dark:text-slate-100" />
         <span className="text-slate-500">minutes</span>
       </div>
       <span className="text-[11px] text-slate-600">{hint}</span>
@@ -176,15 +176,15 @@ function SettingsSection({ settings }: { settings: AppSettings }) {
 
   return (
     <section>
-      <h2 className="text-lg font-semibold text-slate-100 mb-1">Timing &amp; alerts</h2>
-      <p className="text-sm text-slate-400 mb-4">Grace periods used for reminders, missed-clock-in alerts, and attendance.</p>
-      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Timing &amp; alerts</h2>
+      <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Grace periods used for reminders, missed-clock-in alerts, and attendance.</p>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Employee missed clock-in" value={empGrace} set={setEmpGrace} hint="Nudge the employee this long after their shift starts." />
         <Field label="Manager missed clock-in" value={mgrGrace} set={setMgrGrace} hint="Escalate to managers this long after the start." />
         <Field label="Tardy threshold" value={tardy} set={setTardy} hint="Clock-ins later than this count as late on attendance." />
         <Field label="Shift reminder lead" value={reminder} set={setReminder} hint="Remind employees this long before a shift." />
         <div className="sm:col-span-2 flex items-center gap-3">
-          <button onClick={save} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white disabled:opacity-50">
+          <button onClick={save} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-50">
             {busy ? "Saving…" : "Save settings"}
           </button>
           {msg && <span className="text-sm text-emerald-400">{msg}</span>}
@@ -212,22 +212,22 @@ function EmployeeRow({
   const [active, setActive] = useState(e.active);
 
   return (
-    <tr className="border-t border-slate-800">
-      <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{email || "—"}</td>
+    <tr className="border-t border-slate-200 dark:border-slate-800">
+      <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">{email || "—"}</td>
       <td className="px-3 py-2">
-        <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 w-40" />
+        <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-40" />
       </td>
       <td className="px-3 py-2">
-        <input value={phone} onChange={(ev) => setPhone(ev.target.value)} onBlur={() => onSave(e.id, { phone })} placeholder="+1215..." className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 w-32" />
+        <input value={phone} onChange={(ev) => setPhone(ev.target.value)} onBlur={() => onSave(e.id, { phone })} placeholder="+1215..." className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-32" />
       </td>
       <td className="px-3 py-2">
-        <select value={role} onChange={(ev) => { const r = ev.target.value as Profile["role"]; setRole(r); onSave(e.id, { role: r }); }} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100">
+        <select value={role} onChange={(ev) => { const r = ev.target.value as Profile["role"]; setRole(r); onSave(e.id, { role: r }); }} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100">
           <option value="employee">employee</option>
           <option value="manager">manager</option>
         </select>
       </td>
       <td className="px-3 py-2 text-right">
-        <input value={rate} onChange={(ev) => setRate(ev.target.value)} onBlur={() => onSave(e.id, { hourly_rate: rate ? Number(rate) : null })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 w-20 text-right" />
+        <input value={rate} onChange={(ev) => setRate(ev.target.value)} onBlur={() => onSave(e.id, { hourly_rate: rate ? Number(rate) : null })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-20 text-right" />
       </td>
       <td className="px-3 py-2 text-center">
         <input type="checkbox" checked={active} onChange={(ev) => { setActive(ev.target.checked); onSave(e.id, { active: ev.target.checked }); }} />
@@ -266,8 +266,8 @@ function LocationSection({ locations }: { locations: Location[] }) {
 
   return (
     <section>
-      <h2 className="text-lg font-semibold text-slate-100 mb-1">Locations &amp; geofence</h2>
-      <p className="text-sm text-slate-400 mb-4">
+      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Locations &amp; geofence</h2>
+      <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
         Clock-in is allowed only within the radius of the default location. Easiest: stand at the store, tap &ldquo;Use my location&rdquo;.
       </p>
       <div className="space-y-4">
@@ -297,23 +297,23 @@ function LocationRow({
   const [radius, setRadius] = useState(String(l.radius_meters));
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 space-y-3">
       <div className="flex items-center gap-2">
-        <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => onSave(l.id, { name })} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 flex-1" />
+        <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => onSave(l.id, { name })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 flex-1" />
         {l.is_default && <span className="text-xs text-emerald-400 border border-emerald-900 rounded px-2 py-0.5">default</span>}
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <label className="text-xs text-slate-400">Latitude
-          <input value={lat} onChange={(e) => setLat(e.target.value)} onBlur={() => onSave(l.id, { latitude: Number(lat) })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100" />
+        <label className="text-xs text-slate-600 dark:text-slate-400">Latitude
+          <input value={lat} onChange={(e) => setLat(e.target.value)} onBlur={() => onSave(l.id, { latitude: Number(lat) })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100" />
         </label>
-        <label className="text-xs text-slate-400">Longitude
-          <input value={lng} onChange={(e) => setLng(e.target.value)} onBlur={() => onSave(l.id, { longitude: Number(lng) })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100" />
+        <label className="text-xs text-slate-600 dark:text-slate-400">Longitude
+          <input value={lng} onChange={(e) => setLng(e.target.value)} onBlur={() => onSave(l.id, { longitude: Number(lng) })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100" />
         </label>
-        <label className="text-xs text-slate-400">Radius (m)
-          <input value={radius} onChange={(e) => setRadius(e.target.value)} onBlur={() => onSave(l.id, { radius_meters: Number(radius) })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100" />
+        <label className="text-xs text-slate-600 dark:text-slate-400">Radius (m)
+          <input value={radius} onChange={(e) => setRadius(e.target.value)} onBlur={() => onSave(l.id, { radius_meters: Number(radius) })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100" />
         </label>
         <div className="flex items-end">
-          <button onClick={() => onUseMine(l.id)} disabled={busy} className="w-full px-2 py-1.5 text-xs rounded-md bg-slate-100 text-slate-900 font-medium hover:bg-white">Use my location</button>
+          <button onClick={() => onUseMine(l.id)} disabled={busy} className="w-full px-2 py-1.5 text-xs rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white">Use my location</button>
         </div>
       </div>
     </div>
