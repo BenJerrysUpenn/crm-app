@@ -78,6 +78,24 @@ export async function notify(args: NotifyArgs) {
     return { sent_email: false, sent_sms: false, skipped: true };
   }
 
+  // Dedupe: skip if an identical alert reached this person in the last 90s
+  // (guards against double-submits / double code paths firing the same event).
+  try {
+    const { data: dup } = await supabase
+      .from("notifications")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("type", type)
+      .eq("title", title)
+      .eq("body", body ?? null)
+      .gte("created_at", new Date(Date.now() - 90_000).toISOString())
+      .limit(1)
+      .maybeSingle();
+    if (dup) return { sent_email: false, sent_sms: false, deduped: true };
+  } catch {
+    // ignore dedupe failures and proceed
+  }
+
   const sent_email = email && prefs.email !== false ? await sendEmail(email, title, text) : false;
   const sent_sms = phone && prefs.sms !== false ? await sendSms(phone, text) : false;
 
