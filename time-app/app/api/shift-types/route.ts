@@ -11,7 +11,13 @@ export async function POST(request: Request) {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("shift_types")
-    .insert({ name: body.name, color: body.color ?? "#10b981", sort_order: body.sort_order ?? 99 })
+    .insert({
+      name: body.name,
+      color: body.color ?? "#10b981",
+      sort_order: body.sort_order ?? 99,
+      default_start: body.default_start || null,
+      default_end: body.default_end || null,
+    })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

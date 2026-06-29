@@ -2,12 +2,13 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
-import AvailabilityGrid from "@/components/AvailabilityGrid";
+import AvailabilityCalendar from "@/components/AvailabilityCalendar";
 import ManagerAvailability from "@/components/ManagerAvailability";
 import type { Availability, Profile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+const TZ = "America/New_York";
 function addDays(d: string, n: number) {
   const x = new Date(d + "T00:00:00Z");
   x.setUTCDate(x.getUTCDate() + n);
@@ -23,18 +24,17 @@ function sundayOf(dateStr?: string): string {
 export default async function AvailabilityPage({
   searchParams,
 }: {
-  searchParams: { week?: string };
+  searchParams: { week?: string; month?: string };
 }) {
   const profile = await getProfile();
   if (!profile) redirect("/login");
   const supabase = createClient();
   const isManager = profile.role === "manager";
 
-  const weekStart = sundayOf(searchParams.week);
-  const weekEnd = addDays(weekStart, 7);
-
+  // ---- Manager: weekly team availability (unchanged) ----
   if (isManager) {
-    // Team availability for the selected week.
+    const weekStart = sundayOf(searchParams.week);
+    const weekEnd = addDays(weekStart, 7);
     const { data: weekRows } = await supabase
       .from("availability")
       .select("*, profiles(id, full_name)")
@@ -43,13 +43,11 @@ export default async function AvailabilityPage({
       .gte("specific_date", weekStart)
       .lt("specific_date", weekEnd)
       .order("specific_date", { ascending: true });
-    // All pending time-off requests (any date), plus recently decided ones.
     const { data: timeOff } = await supabase
       .from("availability")
       .select("*, profiles(id, full_name)")
       .eq("is_available", false)
       .order("specific_date", { ascending: true });
-
     return (
       <div className="min-h-screen flex flex-col">
         <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
@@ -66,15 +64,29 @@ export default async function AvailabilityPage({
     );
   }
 
-  // Employee: this week's painted availability + their time-off requests.
-  const { data: weekRows } = await supabase
+  // ---- Employee: month calendar of availability preferences ----
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+  const monthKey = searchParams.month ?? today.slice(0, 7); // YYYY-MM
+  const monthStart = monthKey + "-01";
+  const gridStart = sundayOf(monthStart);
+  const gridEnd = addDays(gridStart, 42);
+
+  const { data: specific } = await supabase
     .from("availability")
     .select("*")
     .eq("employee_id", profile.id)
     .eq("is_available", true)
     .not("specific_date", "is", null)
-    .gte("specific_date", weekStart)
-    .lt("specific_date", weekEnd);
+    .gte("specific_date", gridStart)
+    .lt("specific_date", gridEnd);
+
+  const { data: recurring } = await supabase
+    .from("availability")
+    .select("*")
+    .eq("employee_id", profile.id)
+    .eq("is_available", true)
+    .not("weekday", "is", null);
+
   const { data: timeOff } = await supabase
     .from("availability")
     .select("*")
@@ -82,31 +94,29 @@ export default async function AvailabilityPage({
     .eq("is_available", false)
     .order("specific_date", { ascending: true });
 
-  // Locked days: any Eastern date this week with a published shift (schedule posted).
   const { data: pub } = await supabase
     .from("shifts")
     .select("starts_at")
     .eq("published", true)
-    .gte("starts_at", addDays(weekStart, -1) + "T00:00:00Z")
-    .lt("starts_at", addDays(weekStart, 8) + "T00:00:00Z");
+    .gte("starts_at", gridStart + "T00:00:00Z")
+    .lt("starts_at", gridEnd + "T00:00:00Z");
   const lockedDays = Array.from(
-    new Set(
-      (pub ?? []).map((s) =>
-        new Date(s.starts_at as string).toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
-      ),
-    ),
+    new Set((pub ?? []).map((s) => new Date(s.starts_at as string).toLocaleDateString("en-CA", { timeZone: TZ }))),
   );
 
   return (
     <div className="min-h-screen flex flex-col">
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
       <main className="flex-1">
-        <div className="mx-auto max-w-3xl px-4 py-6">
-          <AvailabilityGrid
-            weekStart={weekStart}
-            weekRows={(weekRows as Availability[]) ?? []}
+        <div className="mx-auto max-w-5xl px-4 py-6">
+          <AvailabilityCalendar
+            monthKey={monthKey}
+            gridStart={gridStart}
+            specific={(specific as Availability[]) ?? []}
+            recurring={(recurring as Availability[]) ?? []}
             timeOff={(timeOff as Availability[]) ?? []}
             lockedDays={lockedDays}
+            today={today}
           />
         </div>
       </main>

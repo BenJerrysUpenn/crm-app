@@ -9,6 +9,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   const body = await request.json();
   const patch: Record<string, unknown> = {};
   for (const k of ["name", "color", "sort_order", "active"]) if (k in body) patch[k] = body[k];
+  for (const k of ["default_start", "default_end"]) if (k in body) patch[k] = body[k] || null;
   const supabase = createClient();
   const { data, error } = await supabase.from("shift_types").update(patch).eq("id", params.id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

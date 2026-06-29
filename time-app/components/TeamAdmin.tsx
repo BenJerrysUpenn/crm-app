@@ -129,10 +129,15 @@ function ShiftTypeRow({
 }) {
   const [name, setName] = useState(t.name);
   const [color, setColor] = useState(t.color);
+  const [ds, setDs] = useState((t.default_start ?? "").slice(0, 5));
+  const [de, setDe] = useState((t.default_end ?? "").slice(0, 5));
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <input type="color" value={color} onChange={(e) => { setColor(e.target.value); onSave(t.id, { color: e.target.value }); }} className="w-9 h-9 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700" />
-      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== t.name && onSave(t.id, { name })} className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-slate-900 dark:text-slate-100 text-sm" />
+      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== t.name && onSave(t.id, { name })} className="flex-1 min-w-[120px] bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-slate-900 dark:text-slate-100 text-sm" />
+      <span className="text-[11px] text-slate-500">default</span>
+      <input type="time" value={ds} onChange={(e) => setDs(e.target.value)} onBlur={() => onSave(t.id, { default_start: ds ? ds + ":00" : null } as Partial<ShiftType>)} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-1.5 text-slate-900 dark:text-slate-100 text-xs" />
+      <input type="time" value={de} onChange={(e) => setDe(e.target.value)} onBlur={() => onSave(t.id, { default_end: de ? de + ":00" : null } as Partial<ShiftType>)} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-1.5 text-slate-900 dark:text-slate-100 text-xs" />
       <button onClick={() => onRemove(t.id)} className="text-xs text-slate-500 hover:text-rose-400 px-2">Remove</button>
     </div>
   );

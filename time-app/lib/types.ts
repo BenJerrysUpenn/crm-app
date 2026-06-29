@@ -101,5 +101,20 @@ export type ShiftType = {
   color: string;
   sort_order: number;
   active: boolean;
+  default_start: string | null;
+  default_end: string | null;
+  created_at: string;
+};
+
+export type Annotation = {
+  id: number;
+  title: string;
+  message: string | null;
+  start_date: string;
+  end_date: string;
+  color: string;
+  business_closed: boolean;
+  no_time_off: boolean;
+  announcement: boolean;
   created_at: string;
 };

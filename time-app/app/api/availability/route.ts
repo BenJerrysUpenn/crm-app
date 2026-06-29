@@ -36,6 +36,19 @@ export async function POST(request: Request) {
         .filter((d) => d >= start && d <= end),
     );
 
+    // Also block days inside a "don't allow time off" annotation range.
+    const { data: anns } = await supabase
+      .from("annotations")
+      .select("start_date, end_date, no_time_off")
+      .eq("no_time_off", true)
+      .lte("start_date", end)
+      .gte("end_date", start);
+    for (let d = start; d <= end; d = addDays(d, 1)) {
+      if ((anns ?? []).some((a) => d >= (a.start_date as string) && d <= (a.end_date as string))) {
+        lockedDays.add(d);
+      }
+    }
+
     const group = randomUUID();
     const rows: Record<string, unknown>[] = [];
     for (let d = start; d <= end; d = addDays(d, 1)) {
@@ -75,7 +88,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, days: rows.length, group });
   }
 
-  // Legacy single-day insert.
+  // Single preference insert (a calendar "Add Preference": unavailable/prefer,
+  // optional time range, optional weekly repeat).
+  // Block adding a preference for a day that's already posted.
+  if (body.specific_date) {
+    const { data: pubChk } = await supabase
+      .from("shifts")
+      .select("starts_at")
+      .eq("published", true)
+      .gte("starts_at", body.specific_date + "T00:00:00Z")
+      .lt("starts_at", addDays(body.specific_date, 1) + "T00:00:00Z");
+    const locked = (pubChk ?? []).some(
+      (s) => new Date(s.starts_at as string).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) === body.specific_date,
+    );
+    if (locked) {
+      return NextResponse.json(
+        { error: "That day's schedule is already posted, so you can't change availability for it." },
+        { status: 409 },
+      );
+    }
+  }
   const { data, error } = await supabase
     .from("availability")
     .insert({
@@ -86,10 +118,20 @@ export async function POST(request: Request) {
       end_time: body.end_time ?? null,
       is_available: body.is_available ?? true,
       note: body.note ?? null,
+      preference: ["available", "preferred", "unavailable"].includes(body.preference)
+        ? body.preference
+        : "available",
       status: body.status ?? (body.is_available === false ? "pending" : "approved"),
     })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (body.is_available !== false) {
+    await notifyManagers({
+      type: "availability_change",
+      title: "Availability updated",
+      body: `${profile.full_name ?? "An employee"} updated their availability.`,
+    }).catch(() => {});
+  }
   return NextResponse.json({ availability: data });
 }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtTime } from "@/lib/format";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability } from "@/lib/types";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -47,6 +47,7 @@ export default function ScheduleBoard({
   dropRequests,
   shiftTypes,
   availability = [],
+  annotations = [],
 }: {
   isManager: boolean;
   weekStart: string; // YYYY-MM-DD (Sunday)
@@ -56,6 +57,7 @@ export default function ScheduleBoard({
   dropRequests: DropReq[];
   shiftTypes: ShiftType[];
   availability?: Availability[];
+  annotations?: Annotation[];
 }) {
   const colorByType = new Map(shiftTypes.map((t) => [t.name, t.color]));
 
@@ -84,6 +86,27 @@ export default function ScheduleBoard({
   const [actingReq, setActingReq] = useState<number | null>(null);
   const [droppingId, setDroppingId] = useState<number | null>(null);
   const [ackingId, setAckingId] = useState<number | null>(null);
+  const [howMany, setHowMany] = useState(1);
+  const [annDraft, setAnnDraft] = useState<null | { title: string; message: string; start_date: string; end_date: string; color: string; business_closed: boolean; no_time_off: boolean; announcement: boolean }>(null);
+
+  async function saveAnnotation() {
+    if (!annDraft) return;
+    setBusy(true);
+    const res = await fetch("/api/annotations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(annDraft),
+    });
+    setBusy(false);
+    if (res.ok) {
+      setAnnDraft(null);
+      router.refresh();
+    }
+  }
+  async function deleteAnnotation(id: number) {
+    await fetch(`/api/annotations/${id}`, { method: "DELETE" });
+    router.refresh();
+  }
 
   const OT_THRESHOLD = 40; // hours per week before overtime
 
@@ -209,10 +232,11 @@ export default function ScheduleBoard({
     router.push(`/schedule?week=${addDays(weekStart, deltaDays)}`);
   }
 
-  function newShift(dateStr: string) {
+  function newShift(dateStr: string, employeeId?: string) {
     setErr(null);
+    setHowMany(1);
     setDraft({
-      employee_id: employees[0]?.id ?? "",
+      employee_id: employeeId ?? employees[0]?.id ?? "",
       location_id: String(locations.find((l) => l.is_default)?.id ?? locations[0]?.id ?? ""),
       starts_at: `${dateStr}T09:00`,
       ends_at: `${dateStr}T17:00`,
@@ -260,16 +284,20 @@ export default function ScheduleBoard({
         notes: draft.notes || null,
         published: publish || draft.published,
       };
+      // Open shifts can be created in bulk (How Many).
+      const count = !draft.id && !draft.employee_id ? Math.max(1, Math.min(20, howMany)) : 1;
       const url = draft.id ? `/api/shifts/${draft.id}` : "/api/shifts";
-      const res = await fetch(url, {
-        method: draft.id ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setErr(j.error ?? `Save failed (${res.status}).`);
-        return;
+      for (let i = 0; i < count; i++) {
+        const res = await fetch(url, {
+          method: draft.id ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          setErr(j.error ?? `Save failed (${res.status}).`);
+          return;
+        }
       }
       setDraft(null);
       router.refresh();
@@ -302,6 +330,9 @@ export default function ScheduleBoard({
               <button onClick={copyLastWeek} disabled={copying} className="px-2.5 py-1 text-sm rounded-md border border-slate-400 dark:border-slate-600 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
                 {copying ? "…" : "Copy last week"}
               </button>
+              <button onClick={() => setAnnDraft({ title: "", message: "", start_date: dates[0], end_date: dates[0], color: "#0ea5e9", business_closed: false, no_time_off: false, announcement: false })} className="px-2.5 py-1 text-sm rounded-md border border-slate-400 dark:border-slate-600 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
+                + Annotation
+              </button>
             </>
           )}
           <button onClick={() => gotoWeek(-7)} className="px-2.5 py-1 text-sm rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">‹ Prev</button>
@@ -310,6 +341,27 @@ export default function ScheduleBoard({
         </div>
       </div>
       {copyMsg && <div className="text-sm text-emerald-400 mb-3">{copyMsg}</div>}
+
+      {/* Annotations */}
+      {annotations.length > 0 && (
+        <div className="space-y-2 mb-3">
+          {annotations.map((a) => (
+            <div key={a.id} style={{ borderLeft: `4px solid ${a.color}` }} className="rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                  {a.title}
+                  {a.business_closed && <span className="ml-2 text-xs text-rose-500">Closed</span>}
+                  {a.no_time_off && <span className="ml-2 text-xs text-amber-500">No time off</span>}
+                  {a.announcement && <span className="ml-2 text-xs text-sky-500">Announcement</span>}
+                </div>
+                {a.message && <div className="text-xs text-slate-500 mt-0.5">{a.message}</div>}
+                <div className="text-[11px] text-slate-400 mt-0.5">{dayLabel(a.start_date)}{a.end_date !== a.start_date ? ` – ${dayLabel(a.end_date)}` : ""}</div>
+              </div>
+              {isManager && <button onClick={() => deleteAnnotation(a.id)} className="text-xs text-slate-500 hover:text-rose-400 shrink-0">Remove</button>}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Week totals */}
       <div className="mb-3 text-sm text-slate-600 dark:text-slate-400">
@@ -379,6 +431,22 @@ export default function ScheduleBoard({
         </div>
       )}
 
+      {isManager && (
+        <ManagerMatrix
+          dates={dates}
+          employees={employees}
+          shiftsForDay={shiftsForDay}
+          shiftHours={shiftHours}
+          colorByType={colorByType}
+          editShift={editShift}
+          newShift={newShift}
+          fmtTime={fmtTime}
+          dayLabel={dayLabel}
+          DAYS={DAYS}
+        />
+      )}
+
+      {!isManager && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
         {dates.map((dateStr, i) => (
           <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 min-h-[120px]">
@@ -470,17 +538,85 @@ export default function ScheduleBoard({
           </div>
         ))}
       </div>
+      )}
+
+      {annDraft && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setAnnDraft(null)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-semibold text-slate-900 dark:text-slate-100">Add annotation</h2>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs text-slate-600 dark:text-slate-400">Start date
+                <input type="date" value={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, start_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+              </label>
+              <label className="block text-xs text-slate-600 dark:text-slate-400">End date
+                <input type="date" value={annDraft.end_date} min={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, end_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+              </label>
+            </div>
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Title
+              <input value={annDraft.title} onChange={(e) => setAnnDraft({ ...annDraft, title: e.target.value })} placeholder="Closed for July 4th, Big event…" className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+            </label>
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Message
+              <textarea value={annDraft.message} onChange={(e) => setAnnDraft({ ...annDraft, message: e.target.value })} rows={2} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+            </label>
+            <div className="flex items-center gap-3">
+              <label className="block text-xs text-slate-600 dark:text-slate-400">Color
+                <input type="color" value={annDraft.color} onChange={(e) => setAnnDraft({ ...annDraft, color: e.target.value })} className="ml-2 align-middle w-9 h-8 rounded border border-slate-300 dark:border-slate-700" />
+              </label>
+            </div>
+            <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.business_closed} onChange={(e) => setAnnDraft({ ...annDraft, business_closed: e.target.checked })} /> Business closed</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.no_time_off} onChange={(e) => setAnnDraft({ ...annDraft, no_time_off: e.target.checked })} /> Don&apos;t allow time off</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.announcement} onChange={(e) => setAnnDraft({ ...annDraft, announcement: e.target.checked })} /> Announcement</label>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setAnnDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+              <button onClick={saveAnnotation} disabled={busy || !annDraft.title} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {draft && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
           <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit shift" : "New shift"}</h2>
-            <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
-              <select value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
-                <option value="">Open (unassigned)</option>
-                {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
-              </select>
-            </label>
+
+            {/* Suggestions: shift types with default times */}
+            {!draft.id && shiftTypes.some((t) => t.default_start && t.default_end) && (
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Suggestions</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {shiftTypes.filter((t) => t.default_start && t.default_end).map((t) => {
+                    const d = draft.starts_at.slice(0, 10);
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => setDraft({ ...draft, position: t.name, starts_at: `${d}T${t.default_start!.slice(0, 5)}`, ends_at: `${d}T${t.default_end!.slice(0, 5)}` })}
+                        style={{ borderLeft: `4px solid ${t.color}` }}
+                        className="text-left text-xs rounded-md border border-slate-300 dark:border-slate-700 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <div className="font-medium text-slate-800 dark:text-slate-200">{fmtT(t.default_start)}–{fmtT(t.default_end)}</div>
+                        <div className="text-slate-500">{t.name}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
+                <select value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
+                  <option value="">Open (unassigned)</option>
+                  {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
+                </select>
+              </label>
+              {!draft.id && !draft.employee_id && (
+                <label className="block text-xs text-slate-600 dark:text-slate-400">How many
+                  <input type="number" min={1} max={20} value={howMany} onChange={(e) => setHowMany(Number(e.target.value))} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+                </label>
+              )}
+            </div>
             {draft.employee_id && draft.starts_at && (() => {
               const { timeOff, blocks } = availFor(draft.employee_id, draft.starts_at.slice(0, 10));
               const by = (p: string) => blocks.filter((b) => (b.preference ?? "available") === p);
@@ -536,6 +672,119 @@ export default function ScheduleBoard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Manager matrix view: employees down the side, days across the top.
+// ---------------------------------------------------------------------------
+function ManagerMatrix({
+  dates,
+  employees,
+  shiftsForDay,
+  shiftHours,
+  colorByType,
+  editShift,
+  newShift,
+  fmtTime,
+  dayLabel,
+  DAYS,
+}: {
+  dates: string[];
+  employees: Profile[];
+  shiftsForDay: (d: string) => ShiftWithEmployee[];
+  shiftHours: (s: ShiftWithEmployee) => number;
+  colorByType: Map<string, string>;
+  editShift: (s: ShiftWithEmployee) => void;
+  newShift: (d: string, employeeId?: string) => void;
+  fmtTime: (iso: string | null) => string;
+  dayLabel: (d: string) => string;
+  DAYS: string[];
+}) {
+  function cellShifts(date: string, employeeId: string | null) {
+    return shiftsForDay(date).filter((s) =>
+      employeeId === null ? !s.employee_id : s.employee_id === employeeId,
+    );
+  }
+  function weekHoursFor(employeeId: string | null) {
+    return dates.reduce(
+      (sum, d) => sum + cellShifts(d, employeeId).reduce((a, s) => a + shiftHours(s), 0),
+      0,
+    );
+  }
+
+  const cols = `170px repeat(7, minmax(120px, 1fr))`;
+
+  function Chip({ s }: { s: ShiftWithEmployee }) {
+    const color = s.position ? colorByType.get(s.position) : undefined;
+    return (
+      <button
+        onClick={() => editShift(s)}
+        style={color ? { borderLeft: `4px solid ${color}` } : undefined}
+        className={`w-full text-left rounded-md px-2 py-1 text-[11px] mb-1 border ${
+          s.published
+            ? "bg-slate-100 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+            : "bg-slate-100/60 dark:bg-slate-800/30 border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+        }`}
+      >
+        <div className="font-medium">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
+        {s.position && <div className="text-slate-500">{s.position}</div>}
+        {!s.published && <div className="text-amber-500">draft</div>}
+        {s.published && s.employee_id && (
+          <div className={s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}>
+            {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
+          </div>
+        )}
+      </button>
+    );
+  }
+
+  function Row({ id, label, sub, tint }: { id: string | null; label: string; sub: string; tint?: boolean }) {
+    return (
+      <div className="grid border-b border-slate-200 dark:border-slate-800" style={{ gridTemplateColumns: cols }}>
+        <div className={`px-3 py-2 border-r border-slate-200 dark:border-slate-800 sticky left-0 z-10 ${tint ? "bg-emerald-50 dark:bg-emerald-950/30" : "bg-white dark:bg-slate-900"}`}>
+          <div className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{label}</div>
+          <div className="text-[11px] text-slate-500">{sub}</div>
+        </div>
+        {dates.map((d, i) => {
+          const cs = cellShifts(d, id);
+          return (
+            <div key={i} className={`px-1.5 py-1.5 border-r border-slate-200 dark:border-slate-800 min-h-[56px] ${tint ? "bg-emerald-50/40 dark:bg-emerald-950/10" : ""}`}>
+              {cs.map((s) => <Chip key={s.id} s={s} />)}
+              <button
+                onClick={() => newShift(d, id ?? "")}
+                className="w-full text-[11px] text-slate-400 hover:text-emerald-500 border border-dashed border-slate-300 dark:border-slate-700 rounded-md py-1"
+              >
+                + Add
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+      {/* Header */}
+      <div className="grid bg-slate-100 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800" style={{ gridTemplateColumns: cols }}>
+        <div className="px-3 py-2 sticky left-0 bg-slate-100 dark:bg-slate-800/60 z-10 text-xs font-medium text-slate-500">Staff</div>
+        {dates.map((d, i) => {
+          const h = shiftsForDay(d).reduce((a, s) => a + shiftHours(s), 0);
+          return (
+            <div key={i} className="px-2 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800">
+              {DAYS[i]} {dayLabel(d)}{h > 0 ? ` · ${h.toFixed(1)}h` : ""}
+            </div>
+          );
+        })}
+      </div>
+      {/* Open shifts row */}
+      <Row id={null} label="Open shifts" sub={`${weekHoursFor(null).toFixed(1)}h open`} tint />
+      {/* Employee rows */}
+      {employees.map((e) => (
+        <Row key={e.id} id={e.id} label={e.full_name ?? e.id} sub={`${weekHoursFor(e.id).toFixed(1)}h`} />
+      ))}
     </div>
   );
 }

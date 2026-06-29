@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import ScheduleBoard from "@/components/ScheduleBoard";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability } from "@/lib/types";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +76,15 @@ export default async function SchedulePage({
     .order("sort_order", { ascending: true });
   const shiftTypes = (shiftTypesData as ShiftType[]) ?? [];
 
+  // Annotations overlapping the visible week.
+  const { data: annData } = await supabase
+    .from("annotations")
+    .select("*")
+    .lte("start_date", addDays(weekStart, 6))
+    .gte("end_date", weekStart)
+    .order("start_date", { ascending: true });
+  const annotations = (annData as Annotation[]) ?? [];
+
   let employees: Profile[] = [];
   let locations: Location[] = [];
   let availability: Availability[] = [];
@@ -111,6 +120,7 @@ export default async function SchedulePage({
             dropRequests={dropReqs}
             shiftTypes={shiftTypes}
             availability={availability}
+            annotations={annotations}
           />
         </div>
       </main>
