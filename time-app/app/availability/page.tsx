@@ -104,6 +104,17 @@ export default async function AvailabilityPage({
     new Set((pub ?? []).map((s) => new Date(s.starts_at as string).toLocaleDateString("en-CA", { timeZone: TZ }))),
   );
 
+  // The latest published shift date anywhere; everything on/before it is locked.
+  const { data: lastPub } = await supabase
+    .from("shifts")
+    .select("starts_at")
+    .eq("published", true)
+    .order("starts_at", { ascending: false })
+    .limit(1);
+  const postedThrough = lastPub?.[0]
+    ? new Date(lastPub[0].starts_at as string).toLocaleDateString("en-CA", { timeZone: TZ })
+    : null;
+
   return (
     <div className="min-h-screen flex flex-col">
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
@@ -116,6 +127,7 @@ export default async function AvailabilityPage({
             recurring={(recurring as Availability[]) ?? []}
             timeOff={(timeOff as Availability[]) ?? []}
             lockedDays={lockedDays}
+            postedThrough={postedThrough}
             today={today}
           />
         </div>

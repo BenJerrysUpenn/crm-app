@@ -13,6 +13,18 @@ function addDays(d: string, n: number) {
 function todayEastern() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
+// The latest published shift date (Eastern); availability locks on/before it.
+async function postedThrough(supabase: ReturnType<typeof createClient>): Promise<string | null> {
+  const { data } = await supabase
+    .from("shifts")
+    .select("starts_at")
+    .eq("published", true)
+    .order("starts_at", { ascending: false })
+    .limit(1);
+  return data?.[0]
+    ? new Date(data[0].starts_at as string).toLocaleDateString("en-CA", { timeZone: "America/New_York" })
+    : null;
+}
 
 export async function POST(request: Request) {
   const profile = await getProfile();
@@ -53,11 +65,13 @@ export async function POST(request: Request) {
     }
 
     const today = todayEastern();
+    const pt = await postedThrough(supabase);
     const group = randomUUID();
     const rows: Record<string, unknown>[] = [];
     for (let d = start; d <= end; d = addDays(d, 1)) {
       if (d < today) continue; // can't request off for past days
-      if (lockedDays.has(d)) continue; // skip only the posted days
+      if (pt && d <= pt) continue; // can't request off on/before the posted schedule
+      if (lockedDays.has(d)) continue; // belt and suspenders
       rows.push({
         employee_id: profile.id,
         specific_date: d,
@@ -95,26 +109,12 @@ export async function POST(request: Request) {
 
   // Single preference insert (a calendar "Add Preference": unavailable/prefer,
   // optional time range, optional weekly repeat).
-  // Block adding a preference for a past day or a day that's already posted.
+  // Block adding a preference for a past day or one on/before the posted schedule.
   if (body.specific_date) {
-    if (body.specific_date < todayEastern()) {
+    const pt = await postedThrough(supabase);
+    if (body.specific_date < todayEastern() || (pt && body.specific_date <= pt)) {
       return NextResponse.json(
-        { error: "You can't change availability for a day that's already passed." },
-        { status: 409 },
-      );
-    }
-    const { data: pubChk } = await supabase
-      .from("shifts")
-      .select("starts_at")
-      .eq("published", true)
-      .gte("starts_at", body.specific_date + "T00:00:00Z")
-      .lt("starts_at", addDays(body.specific_date, 1) + "T00:00:00Z");
-    const locked = (pubChk ?? []).some(
-      (s) => new Date(s.starts_at as string).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) === body.specific_date,
-    );
-    if (locked) {
-      return NextResponse.json(
-        { error: "That day's schedule is already posted, so you can't change availability for it." },
+        { error: "You can't change availability for a day that's passed or already scheduled." },
         { status: 409 },
       );
     }

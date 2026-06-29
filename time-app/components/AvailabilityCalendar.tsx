@@ -48,6 +48,7 @@ export default function AvailabilityCalendar({
   recurring,
   timeOff,
   lockedDays,
+  postedThrough,
   today,
 }: {
   monthKey: string;
@@ -56,6 +57,7 @@ export default function AvailabilityCalendar({
   recurring: Availability[];
   timeOff: Availability[];
   lockedDays: string[];
+  postedThrough: string | null;
   today: string;
 }) {
   const router = useRouter();
@@ -75,9 +77,9 @@ export default function AvailabilityCalendar({
     return { s, r, off };
   }
 
-  // A day is locked if it's in the past or already has a posted shift.
+  // A day is locked if it's in the past, or on/before the latest posted day.
   function isLocked(date: string) {
-    return date < today || lockedSet.has(date);
+    return date < today || (postedThrough !== null && date <= postedThrough);
   }
 
   function openAdd(date: string) {
@@ -162,7 +164,7 @@ export default function AvailabilityCalendar({
             const inMonth = date.slice(0, 7) === monthKey;
             const past = date < today;
             const posted = lockedSet.has(date);
-            const locked = past || posted;
+            const locked = isLocked(date);
             const { s, r, off } = prefsFor(date);
             return (
               <div
