@@ -24,6 +24,12 @@ function dayLabel(dateStr: string) {
     day: "numeric",
   });
 }
+// Convert a stored UTC timestamp to a datetime-local value in local wall time.
+function toLocalInput(iso: string) {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 type Draft = {
   id?: number;
@@ -270,8 +276,8 @@ export default function ScheduleBoard({
       id: s.id,
       employee_id: s.employee_id ?? "",
       location_id: String(s.location_id ?? ""),
-      starts_at: s.starts_at.slice(0, 16),
-      ends_at: s.ends_at.slice(0, 16),
+      starts_at: toLocalInput(s.starts_at),
+      ends_at: toLocalInput(s.ends_at),
       position: s.position ?? "",
       notes: s.notes ?? "",
       published: s.published,
