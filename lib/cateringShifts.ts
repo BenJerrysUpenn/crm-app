@@ -15,6 +15,9 @@ const PRE_DEPARTURE_MIN = 60; // start this many minutes before departure
 const DEFAULT_STAFF = 1;
 const DEFAULT_LABOR_HOURS = 4;
 
+// The stages at which a booked event should have crew shifts.
+const BOOKED_STAGES = ["Booked Unpaid", "Booked Paid"];
+
 type DealTimes = {
   id: number;
   stage?: string | null;
@@ -74,38 +77,29 @@ function nyWallTimeToUTCISO(dateStr: string, timeStr: string): string | null {
   return new Date(guess - offset * 60000).toISOString();
 }
 
-// Work out the shift's UTC start/end from the deal. Prefers departure_time,
-// falls back to event_start_time. Returns null if there's no usable time
-// anchor (caller then skips creation).
+// Work out the shift's UTC start/end from the deal. Requires departure_time,
+// which the catering automation only sets once a picklist has been generated —
+// that's our guarantee the timing is real. No departure_time => no shift yet
+// (returns null; the caller skips and a later reconcile picks it up once the
+// picklist runs).
 export function computeShiftWindow(
   deal: DealTimes,
-): { startISO: string; endISO: string; anchor: "departure" | "event_start" } | null {
+): { startISO: string; endISO: string } | null {
   const date = (deal.event_date ?? "").trim();
-  if (!date) return null;
+  const departure = (deal.departure_time ?? "").trim();
+  if (!date || !departure) return null;
+
+  const baseISO = nyWallTimeToUTCISO(date, departure);
+  if (!baseISO) return null;
 
   const laborHours =
     typeof deal.labor_hours === "number" && deal.labor_hours > 0
       ? deal.labor_hours
       : DEFAULT_LABOR_HOURS;
 
-  const departure = (deal.departure_time ?? "").trim();
-  const eventStart = (deal.event_start_time ?? "").trim();
-
-  let baseISO: string | null = null;
-  let anchor: "departure" | "event_start" = "departure";
-  if (departure) {
-    baseISO = nyWallTimeToUTCISO(date, departure);
-    anchor = "departure";
-  }
-  if (!baseISO && eventStart) {
-    baseISO = nyWallTimeToUTCISO(date, eventStart);
-    anchor = "event_start";
-  }
-  if (!baseISO) return null;
-
   const start = new Date(new Date(baseISO).getTime() - PRE_DEPARTURE_MIN * 60000);
   const end = new Date(start.getTime() + laborHours * 60 * 60000);
-  return { startISO: start.toISOString(), endISO: end.toISOString(), anchor };
+  return { startISO: start.toISOString(), endISO: end.toISOString() };
 }
 
 export type CreateResult =
@@ -132,7 +126,7 @@ export async function createDraftShiftsForDeal(
     return {
       created: 0,
       skipped: true,
-      reason: "no departure_time or event_start_time to anchor the shift",
+      reason: "no departure_time yet (picklist not generated)",
     };
   }
 
@@ -146,9 +140,6 @@ export async function createDraftShiftsForDeal(
     `Auto-created from booked deal #${deal.id}`,
     where,
     deal.venue_address || null,
-    win.anchor === "event_start"
-      ? "Start estimated from event start (no departure time set)"
-      : null,
   ].filter(Boolean);
   const notes = noteBits.join(" · ");
 
@@ -165,4 +156,35 @@ export async function createDraftShiftsForDeal(
   const { error, data } = await admin.from("shifts").insert(rows).select("id");
   if (error) throw new Error(error.message);
   return { created: data?.length ?? 0 };
+}
+
+// Columns we need off a deal to build its shifts. Shared by the instant trigger
+// and the reconcile sweep so they stay in lockstep.
+export const DEAL_SHIFT_COLUMNS =
+  "id, stage, event_date, departure_time, event_start_time, event_end_time, labor_hours, staff_count, company, venue_name, venue_address";
+
+// Sweep every booked deal that now has a departure_time (i.e. its picklist has
+// been generated) and create any missing draft shifts. Idempotent and safe to
+// run on a schedule; it's how a deal gets its shifts when the picklist is
+// generated AFTER booking (the moment the stage-change trigger can't catch).
+export async function reconcileBookedDeals(
+  admin: SupabaseClient,
+): Promise<{ scanned: number; created: number; deals: number }> {
+  const { data: deals, error } = await admin
+    .from("deals")
+    .select(DEAL_SHIFT_COLUMNS)
+    .in("stage", BOOKED_STAGES)
+    .not("departure_time", "is", null);
+  if (error) throw new Error(error.message);
+
+  let created = 0;
+  let touched = 0;
+  for (const deal of (deals ?? []) as DealTimes[]) {
+    const r = await createDraftShiftsForDeal(admin, deal).catch(() => null);
+    if (r && !("skipped" in r && r.skipped) && r.created > 0) {
+      created += r.created;
+      touched += 1;
+    }
+  }
+  return { scanned: deals?.length ?? 0, created, deals: touched };
 }

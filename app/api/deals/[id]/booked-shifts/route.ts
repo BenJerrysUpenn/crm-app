@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createDraftShiftsForDeal } from "@/lib/cateringShifts";
+import { createDraftShiftsForDeal, DEAL_SHIFT_COLUMNS } from "@/lib/cateringShifts";
 
 // POST /api/deals/:id/booked-shifts
 //
@@ -29,9 +29,7 @@ export async function POST(
   const admin = createAdminClient();
   const { data: deal, error } = await admin
     .from("deals")
-    .select(
-      "id, stage, event_date, departure_time, event_start_time, event_end_time, labor_hours, staff_count, company, venue_name, venue_address",
-    )
+    .select(DEAL_SHIFT_COLUMNS)
     .eq("id", dealId)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
