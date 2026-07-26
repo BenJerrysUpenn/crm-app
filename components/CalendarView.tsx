@@ -11,6 +11,7 @@ import {
 import type { Deal } from "@/lib/types";
 import DealDetailDrawer from "./DealDetailDrawer";
 import { buildStagePatch, writeStageChange } from "@/lib/dealUpdate";
+import { requestBookedShifts } from "@/lib/bookedShiftsClient";
 
 // Calendar uses the venue's local interpretation for grouping. event_date
 // is a YYYY-MM-DD string; we treat it as an EST date (matching the rest
@@ -186,6 +187,9 @@ export default function CalendarView() {
         ),
       );
       setError(`Could not move deal: ${error.message}`);
+    } else if (newStage === "Booked Unpaid" && prevStage !== "Booked Unpaid") {
+      // Deal just booked: spin up manager-only draft shifts in the time-app.
+      requestBookedShifts(deal.id);
     }
   }
 

@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/client";
 import { STAGES, DEFAULT_VISIBLE, type Stage } from "@/lib/stages";
 import type { Deal } from "@/lib/types";
 import { buildStagePatch, writeStageChange } from "@/lib/dealUpdate";
+import { requestBookedShifts } from "@/lib/bookedShiftsClient";
 import { matchesQuery } from "@/lib/search";
 import KanbanColumn from "./KanbanColumn";
 import DealCard from "./DealCard";
@@ -198,6 +199,9 @@ export default function KanbanBoard({
           message: `Could not move deal: ${error.message}`,
           kind: "error",
         });
+      } else if (newStage === "Booked Unpaid" && previousStage !== "Booked Unpaid") {
+        // Deal just booked: spin up manager-only draft shifts in the time-app.
+        requestBookedShifts(deal.id);
       }
     },
     [supabase],
