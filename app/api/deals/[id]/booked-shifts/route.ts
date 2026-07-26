@@ -37,8 +37,8 @@ export async function POST(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
 
-  // Only act on booked-unpaid deals. Any other stage is a no-op.
-  if (deal.stage !== "Booked Unpaid") {
+  // Only act on booked deals (unpaid or paid). Any other stage is a no-op.
+  if (deal.stage !== "Booked Unpaid" && deal.stage !== "Booked Paid") {
     return NextResponse.json({ created: 0, skipped: true, reason: `stage is ${deal.stage}` });
   }
 

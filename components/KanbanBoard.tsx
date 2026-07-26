@@ -199,8 +199,10 @@ export default function KanbanBoard({
           message: `Could not move deal: ${error.message}`,
           kind: "error",
         });
-      } else if (newStage === "Booked Unpaid" && previousStage !== "Booked Unpaid") {
-        // Deal just booked: spin up manager-only draft shifts in the time-app.
+      } else if (newStage === "Booked Unpaid" || newStage === "Booked Paid") {
+        // Deal just booked (unpaid or paid): spin up manager-only draft shifts
+        // in the time-app. Idempotent server-side, so an unpaid→paid move that
+        // already made shifts is a harmless no-op.
         requestBookedShifts(deal.id);
       }
     },
