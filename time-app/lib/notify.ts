@@ -117,8 +117,7 @@ export async function notifyManagers(args: { type: string; title: string; body?:
   const { data: managers } = await supabase
     .from("profiles")
     .select("id, phone")
-    .eq("role", "manager")
-    .eq("active", true);
+    .eq("role", "manager");
   for (const m of managers ?? []) {
     const email = await emailForUser(m.id);
     await notify({

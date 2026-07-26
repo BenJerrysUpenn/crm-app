@@ -66,8 +66,7 @@ export async function GET(request: Request) {
   const { data: managers } = await supabase
     .from("profiles")
     .select("id, phone")
-    .eq("role", "manager")
-    .eq("active", true);
+    .eq("role", "manager");
 
   for (const s of shifts ?? []) {
     const startMs = new Date(s.starts_at).getTime();

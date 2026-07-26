@@ -47,8 +47,7 @@ export async function POST(
   const { data: managers } = await admin
     .from("profiles")
     .select("id, phone")
-    .eq("role", "manager")
-    .eq("active", true);
+    .eq("role", "manager");
   const who = profile.full_name ?? "An employee";
   for (const m of managers ?? []) {
     const email = await emailForUser(m.id);
