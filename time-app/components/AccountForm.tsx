@@ -53,6 +53,23 @@ export default function AccountForm({
   const [pwMsg, setPwMsg] = useState<string | null>(null);
   const [pwErr, setPwErr] = useState<string | null>(null);
 
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<string | null>(null);
+  async function sendTest() {
+    setTesting(true);
+    setTestMsg(null);
+    const res = await fetch("/api/test-notify", { method: "POST" });
+    const j = await res.json().catch(() => ({}));
+    setTesting(false);
+    if (!res.ok) {
+      setTestMsg(j.error ?? "Failed to send test.");
+      return;
+    }
+    setTestMsg(
+      `Sent. Bell: yes · Email: ${j.sent_email ? "sent" : j.hasEmail ? "not sent (check Resend / your email toggle)" : "no email on file"} · Text: ${j.sent_sms ? "sent" : j.hasPhone ? "not sent (Twilio not set up or toggle off)" : "no phone on file"}`,
+    );
+  }
+
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     setSavingProfile(true);
@@ -147,9 +164,15 @@ export default function AccountForm({
         </div>
 
         {prefsMsg && <div className="text-sm text-emerald-400">{prefsMsg}</div>}
-        <button onClick={savePrefs} disabled={savingPrefs} className="px-3 py-1.5 text-sm rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-50">
-          {savingPrefs ? "Saving…" : "Save notification settings"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={savePrefs} disabled={savingPrefs} className="px-3 py-1.5 text-sm rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-50">
+            {savingPrefs ? "Saving…" : "Save notification settings"}
+          </button>
+          <button onClick={sendTest} disabled={testing} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
+            {testing ? "Sending…" : "Send test notification"}
+          </button>
+        </div>
+        {testMsg && <div className="text-xs text-slate-500">{testMsg}</div>}
       </div>
     </div>
   );
