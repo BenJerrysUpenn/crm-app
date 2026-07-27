@@ -19,7 +19,9 @@ type EntryDraft = {
   clock_out: string;
 };
 
-type Entry = TimeEntryWithEmployee & { shifts?: { starts_at: string } | null };
+type Entry = TimeEntryWithEmployee & {
+  shifts?: { starts_at: string; position: string | null } | null;
+};
 
 // Minutes late = clock-in minus scheduled shift start (only if positive and a
 // shift is linked), beyond the configured grace.
@@ -129,10 +131,11 @@ export default function Timesheets({
 
   function exportCsv() {
     const rows = [
-      ["Employee", "Date", "Clock in", "Clock out", "Hours", "Late (min)", "Status", "In distance (m)"],
+      ["Employee", "Date", "Type", "Clock in", "Clock out", "Hours", "Late (min)", "Status", "In distance (m)"],
       ...entries.map((e) => [
         e.profiles?.full_name ?? e.employee_id,
         fmtDate(e.clock_in_at),
+        e.shifts?.position ?? "",
         fmtTime(e.clock_in_at),
         fmtTime(e.clock_out_at),
         String(hoursBetween(e.clock_in_at, e.clock_out_at)),
@@ -203,6 +206,7 @@ export default function Timesheets({
             <tr>
               {isManager && <th className="text-left px-3 py-2">Employee</th>}
               <th className="text-left px-3 py-2">Date</th>
+              <th className="text-left px-3 py-2">Type</th>
               <th className="text-left px-3 py-2">In</th>
               <th className="text-left px-3 py-2">Out</th>
               <th className="text-right px-3 py-2">Hours</th>
@@ -213,7 +217,7 @@ export default function Timesheets({
           </thead>
           <tbody>
             {entries.length === 0 ? (
-              <tr><td colSpan={isManager ? 8 : 7} className="px-3 py-6 text-center text-slate-500">No entries in this range.</td></tr>
+              <tr><td colSpan={isManager ? 9 : 8} className="px-3 py-6 text-center text-slate-500">No entries in this range.</td></tr>
             ) : entries.map((e) => {
               const late = lateMinutes(e, tardyGraceMin);
               return (
@@ -225,6 +229,7 @@ export default function Timesheets({
                   </td>
                 )}
                 <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{fmtDate(e.clock_in_at)}</td>
+                <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{e.shifts?.position ?? <span className="text-slate-500">—</span>}</td>
                 <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{fmtTime(e.clock_in_at)}</td>
                 <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{e.clock_out_at ? fmtTime(e.clock_out_at) : <span className="text-emerald-400">open</span>}</td>
                 <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{e.clock_out_at ? hoursBetween(e.clock_in_at, e.clock_out_at).toFixed(2) : "—"}</td>
