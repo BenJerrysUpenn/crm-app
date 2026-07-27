@@ -158,6 +158,49 @@ export async function createDraftShiftsForDeal(
   return { created: data?.length ?? 0 };
 }
 
+// Read-only view of what the reconciler sees. Exists because the sweep swallows
+// errors on both sides (the existence check discards `error`, the loop wraps each
+// deal in .catch), so a failing guard is silent and shows up only as duplicated
+// shifts. Surfaces the raw errors and the actual deal_id values on existing rows.
+export async function inspectBookedDeals(admin: SupabaseClient) {
+  const { data: deals, error } = await admin
+    .from("deals")
+    .select(DEAL_SHIFT_COLUMNS)
+    .in("stage", BOOKED_STAGES)
+    .not("departure_time", "is", null);
+  if (error) return { dealsError: error.message };
+
+  const perDeal = [];
+  for (const deal of (deals ?? []) as DealTimes[]) {
+    const { data: existing, error: existingError } = await admin
+      .from("shifts")
+      .select("id, deal_id, position, published, employee_id")
+      .eq("deal_id", deal.id);
+    perDeal.push({
+      dealId: deal.id,
+      dealIdType: typeof deal.id,
+      staffCount: deal.staff_count,
+      window: computeShiftWindow(deal),
+      matchedByDealId: existing?.length ?? null,
+      existingError: existingError?.message ?? null,
+    });
+  }
+
+  // The decisive question: does deal_id actually persist on inserted rows?
+  const { data: recentCatering, error: recentError } = await admin
+    .from("shifts")
+    .select("id, deal_id, position, published, employee_id, starts_at")
+    .eq("position", CATERING_POSITION)
+    .order("id", { ascending: false })
+    .limit(10);
+
+  return {
+    perDeal,
+    recentCatering: recentCatering ?? null,
+    recentError: recentError?.message ?? null,
+  };
+}
+
 // Columns we need off a deal to build its shifts. Shared by the instant trigger
 // and the reconcile sweep so they stay in lockstep.
 export const DEAL_SHIFT_COLUMNS =

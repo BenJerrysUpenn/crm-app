@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { reconcileBookedDeals } from "@/lib/cateringShifts";
+import { inspectBookedDeals, reconcileBookedDeals } from "@/lib/cateringShifts";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +32,9 @@ export async function GET(request: Request) {
 
   try {
     const admin = createAdminClient();
+    // ?dryRun=1 reports what the sweep sees without inserting anything.
+    if (new URL(request.url).searchParams.get("dryRun"))
+      return NextResponse.json({ ok: true, dryRun: true, ...(await inspectBookedDeals(admin)) });
     const result = await reconcileBookedDeals(admin);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
