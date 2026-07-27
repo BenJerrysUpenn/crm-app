@@ -50,6 +50,7 @@ export default function AvailabilityCalendar({
   lockedDays,
   postedThrough,
   today,
+  navView,
 }: {
   monthKey: string;
   gridStart: string;
@@ -59,6 +60,7 @@ export default function AvailabilityCalendar({
   lockedDays: string[];
   postedThrough: string | null;
   today: string;
+  navView?: string;
 }) {
   const router = useRouter();
   const lockedSet = new Set(lockedDays);
@@ -123,7 +125,7 @@ export default function AvailabilityCalendar({
   }
 
   function gotoMonth(n: number) {
-    router.push(`/availability?month=${addMonth(monthKey, n)}`);
+    router.push(`/availability?month=${addMonth(monthKey, n)}${navView ? `&view=${navView}` : ""}`);
   }
 
   function Chip({ a, recurringChip }: { a: Availability; recurringChip?: boolean }) {

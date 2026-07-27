@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
@@ -22,18 +23,43 @@ function sundayOf(dateStr?: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Manager-only tab bar: switch between their own availability and the team view.
+function Tabs({ active }: { active: "mine" | "team" }) {
+  const base =
+    "text-sm px-3 py-1.5 rounded-md font-medium transition-colors";
+  const on = "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900";
+  const off =
+    "border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800";
+  return (
+    <div className="flex gap-2 mb-5">
+      <Link href="/availability?view=mine" className={`${base} ${active === "mine" ? on : off}`}>
+        My availability
+      </Link>
+      <Link href="/availability?view=team" className={`${base} ${active === "team" ? on : off}`}>
+        Team
+      </Link>
+    </div>
+  );
+}
+
 export default async function AvailabilityPage({
   searchParams,
 }: {
-  searchParams: { week?: string; month?: string };
+  searchParams: { week?: string; month?: string; view?: string };
 }) {
   const profile = await getProfile();
   if (!profile) redirect("/login");
   const supabase = createClient();
   const isManager = profile.role === "manager";
+  // Managers default to the team view; employees only ever see their own.
+  const view: "mine" | "team" = isManager
+    ? searchParams.view === "mine"
+      ? "mine"
+      : "team"
+    : "mine";
 
-  // ---- Manager: weekly team availability (unchanged) ----
-  if (isManager) {
+  // ---- Manager: weekly team availability + approvals ----
+  if (isManager && view === "team") {
     const weekStart = sundayOf(searchParams.week);
     const weekEnd = addDays(weekStart, 7);
     const { data: weekRows } = await supabase
@@ -54,6 +80,7 @@ export default async function AvailabilityPage({
         <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
         <main className="flex-1">
           <div className="mx-auto max-w-5xl px-4 py-6">
+            <Tabs active="team" />
             <ManagerAvailability
               weekStart={weekStart}
               weekRows={(weekRows as (Availability & { profiles: Pick<Profile, "id" | "full_name"> })[]) ?? []}
@@ -65,7 +92,7 @@ export default async function AvailabilityPage({
     );
   }
 
-  // ---- Employee: month calendar of availability preferences ----
+  // ---- Personal month calendar (employees, and managers' "My availability") ----
   const today = new Date().toLocaleDateString("en-CA", { timeZone: TZ });
   const monthKey = searchParams.month ?? today.slice(0, 7); // YYYY-MM
   const monthStart = monthKey + "-01";
@@ -96,7 +123,7 @@ export default async function AvailabilityPage({
     .order("specific_date", { ascending: true });
 
   // IMPORTANT: use the admin client so we see EVERY published shift, not just
-  // this employee's (row-level security would otherwise hide other people's
+  // this user's (row-level security would otherwise hide other people's
   // shifts and the day wouldn't lock).
   const admin = createAdminClient();
   const { data: pub } = await admin
@@ -125,6 +152,7 @@ export default async function AvailabilityPage({
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
       <main className="flex-1">
         <div className="mx-auto max-w-5xl px-4 py-6">
+          {isManager && <Tabs active="mine" />}
           <AvailabilityCalendar
             monthKey={monthKey}
             gridStart={gridStart}
@@ -134,6 +162,7 @@ export default async function AvailabilityPage({
             lockedDays={lockedDays}
             postedThrough={postedThrough}
             today={today}
+            navView={isManager ? "mine" : undefined}
           />
         </div>
       </main>

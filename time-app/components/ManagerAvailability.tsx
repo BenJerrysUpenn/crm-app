@@ -39,7 +39,7 @@ export default function ManagerAvailability({
   const rangeLabel = `${fmtDate(dates[0] + "T12:00:00")} – ${fmtDate(dates[6] + "T12:00:00")}`;
 
   function gotoWeek(deltaDays: number) {
-    router.push(`/availability?week=${addDays(weekStart, deltaDays)}`);
+    router.push(`/availability?view=team&week=${addDays(weekStart, deltaDays)}`);
   }
 
   async function decide(id: number, status: "approved" | "denied") {
@@ -107,7 +107,7 @@ export default function ManagerAvailability({
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mr-auto">Team availability</h1>
         <button onClick={() => gotoWeek(-7)} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">‹ Prev</button>
-        <button onClick={() => router.push("/availability")} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">This week</button>
+        <button onClick={() => router.push("/availability?view=team")} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">This week</button>
         <button onClick={() => gotoWeek(7)} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Next ›</button>
       </div>
 
