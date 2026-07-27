@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { inspectBookedDeals, reconcileBookedDeals } from "@/lib/cateringShifts";
+import {
+  dedupeDraftShifts,
+  inspectBookedDeals,
+  reconcileBookedDeals,
+} from "@/lib/cateringShifts";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +36,17 @@ export async function GET(request: Request) {
 
   try {
     const admin = createAdminClient();
+    const params = new URL(request.url).searchParams;
     // ?dryRun=1 reports what the sweep sees without inserting anything.
-    if (new URL(request.url).searchParams.get("dryRun"))
+    if (params.get("dryRun"))
       return NextResponse.json({ ok: true, dryRun: true, ...(await inspectBookedDeals(admin)) });
+    // ?dedupe=1 previews duplicate cleanup; ?dedupe=apply performs it.
+    const dedupe = params.get("dedupe");
+    if (dedupe)
+      return NextResponse.json({
+        ok: true,
+        ...(await dedupeDraftShifts(admin, { apply: dedupe === "apply" })),
+      });
     const result = await reconcileBookedDeals(admin);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
