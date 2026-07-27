@@ -111,6 +111,10 @@ export type CreateResult =
 // what the creator decides on — an earlier near-copy in the diagnostic reported
 // matches while the creator behaved as if it had none, which made the real
 // failure impossible to see.
+// No .limit() here, deliberately. The original guard used .limit(1) and came
+// back empty for a deal that demonstrably had seven matching rows, so it created
+// an eighth on every sweep. Asking for the ids outright is correct and cheap —
+// a deal has at most staff_count shifts.
 async function findExistingShiftIds(
   admin: SupabaseClient,
   dealId: number,
@@ -118,8 +122,7 @@ async function findExistingShiftIds(
   const { data, error } = await admin
     .from("shifts")
     .select("id")
-    .eq("deal_id", dealId)
-    .limit(1);
+    .eq("deal_id", dealId);
   if (error) return { ids: null, error: error.message };
   return { ids: (data ?? []).map((r) => (r as { id: number }).id), error: null };
 }
@@ -198,6 +201,18 @@ export async function inspectBookedDeals(admin: SupabaseClient) {
   for (const deal of (deals ?? []) as DealTimes[]) {
     // Exactly the query the creator gates on — same helper, no near-copy.
     const guard = await findExistingShiftIds(admin, deal.id);
+    // Side-by-side proof of the original defect: identical filter, one with the
+    // .limit(1) the old guard used. Both counts come from the same request, so
+    // concurrent edits can't explain a difference.
+    const { data: withLimit } = await admin
+      .from("shifts")
+      .select("id")
+      .eq("deal_id", deal.id)
+      .limit(1);
+    const { data: withoutLimit } = await admin
+      .from("shifts")
+      .select("id")
+      .eq("deal_id", deal.id);
     perDeal.push({
       dealId: deal.id,
       dealIdType: typeof deal.id,
@@ -206,6 +221,8 @@ export async function inspectBookedDeals(admin: SupabaseClient) {
       guardSawIds: guard.ids,
       guardError: guard.error,
       guardWouldSkip: !!(guard.ids && guard.ids.length > 0),
+      probeWithLimit1: withLimit?.length ?? null,
+      probeWithoutLimit: withoutLimit?.length ?? null,
     });
   }
 
