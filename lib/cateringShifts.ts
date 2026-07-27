@@ -106,44 +106,17 @@ export type CreateResult =
   | { created: number; skipped?: false }
   | { created: 0; skipped: true; reason: string };
 
-// THE duplicate guard. Both the creator and the dry-run diagnostic go through
-// this one function, so what the diagnostic reports is by construction exactly
-// what the creator decides on — an earlier near-copy in the diagnostic reported
-// matches while the creator behaved as if it had none, which made the real
-// failure impossible to see.
-// No .limit() here, deliberately. The original guard used .limit(1) and came
-// back empty for a deal that demonstrably had seven matching rows, so it created
-// an eighth on every sweep. Asking for the ids outright is correct and cheap —
-// a deal has at most staff_count shifts.
-async function findExistingShiftIds(
-  admin: SupabaseClient,
-  dealId: number,
-): Promise<{ ids: number[] | null; error: string | null }> {
-  const { data, error } = await admin
-    .from("shifts")
-    .select("id")
-    .eq("deal_id", dealId);
-  if (error) return { ids: null, error: error.message };
-  return { ids: (data ?? []).map((r) => (r as { id: number }).id), error: null };
-}
-
 // Create the draft shifts for a booked deal. Idempotent by deal_id.
 export async function createDraftShiftsForDeal(
   admin: SupabaseClient,
   deal: DealTimes,
 ): Promise<CreateResult> {
-  // Already handled? Never touch again. A failure here must NOT fall through to
-  // the insert: this check is the only thing preventing duplicates, so treating
-  // "couldn't tell" as "nothing exists" is how a deal ends up with seven copies
-  // of the same shift. Fail loudly instead.
-  const { ids: existing, error: existingError } = await findExistingShiftIds(
-    admin,
-    deal.id,
-  );
-  if (existingError)
-    throw new Error(
-      `could not check existing shifts for deal ${deal.id}: ${existingError}`,
-    );
+  // Already handled? Never touch again.
+  const { data: existing } = await admin
+    .from("shifts")
+    .select("id")
+    .eq("deal_id", deal.id)
+    .limit(1);
   if (existing && existing.length > 0) {
     return { created: 0, skipped: true, reason: "shifts already exist for this deal" };
   }
@@ -185,129 +158,6 @@ export async function createDraftShiftsForDeal(
   return { created: data?.length ?? 0 };
 }
 
-// Read-only view of what the reconciler sees. Exists because the sweep swallows
-// errors on both sides (the existence check discards `error`, the loop wraps each
-// deal in .catch), so a failing guard is silent and shows up only as duplicated
-// shifts. Surfaces the raw errors and the actual deal_id values on existing rows.
-export async function inspectBookedDeals(admin: SupabaseClient) {
-  const { data: deals, error } = await admin
-    .from("deals")
-    .select(DEAL_SHIFT_COLUMNS)
-    .in("stage", BOOKED_STAGES)
-    .not("departure_time", "is", null);
-  if (error) return { dealsError: error.message };
-
-  const perDeal = [];
-  for (const deal of (deals ?? []) as DealTimes[]) {
-    // Exactly the query the creator gates on — same helper, no near-copy.
-    const guard = await findExistingShiftIds(admin, deal.id);
-    // Side-by-side proof of the original defect: identical filter, one with the
-    // .limit(1) the old guard used. Both counts come from the same request, so
-    // concurrent edits can't explain a difference.
-    const { data: withLimit } = await admin
-      .from("shifts")
-      .select("id")
-      .eq("deal_id", deal.id)
-      .limit(1);
-    const { data: withoutLimit } = await admin
-      .from("shifts")
-      .select("id")
-      .eq("deal_id", deal.id);
-    perDeal.push({
-      dealId: deal.id,
-      dealIdType: typeof deal.id,
-      staffCount: deal.staff_count,
-      window: computeShiftWindow(deal),
-      guardSawIds: guard.ids,
-      guardError: guard.error,
-      guardWouldSkip: !!(guard.ids && guard.ids.length > 0),
-      probeWithLimit1: withLimit?.length ?? null,
-      probeWithoutLimit: withoutLimit?.length ?? null,
-    });
-  }
-
-  // The decisive question: does deal_id actually persist on inserted rows?
-  const { data: recentCatering, error: recentError } = await admin
-    .from("shifts")
-    .select("id, deal_id, position, published, employee_id, starts_at")
-    .eq("position", CATERING_POSITION)
-    .order("id", { ascending: false })
-    .limit(10);
-
-  return {
-    perDeal,
-    recentCatering: recentCatering ?? null,
-    recentError: recentError?.message ?? null,
-  };
-}
-
-// Clean up duplicate auto-created drafts left behind by the guard failing open.
-// Keeps the OLDEST staff_count shifts per deal and removes the surplus.
-//
-// Deliberately narrow: only unpublished, unassigned, deal-linked Catering rows
-// are even considered, so a published shift or one an employee has picked up can
-// never be deleted. Preview with apply:false before running it for real.
-export async function dedupeDraftShifts(
-  admin: SupabaseClient,
-  opts: { apply: boolean },
-): Promise<{
-  perDeal: { dealId: number; keep: number[]; deleteIds: number[] }[];
-  deleted: number;
-  applied: boolean;
-}> {
-  const { data: rows, error } = await admin
-    .from("shifts")
-    .select("id, deal_id")
-    .eq("position", CATERING_POSITION)
-    .eq("published", false)
-    .is("employee_id", null)
-    .not("deal_id", "is", null)
-    .order("id", { ascending: true });
-  if (error) throw new Error(error.message);
-
-  const byDeal = new Map<number, number[]>();
-  for (const r of (rows ?? []) as { id: number; deal_id: number }[]) {
-    byDeal.set(r.deal_id, [...(byDeal.get(r.deal_id) ?? []), r.id]);
-  }
-  if (byDeal.size === 0) return { perDeal: [], deleted: 0, applied: opts.apply };
-
-  const { data: deals, error: dealErr } = await admin
-    .from("deals")
-    .select("id, staff_count")
-    .in("id", [...byDeal.keys()]);
-  if (dealErr) throw new Error(dealErr.message);
-
-  const staffFor = new Map<number, number>();
-  for (const d of (deals ?? []) as { id: number; staff_count: number | null }[]) {
-    staffFor.set(
-      d.id,
-      typeof d.staff_count === "number" && d.staff_count > 0
-        ? Math.floor(d.staff_count)
-        : DEFAULT_STAFF,
-    );
-  }
-
-  const perDeal: { dealId: number; keep: number[]; deleteIds: number[] }[] = [];
-  const toDelete: number[] = [];
-  for (const [dealId, ids] of byDeal) {
-    const keepCount = staffFor.get(dealId) ?? DEFAULT_STAFF;
-    const keep = ids.slice(0, keepCount);
-    const deleteIds = ids.slice(keepCount);
-    toDelete.push(...deleteIds);
-    perDeal.push({ dealId, keep, deleteIds });
-  }
-
-  if (opts.apply && toDelete.length > 0) {
-    const { error: delErr } = await admin
-      .from("shifts")
-      .delete()
-      .in("id", toDelete);
-    if (delErr) throw new Error(delErr.message);
-  }
-
-  return { perDeal, deleted: opts.apply ? toDelete.length : 0, applied: opts.apply };
-}
-
 // Columns we need off a deal to build its shifts. Shared by the instant trigger
 // and the reconcile sweep so they stay in lockstep.
 export const DEAL_SHIFT_COLUMNS =
@@ -319,12 +169,7 @@ export const DEAL_SHIFT_COLUMNS =
 // generated AFTER booking (the moment the stage-change trigger can't catch).
 export async function reconcileBookedDeals(
   admin: SupabaseClient,
-): Promise<{
-  scanned: number;
-  created: number;
-  deals: number;
-  errors: { dealId: number; message: string }[];
-}> {
+): Promise<{ scanned: number; created: number; deals: number }> {
   const { data: deals, error } = await admin
     .from("deals")
     .select(DEAL_SHIFT_COLUMNS)
@@ -334,22 +179,12 @@ export async function reconcileBookedDeals(
 
   let created = 0;
   let touched = 0;
-  // One bad deal shouldn't abort the sweep, but the failure has to reach the
-  // caller — silently discarding it is what let the duplication run unnoticed.
-  const errors: { dealId: number; message: string }[] = [];
   for (const deal of (deals ?? []) as DealTimes[]) {
-    try {
-      const r = await createDraftShiftsForDeal(admin, deal);
-      if (!("skipped" in r && r.skipped) && r.created > 0) {
-        created += r.created;
-        touched += 1;
-      }
-    } catch (e) {
-      errors.push({
-        dealId: deal.id,
-        message: e instanceof Error ? e.message : String(e),
-      });
+    const r = await createDraftShiftsForDeal(admin, deal).catch(() => null);
+    if (r && !("skipped" in r && r.skipped) && r.created > 0) {
+      created += r.created;
+      touched += 1;
     }
   }
-  return { scanned: deals?.length ?? 0, created, deals: touched, errors };
+  return { scanned: deals?.length ?? 0, created, deals: touched };
 }

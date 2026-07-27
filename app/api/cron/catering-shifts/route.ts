@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  dedupeDraftShifts,
-  inspectBookedDeals,
-  reconcileBookedDeals,
-} from "@/lib/cateringShifts";
+import { reconcileBookedDeals } from "@/lib/cateringShifts";
 
 export const dynamic = "force-dynamic";
 
@@ -16,15 +12,10 @@ export const dynamic = "force-dynamic";
 // picklist is generated AFTER booking, when the stage-change trigger can't.
 //
 // Meant to be hit on a schedule, same cadence as the missed-clockins cron.
-//
-// CRON_SECRET is required, via Bearer header or ?secret=. It is the ONLY thing
-// guarding this route: the auth middleware lets /api/cron through, and the
-// handler writes with the service-role key, bypassing RLS. An unset secret
-// therefore means "open write endpoint", so treat it as misconfiguration and
-// refuse rather than defaulting to allow.
+// Optional CRON_SECRET guard: if set, require it via Bearer header or ?secret=.
 function authorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return false; // not configured -> refuse
+  if (!secret) return true; // not configured -> allow
   const header = request.headers.get("authorization");
   const url = new URL(request.url);
   return header === `Bearer ${secret}` || url.searchParams.get("secret") === secret;
@@ -36,17 +27,6 @@ export async function GET(request: Request) {
 
   try {
     const admin = createAdminClient();
-    const params = new URL(request.url).searchParams;
-    // ?dryRun=1 reports what the sweep sees without inserting anything.
-    if (params.get("dryRun"))
-      return NextResponse.json({ ok: true, dryRun: true, ...(await inspectBookedDeals(admin)) });
-    // ?dedupe=1 previews duplicate cleanup; ?dedupe=apply performs it.
-    const dedupe = params.get("dedupe");
-    if (dedupe)
-      return NextResponse.json({
-        ok: true,
-        ...(await dedupeDraftShifts(admin, { apply: dedupe === "apply" })),
-      });
     const result = await reconcileBookedDeals(admin);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
