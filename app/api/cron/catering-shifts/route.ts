@@ -12,10 +12,15 @@ export const dynamic = "force-dynamic";
 // picklist is generated AFTER booking, when the stage-change trigger can't.
 //
 // Meant to be hit on a schedule, same cadence as the missed-clockins cron.
-// Optional CRON_SECRET guard: if set, require it via Bearer header or ?secret=.
+//
+// CRON_SECRET is required, via Bearer header or ?secret=. It is the ONLY thing
+// guarding this route: the auth middleware lets /api/cron through, and the
+// handler writes with the service-role key, bypassing RLS. An unset secret
+// therefore means "open write endpoint", so treat it as misconfiguration and
+// refuse rather than defaulting to allow.
 function authorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // not configured -> allow
+  if (!secret) return false; // not configured -> refuse
   const header = request.headers.get("authorization");
   const url = new URL(request.url);
   return header === `Bearer ${secret}` || url.searchParams.get("secret") === secret;

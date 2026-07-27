@@ -32,10 +32,14 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
+  // /api/cron/* is machine-facing: a scheduler calls it with no Supabase session,
+  // so it has to skip both the login redirect and the manager gate below. Those
+  // routes are responsible for their own auth and must require CRON_SECRET.
   const isPublic =
     path === "/login" ||
     path.startsWith("/auth") ||
     path.startsWith("/_next") ||
+    path.startsWith("/api/cron") ||
     path === "/favicon.ico";
 
   if (!user && !isPublic) {
