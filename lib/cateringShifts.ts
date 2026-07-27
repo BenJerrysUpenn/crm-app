@@ -106,6 +106,24 @@ export type CreateResult =
   | { created: number; skipped?: false }
   | { created: 0; skipped: true; reason: string };
 
+// THE duplicate guard. Both the creator and the dry-run diagnostic go through
+// this one function, so what the diagnostic reports is by construction exactly
+// what the creator decides on — an earlier near-copy in the diagnostic reported
+// matches while the creator behaved as if it had none, which made the real
+// failure impossible to see.
+async function findExistingShiftIds(
+  admin: SupabaseClient,
+  dealId: number,
+): Promise<{ ids: number[] | null; error: string | null }> {
+  const { data, error } = await admin
+    .from("shifts")
+    .select("id")
+    .eq("deal_id", dealId)
+    .limit(1);
+  if (error) return { ids: null, error: error.message };
+  return { ids: (data ?? []).map((r) => (r as { id: number }).id), error: null };
+}
+
 // Create the draft shifts for a booked deal. Idempotent by deal_id.
 export async function createDraftShiftsForDeal(
   admin: SupabaseClient,
@@ -115,14 +133,13 @@ export async function createDraftShiftsForDeal(
   // the insert: this check is the only thing preventing duplicates, so treating
   // "couldn't tell" as "nothing exists" is how a deal ends up with seven copies
   // of the same shift. Fail loudly instead.
-  const { data: existing, error: existingError } = await admin
-    .from("shifts")
-    .select("id")
-    .eq("deal_id", deal.id)
-    .limit(1);
+  const { ids: existing, error: existingError } = await findExistingShiftIds(
+    admin,
+    deal.id,
+  );
   if (existingError)
     throw new Error(
-      `could not check existing shifts for deal ${deal.id}: ${existingError.message}`,
+      `could not check existing shifts for deal ${deal.id}: ${existingError}`,
     );
   if (existing && existing.length > 0) {
     return { created: 0, skipped: true, reason: "shifts already exist for this deal" };
@@ -179,17 +196,16 @@ export async function inspectBookedDeals(admin: SupabaseClient) {
 
   const perDeal = [];
   for (const deal of (deals ?? []) as DealTimes[]) {
-    const { data: existing, error: existingError } = await admin
-      .from("shifts")
-      .select("id, deal_id, position, published, employee_id")
-      .eq("deal_id", deal.id);
+    // Exactly the query the creator gates on — same helper, no near-copy.
+    const guard = await findExistingShiftIds(admin, deal.id);
     perDeal.push({
       dealId: deal.id,
       dealIdType: typeof deal.id,
       staffCount: deal.staff_count,
       window: computeShiftWindow(deal),
-      matchedByDealId: existing?.length ?? null,
-      existingError: existingError?.message ?? null,
+      guardSawIds: guard.ids,
+      guardError: guard.error,
+      guardWouldSkip: !!(guard.ids && guard.ids.length > 0),
     });
   }
 
