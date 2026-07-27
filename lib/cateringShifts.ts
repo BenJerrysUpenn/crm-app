@@ -143,7 +143,12 @@ export async function createDraftShiftsForDeal(
   ].filter(Boolean);
   const notes = noteBits.join(" · ");
 
-  const rows = Array.from({ length: crew }).map(() => ({
+  // One row per crew member, each with a stable per-deal slot (1..crew). The DB
+  // has a unique index on (deal_id, deal_slot), and we upsert ignoring
+  // conflicts — so even if two calls race past the guard above, the second
+  // inserts nothing instead of duplicating. Multi-crew events are fine because
+  // their slots differ.
+  const rows = Array.from({ length: crew }).map((_, i) => ({
     employee_id: null as string | null,
     starts_at: win.startISO,
     ends_at: win.endISO,
@@ -151,9 +156,13 @@ export async function createDraftShiftsForDeal(
     notes,
     published: false,
     deal_id: deal.id,
+    deal_slot: i + 1,
   }));
 
-  const { error, data } = await admin.from("shifts").insert(rows).select("id");
+  const { error, data } = await admin
+    .from("shifts")
+    .upsert(rows, { onConflict: "deal_id,deal_slot", ignoreDuplicates: true })
+    .select("id");
   if (error) throw new Error(error.message);
   return { created: data?.length ?? 0 };
 }
