@@ -97,6 +97,20 @@ export default function DealDetailDrawer({
   const [callNotes, setCallNotes] = useState<string>("");
   const [callSubmitting, setCallSubmitting] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
+  // Structured call log list. Loaded per deal; refreshed after
+  // create / edit / delete.
+  type CallLog = {
+    id: number;
+    called_at: string;
+    notes: string;
+    created_by: string | null;
+    created_at: string;
+  };
+  const [calls, setCalls] = useState<CallLog[]>([]);
+  const [callsLoading, setCallsLoading] = useState(false);
+  const [editingCallId, setEditingCallId] = useState<number | null>(null);
+  const [editCallAt, setEditCallAt] = useState<string>("");
+  const [editCallNotes, setEditCallNotes] = useState<string>("");
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -246,6 +260,7 @@ export default function DealDetailDrawer({
       if (data) onDealUpdate?.(data as Deal);
       setCallAt("");
       setCallNotes("");
+      refreshCalls();
     } catch (e) {
       setCallError(e instanceof Error ? e.message : "Network error");
     } finally {
@@ -261,6 +276,73 @@ export default function DealDetailDrawer({
     setCallAt(
       `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
     );
+  }
+
+  // Format an ISO timestamp as "YYYY-MM-DDTHH:MM" for the datetime-local
+  // input when editing an existing call log.
+  function toDatetimeLocalValue(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  // Fetch the list of past call_logs for this deal.
+  async function refreshCalls() {
+    setCallsLoading(true);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/calls`);
+      if (res.ok) {
+        const body = await res.json();
+        setCalls(Array.isArray(body.calls) ? body.calls : []);
+      }
+    } catch {
+      /* swallow — the list just won't refresh */
+    } finally {
+      setCallsLoading(false);
+    }
+  }
+
+  // Load calls on drawer open / when deal changes.
+  useEffect(() => {
+    refreshCalls();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deal.id]);
+
+  async function saveEditCall(callId: number) {
+    const res = await fetch(`/api/deals/${deal.id}/calls/${callId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ called_at: editCallAt, notes: editCallNotes }),
+    });
+    if (res.ok) {
+      setEditingCallId(null);
+      setEditCallAt("");
+      setEditCallNotes("");
+      refreshCalls();
+    } else {
+      const body = await res.json().catch(() => ({}));
+      alert(`Save failed: ${body.error || res.status}`);
+    }
+  }
+
+  async function deleteCall(callId: number) {
+    if (!confirm("Delete this call log entry?")) return;
+    const res = await fetch(`/api/deals/${deal.id}/calls/${callId}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      refreshCalls();
+    } else {
+      const body = await res.json().catch(() => ({}));
+      alert(`Delete failed: ${body.error || res.status}`);
+    }
+  }
+
+  // Strip common formatting from a phone number for the tel: URL. Keeps
+  // digits, leading +, and pause chars (,;). iOS handles the rest.
+  function telHref(raw: string): string {
+    return `tel:${raw.replace(/[^0-9+,;]/g, "")}`;
   }
 
   async function requestJob(
@@ -630,11 +712,24 @@ export default function DealDetailDrawer({
                   />
                 </FieldRow>
                 <FieldRow label="Phone">
-                  <TextInput
-                    type="tel"
-                    value={current.contact_phone ?? ""}
-                    onChange={(v) => setField("contact_phone", v || null)}
-                  />
+                  <div className="flex gap-2 items-stretch">
+                    <div className="flex-1">
+                      <TextInput
+                        type="tel"
+                        value={current.contact_phone ?? ""}
+                        onChange={(v) => setField("contact_phone", v || null)}
+                      />
+                    </div>
+                    {current.contact_phone && (
+                      <a
+                        href={telHref(current.contact_phone)}
+                        className="text-xs bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 rounded px-3 py-1.5 hover:bg-emerald-500/30 whitespace-nowrap flex items-center"
+                        title="Open in Phone app (iOS handoff)"
+                      >
+                        Call now
+                      </a>
+                    )}
+                  </div>
                 </FieldRow>
                 <FieldRow label="Day-of contact">
                   <TextInput
@@ -643,11 +738,24 @@ export default function DealDetailDrawer({
                   />
                 </FieldRow>
                 <FieldRow label="Day-of phone">
-                  <TextInput
-                    type="tel"
-                    value={current.day_of_contact_phone ?? ""}
-                    onChange={(v) => setField("day_of_contact_phone", v || null)}
-                  />
+                  <div className="flex gap-2 items-stretch">
+                    <div className="flex-1">
+                      <TextInput
+                        type="tel"
+                        value={current.day_of_contact_phone ?? ""}
+                        onChange={(v) => setField("day_of_contact_phone", v || null)}
+                      />
+                    </div>
+                    {current.day_of_contact_phone && (
+                      <a
+                        href={telHref(current.day_of_contact_phone)}
+                        className="text-xs bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 rounded px-3 py-1.5 hover:bg-emerald-500/30 whitespace-nowrap flex items-center"
+                        title="Open in Phone app (iOS handoff)"
+                      >
+                        Call now
+                      </a>
+                    )}
+                  </div>
                 </FieldRow>
               </section>
 
@@ -983,6 +1091,109 @@ export default function DealDetailDrawer({
                     </button>
                   </div>
                 </div>
+              </section>
+
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Calls ({calls.length})
+                  </h3>
+                  {callsLoading && (
+                    <span className="text-[11px] text-slate-500">Loading…</span>
+                  )}
+                </div>
+                {calls.length === 0 ? (
+                  <div className="text-xs text-slate-500 italic">
+                    No calls logged yet.
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {calls.map((c) => {
+                      const isEditing = editingCallId === c.id;
+                      return (
+                        <li
+                          key={c.id}
+                          className="bg-slate-800/40 rounded p-3 border border-slate-800"
+                        >
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <input
+                                type="datetime-local"
+                                value={editCallAt}
+                                onChange={(e) => setEditCallAt(e.target.value)}
+                                className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                              />
+                              <textarea
+                                value={editCallNotes}
+                                onChange={(e) => setEditCallNotes(e.target.value)}
+                                rows={3}
+                                className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500 resize-y"
+                              />
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingCallId(null);
+                                    setEditCallAt("");
+                                    setEditCallNotes("");
+                                  }}
+                                  className="text-xs bg-slate-700/60 text-slate-200 border border-slate-600 rounded px-3 py-1.5 hover:bg-slate-700"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => saveEditCall(c.id)}
+                                  className="text-xs bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 rounded px-3 py-1.5 hover:bg-emerald-500/30"
+                                >
+                                  Save
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="flex items-baseline justify-between gap-2 mb-1">
+                                <div className="text-xs text-slate-400">
+                                  {fmtEasternDateTime(c.called_at)}
+                                  {c.created_by && (
+                                    <span className="ml-2 text-slate-500">
+                                      · {c.created_by}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingCallId(c.id);
+                                      setEditCallAt(
+                                        toDatetimeLocalValue(c.called_at),
+                                      );
+                                      setEditCallNotes(c.notes);
+                                    }}
+                                    className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+                                  >
+                                    edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteCall(c.id)}
+                                    className="text-[11px] text-rose-400 hover:text-rose-300 underline"
+                                  >
+                                    delete
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="text-sm text-slate-200 whitespace-pre-wrap">
+                                {c.notes}
+                              </div>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </section>
 
               <section>

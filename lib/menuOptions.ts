@@ -264,6 +264,7 @@ function splitCombinedToppings(s: string): string[] {
 }
 
 export const PACKAGES: ReadonlyArray<Package> = [
+  { value: "Single Scoop Cup and Cone Party", description: "1 scoop, $6/guest" },
   { value: "Cup or Cone Party", description: "" },
   { value: "Waffle Cone Party", description: "" },
   { value: "Sundae Party", description: "4 toppings" },

@@ -2,6 +2,36 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+// GET /api/deals/:id/calls
+//
+// List all call_logs entries for a deal, newest first. Used by the
+// drawer's Calls section to render the structured list.
+export async function GET(
+  _request: Request,
+  { params }: { params: { id: string } },
+) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
+  const dealId = Number(params.id);
+  if (!Number.isFinite(dealId))
+    return NextResponse.json({ error: "Bad deal id" }, { status: 400 });
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("call_logs")
+    .select("id, called_at, notes, created_by, created_at")
+    .eq("deal_id", dealId)
+    .order("called_at", { ascending: false });
+  if (error)
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ calls: data ?? [] });
+}
+
 // POST /api/deals/:id/calls
 //
 // Log a phone call against a deal. Body: { called_at: ISO string, notes: string }.
