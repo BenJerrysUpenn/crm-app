@@ -91,6 +91,12 @@ export default function DealDetailDrawer({
   const [error, setError] = useState<string | null>(null);
   const [quoteJob, setQuoteJob] = useState<QuoteJob | null>(null);
   const [quoteRequesting, setQuoteRequesting] = useState(false);
+  // Log-a-call state. called_at is stored as an HTML datetime-local string
+  // ("YYYY-MM-DDTHH:MM"); the server parses it into a real timestamp.
+  const [callAt, setCallAt] = useState<string>("");
+  const [callNotes, setCallNotes] = useState<string>("");
+  const [callSubmitting, setCallSubmitting] = useState(false);
+  const [callError, setCallError] = useState<string | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -202,6 +208,59 @@ export default function DealDetailDrawer({
   function discard() {
     setEdits({});
     setError(null);
+  }
+
+  // Log-a-call: POST to /api/deals/:id/calls, which writes call_logs and
+  // appends a formatted line to deals.notes. On success we refetch the
+  // deal so the activity log picks up the new line immediately.
+  async function logCall() {
+    setCallError(null);
+    const at = callAt.trim();
+    const notes = callNotes.trim();
+    if (!at) {
+      setCallError("Pick a date/time (or click Now).");
+      return;
+    }
+    if (!notes) {
+      setCallError("Write a note about what was discussed.");
+      return;
+    }
+    setCallSubmitting(true);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/calls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ called_at: at, notes }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCallError(body.error || `HTTP ${res.status}`);
+        return;
+      }
+      // Refetch the deal so notes/activity log updates immediately.
+      const { data } = await supabase
+        .from("deals")
+        .select("*")
+        .eq("id", deal.id)
+        .single();
+      if (data) onDealUpdate?.(data as Deal);
+      setCallAt("");
+      setCallNotes("");
+    } catch (e) {
+      setCallError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setCallSubmitting(false);
+    }
+  }
+
+  // "Now" button: fill callAt with the current local time in the format
+  // <input type="datetime-local"> expects: "YYYY-MM-DDTHH:MM".
+  function setCallAtNow() {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    setCallAt(
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    );
   }
 
   async function requestJob(
@@ -880,6 +939,50 @@ export default function DealDetailDrawer({
                     </div>
                   );
                 })()}
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                  Log a call
+                </h3>
+                <div className="space-y-2 bg-slate-800/40 rounded p-3 border border-slate-800">
+                  <div className="flex gap-2 items-stretch">
+                    <input
+                      type="datetime-local"
+                      value={callAt}
+                      onChange={(e) => setCallAt(e.target.value)}
+                      className="flex-1 text-sm bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={setCallAtNow}
+                      className="text-xs bg-slate-700/60 text-slate-200 border border-slate-600 rounded px-3 py-1.5 hover:bg-slate-700 whitespace-nowrap"
+                      title="Set to current time"
+                    >
+                      Now
+                    </button>
+                  </div>
+                  <textarea
+                    value={callNotes}
+                    onChange={(e) => setCallNotes(e.target.value)}
+                    placeholder="What was discussed? Any commitments, prices quoted, next steps..."
+                    rows={3}
+                    className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500 resize-y"
+                  />
+                  {callError && (
+                    <div className="text-xs text-rose-300">{callError}</div>
+                  )}
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={logCall}
+                      disabled={callSubmitting}
+                      className="text-xs sm:text-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 rounded-md px-3 py-1.5 hover:bg-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {callSubmitting ? "Logging…" : "Log call"}
+                    </button>
+                  </div>
+                </div>
               </section>
 
               <section>
