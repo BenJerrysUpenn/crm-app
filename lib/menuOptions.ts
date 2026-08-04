@@ -116,7 +116,7 @@ export type Extra = {
 // dropdown so the deal record reflects what the customer requested.
 export const EXTRAS: ReadonlyArray<Extra> = [
   { key: "ice_cream_cart", label: "Ice Cream Cart", price: 500, unit: "flat", defaultQty: "one" },
-  { key: "waffle_cones", label: "Waffle cones/bowls", price: 2, unit: "per_guest", defaultQty: "per_guest" },
+  { key: "waffle_cones", label: "Waffle Cones", price: 2, unit: "per_guest", defaultQty: "per_guest" },
   { key: "additional_flavor", label: "Additional Flavor", price: 25, unit: "flat", defaultQty: "one" },
   { key: "extra_toppings", label: "Extra Toppings", price: 0, unit: "per_guest", defaultQty: "one" },
   { key: "personalized_pints", label: "Personalized Pints", price: 15.95, unit: "flat", defaultQty: "per_guest" },
@@ -156,10 +156,10 @@ const EXTRA_ALIASES: Record<string, string> = {
   "ice cream cart": "Ice Cream Cart",
   "icecream cart": "Ice Cream Cart",
   "ice cream cart upgrade": "Ice Cream Cart",
-  "waffles": "Waffle cones/bowls",
-  "waffle cone": "Waffle cones/bowls",
-  "waffle cones": "Waffle cones/bowls",
-  "waffle cones/bowls": "Waffle cones/bowls",
+  "waffles": "Waffle Cones",
+  "waffle cone": "Waffle Cones",
+  "waffle cones": "Waffle Cones",
+  "waffle cones/bowls": "Waffle Cones",
   "additional flavor": "Additional Flavor",
   "additional flavour": "Additional Flavor",
   "extra flavor": "Additional Flavor",
