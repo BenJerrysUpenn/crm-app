@@ -41,6 +41,7 @@ export const FLAVORS: ReadonlyArray<Flavor> = [
   { name: "Non-Dairy Mochaccino Chip", category: "non_dairy", gf: true, vegan: true },
   { name: "Non-Dairy Strawberry Swirl", category: "non_dairy", gf: true, vegan: true },
   // Sorbet
+  { name: "Berry Berry Extraordinary Sorbet", category: "sorbet", gf: true, vegan: true },
   { name: "Lemonade Sorbet", category: "sorbet", gf: true, vegan: true },
 ];
 
@@ -76,6 +77,9 @@ const NAME_ALIASES: Record<string, string> = {
   "mochaccino chip": "Non-Dairy Mochaccino Chip",
   "key lime pie": "Non-Dairy Key Lime Pie",
   "lemonade": "Lemonade Sorbet",
+  "berry berry extraordinary": "Berry Berry Extraordinary Sorbet",
+  "berry berry extraordinaire": "Berry Berry Extraordinary Sorbet",
+  "berry berry": "Berry Berry Extraordinary Sorbet",
   "the tonight dough starring jimmy fallon": "The Tonight Dough",
 };
 
