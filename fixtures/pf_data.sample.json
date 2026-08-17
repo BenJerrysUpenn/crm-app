@@ -1,0 +1,1030 @@
+{
+ "meta": {
+  "generated_at": "2026-08-16T08:30:00Z",
+  "source": "sample_transactions_export.csv",
+  "row_count": 76,
+  "reconciliation": {
+   "ok": true,
+   "raw_sum_cents": 1234567,
+   "ledger_sum_cents": 1234567
+  }
+ },
+ "explorer": {
+  "months": [
+   "2026-06",
+   "2026-07",
+   "2026-08"
+  ],
+  "rows": [
+   {
+    "d": "2026-06-05",
+    "m": "Sample Employer Payroll",
+    "a": 3100,
+    "g": "income",
+    "s": "Paychecks",
+    "g2": "income",
+    "s2": "Paychecks"
+   },
+   {
+    "d": "2026-06-19",
+    "m": "Sample Employer Payroll",
+    "a": 3100,
+    "g": "income",
+    "s": "Paychecks",
+    "g2": "income",
+    "s2": "Paychecks"
+   },
+   {
+    "d": "2026-06-28",
+    "m": "Fixture Brokerage",
+    "a": 41.5,
+    "g": "income",
+    "s": "Interest & dividends",
+    "g2": "income",
+    "s2": "Interest & dividends"
+   },
+   {
+    "d": "2026-06-01",
+    "m": "Example Mortgage Co",
+    "a": -2100,
+    "g": "debt",
+    "s": "Mortgage",
+    "g2": "standing",
+    "s2": "Mortgage"
+   },
+   {
+    "d": "2026-06-03",
+    "m": "Demo Auto Loan Servicing",
+    "a": -430.25,
+    "g": "debt",
+    "s": "Autos",
+    "g2": "standing",
+    "s2": "Autos"
+   },
+   {
+    "d": "2026-06-12",
+    "m": "Fake BNPL Plan",
+    "a": -85,
+    "g": "debt",
+    "s": "BNPL other",
+    "g2": "standing",
+    "s2": "BNPL 0%"
+   },
+   {
+    "d": "2026-06-07",
+    "m": "Sample Nanny (cash)",
+    "a": -800,
+    "g": "child",
+    "s": "Nanny (cash)",
+    "g2": "standing",
+    "s2": "Nanny (cash)"
+   },
+   {
+    "d": "2026-06-14",
+    "m": "Sample Nanny (cash)",
+    "a": -800,
+    "g": "child",
+    "s": "Nanny (cash)",
+    "g2": "standing",
+    "s2": "Nanny (cash)"
+   },
+   {
+    "d": "2026-06-21",
+    "m": "Sample Nanny (cash)",
+    "a": -800,
+    "g": "child",
+    "s": "Nanny (cash)",
+    "g2": "standing",
+    "s2": "Nanny (cash)"
+   },
+   {
+    "d": "2026-06-10",
+    "m": "Placeholder Sitter Service",
+    "a": -120,
+    "g": "child",
+    "s": "Childcare (sitters)",
+    "g2": "habit",
+    "s2": "Childcare (sitters)"
+   },
+   {
+    "d": "2026-06-02",
+    "m": "Sample Grocer #1",
+    "a": -182.4,
+    "g": "food",
+    "s": "Groceries",
+    "g2": "habit",
+    "s2": "Groceries"
+   },
+   {
+    "d": "2026-06-09",
+    "m": "Sample Grocer #1",
+    "a": -164.1,
+    "g": "food",
+    "s": "Groceries",
+    "g2": "habit",
+    "s2": "Groceries"
+   },
+   {
+    "d": "2026-06-23",
+    "m": "Sample Grocer #2",
+    "a": -201.77,
+    "g": "food",
+    "s": "Groceries",
+    "g2": "habit",
+    "s2": "Groceries"
+   },
+   {
+    "d": "2026-06-11",
+    "m": "Demo Diner",
+    "a": -95.6,
+    "g": "food",
+    "s": "Restaurants & takeout",
+    "g2": "habit",
+    "s2": "Restaurants & takeout"
+   },
+   {
+    "d": "2026-06-16",
+    "m": "Placeholder Pizza Co",
+    "a": -48.3,
+    "g": "food",
+    "s": "Restaurants & takeout",
+    "g2": "habit",
+    "s2": "Restaurants & takeout"
+   },
+   {
+    "d": "2026-06-08",
+    "m": "Fixture Megamart",
+    "a": -145.55,
+    "g": "shop",
+    "s": "Shopping",
+    "g2": "habit",
+    "s2": "Shopping"
+   },
+   {
+    "d": "2026-06-04",
+    "m": "Test Transit Authority",
+    "a": -140,
+    "g": "transport",
+    "s": "Commute (NY/transit)",
+    "g2": "habit",
+    "s2": "Commute (NY/transit)"
+   },
+   {
+    "d": "2026-06-13",
+    "m": "Sandbox Rideshare",
+    "a": -18.4,
+    "g": "transport",
+    "s": "Rideshare",
+    "g2": "habit",
+    "s2": "Rideshare"
+   },
+   {
+    "d": "2026-06-06",
+    "m": "Demo Parking Garage",
+    "a": -25,
+    "g": "transport",
+    "s": "Parking & tolls",
+    "g2": "habit",
+    "s2": "Parking & tolls"
+   },
+   {
+    "d": "2026-06-15",
+    "m": "Testing Telecom",
+    "a": -110,
+    "g": "home",
+    "s": "Phone/Internet",
+    "g2": "standing",
+    "s2": "Phone/Internet"
+   },
+   {
+    "d": "2026-06-05",
+    "m": "Sample Power & Light",
+    "a": -240,
+    "g": "home",
+    "s": "Utilities",
+    "g2": "standing",
+    "s2": "Utilities"
+   },
+   {
+    "d": "2026-06-24",
+    "m": "Fake Hardware Depot",
+    "a": -190.99,
+    "g": "home",
+    "s": "Home, yard & electronics",
+    "g2": "oneoff",
+    "s2": "Home, yard & electronics"
+   },
+   {
+    "d": "2026-06-01",
+    "m": "Fake Streaming Co",
+    "a": -19.99,
+    "g": "subs",
+    "s": "Subscriptions",
+    "g2": "standing",
+    "s2": "Subscriptions"
+   },
+   {
+    "d": "2026-06-02",
+    "m": "Demo Music Service",
+    "a": -11.99,
+    "g": "subs",
+    "s": "Subscriptions",
+    "g2": "standing",
+    "s2": "Subscriptions"
+   },
+   {
+    "d": "2026-06-20",
+    "m": "Example Travel Agency",
+    "a": -850,
+    "g": "other",
+    "s": "Vacation & travel",
+    "g2": "oneoff",
+    "s2": "Vacation & travel"
+   },
+   {
+    "d": "2026-06-09",
+    "m": "Mock Charity Fund",
+    "a": -50,
+    "g": "other",
+    "s": "Charity",
+    "g2": "oneoff",
+    "s2": "Charity"
+   },
+   {
+    "d": "2026-06-12",
+    "m": "Mock Pet Supply Store",
+    "a": -64.2,
+    "g": "other",
+    "s": "Pets",
+    "g2": "habit",
+    "s2": "Pets"
+   },
+   {
+    "d": "2026-07-05",
+    "m": "Sample Employer Payroll",
+    "a": 3125,
+    "g": "income",
+    "s": "Paychecks",
+    "g2": "income",
+    "s2": "Paychecks"
+   },
+   {
+    "d": "2026-07-19",
+    "m": "Sample Employer Payroll",
+    "a": 3125,
+    "g": "income",
+    "s": "Paychecks",
+    "g2": "income",
+    "s2": "Paychecks"
+   },
+   {
+    "d": "2026-07-28",
+    "m": "Fixture Brokerage",
+    "a": 42.5,
+    "g": "income",
+    "s": "Interest & dividends",
+    "g2": "income",
+    "s2": "Interest & dividends"
+   },
+   {
+    "d": "2026-07-01",
+    "m": "Example Mortgage Co",
+    "a": -2100,
+    "g": "debt",
+    "s": "Mortgage",
+    "g2": "standing",
+    "s2": "Mortgage"
+   },
+   {
+    "d": "2026-07-03",
+    "m": "Demo Auto Loan Servicing",
+    "a": -430.25,
+    "g": "debt",
+    "s": "Autos",
+    "g2": "standing",
+    "s2": "Autos"
+   },
+   {
+    "d": "2026-07-12",
+    "m": "Fake BNPL Plan",
+    "a": -85,
+    "g": "debt",
+    "s": "BNPL other",
+    "g2": "standing",
+    "s2": "BNPL 0%"
+   },
+   {
+    "d": "2026-07-07",
+    "m": "Sample Nanny (cash)",
+    "a": -800,
+    "g": "child",
+    "s": "Nanny (cash)",
+    "g2": "standing",
+    "s2": "Nanny (cash)"
+   },
+   {
+    "d": "2026-07-14",
+    "m": "Sample Nanny (cash)",
+    "a": -800,
+    "g": "child",
+    "s": "Nanny (cash)",
+    "g2": "standing",
+    "s2": "Nanny (cash)"
+   },
+   {
+    "d": "2026-07-21",
+    "m": "Sample Nanny (cash)",
+    "a": -800,
+    "g": "child",
+    "s": "Nanny (cash)",
+    "g2": "standing",
+    "s2": "Nanny (cash)"
+   },
+   {
+    "d": "2026-07-10",
+    "m": "Placeholder Sitter Service",
+    "a": -120,
+    "g": "child",
+    "s": "Childcare (sitters)",
+    "g2": "habit",
+    "s2": "Childcare (sitters)"
+   },
+   {
+    "d": "2026-07-02",
+    "m": "Sample Grocer #1",
+    "a": -179.4,
+    "g": "food",
+    "s": "Groceries",
+    "g2": "habit",
+    "s2": "Groceries"
+   },
+   {
+    "d": "2026-07-09",
+    "m": "Sample Grocer #1",
+    "a": -164.1,
+    "g": "food",
+    "s": "Groceries",
+    "g2": "habit",
+    "s2": "Groceries"
+   },
+   {
+    "d": "2026-07-23",
+    "m": "Sample Grocer #2",
+    "a": -201.77,
+    "g": "food",
+    "s": "Groceries",
+    "g2": "habit",
+    "s2": "Groceries"
+   },
+   {
+    "d": "2026-07-11",
+    "m": "Demo Diner",
+    "a": -95.6,
+    "g": "food",
+    "s": "Restaurants & takeout",
+    "g2": "habit",
+    "s2": "Restaurants & takeout"
+   },
+   {
+    "d": "2026-07-16",
+    "m": "Placeholder Pizza Co",
+    "a": -48.3,
+    "g": "food",
+    "s": "Restaurants & takeout",
+    "g2": "habit",
+    "s2": "Restaurants & takeout"
+   },
+   {
+    "d": "2026-07-08",
+    "m": "Fixture Megamart",
+    "a": -145.55,
+    "g": "shop",
+    "s": "Shopping",
+    "g2": "habit",
+    "s2": "Shopping"
+   },
+   {
+    "d": "2026-07-20",
+    "m": "Mock Online Store",
+    "a": -260,
+    "g": "shop",
+    "s": "Shopping",
+    "g2": "oneoff",
+    "s2": "Shopping"
+   },
+   {
+    "d": "2026-07-04",
+    "m": "Test Transit Authority",
+    "a": -140,
+    "g": "transport",
+    "s": "Commute (NY/transit)",
+    "g2": "habit",
+    "s2": "Commute (NY/transit)"
+   },
+   {
+    "d": "2026-07-13",
+    "m": "Sandbox Rideshare",
+    "a": -18.4,
+    "g": "transport",
+    "s": "Rideshare",
+    "g2": "habit",
+    "s2": "Rideshare"
+   },
+   {
+    "d": "2026-07-06",
+    "m": "Demo Parking Garage",
+    "a": -25,
+    "g": "transport",
+    "s": "Parking & tolls",
+    "g2": "habit",
+    "s2": "Parking & tolls"
+   },
+   {
+    "d": "2026-07-15",
+    "m": "Testing Telecom",
+    "a": -110,
+    "g": "home",
+    "s": "Phone/Internet",
+    "g2": "standing",
+    "s2": "Phone/Internet"
+   },
+   {
+    "d": "2026-07-05",
+    "m": "Sample Power & Light",
+    "a": -240,
+    "g": "home",
+    "s": "Utilities",
+    "g2": "standing",
+    "s2": "Utilities"
+   },
+   {
+    "d": "2026-07-01",
+    "m": "Fake Streaming Co",
+    "a": -19.99,
+    "g": "subs",
+    "s": "Subscriptions",
+    "g2": "standing",
+    "s2": "Subscriptions"
+   },
+   {
+    "d": "2026-07-02",
+    "m": "Demo Music Service",
+    "a": -11.99,
+    "g": "subs",
+    "s": "Subscriptions",
+    "g2": "standing",
+    "s2": "Subscriptions"
+   },
+   {
+    "d": "2026-07-18",
+    "m": "Placeholder Vet Clinic",
+    "a": -310,
+    "g": "other",
+    "s": "Pets",
+    "g2": "shock",
+    "s2": "Vet emergency"
+   },
+   {
+    "d": "2026-07-09",
+    "m": "Mock Charity Fund",
+    "a": -50,
+    "g": "other",
+    "s": "Charity",
+    "g2": "oneoff",
+    "s2": "Charity"
+   },
+   {
+    "d": "2026-07-12",
+    "m": "Mock Pet Supply Store",
+    "a": -64.2,
+    "g": "other",
+    "s": "Pets",
+    "g2": "habit",
+    "s2": "Pets"
+   },
+   {
+    "d": "2026-08-05",
+    "m": "Sample Employer Payroll",
+    "a": 3150,
+    "g": "income",
+    "s": "Paychecks",
+    "g2": "income",
+    "s2": "Paychecks"
+   },
+   {
+    "d": "2026-08-16",
+    "m": "Fixture Brokerage",
+    "a": 43.5,
+    "g": "income",
+    "s": "Interest & dividends",
+    "g2": "income",
+    "s2": "Interest & dividends"
+   },
+   {
+    "d": "2026-08-01",
+    "m": "Example Mortgage Co",
+    "a": -2100,
+    "g": "debt",
+    "s": "Mortgage",
+    "g2": "standing",
+    "s2": "Mortgage"
+   },
+   {
+    "d": "2026-08-03",
+    "m": "Demo Auto Loan Servicing",
+    "a": -430.25,
+    "g": "debt",
+    "s": "Autos",
+    "g2": "standing",
+    "s2": "Autos"
+   },
+   {
+    "d": "2026-08-12",
+    "m": "Fake BNPL Plan",
+    "a": -85,
+    "g": "debt",
+    "s": "BNPL other",
+    "g2": "standing",
+    "s2": "BNPL 0%"
+   },
+   {
+    "d": "2026-08-07",
+    "m": "Sample Nanny (cash)",
+    "a": -800,
+    "g": "child",
+    "s": "Nanny (cash)",
+    "g2": "standing",
+    "s2": "Nanny (cash)"
+   },
+   {
+    "d": "2026-08-14",
+    "m": "Sample Nanny (cash)",
+    "a": -800,
+    "g": "child",
+    "s": "Nanny (cash)",
+    "g2": "standing",
+    "s2": "Nanny (cash)"
+   },
+   {
+    "d": "2026-08-10",
+    "m": "Placeholder Sitter Service",
+    "a": -120,
+    "g": "child",
+    "s": "Childcare (sitters)",
+    "g2": "habit",
+    "s2": "Childcare (sitters)"
+   },
+   {
+    "d": "2026-08-02",
+    "m": "Sample Grocer #1",
+    "a": -176.4,
+    "g": "food",
+    "s": "Groceries",
+    "g2": "habit",
+    "s2": "Groceries"
+   },
+   {
+    "d": "2026-08-09",
+    "m": "Sample Grocer #1",
+    "a": -164.1,
+    "g": "food",
+    "s": "Groceries",
+    "g2": "habit",
+    "s2": "Groceries"
+   },
+   {
+    "d": "2026-08-11",
+    "m": "Demo Diner",
+    "a": -95.6,
+    "g": "food",
+    "s": "Restaurants & takeout",
+    "g2": "habit",
+    "s2": "Restaurants & takeout"
+   },
+   {
+    "d": "2026-08-16",
+    "m": "Placeholder Pizza Co",
+    "a": -48.3,
+    "g": "food",
+    "s": "Restaurants & takeout",
+    "g2": "habit",
+    "s2": "Restaurants & takeout"
+   },
+   {
+    "d": "2026-08-08",
+    "m": "Fixture Megamart",
+    "a": -145.55,
+    "g": "shop",
+    "s": "Shopping",
+    "g2": "habit",
+    "s2": "Shopping"
+   },
+   {
+    "d": "2026-08-04",
+    "m": "Test Transit Authority",
+    "a": -140,
+    "g": "transport",
+    "s": "Commute (NY/transit)",
+    "g2": "habit",
+    "s2": "Commute (NY/transit)"
+   },
+   {
+    "d": "2026-08-13",
+    "m": "Sandbox Rideshare",
+    "a": -18.4,
+    "g": "transport",
+    "s": "Rideshare",
+    "g2": "habit",
+    "s2": "Rideshare"
+   },
+   {
+    "d": "2026-08-06",
+    "m": "Demo Parking Garage",
+    "a": -25,
+    "g": "transport",
+    "s": "Parking & tolls",
+    "g2": "habit",
+    "s2": "Parking & tolls"
+   },
+   {
+    "d": "2026-08-15",
+    "m": "Testing Telecom",
+    "a": -110,
+    "g": "home",
+    "s": "Phone/Internet",
+    "g2": "standing",
+    "s2": "Phone/Internet"
+   },
+   {
+    "d": "2026-08-05",
+    "m": "Sample Power & Light",
+    "a": -240,
+    "g": "home",
+    "s": "Utilities",
+    "g2": "standing",
+    "s2": "Utilities"
+   },
+   {
+    "d": "2026-08-01",
+    "m": "Fake Streaming Co",
+    "a": -19.99,
+    "g": "subs",
+    "s": "Subscriptions",
+    "g2": "standing",
+    "s2": "Subscriptions"
+   },
+   {
+    "d": "2026-08-02",
+    "m": "Demo Music Service",
+    "a": -11.99,
+    "g": "subs",
+    "s": "Subscriptions",
+    "g2": "standing",
+    "s2": "Subscriptions"
+   },
+   {
+    "d": "2026-08-09",
+    "m": "Mock Charity Fund",
+    "a": -50,
+    "g": "other",
+    "s": "Charity",
+    "g2": "oneoff",
+    "s2": "Charity"
+   },
+   {
+    "d": "2026-08-12",
+    "m": "Mock Pet Supply Store",
+    "a": -64.2,
+    "g": "other",
+    "s": "Pets",
+    "g2": "habit",
+    "s2": "Pets"
+   }
+  ],
+  "eft": [
+   {
+    "d": "2026-06-01",
+    "a": 400
+   },
+   {
+    "d": "2026-06-15",
+    "a": 400
+   },
+   {
+    "d": "2026-07-01",
+    "a": 400
+   },
+   {
+    "d": "2026-07-15",
+    "a": 400
+   },
+   {
+    "d": "2026-07-22",
+    "a": -150
+   },
+   {
+    "d": "2026-08-01",
+    "a": 400
+   },
+   {
+    "d": "2026-08-15",
+    "a": 400
+   }
+  ]
+ },
+ "dial": {
+  "months": [
+   "2025-09",
+   "2025-10",
+   "2025-11",
+   "2025-12",
+   "2026-01",
+   "2026-02",
+   "2026-03",
+   "2026-04",
+   "2026-05",
+   "2026-06",
+   "2026-07",
+   "2026-08"
+  ],
+  "streams": [
+   {
+    "name": "Example Mortgage Co",
+    "amt": 2100,
+    "cadence": "monthly",
+    "cat": "debt",
+    "permo": 2100,
+    "first": "2022-04-01",
+    "last": "2026-08-01",
+    "active": true,
+    "start_ev": null,
+    "end_ev": null,
+    "resumed": false,
+    "note": "sample fixed-rate mortgage"
+   },
+   {
+    "name": "Demo Auto Loan Servicing",
+    "amt": 430.25,
+    "cadence": "monthly",
+    "cat": "debt",
+    "permo": 430.25,
+    "first": "2024-01-03",
+    "last": "2026-08-03",
+    "active": true,
+    "start_ev": null,
+    "end_ev": null,
+    "resumed": false,
+    "note": ""
+   },
+   {
+    "name": "Placeholder BNPL (couch)",
+    "amt": 120,
+    "cadence": "monthly",
+    "cat": "debt",
+    "permo": 120,
+    "first": "2025-11-05",
+    "last": "2026-03-05",
+    "active": false,
+    "start_ev": "2025-11",
+    "end_ev": "2026-04",
+    "resumed": false,
+    "note": "sample 0% plan, ran off"
+   },
+   {
+    "name": "Sample Nanny (cash)",
+    "amt": 800,
+    "cadence": "weekly",
+    "cat": "cash",
+    "permo": 1600,
+    "first": "2025-10-06",
+    "last": "2026-08-14",
+    "active": true,
+    "start_ev": "2025-10",
+    "end_ev": null,
+    "resumed": false,
+    "note": "sample standing cash"
+   },
+   {
+    "name": "Demo Deep Cleaners",
+    "amt": 160,
+    "cadence": "monthly",
+    "cat": "cash",
+    "permo": 160,
+    "first": "2025-03-10",
+    "last": "2026-08-10",
+    "active": true,
+    "start_ev": null,
+    "end_ev": null,
+    "resumed": false,
+    "note": ""
+   },
+   {
+    "name": "Demo 401k loan repayment",
+    "amt": 500,
+    "cadence": "monthly",
+    "cat": "payroll",
+    "permo": 500,
+    "first": "2026-05-01",
+    "last": "",
+    "active": true,
+    "start_ev": "2026-05",
+    "end_ev": null,
+    "resumed": false,
+    "note": "sample payroll deduction"
+   },
+   {
+    "name": "EF scheduled transfers",
+    "amt": 800,
+    "cadence": "monthly",
+    "cat": "transfer",
+    "permo": 800,
+    "first": "2025-01-01",
+    "last": "",
+    "active": true,
+    "start_ev": null,
+    "end_ev": null,
+    "resumed": false,
+    "note": "sample $400 ×2 — savings, not spend"
+   },
+   {
+    "name": "Sample Power & Light",
+    "amt": 240,
+    "cadence": "monthly",
+    "cat": "bills",
+    "permo": 240,
+    "first": "2023-06-05",
+    "last": "2026-08-05",
+    "active": true,
+    "start_ev": null,
+    "end_ev": null,
+    "resumed": false,
+    "note": "budget billing"
+   },
+   {
+    "name": "Testing Telecom",
+    "amt": 110,
+    "cadence": "monthly",
+    "cat": "bills",
+    "permo": 110,
+    "first": "2023-06-15",
+    "last": "2026-08-15",
+    "active": true,
+    "start_ev": null,
+    "end_ev": null,
+    "resumed": false,
+    "note": ""
+   },
+   {
+    "name": "Fixture Meal Kit Co",
+    "amt": 60,
+    "cadence": "weekly",
+    "cat": "foodsub",
+    "permo": 240,
+    "first": "2026-01-08",
+    "last": "2026-08-12",
+    "active": true,
+    "start_ev": "2026-01",
+    "end_ev": null,
+    "resumed": false,
+    "note": "sample meal-kit box"
+   },
+   {
+    "name": "Fake Streaming Co",
+    "amt": 19.99,
+    "cadence": "monthly",
+    "cat": "subs",
+    "permo": 19.99,
+    "first": "2026-03-01",
+    "last": "2026-08-01",
+    "active": true,
+    "start_ev": "2026-03",
+    "end_ev": null,
+    "resumed": false,
+    "note": ""
+   },
+   {
+    "name": "Demo Music Service",
+    "amt": 11.99,
+    "cadence": "monthly",
+    "cat": "subs",
+    "permo": 11.99,
+    "first": "2024-09-02",
+    "last": "2026-08-02",
+    "active": true,
+    "start_ev": null,
+    "end_ev": null,
+    "resumed": false,
+    "note": ""
+   },
+   {
+    "name": "Demo News Daily",
+    "amt": 15,
+    "cadence": "monthly",
+    "cat": "subs",
+    "permo": 15,
+    "first": "2026-02-11",
+    "last": "2026-08-11",
+    "active": true,
+    "start_ev": "2026-02",
+    "end_ev": null,
+    "resumed": true,
+    "note": "re-subscribed after a break (sample)"
+   },
+   {
+    "name": "Mock Gym Membership",
+    "amt": 89,
+    "cadence": "monthly",
+    "cat": "subs",
+    "permo": 89,
+    "first": "2024-11-20",
+    "last": "2026-05-20",
+    "active": false,
+    "start_ev": null,
+    "end_ev": "2026-06",
+    "resumed": false,
+    "note": "cancelled (sample)"
+   },
+   {
+    "name": "Placeholder Box-of-the-Month",
+    "amt": 34,
+    "cadence": "monthly",
+    "cat": "subs",
+    "permo": 34,
+    "first": "2025-08-15",
+    "last": "2025-12-15",
+    "active": false,
+    "start_ev": null,
+    "end_ev": "2026-01",
+    "resumed": false,
+    "note": "sample — lapsed"
+   }
+  ]
+ },
+ "safe_to_spend": {
+  "month": {
+   "label": "August 2026",
+   "days_in_month": 31,
+   "today": 16,
+   "expected_take_home": 9800,
+   "standing": 5100,
+   "committed_savings": 800,
+   "discretionary_spent": 2050
+  },
+  "habits": [
+   {
+    "name": "Sample groceries",
+    "target": 900,
+    "actual": 480,
+    "verdict": "keep"
+   },
+   {
+    "name": "Demo transit passes",
+    "target": 300,
+    "actual": 210,
+    "verdict": "fine"
+   },
+   {
+    "name": "Mock online shopping",
+    "target": 250,
+    "actual": 310,
+    "verdict": "cap"
+   },
+   {
+    "name": "Placeholder restaurants",
+    "target": 260,
+    "actual": 120,
+    "verdict": "keep"
+   },
+   {
+    "name": "Fixture big-box runs",
+    "target": 200,
+    "actual": 95,
+    "verdict": "cap"
+   },
+   {
+    "name": "Demo personal care",
+    "target": 150,
+    "actual": 40,
+    "verdict": "trim"
+   },
+   {
+    "name": "Sample pet supplies",
+    "target": 130,
+    "actual": 130,
+    "verdict": "keep"
+   },
+   {
+    "name": "Treats & coffee (sample)",
+    "target": 100,
+    "actual": 62,
+    "verdict": "trim"
+   },
+   {
+    "name": "Sandbox rideshare",
+    "target": 0,
+    "actual": 18,
+    "verdict": "cut"
+   }
+  ]
+ }
+}
