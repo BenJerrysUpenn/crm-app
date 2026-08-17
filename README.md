@@ -19,6 +19,19 @@ Set both in Vercel (Project Settings, Environment Variables). Do not commit them
 
 A `.env.example` is included as a reference. For local dev, copy it to `.env.local`.
 
+### Personal-finance pages (`/money`, `/dial`, `/safe`)
+These pages sit behind the same Supabase auth as the rest of the app and read
+a single JSON feed **server-side only** (never from a public path). Feed
+source is resolved in this order:
+
+| Name | Value |
+| --- | --- |
+| `PF_DATA_PATH` | Local file path to `pf_data.json` (dev; point it at `fixtures/pf_data.sample.json` for synthetic data) |
+| `PF_GITHUB_TOKEN` | Fine-grained GitHub PAT with contents:read on the private data repo only; used to fetch the feed from its `pf-data` branch via the GitHub contents API (prod on Vercel; server-only, cached ~5 min) |
+
+With neither set, the pages render a "feed not wired yet" state. No real
+financial data or secrets are ever committed to this repo.
+
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
 
