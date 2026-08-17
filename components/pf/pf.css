@@ -1,0 +1,151 @@
+/* Personal-finance pages — ported from the ratified artifact designs
+   (money_explorer / recurring_dial / safe_to_spend), committed to the app's
+   dark slate look. All rules are scoped under .pfviz. */
+
+.pfviz {
+  color-scheme: dark;
+  --surface: #0f172a;            /* slate-900, matches CRM cards */
+  --page: #020617;               /* slate-950, app body bg */
+  --ink: #f1f5f9;
+  --ink2: #cbd5e1;
+  --muted: #7d8aa0;
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --s4: #c98500;
+  --s5: #d55181;
+  --s6: #2e8b2e;
+  --s7: #9085e9;
+  --gray: #7d8aa0;
+  --acc: #3987e5;
+  --good: #22b14c;
+  --bad: #e66767;
+  --hair: #1e293b;               /* slate-800 */
+  --wash: rgba(255, 255, 255, 0.07);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px 16px 40px;
+  display: block;
+}
+
+.pfviz h1 { font-size: 20px; margin: 0 0 2px; }
+.pfviz .sub { color: var(--ink2); font-size: 13px; margin: 0 0 12px; max-width: 78ch; }
+.pfviz .card { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px; padding: 10px; overflow-x: auto; }
+.pfviz svg { display: block; max-width: 100%; height: auto; }
+.pfviz .hint { color: var(--muted); font-size: 12.5px; }
+.pfviz table { border-collapse: collapse; font-size: 13px; width: 100%; }
+.pfviz th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11.5px; border-bottom: 1px solid var(--hair); padding: 4px 8px; position: sticky; top: 0; background: var(--surface); }
+.pfviz td { padding: 4px 8px; border-bottom: 1px solid var(--hair); }
+.pfviz td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pfviz td.pos { color: var(--good); }
+.pfviz .tablewrap { max-height: 400px; overflow-y: auto; }
+
+/* meta banner */
+.pfviz .meta-line { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+.pfviz .meta-warn {
+  background: rgba(230, 103, 103, 0.12); border: 1px solid var(--bad); color: var(--bad);
+  border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; margin: 0 0 12px;
+}
+.pfviz .feed-missing { text-align: center; padding: 48px 16px; }
+.pfviz .feed-missing .big { font-size: 40px; }
+
+/* ---- money explorer ---- */
+.pfviz .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.pfviz .tabs button {
+  font: 600 13.5px system-ui; padding: 7px 16px; border-radius: 999px;
+  border: 1px solid var(--hair); background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.pfviz .tabs button:hover { background: var(--wash); }
+.pfviz .tabs button.on { background: var(--ink); color: var(--page); border-color: var(--ink); }
+.pfviz .kpis { display: flex; gap: 26px; margin: 0 0 8px; flex-wrap: wrap; }
+.pfviz .kpi .v { font-size: 26px; font-weight: 650; }
+.pfviz .kpi .l { font-size: 11.5px; color: var(--muted); }
+.pfviz .kpi .v.good { color: var(--good); }
+.pfviz .crumb { font-size: 13.5px; color: var(--ink2); margin: 4px 0 8px; display: flex; align-items: center; gap: 10px; }
+.pfviz .backbtn { font: 600 12.5px system-ui; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--hair); background: var(--surface); color: var(--ink); cursor: pointer; }
+.pfviz .backbtn:hover { background: var(--wash); }
+.pfviz .crumb a { color: var(--s1); cursor: pointer; text-decoration: none; font-weight: 600; }
+.pfviz .crumb a:hover { text-decoration: underline; }
+.pfviz .rib { opacity: 0.42; cursor: pointer; }
+.pfviz .rib:hover { opacity: 0.75; }
+.pfviz .rib.dim { opacity: 0.12; }
+.pfviz .node { cursor: pointer; }
+.pfviz .node:hover { opacity: 0.8; }
+.pfviz .node.dim { opacity: 0.25; }
+.pfviz .nlab { font-size: 13px; fill: var(--ink); font-weight: 600; pointer-events: none; }
+.pfviz .nlab.dim, .pfviz .nval.dim { fill: var(--muted); }
+.pfviz .nval { font-size: 12.5px; fill: var(--ink2); font-weight: 400; pointer-events: none; }
+.pfviz .end { text-anchor: end; }
+.pfviz .colhead { font-size: 11px; fill: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+.pfviz #panel { margin-top: 14px; }
+
+/* ---- decision dial ---- */
+.pfviz .wedge { cursor: pointer; fill: none; stroke: var(--acc); stroke-linecap: round; stroke-width: 62; }
+.pfviz .wedge:hover { filter: brightness(1.12); }
+.pfviz .track { fill: none; stroke: var(--wash); stroke-width: 62; }
+.pfviz .selring { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: round; }
+@keyframes pf-pulse { 0%, 100% { stroke-width: 62; } 50% { stroke-width: 68; } }
+.pfviz .wedge.now { animation: pf-pulse 2.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .pfviz .wedge.now { animation: none; } }
+.pfviz .center { cursor: pointer; }
+.pfviz .mlab { font-size: 13px; font-weight: 700; fill: var(--ink); pointer-events: none; }
+.pfviz .mnet { font-size: 11.5px; font-weight: 600; pointer-events: none; }
+.pfviz .dline { font-size: 11.5px; fill: var(--ink2); pointer-events: none; }
+.pfviz .dline .plus { fill: var(--bad); font-weight: 700; }
+.pfviz .dline .minus { fill: var(--good); font-weight: 700; }
+.pfviz .cbig { font-size: 34px; font-weight: 700; fill: var(--ink); pointer-events: none; }
+.pfviz .csml { font-size: 12.5px; fill: var(--ink2); pointer-events: none; }
+.pfviz .cnet { font-size: 13px; font-weight: 600; pointer-events: none; }
+.pfviz .add { color: var(--bad); font-weight: 700; }
+.pfviz .rem { color: var(--good); font-weight: 700; }
+.pfviz .note { color: var(--muted); font-size: 12px; }
+.pfviz tr.grp td { padding-top: 12px; color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border-bottom: none; }
+
+/* ---- safe to spend ---- */
+.pfviz.pf-safe { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 22px 14px 40px; }
+.pfviz .hd { max-width: 420px; text-align: center; }
+.pfviz .hd h1 { font-size: 18px; margin: 0 0 4px; }
+.pfviz .hd p { font-size: 12.5px; color: var(--ink2); margin: 0; }
+.pfviz .phone {
+  width: 380px; max-width: 94vw; border-radius: 34px; border: 1px solid var(--hair);
+  background: var(--surface); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  padding: 22px 20px 24px; display: flex; flex-direction: column; gap: 16px;
+}
+.pfviz .row { display: flex; justify-content: space-between; align-items: baseline; }
+.pfviz .month { font-size: 13px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.pfviz .day { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pfviz .big { text-align: center; margin: 2px 0 0; }
+.pfviz .big .amt { font-size: 52px; font-weight: 750; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.pfviz .big .lbl { font-size: 13px; color: var(--ink2); margin-top: 2px; }
+.pfviz .pace { font-size: 12.5px; text-align: center; margin-top: 4px; }
+.pfviz .pace.good { color: var(--good); }
+.pfviz .pace.bad { color: var(--bad); }
+.pfviz .bar { height: 14px; border-radius: 7px; background: var(--wash); position: relative; overflow: hidden; }
+.pfviz .bar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 7px; background: var(--acc); }
+.pfviz .bar .tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); opacity: 0.55; }
+.pfviz .legend { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
+.pfviz .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pfviz .tile { background: var(--wash); border-radius: 14px; padding: 12px 14px; }
+.pfviz .tile .v { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pfviz .tile .v.good { color: var(--good); }
+.pfviz .tile .k { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+.pfviz .daily { display: flex; align-items: center; justify-content: space-between; background: var(--wash); border-radius: 14px; padding: 12px 14px; }
+.pfviz .daily .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pfviz .daily .k { font-size: 11.5px; color: var(--muted); }
+.pfviz .foot { font-size: 10.5px; color: var(--muted); text-align: center; line-height: 1.5; max-width: 420px; }
+.pfviz .hrow { display: grid; grid-template-columns: 1fr auto 64px 92px; gap: 8px; align-items: center; padding: 3px 0; }
+.pfviz .hname { font-size: 12.5px; font-weight: 600; }
+.pfviz .chip { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--hair); border-radius: 999px; padding: 2px 7px; }
+.pfviz .chip.cap { color: var(--acc); border-color: var(--acc); }
+.pfviz .chip.cut { color: var(--bad); border-color: var(--bad); }
+.pfviz .hbar { height: 8px; border-radius: 4px; background: var(--wash); overflow: visible; display: block; position: relative; }
+.pfviz .hbar .afill { display: block; height: 100%; border-radius: 4px; background: var(--acc); max-width: 100%; }
+.pfviz .hbar .afill.over { background: var(--bad); }
+.pfviz .hbar .htick { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); opacity: 0.55; }
+.pfviz .hamt { font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; color: var(--ink2); white-space: nowrap; }
+.pfviz .hamt b { color: var(--ink); }
+.pfviz .hamt .over { color: var(--bad); }
+.pfviz .flexline { border-top: 1px solid var(--hair); margin-top: 4px; padding-top: 8px; }
+.pfviz .hnote { font-size: 10.5px; color: var(--muted); line-height: 1.45; margin-top: 6px; }
