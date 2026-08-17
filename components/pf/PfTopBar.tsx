@@ -16,9 +16,11 @@ export default function PfTopBar({ email }: { email: string }) {
 
   return (
     <header className="bg-slate-950 border-b border-slate-800 px-6 py-2 flex items-center justify-between flex-wrap gap-2">
-      <div className="flex items-center gap-6">
-        <h1 className="font-semibold text-slate-100">Withers finance</h1>
-        <nav className="flex items-center gap-1">
+      <div className="flex items-center gap-x-6 gap-y-1 flex-wrap">
+        <h1 className="font-semibold text-slate-100 whitespace-nowrap">
+          Withers finance
+        </h1>
+        <nav className="flex items-center gap-1 flex-wrap">
           {tabs.map((tab) => {
             const active = pathname.startsWith(tab.href);
             return (

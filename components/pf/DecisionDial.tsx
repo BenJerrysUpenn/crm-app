@@ -38,9 +38,13 @@ const CATS: Record<string, string> = {
   other: "Verify these",
 };
 
+// Round to 2dp so the server- and client-rendered SVG strings are identical
+// (Math.cos/sin can differ by 1 ulp between engines, which would trigger a
+// React hydration mismatch).
+const r2 = (n: number) => Math.round(n * 100) / 100;
 const pol = (r: number, aDeg: number): [number, number] => {
   const a = (aDeg * Math.PI) / 180;
-  return [CX + r * Math.cos(a), CY + r * Math.sin(a)];
+  return [r2(CX + r * Math.cos(a)), r2(CY + r * Math.sin(a))];
 };
 function arc(a0: number, a1: number, r: number) {
   const [x0, y0] = pol(r, a0), [x1, y1] = pol(r, a1);
