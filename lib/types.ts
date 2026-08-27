@@ -30,6 +30,7 @@ export type Deal = {
   departure_time: string | null;
   arrival_time: string | null;
   minimum_order_override: number;
+  short_notice_surcharge: number;
   total_with_tax: number | null;
   subtotal_pretax: number | null;
   amount_paid: number | null;

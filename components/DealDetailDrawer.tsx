@@ -1014,6 +1014,24 @@ export default function DealDetailDrawer({
                     label="Override to $500 ice-cream minimum"
                   />
                 </FieldRow>
+                <FieldRow label="Short-notice surcharge">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={
+                      current.short_notice_surcharge == null
+                        ? ""
+                        : String(current.short_notice_surcharge)
+                    }
+                    onChange={(v) =>
+                      setField(
+                        "short_notice_surcharge",
+                        v === "" ? 0 : Number(v),
+                      )
+                    }
+                    placeholder="0.00"
+                  />
+                </FieldRow>
               </section>
 
               <section>
