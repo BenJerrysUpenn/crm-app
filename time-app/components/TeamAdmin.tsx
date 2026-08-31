@@ -21,6 +21,17 @@ export default function TeamAdmin({
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
 
+  // Add-employee form state. Open by clicking the "+ Add employee" button.
+  const [addOpen, setAddOpen] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addErr, setAddErr] = useState<string | null>(null);
+  const [addOk, setAddOk] = useState<string | null>(null);
+  const [newEmail, setNewEmail] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newRole, setNewRole] = useState<"employee" | "manager">("employee");
+  const [newRate, setNewRate] = useState<string>("");
+
   async function saveProfile(id: string, patch: Partial<Profile>) {
     setSavingId(id);
     await fetch(`/api/profiles/${id}`, {
@@ -32,13 +43,114 @@ export default function TeamAdmin({
     router.refresh();
   }
 
+  async function addEmployee() {
+    setAddErr(null);
+    setAddOk(null);
+    const email = newEmail.trim();
+    if (!email || !email.includes("@")) {
+      setAddErr("Enter a valid email.");
+      return;
+    }
+    setAddBusy(true);
+    const res = await fetch("/api/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        full_name: newName.trim() || undefined,
+        role: newRole,
+        phone: newPhone.trim() || undefined,
+        hourly_rate: newRate ? Number(newRate) : undefined,
+      }),
+    });
+    setAddBusy(false);
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      setAddErr(b.error ?? `Failed (${res.status}).`);
+      return;
+    }
+    setAddOk(`Invite sent to ${email}. They'll appear here after first sign-in.`);
+    setNewEmail("");
+    setNewName("");
+    setNewPhone("");
+    setNewRole("employee");
+    setNewRate("");
+    router.refresh();
+  }
+
   return (
     <div className="space-y-8">
       <section>
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Team</h1>
+        <div className="flex items-start justify-between mb-1 gap-3">
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Team</h1>
+          <button
+            type="button"
+            onClick={() => { setAddOpen((v) => !v); setAddErr(null); setAddOk(null); }}
+            className="text-xs rounded-md bg-emerald-500 text-slate-950 font-medium px-3 py-1.5 hover:bg-emerald-400"
+          >
+            {addOpen ? "Cancel" : "+ Add employee"}
+          </button>
+        </div>
         <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-          Add people under Supabase → Authentication → Users (Auto Confirm on). They appear here automatically. Set their role, phone (for SMS), and pay rate.
+          Use the button above to invite a new person by email. They&apos;ll get a
+          signup link; once they set a password and log in, they appear in the
+          list below and you can set their pay rate.
         </p>
+        {addOpen && (
+          <div className="mb-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="email"
+                placeholder="email (required)"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                className="text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1"
+              />
+              <input
+                type="text"
+                placeholder="full name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1"
+              />
+              <input
+                type="tel"
+                placeholder="phone (for SMS)"
+                value={newPhone}
+                onChange={(e) => setNewPhone(e.target.value)}
+                className="text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1"
+              />
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value as "employee" | "manager")}
+                className="text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1"
+              >
+                <option value="employee">Employee</option>
+                <option value="manager">Manager</option>
+              </select>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="hourly rate"
+                value={newRate}
+                onChange={(e) => setNewRate(e.target.value)}
+                className="text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1"
+              />
+            </div>
+            {addErr && <div className="text-xs text-rose-500">{addErr}</div>}
+            {addOk && <div className="text-xs text-emerald-500">{addOk}</div>}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={addEmployee}
+                disabled={addBusy}
+                className="text-xs rounded-md bg-emerald-500 text-slate-950 font-medium px-3 py-1.5 hover:bg-emerald-400 disabled:opacity-50"
+              >
+                {addBusy ? "Inviting…" : "Send invite"}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           <table className="w-full text-sm min-w-[640px]">
             <thead className="bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-xs">

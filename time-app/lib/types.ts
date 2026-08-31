@@ -89,7 +89,7 @@ export type ShiftRequest = {
   id: number;
   shift_id: number;
   employee_id: string;
-  type: "drop";
+  type: "drop" | "pickup";
   status: "pending" | "approved" | "denied" | "cancelled";
   note: string | null;
   created_at: string;

@@ -119,7 +119,13 @@ export default function ScheduleBoard({
   const dates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const rateById = new Map(employees.map((e) => [e.id, e.hourly_rate ?? 0]));
   const nameById = new Map(employees.map((e) => [e.id, e.full_name ?? e.id]));
-  const myPendingDrops = new Set(dropRequests.map((r) => r.shift_id));
+  // Split pending requests by type so drop and pickup can render in their
+  // own sections. `dropRequests` prop still carries both (schedule/page.tsx
+  // pulls the full pending set); we partition here.
+  const dropOnly = dropRequests.filter((r) => (r.type ?? "drop") === "drop");
+  const pickupOnly = dropRequests.filter((r) => r.type === "pickup");
+  const myPendingDrops = new Set(dropOnly.map((r) => r.shift_id));
+  const myPendingPickups = new Set(pickupOnly.map((r) => r.shift_id));
 
   async function ack(id: number) {
     setAckingId(id);
@@ -187,6 +193,28 @@ export default function ScheduleBoard({
       return;
     }
     setCopyMsg("Shift added to your schedule.");
+    router.refresh();
+  }
+
+  // Employee-side pickup request. Creates a pending shift_requests row of
+  // type='pickup'; a manager approves via the same PATCH endpoint that
+  // handles drop requests. Direct self-pickup is disabled for employees
+  // per Alina 2026-08-27.
+  async function requestPickup(id: number) {
+    setClaimingId(id);
+    setCopyMsg(null);
+    const res = await fetch(`/api/shifts/${id}/request-pickup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    setClaimingId(null);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setCopyMsg(j.error ?? "Could not request that shift.");
+      return;
+    }
+    setCopyMsg("Pickup requested. A manager will review it.");
     router.refresh();
   }
 
@@ -430,14 +458,43 @@ export default function ScheduleBoard({
         );
       })()}
 
-      {/* Manager: pending drop requests */}
-      {isManager && dropRequests.length > 0 && (
-        <div className="bg-amber-50 dark:bg-slate-900 border border-amber-200 dark:border-amber-900 rounded-lg p-4 mb-4">
-          <div className="text-sm font-medium text-amber-700 dark:text-amber-300 mb-2">
-            Drop requests ({dropRequests.length})
+      {/* Manager: pending pickup requests (employees asking to be added
+          to an open shift). Approve = assign employee. Deny = leave open. */}
+      {isManager && pickupOnly.length > 0 && (
+        <div className="bg-sky-50 dark:bg-slate-900 border border-sky-200 dark:border-sky-900 rounded-lg p-4 mb-4">
+          <div className="text-sm font-medium text-sky-700 dark:text-sky-300 mb-2">
+            Pickup requests ({pickupOnly.length})
           </div>
           <div className="space-y-2">
-            {dropRequests.map((r) => {
+            {pickupOnly.map((r) => {
+              const s = shifts.find((x) => x.id === r.shift_id);
+              return (
+                <div key={r.id} className="flex items-center justify-between gap-3 text-sm border-b border-slate-200 dark:border-slate-800 pb-2 last:border-0">
+                  <span className="text-slate-800 dark:text-slate-200">
+                    {r.profiles?.full_name ?? "Employee"} wants to pick up{" "}
+                    {s ? `${dayLabel(nyDate(s.starts_at))} ${fmtTime(s.starts_at)}–${fmtTime(s.ends_at)}` : "a shift"}
+                    {r.note ? ` · ${r.note}` : ""}
+                  </span>
+                  <span className="flex gap-2 shrink-0">
+                    <button onClick={() => decideReq(r.id, "approved")} disabled={actingReq === r.id} className="text-xs px-2 py-1 rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Approve</button>
+                    <button onClick={() => decideReq(r.id, "denied")} disabled={actingReq === r.id} className="text-xs px-2 py-1 rounded-md border border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950">Deny</button>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-slate-500 mt-2">Approving assigns the shift to the requester.</p>
+        </div>
+      )}
+
+      {/* Manager: pending drop requests */}
+      {isManager && dropOnly.length > 0 && (
+        <div className="bg-amber-50 dark:bg-slate-900 border border-amber-200 dark:border-amber-900 rounded-lg p-4 mb-4">
+          <div className="text-sm font-medium text-amber-700 dark:text-amber-300 mb-2">
+            Drop requests ({dropOnly.length})
+          </div>
+          <div className="space-y-2">
+            {dropOnly.map((r) => {
               const s = shifts.find((x) => x.id === r.shift_id);
               return (
                 <div key={r.id} className="flex items-center justify-between gap-3 text-sm border-b border-slate-200 dark:border-slate-800 pb-2 last:border-0">
@@ -525,13 +582,18 @@ export default function ScheduleBoard({
                     </div>
                   )}
                   {!isManager && !s.employee_id && (
-                    <button
-                      onClick={() => claim(s.id)}
-                      disabled={claimingId === s.id}
-                      className="mt-2 w-full rounded-md bg-emerald-500 text-slate-950 font-medium py-1 hover:bg-emerald-400 disabled:opacity-50"
-                    >
-                      {claimingId === s.id ? "Picking up…" : "Pick up"}
-                    </button>
+                    myPendingPickups.has(s.id) ? (
+                      <div className="mt-2 text-amber-400">Pickup requested</div>
+                    ) : (
+                      <button
+                        onClick={() => requestPickup(s.id)}
+                        disabled={claimingId === s.id}
+                        className="mt-2 w-full rounded-md bg-emerald-500 text-slate-950 font-medium py-1 hover:bg-emerald-400 disabled:opacity-50"
+                        title="Ask a manager to add you to this shift"
+                      >
+                        {claimingId === s.id ? "Requesting…" : "Request pickup"}
+                      </button>
+                    )
                   )}
                   {!isManager && s.employee_id && (
                     <>
