@@ -348,7 +348,7 @@ function TimeOff({ timeOff }: { timeOff: Availability[] }) {
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
       <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Time-off requests</div>
-      <p className="text-xs text-slate-500">Request a single day or a range. You can't request off once that day's schedule is posted.</p>
+      <p className="text-xs text-slate-500">Request a single day or a range. You can&apos;t request off once that day&apos;s schedule is posted.</p>
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-slate-600 dark:text-slate-400">From
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ml-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1 text-slate-900 dark:text-slate-100" />

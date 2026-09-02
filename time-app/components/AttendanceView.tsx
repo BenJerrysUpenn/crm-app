@@ -71,7 +71,7 @@ export default function AttendanceView({ notices }: { notices: Notice[] }) {
 
       {visible.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center text-slate-500 text-sm">
-          No attendance issues. Everyone's on time.
+          No attendance issues. Everyone&apos;s on time.
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl divide-y divide-slate-800">
