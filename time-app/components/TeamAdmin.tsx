@@ -64,18 +64,32 @@ export default function TeamAdmin({
       }),
     });
     setAddBusy(false);
+    const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const b = await res.json().catch(() => ({}));
-      setAddErr(b.error ?? `Failed (${res.status}).`);
+      setAddErr(body.error ?? `Failed (${res.status}).`);
       return;
     }
-    setAddOk(`Invite sent to ${email}. They'll appear here after first sign-in.`);
+    const supabaseSent =
+      body.delivery === "supabase"
+        ? " (sent by Supabase; needs the redirect URL allowed in Supabase Auth settings)"
+        : "";
+    setAddOk(
+      `Invite emailed to ${email}. They'll set a password from the link and then appear here.${supabaseSent}`,
+    );
     setNewEmail("");
     setNewName("");
     setNewPhone("");
     setNewRole("employee");
     setNewRate("");
     router.refresh();
+  }
+
+  // Resend a sign-in link to someone who already has an account.
+  async function resendInvite(id: string): Promise<string> {
+    const res = await fetch(`/api/profiles/${id}/invite`, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return body.error ?? `Failed (${res.status}).`;
+    return `Invite emailed to ${body.email}.`;
   }
 
   return (
@@ -92,9 +106,9 @@ export default function TeamAdmin({
           </button>
         </div>
         <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-          Use the button above to invite a new person by email. They&apos;ll get a
-          signup link; once they set a password and log in, they appear in the
-          list below and you can set their pay rate.
+          Use the button above to invite a new person by email. They get a link
+          to set their password, and then they appear in the list below. Use
+          Resend invite if the link expired.
         </p>
         {addOpen && (
           <div className="mb-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
@@ -161,11 +175,12 @@ export default function TeamAdmin({
                 <th className="text-left px-3 py-2">Role</th>
                 <th className="text-right px-3 py-2">Rate $/h</th>
                 <th className="text-center px-3 py-2">Active</th>
+                <th className="text-left px-3 py-2">Invite</th>
               </tr>
             </thead>
             <tbody>
               {employees.map((e) => (
-                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} onSave={saveProfile} />
+                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} onSave={saveProfile} onResend={resendInvite} />
               ))}
             </tbody>
           </table>
@@ -316,17 +331,29 @@ function EmployeeRow({
   email,
   saving,
   onSave,
+  onResend,
 }: {
   e: Profile;
   email: string;
   saving: boolean;
   onSave: (id: string, patch: Partial<Profile>) => void;
+  onResend: (id: string) => Promise<string>;
 }) {
   const [name, setName] = useState(e.full_name ?? "");
   const [phone, setPhone] = useState(e.phone ?? "");
   const [role, setRole] = useState(e.role);
   const [rate, setRate] = useState(e.hourly_rate?.toString() ?? "");
   const [active, setActive] = useState(e.active);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+
+  async function resend() {
+    setInviteBusy(true);
+    setInviteMsg(null);
+    const msg = await onResend(e.id);
+    setInviteBusy(false);
+    setInviteMsg(msg);
+  }
 
   return (
     <tr className="border-t border-slate-200 dark:border-slate-800">
@@ -348,6 +375,16 @@ function EmployeeRow({
       </td>
       <td className="px-3 py-2 text-center">
         <input type="checkbox" checked={active} onChange={(ev) => { setActive(ev.target.checked); onSave(e.id, { active: ev.target.checked }); }} />
+      </td>
+      <td className="px-3 py-2 align-top">
+        {email ? (
+          <>
+            <button type="button" onClick={resend} disabled={inviteBusy} className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50">
+              {inviteBusy ? "Sending…" : "Resend invite"}
+            </button>
+            {inviteMsg && <div className="text-[11px] text-slate-500 mt-0.5 max-w-[220px]">{inviteMsg}</div>}
+          </>
+        ) : null}
       </td>
     </tr>
   );
