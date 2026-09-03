@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getProfile } from "@/lib/auth";
 import { distanceMeters } from "@/lib/geo";
 import { NextResponse } from "next/server";
 import type { Location, TimeEntry } from "@/lib/types";
@@ -37,10 +38,18 @@ export async function POST(request: Request) {
     .limit(1);
   const loc = (locs?.[0] as Location) ?? null;
 
+  // Managers can clock in/out from anywhere. They still record their
+  // distance for the audit trail, but the geofence doesn't reject them.
+  // Per Alina 2026-09-03: managers travel between catering venues and
+  // the scoop shop; boxing them into the shop geofence blocks legitimate
+  // clock-ins on catering days.
+  const profile = await getProfile();
+  const isManager = profile?.role === "manager";
+
   let distance: number | null = null;
   if (loc) {
     distance = Math.round(distanceMeters(lat, lng, loc.latitude, loc.longitude));
-    if (action === "in" && distance > loc.radius_meters) {
+    if (action === "in" && distance > loc.radius_meters && !isManager) {
       return NextResponse.json(
         {
           error: `You're ${distance}m from ${loc.name}. You must be within ${loc.radius_meters}m to clock in.`,
