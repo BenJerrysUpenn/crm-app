@@ -149,9 +149,17 @@ A few things you do once, from the app itself, as a manager.
 
 ### 6a. Add your employees
 
-1. In Supabase, **Authentication → Users → Add user → Create new user**. Enter their email and a password, tick **Auto Confirm User**.
-2. That's it in Supabase. A profile row is created automatically.
-3. In the app, open the **Team** page. Each person appears. Set their **name**, **phone** (needed for text alerts), **role** (leave as employee unless they're a manager), and **pay rate** (used for timesheet pay totals). Changes save as you type.
+1. In the app, open the **Team** page and click **+ Add employee**.
+2. Fill in their email (required), name, phone (needed for text alerts), role (leave as employee unless they're a manager) and pay rate, then click **Send invite**.
+3. They get an email with a link. Opening it signs them in and asks them to choose a password; after that they land in the app and appear in the Team list, where you can adjust anything. Changes save as you type.
+4. Links work once and expire after about an hour. If someone's link expired, click **Resend invite** on their row.
+5. Anyone who forgets their password can use the **Forgot password?** link on the sign-in page.
+
+Manual fallback: Supabase **Authentication → Users → Add user → Create new user** with a password (tick **Auto Confirm User**) still works if you'd rather set the password yourself.
+
+#### Supabase URL configuration
+
+In Supabase, **Authentication → URL Configuration**, set **Site URL** to `https://time.withers-ventures.com` and add `https://time.withers-ventures.com/auth/callback` to **Redirect URLs**. This only matters for links Supabase itself sends (the dashboard's **Invite user** / **Send password recovery**, or the fallback used when `RESEND_API_KEY` is unset) - the app's own emails link straight to `/auth/confirm` and don't depend on it.
 
 ### 6b. Set the store geofence
 

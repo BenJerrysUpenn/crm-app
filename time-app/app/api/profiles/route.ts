@@ -1,14 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
+import { sendInvite, siteOrigin } from "@/lib/authLinks";
 import { NextResponse } from "next/server";
 
 // POST /api/profiles
 //
 // Manager-only. Creates a new team member by inviting them to sign up via
-// their email address. The invite email lands from Supabase Auth; when they
-// set a password and log in for the first time, the `handle_new_user`
-// trigger on the auth.users table creates the corresponding profiles row.
+// their email address. The app emails the invite link itself via Resend and
+// the link lands on /auth/confirm (falls back to a Supabase-sent invite when
+// RESEND_API_KEY is unset). When they set a password and log in for the first
+// time, the `handle_new_user` trigger on the auth.users table creates the
+// corresponding profiles row.
 //
 // Body:
 //   { email: string, full_name?: string, role?: 'employee'|'manager',
@@ -51,30 +54,25 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
 
-  // Invite the user by email. The trigger populates profiles on first
-  // sign-in. If already invited, Supabase returns an error we can detect
-  // and fall through to just updating the profile row.
-  let userId: string | null = null;
-  const { data: invited, error: inviteErr } =
-    await admin.auth.admin.inviteUserByEmail(email, {
-      data: full_name ? { full_name } : {},
-    });
-  if (invited?.user) {
-    userId = invited.user.id;
-  } else if (inviteErr) {
-    // Try to find the existing user rather than error out — the manager
-    // might be re-syncing an already-invited person.
-    const { data: list } = await admin.auth.admin.listUsers({ perPage: 200 });
+  // Email the sign-in link. The trigger populates profiles on first sign-in.
+  const invite = await sendInvite({
+    email,
+    fullName: full_name,
+    invitedBy: me.full_name,
+    origin: siteOrigin(request),
+  });
+  if ("error" in invite)
+    return NextResponse.json({ error: invite.error }, { status: 400 });
+
+  // A re-invite goes out as a magic link, which doesn't always carry the
+  // user back, so look the existing account up by email in that case.
+  let userId = invite.userId;
+  if (!userId) {
+    const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
     const existing = (list?.users ?? []).find(
       (u) => (u.email ?? "").toLowerCase() === email,
     );
-    if (!existing) {
-      return NextResponse.json(
-        { error: inviteErr.message || "Could not invite user" },
-        { status: 400 },
-      );
-    }
-    userId = existing.id;
+    userId = existing?.id ?? null;
   }
   if (!userId)
     return NextResponse.json({ error: "No user id returned" }, { status: 500 });
@@ -107,5 +105,10 @@ export async function POST(request: Request) {
   if (profErr)
     return NextResponse.json({ error: profErr.message }, { status: 400 });
 
-  return NextResponse.json({ ok: true, user_id: userId, email });
+  return NextResponse.json({
+    ok: true,
+    user_id: userId,
+    email,
+    delivery: invite.delivery,
+  });
 }
