@@ -172,6 +172,31 @@ This is what makes clock-in location-aware. Easiest way:
 
 From then on, the app refuses any clock-in further than that radius from the store, and records the measured distance on every punch so you can spot-check it in Timesheets.
 
+### 6c. Clock-in reminders (messages people must acknowledge)
+
+Use this when everyone needs to see something before their next shift: a policy
+change, a new closing checklist, a schedule note.
+
+1. One-time setup: in Supabase, **SQL Editor**, run `supabase/migration_19.sql`
+   (after `migration_18.sql`). It creates the two tables the feature needs.
+2. In the app, **Team** page, **Clock-in reminders**. Type a title and a message
+   and press **Publish reminder**.
+3. The next time each employee opens the app, the message pops up full screen.
+   There is no close button: the only way past it is the **Acknowledge** button,
+   and until they press it they cannot clock in (the server refuses the clock-in
+   too, not just the screen). Clocking *out* is never blocked.
+4. Back on the Team page each reminder shows **Acknowledged X of N**, with a
+   **Who acknowledged** list and a list of who still hasn't.
+5. When a message has run its course, press **Retire**. It stops popping up but
+   stays on the page with its record intact.
+
+Acknowledgments are permanent, on purpose. Each one stores the person, the
+timestamp, and a copy of the exact wording they agreed to, and it cannot be
+edited or deleted by anyone, including you. For the same reason a published
+message can't be edited: if the wording needs to change, retire it and publish
+a new one.
+
+
 ---
 
 ## Part 7: Turn on text and email alerts (optional, do it later)

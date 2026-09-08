@@ -5,7 +5,8 @@ import { getProfile } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import TopBar from "@/components/TopBar";
 import TeamAdmin from "@/components/TeamAdmin";
-import type { Profile, Location, ShiftType } from "@/lib/types";
+import type { ReminderWithAcks } from "@/components/ClockinRemindersAdmin";
+import type { Profile, Location, ShiftType, ClockinReminder } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,27 @@ export default async function TeamPage() {
     .select("*")
     .eq("active", true)
     .order("sort_order", { ascending: true });
+
+  // Clock-in reminders plus who has acknowledged each one. Managers can read
+  // every ack under RLS.
+  const { data: reminderRows } = await supabase
+    .from("clockin_reminders")
+    .select("*")
+    .order("created_at", { ascending: false });
+  const { data: ackRows } = await supabase
+    .from("clockin_reminder_acks")
+    .select("reminder_id, employee_id, acknowledged_at, profiles(id, full_name)");
+  const reminders: ReminderWithAcks[] = ((reminderRows as ClockinReminder[]) ?? []).map((r) => ({
+    ...r,
+    acks: (ackRows ?? [])
+      .filter((a) => a.reminder_id === r.id)
+      .map((a) => ({
+        employee_id: a.employee_id as string,
+        full_name:
+          (a.profiles as unknown as { full_name: string | null } | null)?.full_name ?? null,
+        acknowledged_at: a.acknowledged_at as string,
+      })),
+  }));
 
   // Map each profile id to its login email (needs the service role key).
   // Falls back to empty strings if the key isn't set (e.g. local dev).
@@ -48,6 +70,8 @@ export default async function TeamPage() {
             emailById={emailById}
             settings={await getSettings(supabase)}
             shiftTypes={(shiftTypes as ShiftType[]) ?? []}
+            reminders={reminders}
+            employeeCount={((emps as Profile[]) ?? []).filter((e) => e.active).length}
           />
         </div>
       </main>

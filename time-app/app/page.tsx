@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import ClockCard from "@/components/ClockCard";
+import ClockInReminderModal from "@/components/ClockInReminderModal";
+import { getPendingReminders } from "@/lib/clockinReminders";
 import type { TimeEntry, Shift, Location } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +13,10 @@ export default async function HomePage() {
   const profile = await getProfile();
   if (!profile) redirect("/login");
   const supabase = createClient();
+
+  // Blocking reminders the employee has not acknowledged yet. The modal
+  // covers the page until they do; /api/clock enforces it server side too.
+  const pendingReminders = await getPendingReminders(supabase, profile.id);
 
   const { data: openEntry } = await supabase
     .from("time_entries")
@@ -57,6 +63,7 @@ export default async function HomePage() {
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
       <main className="flex-1">
         <div className="mx-auto max-w-md px-4 py-6">
+          <ClockInReminderModal reminders={pendingReminders} />
           <ClockCard
             openEntry={(openEntry as TimeEntry) ?? null}
             todaysShift={(shifts?.[0] as Shift) ?? null}
