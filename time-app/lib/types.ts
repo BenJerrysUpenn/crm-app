@@ -118,3 +118,26 @@ export type Annotation = {
   announcement: boolean;
   created_at: string;
 };
+
+// A message managers publish that every employee must acknowledge before
+// clocking in. Title/body are immutable once published; retire instead.
+export type ClockinReminder = {
+  id: number;
+  title: string;
+  body: string;
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+  retired_at: string | null;
+};
+
+// The permanent signed record of one employee acknowledging one reminder.
+export type ClockinReminderAck = {
+  id: number;
+  reminder_id: number;
+  employee_id: string;
+  acknowledged_at: string;
+  title_snapshot: string;
+  body_snapshot: string;
+  user_agent: string | null;
+};

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import ClockinRemindersAdmin, { type ReminderWithAcks } from "@/components/ClockinRemindersAdmin";
 import type { Profile, Location, ShiftType } from "@/lib/types";
 import type { AppSettings } from "@/lib/settings";
 
@@ -11,12 +12,16 @@ export default function TeamAdmin({
   emailById,
   settings,
   shiftTypes,
+  reminders,
+  employeeCount,
 }: {
   employees: Profile[];
   locations: Location[];
   emailById: Record<string, string>;
   settings: AppSettings;
   shiftTypes: ShiftType[];
+  reminders: ReminderWithAcks[];
+  employeeCount: number;
 }) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -171,6 +176,12 @@ export default function TeamAdmin({
           </table>
         </div>
       </section>
+
+      <ClockinRemindersAdmin
+        reminders={reminders}
+        employees={employees.filter((e) => e.active)}
+        employeeCount={employeeCount}
+      />
 
       <ShiftTypesSection shiftTypes={shiftTypes} />
 

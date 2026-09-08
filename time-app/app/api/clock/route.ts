@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { distanceMeters } from "@/lib/geo";
+import { getPendingReminders } from "@/lib/clockinReminders";
 import { NextResponse } from "next/server";
 import type { Location, TimeEntry } from "@/lib/types";
 
@@ -26,6 +27,22 @@ export async function POST(request: Request) {
       { error: "Location required. Enable location access and try again." },
       { status: 400 },
     );
+  }
+
+  // The popup covers the clock-in button, but this is the hard guarantee:
+  // an unacknowledged reminder blocks clock-in server side. Clock-out is
+  // never blocked — nobody gets stuck on the clock over a message.
+  if (action === "in") {
+    const pending = await getPendingReminders(supabase, user.id);
+    if (pending.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Please acknowledge the clock-in reminder first.",
+          pending_reminders: pending.map((r) => r.id),
+        },
+        { status: 428 },
+      );
+    }
   }
 
   // Resolve the geofence: default location (admin client so it works regardless of RLS).
