@@ -103,6 +103,16 @@ CREATE INDEX IF NOT EXISTS outreach_events_prospect_event_time_idx
 -- most recent deal of any stage rides along as context. Deals join by email,
 -- the same join sync_contacts_from_deals() and the attribution rule use.
 --
+-- Two things that join has to get right and are easy to get wrong:
+--   * archived = 0. `archived` is Catering-Manager's soft delete ("Never
+--     delete a deal. Use archived = 1", SKILL.md) and every read path in
+--     modules/db.py filters it. Without it a merged duplicate outranks the
+--     surviving row and the desk shows a party type from a dead deal.
+--   * lower(btrim(...)) on BOTH sides. The deals side was always trimmed;
+--     the prospect side must be too, or a prospect row whose email carries
+--     stray whitespace misses its suppression row and a person who
+--     unsubscribed comes back into the call queue.
+--
 -- security_invoker: the view runs as the signed-in user, so the manager
 -- policies above are what actually gate it (PG15+; Supabase is PG17).
 
@@ -140,7 +150,8 @@ last_deal AS (
          d.event_type  AS last_event_type,
          d.event_date  AS last_deal_event_date
     FROM public.deals d
-   WHERE d.contact_email IS NOT NULL AND btrim(d.contact_email) <> ''
+   WHERE d.archived = 0
+     AND d.contact_email IS NOT NULL AND btrim(d.contact_email) <> ''
    ORDER BY lower(btrim(d.contact_email)), d.event_date DESC NULLS LAST, d.id DESC
 ),
 last_booked AS (
@@ -150,7 +161,8 @@ last_booked AS (
          d.event_type   AS booked_event_type,
          d.guest_count  AS booked_guest_count
     FROM public.deals d
-   WHERE d.contact_email IS NOT NULL AND btrim(d.contact_email) <> ''
+   WHERE d.archived = 0
+     AND d.contact_email IS NOT NULL AND btrim(d.contact_email) <> ''
      AND (d.stage IN ('Booked Unpaid', 'Booked Paid', 'Event Complete')
           OR d.payment_status <> 'None'
           OR coalesce(d.amount_paid, 0) > 0)
@@ -200,12 +212,12 @@ SELECT p.id                 AS prospect_id,
        lb.booked_event_type,
        lb.booked_guest_count
   FROM public.outreach_prospects p
-  LEFT JOIN public.outreach_suppression s ON s.email = lower(p.email)
+  LEFT JOIN public.outreach_suppression s ON s.email = lower(btrim(p.email))
   LEFT JOIN last_call   lc ON lc.prospect_id = p.id
   LEFT JOIN call_counts cc ON cc.prospect_id = p.id
   LEFT JOIN last_reply  lr ON lr.prospect_id = p.id
-  LEFT JOIN last_deal   ld ON ld.email = lower(p.email)
-  LEFT JOIN last_booked lb ON lb.email = lower(p.email)
+  LEFT JOIN last_deal   ld ON ld.email = lower(btrim(p.email))
+  LEFT JOIN last_booked lb ON lb.email = lower(btrim(p.email))
  WHERE p.status = 'sequenced'
    AND s.email IS NULL
    AND p.phone IS NOT NULL AND btrim(p.phone) <> ''
