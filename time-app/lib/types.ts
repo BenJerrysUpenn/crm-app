@@ -51,6 +51,10 @@ export type TimeEntry = {
   clock_out_distance_m: number | null;
   status: "open" | "closed";
   manual: boolean;
+  // Clock-out reminder bookkeeping (migration_20). See lib/clockoutReminder.ts.
+  clockout_reminder_sent_at: string | null;
+  clockout_reminder_snoozed_until: string | null;
+  clockout_reminder_dismissed_at: string | null;
   created_at: string;
 };
 

@@ -14,6 +14,7 @@ export const TYPES_BY_ROLE: Record<"manager" | "employee", NotifPrefItem[]> = {
     { key: "schedule_change", label: "When my schedule changes" },
     { key: "shift_reminder", label: "Reminder before my shift starts" },
     { key: "missed_clockin", label: "Alert if I haven't clocked in" },
+    { key: "clockout_reminder", label: "Reminder if I'm still clocked in after my shift ends" },
     { key: "drop_decision", label: "When my drop request is approved or denied" },
     { key: "timeoff_decision", label: "When my time-off request is approved or denied" },
   ],

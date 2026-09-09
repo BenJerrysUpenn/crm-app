@@ -4,7 +4,10 @@ import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import ClockCard from "@/components/ClockCard";
 import ClockInReminderModal from "@/components/ClockInReminderModal";
+import ClockOutReminderBanner from "@/components/ClockOutReminderBanner";
 import { getPendingReminders } from "@/lib/clockinReminders";
+import { clockoutReminderDue, shiftEndForEntry } from "@/lib/clockoutReminder";
+import { getSettings } from "@/lib/settings";
 import type { TimeEntry, Shift, Location } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +27,20 @@ export default async function HomePage() {
     .eq("employee_id", profile.id)
     .eq("status", "open")
     .maybeSingle();
+
+  // Still on the clock long after the shift ended? Nudge them (banner only —
+  // the cron sends the notification). Snooze and dismiss live on the entry.
+  const settings = await getSettings(supabase);
+  let clockoutReminderEndsAt: string | null = null;
+  if (openEntry) {
+    const shiftEndsAt = await shiftEndForEntry(supabase, openEntry as TimeEntry);
+    const { due } = clockoutReminderDue({
+      entry: openEntry as TimeEntry,
+      shiftEndsAt,
+      afterMin: settings.clockout_reminder_after_min,
+    });
+    if (due) clockoutReminderEndsAt = shiftEndsAt;
+  }
 
   const { data: recent } = await supabase
     .from("time_entries")
@@ -64,6 +81,13 @@ export default async function HomePage() {
       <main className="flex-1">
         <div className="mx-auto max-w-md px-4 py-6">
           <ClockInReminderModal reminders={pendingReminders} />
+          {clockoutReminderEndsAt && openEntry && (
+            <ClockOutReminderBanner
+              entryId={(openEntry as TimeEntry).id}
+              shiftEndsAt={clockoutReminderEndsAt}
+              snoozeMin={settings.clockout_reminder_after_min}
+            />
+          )}
           <ClockCard
             openEntry={(openEntry as TimeEntry) ?? null}
             todaysShift={(shifts?.[0] as Shift) ?? null}

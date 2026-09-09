@@ -2,6 +2,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { notify, emailForUser } from "@/lib/notify";
 import { getSettings } from "@/lib/settings";
 import { fmtTime } from "@/lib/format";
+import { clockoutReminderDue, shiftEndForEntry } from "@/lib/clockoutReminder";
+import type { TimeEntry } from "@/lib/types";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -145,6 +147,50 @@ export async function GET(request: Request) {
     reminded.push(s.id as number);
   }
 
+  // ---- Clock-out reminders: still on the clock well after the shift ended ----
+  // Once when they first go overdue, and once more each time a snooze expires.
+  // A dismissed entry is never nudged again.
+  const clockoutReminded: number[] = [];
+  const { data: openEntries } = await supabase
+    .from("time_entries")
+    .select("*, profiles(full_name, phone)")
+    .eq("status", "open")
+    .gte("clock_in_at", new Date(now - 24 * 3600000).toISOString());
+  for (const raw of openEntries ?? []) {
+    const entry = raw as unknown as TimeEntry;
+    const shiftEndsAt = await shiftEndForEntry(supabase, entry);
+    const { due } = clockoutReminderDue({
+      entry,
+      shiftEndsAt,
+      afterMin: settings.clockout_reminder_after_min,
+      now,
+    });
+    if (!due) continue;
+
+    const sentAt = entry.clockout_reminder_sent_at;
+    const snoozedUntil = entry.clockout_reminder_snoozed_until;
+    const firstTime = !sentAt;
+    const afterSnooze =
+      !!snoozedUntil && !!sentAt && new Date(sentAt).getTime() < new Date(snoozedUntil).getTime();
+    if (!firstTime && !afterSnooze) continue;
+
+    const prof = (raw as any).profiles;
+    const email = await emailForUser(entry.employee_id);
+    await notify({
+      userId: entry.employee_id,
+      type: "clockout_reminder",
+      title: "Still clocked in?",
+      body: `Your shift ended at ${fmtTime(shiftEndsAt)} and you're still clocked in. If you've left, open Withers Time and clock out. (entry #${entry.id})`,
+      phone: prof?.phone ?? null,
+      email,
+    }).catch(() => {});
+    await supabase
+      .from("time_entries")
+      .update({ clockout_reminder_sent_at: new Date(now).toISOString() })
+      .eq("id", entry.id);
+    clockoutReminded.push(entry.id);
+  }
+
   // Housekeeping: delete notifications older than 30 days so the bell stays tidy.
   await supabase
     .from("notifications")
@@ -156,5 +202,6 @@ export async function GET(request: Request) {
     flaggedEmployee: flaggedEmp,
     flaggedManager: flaggedMgr,
     reminded,
+    clockoutReminded,
   });
 }

@@ -196,6 +196,31 @@ edited or deleted by anyone, including you. For the same reason a published
 message can't be edited: if the wording needs to change, retire it and publish
 a new one.
 
+### 6d. Clock-out reminders (nudge people who forgot to clock out)
+
+If someone is still clocked in a while after their shift was due to end, the
+app reminds them to clock out. They get a notification (bell, plus text and
+email if those are switched on), and an amber banner above the clock button the
+next time they open the app.
+
+1. One-time setup: in Supabase, **SQL Editor**, run `supabase/migration_20.sql`
+   (after `migration_19.sql`). It adds the setting and three bookkeeping columns.
+2. On the **Team** page, under **Timing & alerts**, set **Clock-out reminder
+   (minutes after shift end)**. The default is 30 minutes.
+3. Nothing else to schedule: the reminder rides the existing 5-minute
+   `missed-clockins` check (Part 8), so if that is running, this is running.
+
+On the banner they can **Snooze**, which hides it and holds the reminder for
+the same number of minutes before nudging once more, or **Dismiss**, which
+stops the reminders for that shift entirely (they may genuinely still be
+working). Either way the clock keeps running; the reminder never blocks
+anything, and clocking out is always available.
+
+Anyone who finds it noisy can switch it off for themselves: **Notifications**
+settings, *Reminder if I'm still clocked in after my shift ends*. It only fires
+for entries the app can match to a scheduled shift, and it works the same for
+punches made on the fob clock at the shop.
+
 
 ---
 
