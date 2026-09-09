@@ -76,6 +76,23 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
     const startedAt = Date.now();
     try {
       const res = await fetch("/api/call-desk/queue", { cache: "no-store" });
+
+      // An expired session is redirected to /login by the middleware, so a
+      // "successful" response can still be a login page. Treat anything
+      // that isn't JSON as a sign-in problem rather than parse noise.
+      const isJson = (res.headers.get("content-type") ?? "").includes(
+        "application/json",
+      );
+      if (!isJson) {
+        setError({
+          message:
+            "Your sign-in has expired. Reload the page to sign in again.",
+          migrationMissing: false,
+        });
+        setLoading(false);
+        return;
+      }
+
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         setError({
@@ -295,7 +312,11 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-500">
-            {updatedAt ? `updated ${fmtClock(updatedAt)}` : "loading…"}
+            {updatedAt
+              ? `updated ${fmtClock(updatedAt)}`
+              : error
+                ? "not updated"
+                : "loading…"}
           </span>
           <button
             type="button"
