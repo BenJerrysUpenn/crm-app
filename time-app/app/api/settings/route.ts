@@ -13,6 +13,7 @@ export async function PATCH(request: Request) {
     "manager_clockin_grace_min",
     "tardy_grace_min",
     "shift_reminder_lead_min",
+    "clockout_reminder_after_min",
   ]) {
     if (k in body) {
       const n = Number(body[k]);

@@ -5,6 +5,7 @@ export type AppSettings = {
   manager_clockin_grace_min: number;
   tardy_grace_min: number;
   shift_reminder_lead_min: number;
+  clockout_reminder_after_min: number;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -12,6 +13,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   manager_clockin_grace_min: 15,
   tardy_grace_min: 15,
   shift_reminder_lead_min: 30,
+  clockout_reminder_after_min: 30,
 };
 
 // Reads the single settings row; falls back to defaults if missing.
@@ -30,6 +32,7 @@ export async function getSettings(
       manager_clockin_grace_min: data.manager_clockin_grace_min ?? DEFAULT_SETTINGS.manager_clockin_grace_min,
       tardy_grace_min: data.tardy_grace_min ?? DEFAULT_SETTINGS.tardy_grace_min,
       shift_reminder_lead_min: data.shift_reminder_lead_min ?? DEFAULT_SETTINGS.shift_reminder_lead_min,
+      clockout_reminder_after_min: data.clockout_reminder_after_min ?? DEFAULT_SETTINGS.clockout_reminder_after_min,
     };
   } catch {
     return DEFAULT_SETTINGS;

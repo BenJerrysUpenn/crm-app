@@ -286,6 +286,7 @@ function SettingsSection({ settings }: { settings: AppSettings }) {
   const [mgrGrace, setMgrGrace] = useState(String(settings.manager_clockin_grace_min));
   const [tardy, setTardy] = useState(String(settings.tardy_grace_min));
   const [reminder, setReminder] = useState(String(settings.shift_reminder_lead_min));
+  const [clockout, setClockout] = useState(String(settings.clockout_reminder_after_min));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -300,6 +301,7 @@ function SettingsSection({ settings }: { settings: AppSettings }) {
         manager_clockin_grace_min: Number(mgrGrace),
         tardy_grace_min: Number(tardy),
         shift_reminder_lead_min: Number(reminder),
+        clockout_reminder_after_min: Number(clockout),
       }),
     });
     setBusy(false);
@@ -326,6 +328,7 @@ function SettingsSection({ settings }: { settings: AppSettings }) {
         <Field label="Manager missed clock-in" value={mgrGrace} set={setMgrGrace} hint="Escalate to managers this long after the start." />
         <Field label="Tardy threshold" value={tardy} set={setTardy} hint="Clock-ins later than this count as late on attendance." />
         <Field label="Shift reminder lead" value={reminder} set={setReminder} hint="Remind employees this long before a shift." />
+        <Field label="Clock-out reminder (minutes after shift end)" value={clockout} set={setClockout} hint="Nudge anyone still clocked in this long after their shift ended." />
         <div className="sm:col-span-2 flex items-center gap-3">
           <button onClick={save} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-50">
             {busy ? "Saving…" : "Save settings"}
