@@ -8,7 +8,9 @@ import { contactTypeLabel } from "./format";
 import {
   dispositionLabel,
   DISPOSITION_VALUES,
+  DNC_STATUS_LABEL,
   type CallDeskRow,
+  type DncStatus,
 } from "./types";
 
 /** The bucket every null / blank value falls into. */
@@ -24,7 +26,10 @@ export type FacetKey =
   | "category"
   | "city"
   | "status"
-  | "calls";
+  | "calls"
+  | "ebr_basis"
+  | "ebr_active"
+  | "dnc_status";
 
 export type Facet = {
   key: FacetKey;
@@ -91,9 +96,55 @@ export const FACETS: Facet[] = [
     label: "Package",
     getValue: (r) => text(r.party_type_booked),
   },
+  // The lawful-dial columns (bj-finance #420). No row is ever hidden by them
+  // — Alina's ruling: this is the outreach desk too, so an out-of-window row
+  // still gets worked by email. These facets are how you narrow to the ones
+  // that can actually be dialled when that is what you want.
+  {
+    key: "ebr_active",
+    label: "Relationship window",
+    getValue: (r) => (r.ebr_active ? "yes" : "no"),
+    valueLabel: (v) => (v === "yes" ? "In window" : "Expired"),
+    allowedValues: ["yes", "no"],
+  },
+  {
+    key: "ebr_basis",
+    label: "Window from",
+    getValue: (r) => text(r.ebr_basis),
+    valueLabel: (v) =>
+      v === "purchase"
+        ? "A booking"
+        : v === "inquiry"
+          ? "An enquiry"
+          : "No relationship",
+    allowedValues: ["purchase", "inquiry", NONE],
+  },
+  {
+    key: "dnc_status",
+    label: "Registry scrub",
+    getValue: (r) => text(r.dnc_status),
+    valueLabel: (v) =>
+      v === NONE ? "Never scrubbed" : (DNC_STATUS_LABEL[v as DncStatus] ?? v),
+    allowedValues: [
+      "unknown",
+      "clear",
+      "national",
+      "pa_list",
+      "internal",
+      NONE,
+    ],
+  },
   { key: "category", label: "Category", getValue: (r) => text(r.category) },
   { key: "city", label: "City", getValue: (r) => text(r.city) },
-  { key: "status", label: "Status", getValue: (r) => text(r.status) },
+  {
+    key: "status",
+    label: "Status",
+    getValue: (r) => text(r.status),
+    // 'called_lost' rows stay on the desk (they are still an email audience);
+    // this is how you pull them out, or push them away.
+    valueLabel: (v) =>
+      v === "called_lost" ? "Lost (still emailed)" : v === NONE ? "—" : v,
+  },
   {
     key: "calls",
     label: "Calls",

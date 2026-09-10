@@ -4,6 +4,13 @@ Build contract for the prototype. Spec of record: bj-finance #409 (body) and the
 operator model on #390 (closing frame). This file is what the builders share;
 if it and the ticket disagree, the ticket wins and this file gets fixed.
 
+**Read alongside this:** `docs/call-desk-do-not-call-policy.md` — the written
+do-not-call policy (bj-finance #420). It is the rule the code implements, it is
+a legal precondition of dialling at all (47 C.F.R. §64.1200(d)(1)), and it
+carries the training record everyone signs before their first call. The
+research it rests on is `docs/call-desk-consent-and-calling-rules.md` in the
+bj-finance repo (#418).
+
 ## Who uses it and how
 
 Joey (sales coordinator, profile role `manager`, signs in with his Gmail
@@ -28,6 +35,7 @@ to re-run:
 | --- | --- |
 | `supabase/crm/001_call_desk.sql` | Grants + manager policies on the outreach tables, `call_desk_queue`, the two write RPCs, `deal_form_options`, the `call-recordings` bucket. |
 | `supabase/crm/002_call_desk_history.sql` | Redefines `call_desk_queue` so legacy Salesforce deals count as booking history (#414), makes the booked-money test null-safe, and fixes one imported name. Needs 001. |
+| `supabase/crm/003_call_desk_compliance.sql` | The lawful-dial gate (#420) and the lost outcome (#421): a phone key on `outreach_suppression`, `dnc_status` / `dnc_checked_at` and the `called_lost` status on `outreach_prospects`, `lost` in the events vocabulary, `call_desk_queue` redefined with the relationship window, and four RPCs. Needs 002. |
 
 
 | Thing | Where |
@@ -53,7 +61,17 @@ notes, last_contact_type ('call'|'reply'|'email'|null), last_contact_at,
 last_call_event_id, last_call_at, last_disposition, last_call_by,
 pending_disposition_event_id, calls_count, last_deal_id, last_deal_stage,
 last_event_type, last_deal_event_date, party_type_booked (package_name of the
-last booked deal), booked_event_type, booked_guest_count`.
+last booked deal), booked_event_type, booked_guest_count`,
+
+plus, from crm/003 (#420): `last_paid_event_date, last_inquiry_at,
+purchase_expires_on, inquiry_expires_on, ebr_basis ('purchase'|'inquiry'|null),
+ebr_expires_on, ebr_active, phone_digits, phone_suppressed, dnc_status
+('unknown'|'clear'|'national'|'pa_list'|'internal'), dnc_checked_at`.
+
+`status` is `'sequenced'` or, from #421, `'called_lost'`. Rows whose phone is
+on the internal do-not-call list are dropped by the view entirely and are the
+one thing no toggle brings back; `phone_suppressed` is therefore always false
+in practice and exists so a future "show suppressed" view needs no migration.
 
 The deal-side columns (`last_deal_*`, `last_event_type`, `party_type_booked`,
 `booked_*`) join on lowercased, trimmed `contact_email`. From crm/002 that
@@ -84,13 +102,149 @@ legacy rows do and don't carry.
 pending disposition; the queue surfaces it (`pending_disposition_event_id`)
 and the UI must nag until it is resolved.
 
+## The lawful-dial gate (bj-finance #420)
+
+Nobody in this queue ever agreed to a phone call — the corporate enquiry form's
+one checkbox says "email and online advertising" and names Ben & Jerry's, not
+us. A live human dialling by hand sits outside the consent half of the TCPA
+(47 U.S.C. §227(b) after *Facebook v. Duguid*), so what governs the desk is the
+do-not-call regime: the established business relationship the rules grant
+automatically, an internal do-not-call list, registry scrubs, calling hours and
+an opening disclosure. `docs/call-desk-do-not-call-policy.md` is the written
+version; `lib/callDesk/compliance.ts` is the code, pure and React-free so the
+browser and the route handler run exactly the same rules.
+
+**Nothing is hidden.** Alina's ruling, 2026-09-10: *"Don't hide the row itself.
+This isn't only the call desk but the outreach desk, so just gray out the call
+button if they are outside the safe window and not on registries."* So every
+row stays on the desk and stays fully workable — notes, Generate deal, the
+expanded details, the recording upload. The only thing the gate ever touches is
+the **Call now** button.
+
+### The window arithmetic
+
+| Leg | Column | Clock |
+| --- | --- | --- |
+| Purchase | `last_paid_event_date` — the **event date** of the most recent deal with `amount_paid > 0` or a booked stage, legacy Salesforce rows included | + 12 months → `purchase_expires_on` |
+| Enquiry | `last_inquiry_at` — the most recent `replied` / `interested` event | + 90 days → `inquiry_expires_on` |
+
+`ebr_expires_on` is the later of the two (`GREATEST` ignores nulls), `ebr_basis`
+says which produced it, and `ebr_active` is `ebr_expires_on >= today` in
+**Eastern**, not UTC, so a row does not expire five hours early in the evening.
+Both are null when neither leg exists.
+
+12 months and 90 days are Pennsylvania's numbers (73 P.S. §2245), the shortest
+of the three regimes we could be judged under, and PA is where we dial from.
+**Our own outbound email creates no window**: `last_outreach_at` is deliberately
+absent from the arithmetic. That is why most of the queue reads "expired" —
+31 of 190 rows have a paid booking inside 12 months and none has replied inside
+90 days. That is correct, not a bug.
+
+### Block reasons
+
+`callBlockReason(row, now)` returns the first that applies, hardest-to-clear
+first, so nobody is told "come back at nine" about a number they can never dial:
+
+| Reason | When | Hint under the buttons |
+| --- | --- | --- |
+| `phone_suppressed` | the number is on the internal do-not-call list | On the do-not-call list |
+| `dnc` | `dnc_status` is `national`, `pa_list` or `internal` | On the do-not-call list |
+| `lost` | `status = 'called_lost'` (#421) | Marked lost, reopen to call |
+| `expired` | `ebr_active` false **and** no fresh scrub | Outside the relationship window, needs a registry scrub |
+| `hours` | outside 9 a.m.–7 p.m. ET, Mon–Sat, or a federal holiday | Outside calling hours (9–7, Mon–Sat) |
+| `pending_outcome` | the last call has no outcome (#413) | Log the outcome of the last call first |
+
+"A fresh scrub" is `dnc_status = 'clear'` with `dnc_checked_at` inside 31 days
+(16 C.F.R. §310.4(b)(3)(iv)). It is the only thing that unblocks an
+out-of-window row, and it is what turns a stale warm number into a lawful cold
+call.
+
+### Hours
+
+9 a.m. to 7 p.m. Eastern, Monday to Saturday, never on one of the eleven US
+federal legal holidays (5 U.S.C. §6103, with the Saturday→Friday and
+Sunday→Monday observance shifts of §6103(b) / E.O. 11582 — both the day and its
+observed day are closed). That is PA Act 47 of 2026, effective 2026-10-18,
+adopted early because it is the tightest of PA / NJ / federal. The holiday table
+is hardcoded in `compliance.ts` with its source cited; there is no calendar
+service to go stale.
+
+A banner sits at the top of the desk when the hours are closed, because the
+alternative is a screen full of greyed buttons with no explanation.
+
+### The opening script
+
+`openingScript(row, callerEmail)` builds the one line that must be said before
+any pitch — caller's first name, Ben & Jerry's Philadelphia, ice cream catering,
+and how we know them ("You booked with us on …" / "You enquired with us on …",
+chosen by `ebr_basis`, or "You have been in touch with us before" when there is
+no window). 47 C.F.R. §64.1200(d)(4), 16 C.F.R. §310.4(d), 73 P.S. §2245(a)(5).
+It renders on every row as a collapsed 44px **Say first** line.
+
+### Registry scrubs
+
+`dnc_status` + `dnc_checked_at` per prospect. `/call-desk/dnc-import`
+(manager-only, a textarea and a source select) posts to
+`POST /api/call-desk/dnc/import`, which pulls every 10-digit number out of the
+pasted text and calls `call_desk_dnc_import`. Matching prospects are flagged
+with the registry they appeared on. Non-matching prospects are marked `clear`
+**only** when `mark_clear` is passed, and even then the RPC refuses to clear a
+prospect already flagged `national`, `pa_list` or `internal` — a partial file
+must never un-flag anyone. The asymmetry is the point: a wrong "clear" is a
+violation, a wrong "unknown" is a call we didn't make.
+
+Neither subscription is held yet (national registry, ~$85/area code past the
+free five; PA list ~$495/yr), so today every out-of-window row stays blocked.
+
+### Do not call, now phone-keyed
+
+`outreach_suppression` was `email text primary key`, which could not hold a
+phone number at all — so we had no internal do-not-call list in the sense
+47 C.F.R. §64.1200(d)(3) means. crm/003 gives it `phone`, `channel`
+(`email`|`phone`|`both`) and a surrogate `id` primary key so a phone-only entry
+is storable, with partial unique indexes on each key. The `do_not_call`
+disposition writes both keys through the rewritten `call_desk_do_not_call`, and
+also stamps the prospect `dnc_status = 'internal'`. Entries are permanent;
+nothing expires them.
+
+## "Not now / lost" (bj-finance #421)
+
+Alina, 2026-09-10: *"we also need a button to close out a lost deal but keep
+them on the email list."* A sixth disposition, **Not now / lost (keep
+emailing)**, does exactly that and nothing more:
+
+- `call_desk_mark_lost` sets the prospect's status to `'called_lost'`, stamps
+  the call row's `detail.disposition = 'lost'`, appends a dated notes line and
+  writes an `outreach_events` row `event = 'lost'`.
+- **Email eligibility is untouched.** Nothing writes `outreach_suppression`,
+  nothing touches `marketing_opt_in`. `outreach_warm_eligible` admits
+  `status not in ('suppressed','dead')` and `outreach_recontact_queue` admits
+  `status <> 'suppressed'` (outreach/migrations/003), so `'called_lost'` leaves
+  the prospect exactly as mailable as they were a minute earlier.
+- If the row has an open deal (`last_deal_stage` in Open / Sent Quote / Quote
+  Review), the sheet offers **Also close deal #N as lost**, which moves it to
+  `Closed Lost` through the CRM's own stage-change path (`buildStagePatch` +
+  `writeStageChange` in `lib/dealUpdate.ts` — the same code the Kanban board and
+  the calendar use), so `boomerang_reason` and `is_active` stay consistent with
+  what Catering-Manager's automation expects.
+- The row is **not** hidden. It stays on the desk with a "Lost (still emailed)"
+  badge, Call now greyed with "Marked lost, reopen to call", and a **Reopen for
+  calling** button that posts to `/api/call-desk/prospects/[id]/reopen`. The
+  `status` facet is how you pull the lost rows out, or push them away.
+
+`call_desk_reopen` refuses anything that is not currently `'called_lost'` — in
+particular a `'suppressed'` prospect can never be revived this way. A
+do-not-call request outlives every relationship and every mis-tap.
+
 ## API routes (Next.js route handlers, all require a signed-in manager)
 
 | Method + path | Body | Effect / response |
 | --- | --- | --- |
 | `GET /api/call-desk/queue` | – | `{ rows: CallDeskRow[] }` from the view |
-| `POST /api/call-desk/prospects/[id]/calls` | `{}` | insert 'called' event (`by`, `via`, `started_at`); `{ event_id }` |
-| `PATCH /api/call-desk/calls/[eventId]` | `{ disposition?, duration_seconds?, note?, recording_path?, consent_confirmed? }` | merge into `detail` (`detail || patch`, sets `dispositioned_at` when disposition arrives); if `note` → also `call_desk_append_note`; if `disposition = 'do_not_call'` → also `call_desk_do_not_call`; `{ ok, detail }` |
+| `POST /api/call-desk/prospects/[id]/calls` | `{}` | **409 `{ error, block_reason }`** when `callBlockReason` (re-computed server-side from `call_desk_queue`, never from the client) is non-null — see the gate above; otherwise insert 'called' event (`by`, `via`, `started_at`); `{ event_id }` |
+| `POST /api/call-desk/prospects/[id]/reopen` | – | RPC `call_desk_reopen`; 409 if the prospect is not `called_lost`; `{ ok, prospect_id }` |
+| `POST /api/call-desk/dnc/import` | `{ csv, source: 'national'\|'pa_list', mark_clear? }` | parses every 10-digit number out of `csv`, RPC `call_desk_dnc_import`; `{ ok, numbers, matched, cleared }` |
+| `PATCH /api/call-desk/calls/[eventId]` | `{ disposition?, duration_seconds?, note?, recording_path?, consent_confirmed?, close_deal_id? }` | merge into `detail` (`detail \|\| patch`, sets `dispositioned_at` when disposition arrives); if `note` → also `call_desk_append_note`; if `disposition = 'do_not_call'` → also `call_desk_do_not_call`; if `disposition = 'lost'` → also `call_desk_mark_lost`, and `close_deal_id` moves that deal to Closed Lost via `lib/dealUpdate.ts`; `{ ok, detail }` |
 | `POST /api/call-desk/prospects/[id]/notes` | `{ text }` | RPC append; `{ notes }` |
 | `POST /api/call-desk/calls/[eventId]/recording-url` | `{ consent_confirmed: true, ext, content_type }` | **400 unless `consent_confirmed === true`** (server-side gate, not just UI); `createSignedUploadUrl` in `call-recordings`; `{ path, token }`. Client uploads with `supabase.storage.from('call-recordings').uploadToSignedUrl(path, token, file)` then PATCHes `recording_path` + `consent_confirmed: true` |
 | `GET /api/call-desk/options` | – | `{ event_types, customer_profiles, packages, extras, flavors, toppings, minimum_order }` |
@@ -101,9 +255,16 @@ Route handlers set `export const dynamic = "force-dynamic"`. Errors:
 
 ## Dispositions
 
-`no_answer`, `voicemail`, `spoke`, `interested`, `do_not_call`. Required after
-every call. `do_not_call` asks for a one-tap confirm ("Stop all outreach to
-this person?") because it suppresses email too and drops the row from the queue.
+`no_answer`, `voicemail`, `spoke`, `interested`, `lost`, `do_not_call`.
+Required after every call.
+
+`do_not_call` asks for a one-tap confirm ("Stop all outreach to this person?")
+because it suppresses email *and* phone, permanently, and drops the row from
+the queue for good.
+
+`lost` — "Not now / lost (keep emailing)" — is the opposite and must never be
+used as a stop request: it takes them off the call queue and deliberately
+leaves them on the marketing email list (#421, above).
 
 ## Event type and package are separate columns (bj-finance #414)
 
@@ -170,8 +331,11 @@ One facet per column worth slicing on, in this order:
 | `party_type_booked` | Package | package name of the last booked deal |
 | `category` | Category | prospect category |
 | `city` | City | prospect city |
-| `status` | Status | prospect status |
+| `status` | Status | prospect status — `sequenced`, or `called_lost` shown as "Lost (still emailed)" |
 | `calls` | Calls | `0` / `1+` |
+| `ebr_active` | Relationship window | In window / Expired |
+| `ebr_basis` | Window from | A booking / An enquiry / No relationship |
+| `dnc_status` | Registry scrub | Never scrubbed / Scrubbed clear / On the national registry / On the PA registry / On our own list |
 
 A null or blank column buckets as `none`, labelled "—" unless the table above
 gives it a nicer name. Selection is **AND across facets, OR within one**:
@@ -195,8 +359,12 @@ The URL is the state. It is written with `router.replace` (no scroll, no
 history spam) on every change, so the 30 s refresh, a reload and a link
 pasted into Slack all land on the same view. Unknown keys and values are
 ignored rather than thrown, so a stale link degrades to a looser filter.
-The status chips (All / Needs disposition / …) and the text search stay
-local — they are one tap to retype.
+The status chips (All / Callable now / Needs disposition / …) and the text
+search stay local — they are one tap to retype. **Callable now** is the one-tap
+answer to "who can I actually ring right now": it keeps the rows whose
+`callBlockReason` is null, which folds the window, the registries, the hours and
+the pending-outcome rule into a single chip. It is a chip and not a default
+because the desk is where the email outreach gets worked too.
 
 ### Sorting
 
@@ -324,3 +492,11 @@ Quote-chase queue segment, SMS, auto-dialing, transcription, editing or
 deleting *dispositioned* call rows (an empty one can be undone — #413), a profile column on deals, cake ordering inside the CRM,
 any change to Catering-Manager. Filtering (#412) adds no saved views, no
 server-side filtering, and no free-text filter on notes.
+
+From #420 / #421: no carrier line-type lookup (mobile vs landline is empty on
+every Salesforce row, and NJ's cell-phone rule is handled by the window gate
+blocking the number like any other), no automatic registry download (the
+subscriptions do not exist yet — the import is a paste), no telemarketer
+registration workflow, no per-state rule table (one conservative rule, PA's,
+applies everywhere), no B2B exemption (PA's list covers business lines, so
+claiming it would buy nothing), and no bulk "close all lost".

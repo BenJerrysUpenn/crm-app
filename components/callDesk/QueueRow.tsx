@@ -1,14 +1,20 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import GenerateDealSlot from "./GenerateDealSlot";
 import RecordingUploader from "./RecordingUploader";
 import {
   dispositionLabel,
+  DNC_STATUS_LABEL,
   type CallDeskRow,
   type Disposition,
 } from "@/lib/callDesk/types";
 import type { FacetKey } from "@/lib/callDesk/filters";
+import {
+  BLOCK_HINT,
+  openingScript,
+  type BlockReason,
+} from "@/lib/callDesk/compliance";
 import {
   contactTypeLabel,
   fmtLastContact,
@@ -26,6 +32,84 @@ const DISPOSITION_CHIP: Record<Disposition, string> = {
   interested: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
   do_not_call: "bg-rose-500/20 text-rose-300 border-rose-500/30",
 };
+
+/**
+ * "window until Sep 4, 2027", or "expired" in amber (bj-finance #420).
+ *
+ * The row stays fully workable either way — expired only greys the phone
+ * button. What this line does is tell the caller which it is before he
+ * wonders why the button is dead.
+ */
+function WindowLine({ row }: { row: CallDeskRow }) {
+  if (row.ebr_active && row.ebr_expires_on)
+    return (
+      <span className="text-[11px] text-slate-500">
+        window until {fmtEasternDate(row.ebr_expires_on)}
+      </span>
+    );
+  if (row.dnc_status === "clear")
+    return (
+      <span className="text-[11px] text-emerald-400/80">
+        expired · scrubbed clear
+      </span>
+    );
+  return (
+    <span className="text-[11px] text-amber-400/90">
+      {row.ebr_expires_on
+        ? `expired ${fmtEasternDate(row.ebr_expires_on)}`
+        : "expired — no relationship on file"}
+    </span>
+  );
+}
+
+/** A prospect marked "Not now / lost" on a call (bj-finance #421). */
+function LostBadge() {
+  return (
+    <span
+      title="No sale on the phone. Still on the marketing email list."
+      className="inline-block text-[11px] px-2 py-0.5 rounded border bg-slate-500/20 text-slate-300 border-slate-500/40 whitespace-nowrap"
+    >
+      Lost (still emailed)
+    </span>
+  );
+}
+
+/**
+ * "Say first" — the one line Joey reads before any pitch (47 CFR
+ * 64.1200(d)(4), 73 P.S. 2245(a)(5)). Collapsed so it does not shove the
+ * buttons down the screen; 44px so it can be opened with a thumb.
+ */
+function OpeningScript({
+  row,
+  callerEmail,
+}: {
+  row: CallDeskRow;
+  callerEmail: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const script = openingScript(row, callerEmail);
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="min-h-[44px] w-full text-left text-xs text-sky-300 hover:text-sky-200 flex items-center gap-2"
+      >
+        <span aria-hidden="true">{open ? "\u25be" : "\u25b8"}</span>
+        Say first
+      </button>
+      {open && (
+        <p className="text-xs text-slate-200 bg-slate-950 border border-slate-800 rounded px-3 py-2">
+          {script}
+        </p>
+      )}
+    </div>
+  );
+}
 
 type FacetTap = (key: FacetKey, value: string) => void;
 
@@ -225,16 +309,21 @@ export type RowHandlers = {
   onFacetTap: FacetTap;
   /** A recording landed on this call — it can no longer be undone. */
   onRecordingUploaded: (eventId: number) => void;
+  /** Put a "Not now / lost" prospect back in the call queue (#421). */
+  onReopen: (row: CallDeskRow) => void;
 };
 
 function RowActions({
   row,
   pendingEventId,
+  blockReason,
   recordingEventId,
   handlers,
 }: {
   row: CallDeskRow;
   pendingEventId: number | null;
+  /** Why the phone is greyed out, or null when it may be dialled. */
+  blockReason: BlockReason | null;
   recordingEventId: number | null;
   handlers: RowHandlers;
 }) {
@@ -242,14 +331,16 @@ function RowActions({
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <div className="flex flex-wrap gap-2">
-        {/* One open call at a time (bj-finance #413): while the last one has
-            no outcome, Call now is dead and the number shows in its place so
-            it can still be dialled by hand. */}
-        {pendingEventId ? (
+        {/* Only the phone is ever blocked (bj-finance #420, Alina 2026-09-10:
+            "just gray out the call button"). The number stays on screen and
+            stays selectable, so a lawful call can always be dialled by hand,
+            and everything else on the row keeps working — this desk is where
+            the email outreach gets worked too. */}
+        {blockReason ? (
           <span
             aria-disabled="true"
-            title="Log the outcome of the last call first"
-            className="min-h-[44px] flex-1 min-w-[7rem] flex items-center justify-center text-sm text-slate-400 select-all rounded-md px-3 border border-slate-800 bg-slate-900"
+            title={BLOCK_HINT[blockReason]}
+            className="min-h-[44px] flex-1 min-w-[7rem] flex items-center justify-center text-sm text-slate-400 select-all rounded-md px-3 border border-slate-800 bg-slate-900 opacity-70"
           >
             {row.phone || "No phone"}
           </span>
@@ -297,11 +388,28 @@ function RowActions({
         />
       </div>
 
-      {pendingEventId && (
-        <p className="mt-2 text-xs text-rose-300">
-          Log the outcome of the last call first
+      {blockReason && (
+        <p
+          className={`mt-2 text-xs ${
+            blockReason === "pending_outcome" ? "text-rose-300" : "text-amber-300"
+          }`}
+        >
+          {BLOCK_HINT[blockReason]}
         </p>
       )}
+
+      {/* The row's own undo for "Not now / lost" (bj-finance #421). */}
+      {row.status === "called_lost" && (
+        <button
+          type="button"
+          onClick={() => handlers.onReopen(row)}
+          className="mt-2 min-h-[44px] w-full text-sm rounded-md px-3 border bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
+        >
+          Reopen for calling
+        </button>
+      )}
+
+      <OpeningScript row={row} callerEmail={handlers.callerEmail} />
 
       <RecordingUploader
         eventId={recordingEventId}
@@ -374,6 +482,33 @@ function RowDetails({
               }`
             : "—"}
         </dd>
+        <dt className="text-slate-500">Relationship</dt>
+        <dd className="text-slate-300">
+          {row.ebr_basis === "purchase"
+            ? `Booked ${row.last_paid_event_date ? fmtEasternDate(row.last_paid_event_date) : ""}`.trim()
+            : row.ebr_basis === "inquiry"
+              ? `Enquired ${row.last_inquiry_at ? fmtEasternDate(row.last_inquiry_at) : ""}`.trim()
+              : "Nothing on file — our emails don't count"}
+          {row.ebr_expires_on && (
+            <>
+              {" · "}
+              {row.ebr_active ? "window until " : "expired "}
+              {fmtEasternDate(row.ebr_expires_on)}
+            </>
+          )}
+        </dd>
+        <dt className="text-slate-500">Registry scrub</dt>
+        <dd className="text-slate-300">
+          <TapFilter
+            onFacetTap={onFacetTap}
+            facetKey="dnc_status"
+            value={row.dnc_status ?? "unknown"}
+            what={`scrub ${DNC_STATUS_LABEL[row.dnc_status ?? "unknown"]}`}
+          >
+            {DNC_STATUS_LABEL[row.dnc_status ?? "unknown"]}
+          </TapFilter>
+          {row.dnc_checked_at ? ` · ${fmtStamp(row.dnc_checked_at)}` : ""}
+        </dd>
         <dt className="text-slate-500">Last call</dt>
         <dd className="text-slate-300">
           {row.last_call_at
@@ -402,6 +537,7 @@ function RowDetails({
 export function ProspectCard({
   row,
   pendingEventId,
+  blockReason,
   recordingEventId,
   expanded,
   onToggle,
@@ -409,6 +545,7 @@ export function ProspectCard({
 }: {
   row: CallDeskRow;
   pendingEventId: number | null;
+  blockReason: BlockReason | null;
   recordingEventId: number | null;
   expanded: boolean;
   onToggle: () => void;
@@ -452,6 +589,11 @@ export function ProspectCard({
                 onFacetTap={handlers.onFacetTap}
               />
             )}
+            {row.status === "called_lost" && (
+              <div>
+                <LostBadge />
+              </div>
+            )}
             {row.ever_booked && (
               <div>
                 <BookedBadge onFacetTap={handlers.onFacetTap} />
@@ -475,6 +617,9 @@ export function ProspectCard({
               {row.calls_count === 1
                 ? "1 call"
                 : `${row.calls_count ?? 0} calls`}
+            </div>
+            <div>
+              <WindowLine row={row} />
             </div>
           </div>
           {/* "Birthday Party · Sundae Party" — event type first and readable,
@@ -508,6 +653,7 @@ export function ProspectCard({
         <RowActions
           row={row}
           pendingEventId={pendingEventId}
+          blockReason={blockReason}
           recordingEventId={recordingEventId}
           handlers={handlers}
         />
@@ -520,6 +666,7 @@ export function ProspectCard({
 export function ProspectTableRow({
   row,
   pendingEventId,
+  blockReason,
   recordingEventId,
   expanded,
   onToggle,
@@ -527,6 +674,7 @@ export function ProspectTableRow({
 }: {
   row: CallDeskRow;
   pendingEventId: number | null;
+  blockReason: BlockReason | null;
   recordingEventId: number | null;
   expanded: boolean;
   onToggle: () => void;
@@ -560,6 +708,9 @@ export function ProspectTableRow({
         </td>
         <td className="px-3 py-3 text-sm text-slate-300 whitespace-nowrap">
           {row.phone || "—"}
+          <div>
+            <WindowLine row={row} />
+          </div>
         </td>
         <td className="px-3 py-3 text-sm text-slate-300">
           <div>
@@ -599,15 +750,19 @@ export function ProspectTableRow({
                 onFacetTap={handlers.onFacetTap}
               />
             )}
-            {!pendingEventId && !row.last_disposition && (
-              <span className="text-xs text-slate-500">—</span>
-            )}
+            {row.status === "called_lost" && <LostBadge />}
+            {!pendingEventId &&
+              !row.last_disposition &&
+              row.status !== "called_lost" && (
+                <span className="text-xs text-slate-500">—</span>
+              )}
           </div>
         </td>
         <td className="px-3 py-3 w-[22rem]">
           <RowActions
             row={row}
             pendingEventId={pendingEventId}
+            blockReason={blockReason}
             recordingEventId={recordingEventId}
             handlers={handlers}
           />
