@@ -11,9 +11,11 @@ import type { CallDeskRow } from "@/lib/callDesk/types";
 import { digitsOnly, fmtClock } from "@/lib/callDesk/format";
 import {
   callBlockReason,
+  callRisk,
   CALLING_HOURS_LABEL,
   isWithinCallingHours,
   type BlockReason,
+  type CallRisk,
 } from "@/lib/callDesk/compliance";
 import {
   activeChips,
@@ -40,9 +42,11 @@ type Filter = "all" | "callable" | "pending" | "uncalled" | "called";
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
-  // The one-tap answer to "who can I actually ring right now" (#420). Every
-  // other row stays on the desk — it is the outreach desk too — so this is a
-  // chip, not a default.
+  // The one-tap answer to "who can I actually ring right now" (#420). Since
+  // #424 that includes the striped, out-of-window rows: the test is simply
+  // "is the button live", and theirs is. Every other row stays on the desk —
+  // it is the outreach desk too — so this is a chip, not a default. To split
+  // risky from safe, use the Relationship window facet.
   { value: "callable", label: "Callable now" },
   { value: "pending", label: "Needs disposition" },
   { value: "uncalled", label: "Not yet called" },
@@ -421,6 +425,18 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
     [updatedAt, pendingFor],
   );
 
+  /**
+   * Whether dialling this row is a cold call (bj-finance #424). Not a block —
+   * the button stays live and striped, and the server stamps the event with
+   * `outside_window` from its own re-read of the row. This copy only decides
+   * how the button is painted.
+   */
+  const riskFor = useCallback(
+    (row: CallDeskRow): CallRisk | null =>
+      callRisk(row, updatedAt ?? new Date()),
+    [updatedAt],
+  );
+
   // Status chip, then facets, then the text search — the intersection of all
   // three. Sort by last contact, then float anything awaiting an outcome to
   // the top: a call with no outcome outranks recency in either direction.
@@ -704,6 +720,7 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
                   row={row}
                   pendingEventId={pendingFor(row)}
                   blockReason={blockFor(row)}
+                  risk={riskFor(row)}
                   recordingEventId={pendingFor(row) ?? row.last_call_event_id}
                   expanded={expanded === row.prospect_id}
                   onToggle={() =>
@@ -738,6 +755,7 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
                       row={row}
                       pendingEventId={pendingFor(row)}
                       blockReason={blockFor(row)}
+                      risk={riskFor(row)}
                       recordingEventId={
                         pendingFor(row) ?? row.last_call_event_id
                       }

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { BLOCK_EXPLANATION, callBlockReason } from "@/lib/callDesk/compliance";
+import {
+  BLOCK_EXPLANATION,
+  callBlockReason,
+  callRisk,
+} from "@/lib/callDesk/compliance";
 import type { CallDeskRow, CalledDetail } from "@/lib/callDesk/types";
 
 export const dynamic = "force-dynamic";
@@ -16,12 +20,19 @@ export const dynamic = "force-dynamic";
 // occurred_at is left to the column default (now()), which is what the
 // contract means by "when Call now was tapped".
 //
-// Before any of that: the lawful-dial gate (bj-finance #420). The rules live
-// in lib/callDesk/compliance.ts and the UI greys the button with the same
-// ones, but the UI is not the gate — a stale tab, a second device or a
-// hand-edited request all reach here, so the row is re-read from
-// `call_desk_queue` and judged server-side. A blocked call is refused with
-// 409 and a `block_reason` the client can render.
+// Before any of that: the lawful-dial gate (bj-finance #420, revised by #424).
+// The rules live in lib/callDesk/compliance.ts and the UI paints the button
+// with the same ones, but the UI is not the gate — a stale tab, a second
+// device or a hand-edited request all reach here, so the row is re-read from
+// `call_desk_queue` and judged server-side. Two verdicts come out of it:
+//
+//   * a hard block (callBlockReason) — refused, 409 with a `block_reason` the
+//     client can render;
+//   * a risk (callRisk) — allowed, and stamped into the event's detail as
+//     `outside_window: true` so the record shows it was a knowing cold call.
+//
+// Neither verdict is ever taken from the request body. The client sends no
+// opinion and would not be believed if it did.
 export async function POST(
   _request: Request,
   { params }: { params: { id: string } },
@@ -60,11 +71,10 @@ export async function POST(
   const now = new Date();
   const blocked = callBlockReason(row, now);
 
-  // callBlockReason already lets an out-of-window number through when it has
-  // been scrubbed against the registries and came back clear inside the last
-  // 31 days (hasFreshScrub) — that is what turns a stale warm number into a
-  // lawful cold call. Everything it does return is final here, except
-  // 'pending_outcome', which the #413 check below answers in its own shape.
+  // Everything callBlockReason returns is final here, except 'pending_outcome',
+  // which the #413 check below answers in its own shape. Being out of the
+  // relationship window is deliberately not among them any more (#424) — that
+  // comes back from callRisk instead and is recorded, not refused.
   if (blocked && blocked !== "pending_outcome")
     return NextResponse.json(
       { error: BLOCK_EXPLANATION[blocked], block_reason: blocked },
@@ -104,6 +114,14 @@ export async function POST(
     started_at: new Date().toISOString(),
     disposition: null,
   };
+
+  // The cold-call stamp (#424). Computed here, from the row the database just
+  // handed back, so the flag on the event is the truth at the moment of the
+  // call and not whatever a tab loaded an hour ago believed.
+  if (callRisk(row, now) === "outside_window") {
+    detail.outside_window = true;
+    if (row.ebr_expires_on) detail.ebr_expires_on = row.ebr_expires_on;
+  }
 
   const { data, error } = await supabase
     .from("outreach_events")

@@ -121,6 +121,14 @@ row stays on the desk and stays fully workable — notes, Generate deal, the
 expanded details, the recording upload. The only thing the gate ever touches is
 the **Call now** button.
 
+**And nothing is explained twice.** Her second ruling the same day, after the
+first live session (bj-finance #424): *"reduce row bloat: I need these red
+crossed-out lines gone, and the 'say first' is already in the script. Then we
+still need to be able to make the risky calls, but I'd like them striped green
+and gray rather than full green."* So the hint paragraph under the button grid
+and the collapsed **Say first** line are gone, the button itself carries the
+whole story, and the out-of-window case became a **risk** rather than a block.
+
 ### The window arithmetic
 
 | Leg | Column | Clock |
@@ -140,24 +148,65 @@ absent from the arithmetic. That is why most of the queue reads "expired" —
 31 of 190 rows have a paid booking inside 12 months and none has replied inside
 90 days. That is correct, not a bug.
 
-### Block reasons
+### Blocks and risks
 
-`callBlockReason(row, now)` returns the first that applies, hardest-to-clear
-first, so nobody is told "come back at nine" about a number they can never dial:
+Two separate verdicts, and they are not the same kind of thing.
 
-| Reason | When | Hint under the buttons |
+A **block** is a call we will not place. `callBlockReason(row, now)` returns
+the first that applies, hardest-to-clear first, so nobody is told "come back at
+nine" about a number they can never dial. The disabled button's own label is
+the whole explanation — there is no line underneath it:
+
+| Reason | When | Button label |
 | --- | --- | --- |
-| `phone_suppressed` | the number is on the internal do-not-call list | On the do-not-call list |
-| `dnc` | `dnc_status` is `national`, `pa_list` or `internal` | On the do-not-call list |
-| `lost` | `status = 'called_lost'` (#421) | Marked lost, reopen to call |
-| `expired` | `ebr_active` false **and** no fresh scrub | Outside the relationship window, needs a registry scrub |
-| `hours` | outside 9 a.m.–7 p.m. ET, Mon–Sat, or a federal holiday | Outside calling hours (9–7, Mon–Sat) |
-| `pending_outcome` | the last call has no outcome (#413) | Log the outcome of the last call first |
+| `phone_suppressed` | the number is on the internal do-not-call list | Number suppressed |
+| `dnc` | `dnc_status` is `national`, `pa_list` or `internal` | On DNC list |
+| `lost` | `status = 'called_lost'` (#421) | Lost |
+| `hours` | outside 9 a.m.–7 p.m. ET, Mon–Sat, or a federal holiday | After hours |
+| `pending_outcome` | the last call has no outcome (#413) | Log outcome first |
+
+The longer sentence (`BLOCK_HINT`) is the button's `title`; `BLOCK_EXPLANATION`
+is the paragraph the API returns with a 409.
+
+A **risk** is a call we will place, knowing what it is. `callRisk(row, now)`
+returns `'outside_window'` when `ebr_active` is false **and** no fresh scrub
+stands in its place — the condition that used to be the `expired` block
+(bj-finance #424). Call now stays enabled and the same size, but wears diagonal
+green-and-grey stripes with the sentence *"Outside the relationship window, not
+yet scrubbed against the registries. Calling is allowed but is a cold call."* in
+its tooltip and, for screen readers, in a visually-hidden span. There is no
+confirmation dialog: Alina wants one tap, and the stripes are the warning.
 
 "A fresh scrub" is `dnc_status = 'clear'` with `dnc_checked_at` inside 31 days
-(16 C.F.R. §310.4(b)(3)(iv)). It is the only thing that unblocks an
-out-of-window row, and it is what turns a stale warm number into a lawful cold
-call.
+(16 C.F.R. §310.4(b)(3)(iv)). It is what turns a stale warm number back into an
+ordinary solid-green call.
+
+### Button states
+
+| State | Looks like | Enabled |
+| --- | --- | --- |
+| Warm | solid emerald, "Call now" | yes |
+| Risky (`outside_window`) | diagonal emerald/slate stripes, "Call now" on a dark pill | yes |
+| Blocked | grey, the reason as its label, the number small beside it | no |
+| No number on file | grey, "No phone" | no |
+
+The `expired <date>` line under the phone number in the Phone column is
+untouched; that is where the window information lives now.
+
+### What the event records
+
+A `called` event written for a risky call carries `outside_window: true` in its
+`detail`, plus `ebr_expires_on` when the row had a window at all. Both are set
+by `POST /api/call-desk/prospects/:id/calls` from its own re-read of
+`call_desk_queue` — the client sends no opinion on either the block or the risk
+and would not be believed if it did. A warm call carries neither key, so an old
+row and a warm call read alike.
+
+### The "Callable now" chip
+
+Still the one-tap "who can I ring right now", and it now includes the striped
+rows: the test is whether the button is live. To separate risky from safe, use
+the **Relationship window** facet (`ebr_active`) — *In window* / *Expired*.
 
 ### Hours
 
@@ -179,7 +228,12 @@ any pitch — caller's first name, Ben & Jerry's Philadelphia, ice cream caterin
 and how we know them ("You booked with us on …" / "You enquired with us on …",
 chosen by `ebr_basis`, or "You have been in touch with us before" when there is
 no window). 47 C.F.R. §64.1200(d)(4), 16 C.F.R. §310.4(d), 73 P.S. §2245(a)(5).
-It renders on every row as a collapsed 44px **Say first** line.
+
+**It no longer renders on the row** (bj-finance #424) — the collapsed **Say
+first** line was one of the two lines Alina asked to lose, because the script is
+already in `docs/call-desk-do-not-call-policy.md`, which is what the caller is
+trained on. The function stays exported and is still the single source of the
+wording for anything that wants to print or read it.
 
 ### Registry scrubs
 
@@ -194,7 +248,8 @@ must never un-flag anyone. The asymmetry is the point: a wrong "clear" is a
 violation, a wrong "unknown" is a call we didn't make.
 
 Neither subscription is held yet (national registry, ~$85/area code past the
-free five; PA list ~$495/yr), so today every out-of-window row stays blocked.
+free five; PA list ~$495/yr), so today every out-of-window row is a striped,
+risky row rather than a solid green one.
 
 ### Do not call, now phone-keyed
 
