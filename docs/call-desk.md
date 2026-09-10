@@ -19,7 +19,16 @@ Mobile first. Desktop is the same page, wider. Dark theme like the rest of
 the CRM (Tailwind, slate palette). Route: `/call-desk`, tab label "Call desk"
 in `components/TopBar.tsx` (make the bar wrap on narrow screens).
 
-## Data (all in the shared Supabase project; see `supabase/crm/001_call_desk.sql`)
+## Data (all in the shared Supabase project)
+
+Migrations, in order — each runs once in the Supabase SQL editor and is safe
+to re-run:
+
+| File | What it does |
+| --- | --- |
+| `supabase/crm/001_call_desk.sql` | Grants + manager policies on the outreach tables, `call_desk_queue`, the two write RPCs, `deal_form_options`, the `call-recordings` bucket. |
+| `supabase/crm/002_call_desk_history.sql` | Redefines `call_desk_queue` so legacy Salesforce deals count as booking history (#414), makes the booked-money test null-safe, and fixes one imported name. Needs 001. |
+
 
 | Thing | Where |
 | --- | --- |
@@ -45,6 +54,13 @@ last_call_event_id, last_call_at, last_disposition, last_call_by,
 pending_disposition_event_id, calls_count, last_deal_id, last_deal_stage,
 last_event_type, last_deal_event_date, party_type_booked (package_name of the
 last booked deal), booked_event_type, booked_guest_count`.
+
+The deal-side columns (`last_deal_*`, `last_event_type`, `party_type_booked`,
+`booked_*`) join on lowercased, trimmed `contact_email`. From crm/002 that
+join accepts a deal when `archived = 0` **or** `legacy_sf_id IS NOT NULL`:
+the 9,450 deals migrated from Salesforce were all imported archived, and they
+are the booking history the desk exists to show. See "Why party type is
+usually an event type" below for what those legacy rows do and don't carry.
 
 ### `outreach_events` 'called' row — `detail` JSON shape
 
@@ -87,6 +103,38 @@ Route handlers set `export const dynamic = "force-dynamic"`. Errors:
 `no_answer`, `voicemail`, `spoke`, `interested`, `do_not_call`. Required after
 every call. `do_not_call` asks for a one-tap confirm ("Stop all outreach to
 this person?") because it suppresses email too and drops the row from the queue.
+
+## Why party type is usually an event type (bj-finance #414)
+
+150 of the 152 "Booked before" prospects showed an empty Party type while
+wearing the badge that says they booked. Two separate causes:
+
+1. **The view couldn't see the history.** `call_desk_queue` filtered deals to
+   `archived = 0`; every migrated Salesforce deal is `archived = 1`. The
+   `ever_booked` flag came from `sync_contacts_from_deals()`, which reads the
+   same deals without that filter — badge on, columns empty. crm/002 fixes it,
+   and all 152 gain an event type.
+2. **The Salesforce translator dropped Party Type.** It is a real Opportunity
+   field (Sundae Party, Cup or Cone Party, Super Deluxe Sundae Party …) but
+   only 3 of 9,450 migrated deals carry a `package_name`. Recovering it means
+   exporting Opportunities from Salesforce and backfilling on `legacy_sf_id`
+   — bj-finance #414 leaf B, Alina's call, **not in this repo yet**.
+
+So the Party type cell reads, in order:
+
+| Have | Shows |
+| --- | --- |
+| `party_type_booked` | the package, plain |
+| else `booked_event_type` | the event type with a muted "(event type)" suffix |
+| else | "—" |
+
+The suffix is the point: an event type is *why* they booked, not *what* they
+bought, and the reader has to be able to tell. Tapping either still filters —
+a package on `party_type_booked`, a fallback on `booked_event_type`.
+
+Note this column no longer falls back to `last_event_type`. That is an
+enquiry's event type, not a booking's, and a column headed "Party type"
+should not quietly show it.
 
 ## Filtering and sorting (bj-finance #412)
 

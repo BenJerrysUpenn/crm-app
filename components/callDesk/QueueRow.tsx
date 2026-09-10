@@ -29,24 +29,35 @@ const DISPOSITION_CHIP: Record<Disposition, string> = {
 
 type FacetTap = (key: FacetKey, value: string) => void;
 
-/** The "party type they previously booked", with the fallbacks the spec asks for. */
-export function partyType(row: CallDeskRow): string | null {
-  return row.party_type_booked || row.booked_event_type || row.last_event_type;
-}
-
 /**
- * Which facet the party type on screen actually came from. The display falls
- * back party_type_booked → booked_event_type → last_event_type and only the
- * first two are facets, so a value sourced from last_event_type is not
- * tappable — better than a tap that filters the row itself away.
+ * What the Party type cell should say (bj-finance #414).
+ *
+ * The package they booked is the answer to "why did this person contact us".
+ * Most prospects don't have one: the Salesforce migration dropped the Party
+ * Type field, so 9,447 of 9,450 legacy deals have no package_name. The booked
+ * event type is the next best thing and is shown labelled as such, never
+ * dressed up as a package. Anything weaker is "—" — this column is about
+ * bookings, so an enquiry's event type does not belong in it.
  */
-function partyTypeFacet(
-  row: CallDeskRow,
-): { key: FacetKey; value: string } | null {
-  if (row.party_type_booked)
-    return { key: "party_type_booked", value: row.party_type_booked };
-  if (row.booked_event_type)
-    return { key: "booked_event_type", value: row.booked_event_type };
+export type PartyTypeCell = {
+  kind: "package" | "event_type";
+  value: string;
+  facetKey: FacetKey;
+};
+
+export function partyTypeCell(row: CallDeskRow): PartyTypeCell | null {
+  if (row.party_type_booked?.trim())
+    return {
+      kind: "package",
+      value: row.party_type_booked.trim(),
+      facetKey: "party_type_booked",
+    };
+  if (row.booked_event_type?.trim())
+    return {
+      kind: "event_type",
+      value: row.booked_event_type.trim(),
+      facetKey: "booked_event_type",
+    };
   return null;
 }
 
@@ -155,6 +166,35 @@ function LastContact({
         {label}
       </TapFilter>
       {rel ? ` · ${rel}` : ""}
+    </>
+  );
+}
+
+/** The party type itself: tappable, and honest about which column it came from. */
+function PartyTypeValue({
+  cell,
+  onFacetTap,
+}: {
+  cell: PartyTypeCell;
+  onFacetTap: FacetTap;
+}) {
+  return (
+    <>
+      <TapFilter
+        onFacetTap={onFacetTap}
+        facetKey={cell.facetKey}
+        value={cell.value}
+        what={
+          cell.kind === "package"
+            ? `party type ${cell.value}`
+            : `booked event type ${cell.value}`
+        }
+      >
+        {cell.value}
+      </TapFilter>
+      {cell.kind === "event_type" && (
+        <span className="text-slate-500"> (event type)</span>
+      )}
     </>
   );
 }
@@ -358,8 +398,7 @@ export function ProspectCard({
   onToggle: () => void;
   handlers: RowHandlers;
 }) {
-  const type = partyType(row);
-  const typeFacet = partyTypeFacet(row);
+  const cell = partyTypeCell(row);
   return (
     <li
       className={`rounded-lg border bg-slate-900 px-3 py-3 ${
@@ -422,21 +461,10 @@ export function ProspectCard({
             </div>
           </div>
           <div className="col-span-2 text-slate-400 truncate">
-            {type ? (
+            {cell ? (
               <>
                 Party type:{" "}
-                {typeFacet ? (
-                  <TapFilter
-                    onFacetTap={handlers.onFacetTap}
-                    facetKey={typeFacet.key}
-                    value={typeFacet.value}
-                    what={`party type ${type}`}
-                  >
-                    {type}
-                  </TapFilter>
-                ) : (
-                  type
-                )}
+                <PartyTypeValue cell={cell} onFacetTap={handlers.onFacetTap} />
               </>
             ) : (
               "No previous party type"
@@ -477,8 +505,7 @@ export function ProspectTableRow({
   onToggle: () => void;
   handlers: RowHandlers;
 }) {
-  const type = partyType(row);
-  const typeFacet = partyTypeFacet(row);
+  const cell = partyTypeCell(row);
   return (
     <>
       <tr
@@ -508,17 +535,10 @@ export function ProspectTableRow({
         </td>
         <td className="px-3 py-3 text-sm text-slate-300">
           <div>
-            {type && typeFacet ? (
-              <TapFilter
-                onFacetTap={handlers.onFacetTap}
-                facetKey={typeFacet.key}
-                value={typeFacet.value}
-                what={`party type ${type}`}
-              >
-                {type}
-              </TapFilter>
+            {cell ? (
+              <PartyTypeValue cell={cell} onFacetTap={handlers.onFacetTap} />
             ) : (
-              type || "—"
+              "—"
             )}
           </div>
           {row.ever_booked && (
