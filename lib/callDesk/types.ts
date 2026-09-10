@@ -93,6 +93,7 @@ export type Disposition =
   | "voicemail"
   | "spoke"
   | "interested"
+  | "lost"
   | "do_not_call";
 
 /** The `detail` JSON carried by an outreach_events row with event = 'called'. */
@@ -133,6 +134,12 @@ export const DISPOSITIONS: {
     value: "interested",
     label: "Interested",
     description: "Wants a quote or a date — generate a deal next.",
+  },
+  {
+    value: "lost",
+    label: "Not now / lost (keep emailing)",
+    description:
+      "No sale this time. Leaves the call queue, stays on the email list.",
   },
   {
     value: "do_not_call",

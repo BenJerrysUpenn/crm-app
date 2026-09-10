@@ -8,6 +8,9 @@ import {
   type Disposition,
 } from "@/lib/callDesk/types";
 
+/** Stages a deal can still be lost from (mirrors the API route's check). */
+const OPEN_STAGES = ["Open", "Sent Quote", "Quote Review"];
+
 /**
  * "How did the call go?" — the outcome capture that makes the call log mean
  * anything. Opened automatically when the caller comes back to the tab after
@@ -15,6 +18,13 @@ import {
  *
  * Closing without choosing does NOT resolve the call: the row keeps its red
  * badge and this sheet re-offers on the next focus.
+ *
+ * "Not now / lost (keep emailing)" (bj-finance #421) is the outcome for a
+ * prospect who is simply not buying today: it takes them off the call queue
+ * and deliberately leaves them on the marketing email list. When they have an
+ * open deal, the sheet offers to close that as lost at the same time, through
+ * the CRM's own stage-change path. It is NOT a stop request — that is "Do not
+ * call", which is permanent and stops email too.
  *
  * The one way out is "I didn't call" (bj-finance #413) — a mis-tap on Call
  * now leaves a pending call that can never be answered honestly, so the log
@@ -41,10 +51,19 @@ export default function DispositionSheet({
   const [minutes, setMinutes] = useState("");
   const [note, setNote] = useState("");
   const [confirmDnc, setConfirmDnc] = useState(false);
+  const [closeDeal, setCloseDeal] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
+
+  // The deal this call could close, if any. Only a deal still in the working
+  // pipeline can be lost; anything past that is already decided, and the
+  // server re-checks the stage before it writes.
+  const openDealId =
+    row.last_deal_id && OPEN_STAGES.includes(row.last_deal_stage ?? "")
+      ? row.last_deal_id
+      : null;
 
   async function save() {
     if (!choice || saving) return;
@@ -63,6 +82,8 @@ export default function DispositionSheet({
       body.duration_seconds = Math.round(mins * 60);
     }
     if (note.trim()) body.note = note.trim();
+    if (choice === "lost" && closeDeal && openDealId)
+      body.close_deal_id = openDealId;
 
     const res = await fetch(`/api/call-desk/calls/${eventId}`, {
       method: "PATCH",
@@ -79,11 +100,19 @@ export default function DispositionSheet({
 
     const label =
       DISPOSITIONS.find((d) => d.value === choice)?.label ?? choice;
-    onSaved(
-      choice === "do_not_call"
-        ? `${row.name ?? "Prospect"} marked do not call — outreach stopped.`
-        : `Logged: ${label}.`,
-    );
+    if (choice === "do_not_call") {
+      onSaved(`${row.name ?? "Prospect"} marked do not call — outreach stopped.`);
+      return;
+    }
+    if (choice === "lost") {
+      onSaved(
+        closeDeal && openDealId
+          ? `Marked lost and deal #${openDealId} closed. Still on the email list.`
+          : "Marked lost. Still on the email list.",
+      );
+      return;
+    }
+    onSaved(`Logged: ${label}.`);
   }
 
   async function remove() {
@@ -187,6 +216,34 @@ export default function DispositionSheet({
           />
         </label>
       </div>
+
+      {choice === "lost" && (
+        <div className="mt-4 rounded-md border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-300 space-y-2">
+          {openDealId ? (
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={closeDeal}
+                onChange={(e) => setCloseDeal(e.target.checked)}
+                className="mt-0.5 h-5 w-5 accent-slate-400 shrink-0"
+              />
+              <span className="min-w-0">
+                <span className="block text-slate-100">
+                  Also close deal #{openDealId} as lost
+                </span>
+                <span className="block text-xs text-slate-400">
+                  Currently {row.last_deal_stage}. Moves it to Closed Lost on
+                  the board.
+                </span>
+              </span>
+            </label>
+          ) : null}
+          <p className="text-xs text-slate-400">
+            They stay on the marketing email list. To stop email as well, use
+            “Do not call”.
+          </p>
+        </div>
+      )}
 
       {confirmDnc && (
         <div className="mt-4 rounded-md border border-rose-800 bg-rose-950/60 px-3 py-3 text-sm text-rose-200">

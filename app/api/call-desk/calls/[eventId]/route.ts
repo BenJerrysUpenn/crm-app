@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { buildStagePatch, writeStageChange } from "@/lib/dealUpdate";
 import { isDisposition, type CalledDetail } from "@/lib/callDesk/types";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,11 @@ const ALLOWED_KEYS = [
   "note",
   "recording_path",
   "consent_confirmed",
+  "close_deal_id",
 ] as const;
+
+/** Stages a deal can still be lost from. Anything else is already decided. */
+const OPEN_STAGES = ["Open", "Sent Quote", "Quote Review"];
 
 type PatchBody = {
   disposition?: string;
@@ -29,8 +34,13 @@ type PatchBody = {
 // `detail` JSON — read-modify-write, because PostgREST cannot do `detail ||
 // patch` in a plain UPDATE and the row is small. Side effects, in order:
 //   note              -> also appended to the prospect's notes (RPC)
-//   'do_not_call'     -> suppression + status + 'suppressed' event (RPC),
-//                        which also drops the prospect from the queue.
+//   'do_not_call'     -> suppression (email AND phone) + status + 'suppressed'
+//                        event (RPC), which drops the prospect from the queue.
+//   'lost'            -> status 'called_lost' + notes line + 'lost' event
+//                        (RPC), and, when close_deal_id is given, that deal
+//                        moves to Closed Lost. Nothing touches suppression or
+//                        marketing_opt_in: they stay on the email list
+//                        (bj-finance #421).
 //
 // The event write lands first: if a side-effect RPC fails, the disposition
 // is still recorded rather than the call staying silently pending.
@@ -75,7 +85,7 @@ export async function PATCH(
       return NextResponse.json(
         {
           error:
-            "disposition must be one of no_answer, voicemail, spoke, interested, do_not_call",
+            "disposition must be one of no_answer, voicemail, spoke, interested, lost, do_not_call",
         },
         { status: 400 },
       );
@@ -111,6 +121,24 @@ export async function PATCH(
         { status: 400 },
       );
     patch.recording_path = raw.recording_path.trim();
+  }
+
+  // Not part of `patch`: it is an instruction about a different table, not a
+  // field of this call's detail.
+  let closeDealId: number | null = null;
+  if (raw.close_deal_id !== undefined && raw.close_deal_id !== null) {
+    const n = raw.close_deal_id;
+    if (typeof n !== "number" || !Number.isInteger(n) || n <= 0)
+      return NextResponse.json(
+        { error: "close_deal_id must be a positive integer" },
+        { status: 400 },
+      );
+    if (raw.disposition !== "lost")
+      return NextResponse.json(
+        { error: "close_deal_id only applies to the 'lost' outcome" },
+        { status: 400 },
+      );
+    closeDealId = n;
   }
 
   if (raw.consent_confirmed !== undefined && raw.consent_confirmed !== null) {
@@ -181,6 +209,81 @@ export async function PATCH(
       );
   }
 
+  // "Not now / lost (keep emailing)" — bj-finance #421.
+  if (patch.disposition === "lost") {
+    const { error: lostErr } = await supabase.rpc("call_desk_mark_lost", {
+      p_prospect_id: row.prospect_id,
+      p_call_event_id: eventId,
+      p_deal_id: closeDealId,
+    });
+    if (lostErr)
+      return NextResponse.json(
+        { error: `Call saved, but marking them lost failed: ${lostErr.message}` },
+        { status: 500 },
+      );
+
+    if (closeDealId !== null) {
+      // Through the CRM's own stage-change path (lib/dealUpdate.ts), the same
+      // one the Kanban board and the calendar use, so boomerang_reason and
+      // is_active land the way Catering-Manager's automation expects. Never a
+      // raw stage write.
+      const { data: deal, error: dealErr } = await supabase
+        .from("deals")
+        .select("id, stage, payment_status, contact_email")
+        .eq("id", closeDealId)
+        .maybeSingle();
+
+      if (dealErr)
+        return NextResponse.json(
+          { error: `Call saved, but the deal read failed: ${dealErr.message}` },
+          { status: 500 },
+        );
+      if (!deal)
+        return NextResponse.json(
+          { error: `Call saved, but deal ${closeDealId} was not found.` },
+          { status: 404 },
+        );
+
+      // The deal must actually belong to this prospect, and must still be
+      // open. Neither is something a client gets to assert.
+      const { data: prospect } = await supabase
+        .from("outreach_prospects")
+        .select("email")
+        .eq("id", row.prospect_id)
+        .maybeSingle();
+      const dealEmail = (deal.contact_email ?? "").trim().toLowerCase();
+      const prospectEmail = (prospect?.email ?? "").trim().toLowerCase();
+      if (!dealEmail || dealEmail !== prospectEmail)
+        return NextResponse.json(
+          {
+            error: `Call saved, but deal ${closeDealId} does not belong to this prospect.`,
+          },
+          { status: 409 },
+        );
+      if (!OPEN_STAGES.includes(deal.stage))
+        return NextResponse.json(
+          {
+            error: `Call saved, but deal ${closeDealId} is already "${deal.stage}".`,
+          },
+          { status: 409 },
+        );
+
+      const stagePatch = buildStagePatch("Closed Lost", deal.payment_status);
+      const { error: stageErr } = await writeStageChange(
+        supabase,
+        closeDealId,
+        stagePatch,
+      );
+      if (stageErr)
+        return NextResponse.json(
+          {
+            error: `Call saved and marked lost, but closing deal ${closeDealId} failed: ${stageErr.message}`,
+          },
+          { status: 500 },
+        );
+    }
+  }
+
   if (patch.disposition === "do_not_call") {
     const { error: dncErr } = await supabase.rpc("call_desk_do_not_call", {
       p_prospect_id: row.prospect_id,
@@ -195,7 +298,7 @@ export async function PATCH(
       );
   }
 
-  return NextResponse.json({ ok: true, detail });
+  return NextResponse.json({ ok: true, detail, closed_deal_id: closeDealId });
 }
 
 // DELETE /api/call-desk/calls/:eventId

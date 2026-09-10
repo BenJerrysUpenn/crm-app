@@ -30,6 +30,7 @@ const DISPOSITION_CHIP: Record<Disposition, string> = {
   voicemail: "bg-sky-500/20 text-sky-300 border-sky-500/30",
   spoke: "bg-violet-500/20 text-violet-300 border-violet-500/30",
   interested: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  lost: "bg-slate-500/20 text-slate-300 border-slate-500/40",
   do_not_call: "bg-rose-500/20 text-rose-300 border-rose-500/30",
 };
 
@@ -583,12 +584,16 @@ export function ProspectCard({
           </div>
           <div className="shrink-0 text-right space-y-1">
             {pendingEventId && <PendingBadge />}
-            {!pendingEventId && row.last_disposition && (
-              <DispositionChip
-                value={row.last_disposition}
-                onFacetTap={handlers.onFacetTap}
-              />
-            )}
+            {/* The Lost badge already says it; two chips saying one thing is
+                noise. */}
+            {!pendingEventId &&
+              row.last_disposition &&
+              row.status !== "called_lost" && (
+                <DispositionChip
+                  value={row.last_disposition}
+                  onFacetTap={handlers.onFacetTap}
+                />
+              )}
             {row.status === "called_lost" && (
               <div>
                 <LostBadge />
@@ -744,12 +749,16 @@ export function ProspectTableRow({
         <td className="px-3 py-3">
           <div className="space-y-1">
             {pendingEventId && <PendingBadge />}
-            {!pendingEventId && row.last_disposition && (
-              <DispositionChip
-                value={row.last_disposition}
-                onFacetTap={handlers.onFacetTap}
-              />
-            )}
+            {/* The Lost badge already says it; two chips saying one thing is
+                noise. */}
+            {!pendingEventId &&
+              row.last_disposition &&
+              row.status !== "called_lost" && (
+                <DispositionChip
+                  value={row.last_disposition}
+                  onFacetTap={handlers.onFacetTap}
+                />
+              )}
             {row.status === "called_lost" && <LostBadge />}
             {!pendingEventId &&
               !row.last_disposition &&
