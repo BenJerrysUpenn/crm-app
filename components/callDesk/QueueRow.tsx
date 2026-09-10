@@ -167,6 +167,8 @@ export type RowHandlers = {
   onRefresh: () => void;
   /** Tapping a value in a row adds it to the facet filters. */
   onFacetTap: FacetTap;
+  /** A recording landed on this call — it can no longer be undone. */
+  onRecordingUploaded: (eventId: number) => void;
 };
 
 function RowActions({
@@ -184,7 +186,18 @@ function RowActions({
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <div className="flex flex-wrap gap-2">
-        {href ? (
+        {/* One open call at a time (bj-finance #413): while the last one has
+            no outcome, Call now is dead and the number shows in its place so
+            it can still be dialled by hand. */}
+        {pendingEventId ? (
+          <span
+            aria-disabled="true"
+            title="Log the outcome of the last call first"
+            className="min-h-[44px] flex-1 min-w-[7rem] flex items-center justify-center text-sm text-slate-400 select-all rounded-md px-3 border border-slate-800 bg-slate-900"
+          >
+            {row.phone || "No phone"}
+          </span>
+        ) : href ? (
           <a
             href={href}
             onClick={() => handlers.onCall(row)}
@@ -228,9 +241,18 @@ function RowActions({
         />
       </div>
 
+      {pendingEventId && (
+        <p className="mt-2 text-xs text-rose-300">
+          Log the outcome of the last call first
+        </p>
+      )}
+
       <RecordingUploader
         eventId={recordingEventId}
-        onUploaded={() => handlers.onRefresh()}
+        onUploaded={() => {
+          if (recordingEventId) handlers.onRecordingUploaded(recordingEventId);
+          handlers.onRefresh();
+        }}
       />
     </div>
   );

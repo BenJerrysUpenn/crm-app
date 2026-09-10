@@ -15,17 +15,27 @@ import {
  *
  * Closing without choosing does NOT resolve the call: the row keeps its red
  * badge and this sheet re-offers on the next focus.
+ *
+ * The one way out is "I didn't call" (bj-finance #413) — a mis-tap on Call
+ * now leaves a pending call that can never be answered honestly, so the log
+ * row is removed instead. Only while it is still empty: once a recording is
+ * attached the undo is gone, and the server checks the same thing.
  */
 export default function DispositionSheet({
   row,
   eventId,
+  canUndo = true,
   onClose,
   onSaved,
+  onRemoved,
 }: {
   row: CallDeskRow;
   eventId: number;
+  /** False once a recording was attached to this call in this session. */
+  canUndo?: boolean;
   onClose: () => void;
   onSaved: (message: string) => void;
+  onRemoved: (message: string) => void;
 }) {
   const [choice, setChoice] = useState<Disposition | null>(null);
   const [minutes, setMinutes] = useState("");
@@ -33,6 +43,8 @@ export default function DispositionSheet({
   const [confirmDnc, setConfirmDnc] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   async function save() {
     if (!choice || saving) return;
@@ -72,6 +84,26 @@ export default function DispositionSheet({
         ? `${row.name ?? "Prospect"} marked do not call — outreach stopped.`
         : `Logged: ${label}.`,
     );
+  }
+
+  async function remove() {
+    if (removing) return;
+    setRemoving(true);
+    setError(null);
+
+    const res = await fetch(`/api/call-desk/calls/${eventId}`, {
+      method: "DELETE",
+    });
+    setRemoving(false);
+
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setError(payload.error || `Could not remove the call (${res.status})`);
+      setConfirmRemove(false);
+      return;
+    }
+
+    onRemoved("Call log removed.");
   }
 
   return (
@@ -194,6 +226,42 @@ export default function DispositionSheet({
               : "Save outcome"}
         </button>
       </div>
+
+      {canUndo && (
+        <div className="mt-4 pt-4 border-t border-slate-800">
+          {confirmRemove ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-rose-200 mr-auto">
+                Remove the call log?
+              </span>
+              <button
+                type="button"
+                onClick={() => setConfirmRemove(false)}
+                disabled={removing}
+                className="min-h-[44px] px-4 text-sm rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+              >
+                Keep
+              </button>
+              <button
+                type="button"
+                onClick={remove}
+                disabled={removing}
+                className="min-h-[44px] px-4 text-sm font-medium rounded-md bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 disabled:opacity-40"
+              >
+                {removing ? "Removing…" : "Remove"}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmRemove(true)}
+              className="min-h-[44px] w-full text-sm text-rose-300 hover:text-rose-200 underline underline-offset-2"
+            >
+              I didn&apos;t call — remove this
+            </button>
+          )}
+        </div>
+      )}
 
       <p className="mt-3 text-xs text-slate-500">
         Tapping “Later” leaves this call flagged. It will keep asking.

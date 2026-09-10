@@ -165,6 +165,44 @@ recording, so the control is collapsed by default under a small "Attach
 recording" disclosure. The server refuses to mint an upload URL without
 `consent_confirmed: true`, and the flag is persisted on the event.
 
+## Undo and double-call guard (bj-finance #413)
+
+From the first live use: Call now was tapped by mistake, then again 13 s
+later. Two `called` events with no outcome landed on one prospect and nothing
+in the UI could take either back.
+
+**Undo.** The outcome sheet carries a secondary action, "I didn't call —
+remove this", with a one-tap inline confirm (Remove / Keep). It calls
+`DELETE /api/call-desk/calls/[eventId]`, which refuses with **404** if the
+event is missing, **409** if it is not a `called` event, if
+`detail.disposition` is set, or if `detail.recording_path` is set. A call
+with an outcome or a recording is history; history is not edited here. On
+success the sheet closes, the queue reloads, and the calls count drops back.
+
+The client hides the action once a recording was attached in this session
+(the queue view doesn't carry `recording_path`, so the browser can only know
+about uploads it made); the server enforces the rule either way.
+
+**Service role, deliberately.** Managers hold SELECT / INSERT / UPDATE on
+`outreach_events` and nothing else (`supabase/crm/001_call_desk.sql`), so the
+user-scoped client physically cannot delete. Rather than widen that grant,
+the DELETE route runs its one delete statement through
+`lib/supabase/admin.ts` — reached only after the sign-in check and all three
+row checks have passed. Everything else on that route stays user-scoped, and
+this is the only call-desk write that is not.
+
+**No double call.** While a prospect has a pending disposition:
+
+- the card renders Call now disabled, with the phone number in its place
+  (still selectable, so it can be dialled by hand) and the hint "Log the
+  outcome of the last call first" under the buttons — Log outcome stays the
+  primary action;
+- `POST /api/call-desk/prospects/[id]/calls` returns **409**
+  `{ error, pending_event_id }` before inserting, so a stale tab cannot slip
+  a second one past;
+- the client turns that 409 into the disposition sheet for
+  `pending_event_id` rather than an error toast — the tap becomes the nag.
+
 ## Generate deal — guided form
 
 Prefill from the queue row (name split into first/last, company, phone,
@@ -219,6 +257,6 @@ caller email) so the worker computes drive/staff/labor and drafts the quote.
 ## Deliberately not built (this ticket)
 
 Quote-chase queue segment, SMS, auto-dialing, transcription, editing or
-deleting call rows, a profile column on deals, cake ordering inside the CRM,
+deleting *dispositioned* call rows (an empty one can be undone — #413), a profile column on deals, cake ordering inside the CRM,
 any change to Catering-Manager. Filtering (#412) adds no saved views, no
 server-side filtering, and no free-text filter on notes.

@@ -86,6 +86,12 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
 
   const [localPending, setLocalPending] = useState<Record<number, number>>({});
+  // Calls that got a recording in this session. A recorded call can no longer
+  // be undone, and the queue view doesn't carry recording_path, so the sheet
+  // needs telling. The server checks the same rule regardless.
+  const [recordedEvents, setRecordedEvents] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [dispositionTarget, setDispositionTarget] = useState<{
     row: CallDeskRow;
     eventId: number;
@@ -295,6 +301,18 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
         );
         if (!res.ok) {
           const payload = await res.json().catch(() => ({}));
+          // 409 = this prospect already has a call awaiting an outcome
+          // (bj-finance #413). Asking for that outcome beats an error toast.
+          if (res.status === 409 && payload.pending_event_id) {
+            const eventId = Number(payload.pending_event_id);
+            setLocalPending((prev) => {
+              const next = { ...prev, [row.prospect_id]: eventId };
+              writePending(next);
+              return next;
+            });
+            setDispositionTarget({ row, eventId });
+            return;
+          }
           setToast({
             message: payload.error || `Could not log the call (${res.status})`,
             kind: "error",
@@ -338,6 +356,8 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
       onNote: (row) => setNoteTarget(row),
       onRefresh: () => load(),
       onFacetTap,
+      onRecordingUploaded: (eventId) =>
+        setRecordedEvents((prev) => new Set(prev).add(eventId)),
     }),
     [callerEmail, onCall, load, onFacetTap],
   );
@@ -677,8 +697,15 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
         <DispositionSheet
           row={dispositionTarget.row}
           eventId={dispositionTarget.eventId}
+          canUndo={!recordedEvents.has(dispositionTarget.eventId)}
           onClose={() => setDispositionTarget(null)}
           onSaved={(message) => {
+            clearPending(dispositionTarget.row.prospect_id);
+            setDispositionTarget(null);
+            setToast({ message, kind: "info" });
+            load();
+          }}
+          onRemoved={(message) => {
             clearPending(dispositionTarget.row.prospect_id);
             setDispositionTarget(null);
             setToast({ message, kind: "info" });
