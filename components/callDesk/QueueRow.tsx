@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import GenerateDealSlot from "./GenerateDealSlot";
 import RecordingUploader from "./RecordingUploader";
 import {
@@ -7,7 +8,9 @@ import {
   type CallDeskRow,
   type Disposition,
 } from "@/lib/callDesk/types";
+import type { FacetKey } from "@/lib/callDesk/filters";
 import {
+  contactTypeLabel,
   fmtLastContact,
   fmtMoney,
   fmtRelative,
@@ -24,18 +27,85 @@ const DISPOSITION_CHIP: Record<Disposition, string> = {
   do_not_call: "bg-rose-500/20 text-rose-300 border-rose-500/30",
 };
 
+type FacetTap = (key: FacetKey, value: string) => void;
+
 /** The "party type they previously booked", with the fallbacks the spec asks for. */
 export function partyType(row: CallDeskRow): string | null {
   return row.party_type_booked || row.booked_event_type || row.last_event_type;
 }
 
-function DispositionChip({ value }: { value: Disposition }) {
+/**
+ * Which facet the party type on screen actually came from. The display falls
+ * back party_type_booked → booked_event_type → last_event_type and only the
+ * first two are facets, so a value sourced from last_event_type is not
+ * tappable — better than a tap that filters the row itself away.
+ */
+function partyTypeFacet(
+  row: CallDeskRow,
+): { key: FacetKey; value: string } | null {
+  if (row.party_type_booked)
+    return { key: "party_type_booked", value: row.party_type_booked };
+  if (row.booked_event_type)
+    return { key: "booked_event_type", value: row.booked_event_type };
+  return null;
+}
+
+/**
+ * A value in the row that filters the queue when tapped (bj-finance #412).
+ * stopPropagation keeps the card / table row from expanding underneath.
+ */
+function TapFilter({
+  onFacetTap,
+  facetKey,
+  value,
+  what,
+  className = "",
+  children,
+}: {
+  onFacetTap: FacetTap;
+  facetKey: FacetKey;
+  value: string;
+  /** Completes "Filter by …" for the tooltip and the screen-reader label. */
+  what: string;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <span
-      className={`inline-block text-[11px] px-2 py-0.5 rounded border whitespace-nowrap ${DISPOSITION_CHIP[value]}`}
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onFacetTap(facetKey, value);
+      }}
+      title={`Filter by ${what}`}
+      aria-label={`Filter by ${what}`}
+      className={`cursor-pointer text-left hover:underline focus:underline underline-offset-2 ${className}`}
     >
-      {dispositionLabel(value)}
-    </span>
+      {children}
+    </button>
+  );
+}
+
+function DispositionChip({
+  value,
+  onFacetTap,
+}: {
+  value: Disposition;
+  onFacetTap: FacetTap;
+}) {
+  return (
+    <TapFilter
+      onFacetTap={onFacetTap}
+      facetKey="last_disposition"
+      value={value}
+      what={`outcome ${dispositionLabel(value)}`}
+    >
+      <span
+        className={`inline-block text-[11px] px-2 py-0.5 rounded border whitespace-nowrap ${DISPOSITION_CHIP[value]}`}
+      >
+        {dispositionLabel(value)}
+      </span>
+    </TapFilter>
   );
 }
 
@@ -47,11 +117,45 @@ export function PendingBadge() {
   );
 }
 
-function BookedBadge() {
+function BookedBadge({ onFacetTap }: { onFacetTap: FacetTap }) {
   return (
-    <span className="inline-block text-[11px] px-2 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/30 whitespace-nowrap">
-      Booked before
-    </span>
+    <TapFilter
+      onFacetTap={onFacetTap}
+      facetKey="ever_booked"
+      value="yes"
+      what="prospects who booked before"
+    >
+      <span className="inline-block text-[11px] px-2 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/30 whitespace-nowrap">
+        Booked before
+      </span>
+    </TapFilter>
+  );
+}
+
+/** "Call · 1h ago", with the type half tappable. */
+function LastContact({
+  row,
+  onFacetTap,
+}: {
+  row: CallDeskRow;
+  onFacetTap: FacetTap;
+}) {
+  const type = row.last_contact_type;
+  if (!type) return <>{fmtLastContact(type, row.last_contact_at)}</>;
+  const label = contactTypeLabel(type);
+  const rel = fmtRelative(row.last_contact_at);
+  return (
+    <>
+      <TapFilter
+        onFacetTap={onFacetTap}
+        facetKey="last_contact_type"
+        value={type}
+        what={`last contact ${label}`}
+      >
+        {label}
+      </TapFilter>
+      {rel ? ` · ${rel}` : ""}
+    </>
   );
 }
 
@@ -61,6 +165,8 @@ export type RowHandlers = {
   onLogOutcome: (row: CallDeskRow, eventId: number) => void;
   onNote: (row: CallDeskRow) => void;
   onRefresh: () => void;
+  /** Tapping a value in a row adds it to the facet filters. */
+  onFacetTap: FacetTap;
 };
 
 function RowActions({
@@ -130,7 +236,13 @@ function RowActions({
   );
 }
 
-function RowDetails({ row }: { row: CallDeskRow }) {
+function RowDetails({
+  row,
+  onFacetTap,
+}: {
+  row: CallDeskRow;
+  onFacetTap: FacetTap;
+}) {
   return (
     <div className="mt-3 pt-3 border-t border-slate-800 text-xs text-slate-400 space-y-2">
       <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1">
@@ -138,7 +250,33 @@ function RowDetails({ row }: { row: CallDeskRow }) {
         <dd className="break-all text-slate-300">{row.email || "—"}</dd>
         <dt className="text-slate-500">City / category</dt>
         <dd className="text-slate-300">
-          {[row.city, row.category].filter(Boolean).join(" · ") || "—"}
+          {row.city || row.category ? (
+            <>
+              {row.city && (
+                <TapFilter
+                  onFacetTap={onFacetTap}
+                  facetKey="city"
+                  value={row.city}
+                  what={`city ${row.city}`}
+                >
+                  {row.city}
+                </TapFilter>
+              )}
+              {row.city && row.category ? " · " : ""}
+              {row.category && (
+                <TapFilter
+                  onFacetTap={onFacetTap}
+                  facetKey="category"
+                  value={row.category}
+                  what={`category ${row.category}`}
+                >
+                  {row.category}
+                </TapFilter>
+              )}
+            </>
+          ) : (
+            "—"
+          )}
         </dd>
         <dt className="text-slate-500">Lifetime value</dt>
         <dd className="text-slate-300">
@@ -199,6 +337,7 @@ export function ProspectCard({
   handlers: RowHandlers;
 }) {
   const type = partyType(row);
+  const typeFacet = partyTypeFacet(row);
   return (
     <li
       className={`rounded-lg border bg-slate-900 px-3 py-3 ${
@@ -230,16 +369,23 @@ export function ProspectCard({
           <div className="shrink-0 text-right space-y-1">
             {pendingEventId && <PendingBadge />}
             {!pendingEventId && row.last_disposition && (
-              <DispositionChip value={row.last_disposition} />
+              <DispositionChip
+                value={row.last_disposition}
+                onFacetTap={handlers.onFacetTap}
+              />
             )}
-            {row.ever_booked && <div>{<BookedBadge />}</div>}
+            {row.ever_booked && (
+              <div>
+                <BookedBadge onFacetTap={handlers.onFacetTap} />
+              </div>
+            )}
           </div>
         </div>
 
         <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
           <div>
             <div className="text-slate-300">
-              {fmtLastContact(row.last_contact_type, row.last_contact_at)}
+              <LastContact row={row} onFacetTap={handlers.onFacetTap} />
             </div>
             <div className="text-slate-500">
               {fmtStamp(row.last_contact_at) || "—"}
@@ -254,11 +400,31 @@ export function ProspectCard({
             </div>
           </div>
           <div className="col-span-2 text-slate-400 truncate">
-            {type ? `Party type: ${type}` : "No previous party type"}
+            {type ? (
+              <>
+                Party type:{" "}
+                {typeFacet ? (
+                  <TapFilter
+                    onFacetTap={handlers.onFacetTap}
+                    facetKey={typeFacet.key}
+                    value={typeFacet.value}
+                    what={`party type ${type}`}
+                  >
+                    {type}
+                  </TapFilter>
+                ) : (
+                  type
+                )}
+              </>
+            ) : (
+              "No previous party type"
+            )}
           </div>
         </div>
 
-        {expanded && <RowDetails row={row} />}
+        {expanded && (
+          <RowDetails row={row} onFacetTap={handlers.onFacetTap} />
+        )}
       </div>
 
       <div className="mt-3">
@@ -290,6 +456,7 @@ export function ProspectTableRow({
   handlers: RowHandlers;
 }) {
   const type = partyType(row);
+  const typeFacet = partyTypeFacet(row);
   return (
     <>
       <tr
@@ -308,7 +475,7 @@ export function ProspectTableRow({
         </td>
         <td className="px-3 py-3">
           <div className="text-slate-300 text-sm">
-            {fmtLastContact(row.last_contact_type, row.last_contact_at)}
+            <LastContact row={row} onFacetTap={handlers.onFacetTap} />
           </div>
           <div className="text-xs text-slate-500">
             {fmtStamp(row.last_contact_at) || "—"}
@@ -318,10 +485,23 @@ export function ProspectTableRow({
           {row.phone || "—"}
         </td>
         <td className="px-3 py-3 text-sm text-slate-300">
-          <div>{type || "—"}</div>
+          <div>
+            {type && typeFacet ? (
+              <TapFilter
+                onFacetTap={handlers.onFacetTap}
+                facetKey={typeFacet.key}
+                value={typeFacet.value}
+                what={`party type ${type}`}
+              >
+                {type}
+              </TapFilter>
+            ) : (
+              type || "—"
+            )}
+          </div>
           {row.ever_booked && (
             <div className="mt-1">
-              <BookedBadge />
+              <BookedBadge onFacetTap={handlers.onFacetTap} />
             </div>
           )}
         </td>
@@ -337,7 +517,10 @@ export function ProspectTableRow({
           <div className="space-y-1">
             {pendingEventId && <PendingBadge />}
             {!pendingEventId && row.last_disposition && (
-              <DispositionChip value={row.last_disposition} />
+              <DispositionChip
+                value={row.last_disposition}
+                onFacetTap={handlers.onFacetTap}
+              />
             )}
             {!pendingEventId && !row.last_disposition && (
               <span className="text-xs text-slate-500">—</span>
@@ -356,7 +539,7 @@ export function ProspectTableRow({
       {expanded && (
         <tr className="bg-slate-900/40">
           <td colSpan={7} className="px-3 pb-4">
-            <RowDetails row={row} />
+            <RowDetails row={row} onFacetTap={handlers.onFacetTap} />
           </td>
         </tr>
       )}

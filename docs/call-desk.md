@@ -88,6 +88,75 @@ Route handlers set `export const dynamic = "force-dynamic"`. Errors:
 every call. `do_not_call` asks for a one-tap confirm ("Stop all outreach to
 this person?") because it suppresses email too and drops the row from the queue.
 
+## Filtering and sorting (bj-finance #412)
+
+The queue is one long list; these narrow it. Everything is client-side over
+the rows already fetched — no extra API calls, no server round-trip on a tap.
+The pure logic lives in `lib/callDesk/filters.ts` (React-free, so it can be
+read and tested on its own); `components/callDesk/FilterSheet.tsx` renders it.
+
+### Facets
+
+One facet per column worth slicing on, in this order:
+
+| Key / query param | Label | Values |
+| --- | --- | --- |
+| `last_contact_type` | Last contact | call / reply / email |
+| `last_disposition` | Last outcome | the five dispositions, plus `none` = "No outcome yet" |
+| `ever_booked` | Booked before | `yes` / `no` |
+| `party_type_booked` | Party type | package name of the last booked deal |
+| `booked_event_type` | Booked event type | event type of the last booked deal |
+| `category` | Category | prospect category |
+| `city` | City | prospect city |
+| `status` | Status | prospect status |
+| `calls` | Calls | `0` / `1+` |
+
+A null or blank column buckets as `none`, labelled "—" unless the table above
+gives it a nicer name. Selection is **AND across facets, OR within one**:
+`city=Philadelphia,Trenton` + `ever_booked=yes` means "booked before, in
+either city".
+
+Counts on the chips are computed against the rows left by every *other*
+facet, so a number says what picking that value would leave you with — not
+what the whole queue holds. A facet whose value is identical on every row is
+hidden: there is nothing to filter by.
+
+### URL
+
+One query param per facet, comma-separated values, plus `sort`:
+
+```
+/call-desk?last_contact_type=call,reply&ever_booked=yes&sort=asc
+```
+
+The URL is the state. It is written with `router.replace` (no scroll, no
+history spam) on every change, so the 30 s refresh, a reload and a link
+pasted into Slack all land on the same view. Unknown keys and values are
+ignored rather than thrown, so a stale link degrades to a looser filter.
+The status chips (All / Needs disposition / …) and the text search stay
+local — they are one tap to retype.
+
+### Sorting
+
+A single toggle next to the Filter button flips the queue between **Newest
+first** (default, `sort` absent) and **Oldest first** (`sort=asc`). It orders
+by `last_contact_at`, falling back to `last_outreach_at`, with `prospect_id`
+breaking ties. Rows with no contact date at all sit at the bottom in both
+directions — they have no place on a timeline. Calls awaiting a disposition
+still float to the top whichever way the sort runs: an unresolved call
+outranks recency.
+
+### Tap a value to filter
+
+Every badge and value that maps to a facet is tappable in both the mobile
+card and the desktop table: the "Booked before" badge, the party type, the
+"Call · 1h ago" type word, the outcome chip, and city / category in the
+expanded details. A tap *adds* that value to the filters (`stopPropagation`
+keeps the row from expanding); removal is the × on the active chip row under
+the search box. The badges look the same as before — the only affordance is
+a pointer cursor and an underline on hover/focus, plus a `title` and an
+`aria-label` reading "Filter by …".
+
 ## Recording upload — consent gate (hard requirement)
 
 The upload control is hidden behind a checkbox / confirm: "I told the caller
@@ -151,4 +220,5 @@ caller email) so the worker computes drive/staff/labor and drafts the quote.
 
 Quote-chase queue segment, SMS, auto-dialing, transcription, editing or
 deleting call rows, a profile column on deals, cake ordering inside the CRM,
-any change to Catering-Manager.
+any change to Catering-Manager. Filtering (#412) adds no saved views, no
+server-side filtering, and no free-text filter on notes.
