@@ -7,6 +7,9 @@ import type { TimeEntry } from "@/lib/types";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+// force-dynamic alone does not stop Next caching the fetches this route makes
+// (see lib/supabase/admin.ts); this does. Both are here on purpose.
+export const fetchCache = "force-no-store";
 
 // Look-back window so we don't re-scan ancient shifts.
 const WINDOW_MIN = 180;
@@ -17,6 +20,36 @@ function authorized(request: Request): boolean {
   const header = request.headers.get("authorization");
   const url = new URL(request.url);
   return header === `Bearer ${secret}` || url.searchParams.get("secret") === secret;
+}
+
+// Did this person clock in for this shift? Answers "unknown" when the lookup
+// itself failed, so a bad read can never be mistaken for a missed clock-in.
+// An entry counts if it is linked to the shift (how /api/clock and the fob
+// clock record it, including someone who clocked in well before the start) or
+// if it began near enough to the start to be the same shift.
+async function clockedInFor(
+  supabase: ReturnType<typeof createAdminClient>,
+  shiftId: number,
+  employeeId: string,
+  startMs: number,
+): Promise<"yes" | "no" | "unknown"> {
+  const linked = await supabase
+    .from("time_entries")
+    .select("id")
+    .eq("shift_id", shiftId)
+    .limit(1);
+  if (linked.error) return "unknown";
+  if (linked.data?.length) return "yes";
+
+  const winStart = new Date(startMs - 30 * 60000).toISOString();
+  const near = await supabase
+    .from("time_entries")
+    .select("id")
+    .eq("employee_id", employeeId)
+    .gte("clock_in_at", winStart)
+    .limit(1);
+  if (near.error) return "unknown";
+  return near.data?.length ? "yes" : "no";
 }
 
 // Has a notification of `type` already gone to this user for this shift recently?
@@ -63,6 +96,9 @@ export async function GET(request: Request) {
 
   const flaggedEmp: number[] = [];
   const flaggedMgr: number[] = [];
+  // Shifts we couldn't check because a read failed. Nobody is alerted for
+  // these; they show up in the cron log so a broken read is visible.
+  const unreadable: number[] = [];
 
   // Managers (loaded once).
   const { data: managers } = await supabase
@@ -74,16 +110,16 @@ export async function GET(request: Request) {
     const startMs = new Date(s.starts_at).getTime();
     const minsLate = (now - startMs) / 60000;
 
-    // Did the employee clock in around this shift?
-    const winStart = new Date(startMs - 30 * 60000).toISOString();
-    const { data: entry } = await supabase
-      .from("time_entries")
-      .select("id")
-      .eq("employee_id", s.employee_id)
-      .gte("clock_in_at", winStart)
-      .limit(1)
-      .maybeSingle();
-    if (entry) continue;
+    const clockedIn = await clockedInFor(
+      supabase,
+      s.id as number,
+      s.employee_id as string,
+      startMs,
+    );
+    if (clockedIn !== "no") {
+      if (clockedIn === "unknown") unreadable.push(s.id as number);
+      continue;
+    }
 
     const prof = (s as any).profiles;
     const name = prof?.full_name ?? "Employee";
@@ -107,6 +143,7 @@ export async function GET(request: Request) {
 
     // Manager escalation once the (longer) manager grace has passed.
     if (minsLate >= settings.manager_clockin_grace_min) {
+      let told = false;
       for (const m of managers ?? []) {
         if (await alreadySent(supabase, "missed_clockin", m.id, s.id as number, sinceISO)) continue;
         const mEmail = await emailForUser(m.id);
@@ -118,8 +155,9 @@ export async function GET(request: Request) {
           phone: m.phone ?? null,
           email: mEmail,
         }).catch(() => {});
+        told = true;
       }
-      flaggedMgr.push(s.id as number);
+      if (told) flaggedMgr.push(s.id as number);
     }
   }
 
@@ -199,6 +237,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     checked: shifts?.length ?? 0,
+    unreadable,
     flaggedEmployee: flaggedEmp,
     flaggedManager: flaggedMgr,
     reminded,
