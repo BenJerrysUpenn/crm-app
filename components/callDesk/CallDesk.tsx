@@ -1,12 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Toast from "@/components/Toast";
 import DispositionSheet from "./DispositionSheet";
+import FilterSheet from "./FilterSheet";
 import NoteSheet from "./NoteSheet";
 import { ProspectCard, ProspectTableRow, type RowHandlers } from "./QueueRow";
 import type { CallDeskRow } from "@/lib/callDesk/types";
 import { digitsOnly, fmtClock } from "@/lib/callDesk/format";
+import {
+  activeChips,
+  activeFacetCount,
+  addFacetValue,
+  applyFacets,
+  FACET_KEYS,
+  parseSelection,
+  parseSort,
+  removeFacetValue,
+  serializeSelection,
+  SORT_PARAM,
+  sortRows,
+  toggleFacetValue,
+  type FacetKey,
+  type FacetSelection,
+  type SortDirection,
+} from "@/lib/callDesk/filters";
 
 const POLL_MS = 30_000;
 const PENDING_KEY = "callDesk.pendingCalls.v1";
@@ -52,7 +71,27 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [expanded, setExpanded] = useState<number | null>(null);
 
+  // Facets and sort direction live in the URL, so a reload, a shared link and
+  // the 30 s refresh all land on the same view. The chips and the search box
+  // are cheap to retype and stay local.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [selection, setSelection] = useState<FacetSelection>(() =>
+    parseSelection(new URLSearchParams(searchParams.toString())),
+  );
+  const [sort, setSort] = useState<SortDirection>(() =>
+    parseSort(new URLSearchParams(searchParams.toString())),
+  );
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+
   const [localPending, setLocalPending] = useState<Record<number, number>>({});
+  // Calls that got a recording in this session. A recorded call can no longer
+  // be undone, and the queue view doesn't carry recording_path, so the sheet
+  // needs telling. The server checks the same rule regardless.
+  const [recordedEvents, setRecordedEvents] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [dispositionTarget, setDispositionTarget] = useState<{
     row: CallDeskRow;
     eventId: number;
@@ -206,6 +245,44 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
     };
   }, [load]);
 
+  // Refs so the writers below can read the latest values without every
+  // handler being rebuilt on each keystroke.
+  const queryRef = useRef("");
+  queryRef.current = searchParams.toString();
+  const selectionRef = useRef<FacetSelection>(selection);
+  selectionRef.current = selection;
+  const sortRef = useRef<SortDirection>(sort);
+  sortRef.current = sort;
+
+  const apply = useCallback(
+    (nextSelection: FacetSelection, nextSort: SortDirection) => {
+      setSelection(nextSelection);
+      setSort(nextSort);
+      // Replace only the params we own; anything else on the URL survives.
+      const params = new URLSearchParams(queryRef.current);
+      for (const key of FACET_KEYS) params.delete(key);
+      params.delete(SORT_PARAM);
+      serializeSelection(nextSelection, nextSort).forEach((v, k) =>
+        params.set(k, v),
+      );
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [router, pathname],
+  );
+
+  const setFacets = useCallback(
+    (next: FacetSelection) => apply(next, sortRef.current),
+    [apply],
+  );
+
+  // Tapping a value in a row adds it — removal is the × on the chip above.
+  const onFacetTap = useCallback(
+    (key: FacetKey, value: string) =>
+      setFacets(addFacetValue(selectionRef.current, key, value)),
+    [setFacets],
+  );
+
   const pendingFor = useCallback(
     (row: CallDeskRow): number | null =>
       localPending[row.prospect_id] ?? row.pending_disposition_event_id ?? null,
@@ -224,6 +301,18 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
         );
         if (!res.ok) {
           const payload = await res.json().catch(() => ({}));
+          // 409 = this prospect already has a call awaiting an outcome
+          // (bj-finance #413). Asking for that outcome beats an error toast.
+          if (res.status === 409 && payload.pending_event_id) {
+            const eventId = Number(payload.pending_event_id);
+            setLocalPending((prev) => {
+              const next = { ...prev, [row.prospect_id]: eventId };
+              writePending(next);
+              return next;
+            });
+            setDispositionTarget({ row, eventId });
+            return;
+          }
           setToast({
             message: payload.error || `Could not log the call (${res.status})`,
             kind: "error",
@@ -266,34 +355,51 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
       onLogOutcome: (row, eventId) => setDispositionTarget({ row, eventId }),
       onNote: (row) => setNoteTarget(row),
       onRefresh: () => load(),
+      onFacetTap,
+      onRecordingUploaded: (eventId) =>
+        setRecordedEvents((prev) => new Set(prev).add(eventId)),
     }),
-    [callerEmail, onCall, load],
+    [callerEmail, onCall, load, onFacetTap],
   );
 
-  // Filter, search, then float anything awaiting an outcome to the top. The
-  // view's own order (newest mail first) survives underneath.
+  // Status chip, then facets, then the text search — the intersection of all
+  // three. Sort by last contact, then float anything awaiting an outcome to
+  // the top: a call with no outcome outranks recency in either direction.
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     const qDigits = digitsOnly(search);
-    const list = (rows ?? []).filter((r) => {
+    const byChip = (rows ?? []).filter((r) => {
       const pending = pendingFor(r);
       if (filter === "pending" && !pending) return false;
       if (filter === "uncalled" && ((r.calls_count ?? 0) > 0 || pending))
         return false;
       if (filter === "called" && (r.calls_count ?? 0) === 0 && !pending)
         return false;
+      return true;
+    });
+    const list = applyFacets(byChip, selection).filter((r) => {
       if (!q) return true;
       const haystack = [r.name, r.company].filter(Boolean).join(" ").toLowerCase();
       if (haystack.includes(q)) return true;
-      return Boolean(
-        qDigits && digitsOnly(r.phone).includes(qDigits),
-      );
+      return Boolean(qDigits && digitsOnly(r.phone).includes(qDigits));
     });
-    return list
+    return sortRows(list, sort)
       .map((r, i) => ({ r, i, pending: pendingFor(r) ? 0 : 1 }))
       .sort((a, b) => a.pending - b.pending || a.i - b.i)
       .map((x) => x.r);
-  }, [rows, search, filter, pendingFor]);
+  }, [rows, search, filter, selection, sort, pendingFor]);
+
+  const chips = useMemo(() => activeChips(selection), [selection]);
+  const facetCount = activeFacetCount(selection);
+  const filtersActive =
+    facetCount > 0 || search.trim() !== "" || filter !== "all";
+
+  /** Empty-state escape hatch: drop every narrowing, not just the facets. */
+  const clearEverything = useCallback(() => {
+    setSearch("");
+    setFilter("all");
+    setFacets({});
+  }, [setFacets]);
 
   const pendingCount = useMemo(
     () => (rows ?? []).filter((r) => pendingFor(r)).length,
@@ -339,15 +445,53 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
 
       {/* search + filters ------------------------------------------------ */}
       <div className="mt-3 space-y-2">
-        <input
-          type="search"
-          inputMode="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, company or phone"
-          aria-label="Search the queue"
-          className="w-full min-h-[44px] text-sm bg-slate-900 border border-slate-700 text-slate-100 rounded-md px-3 focus:outline-none focus:ring-2 focus:ring-slate-500"
-        />
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="search"
+            inputMode="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, company or phone"
+            aria-label="Search the queue"
+            className="flex-1 min-w-[10rem] min-h-[44px] text-sm bg-slate-900 border border-slate-700 text-slate-100 rounded-md px-3 focus:outline-none focus:ring-2 focus:ring-slate-500"
+          />
+          <button
+            type="button"
+            onClick={() => setFilterSheetOpen(true)}
+            aria-label={
+              facetCount
+                ? `Filter — ${facetCount} active`
+                : "Filter the queue"
+            }
+            className={`min-h-[44px] shrink-0 px-3 text-sm rounded-md border inline-flex items-center gap-2 ${
+              facetCount
+                ? "bg-emerald-600/20 text-emerald-100 border-emerald-500"
+                : "bg-slate-900 text-slate-300 border-slate-700 hover:text-slate-100"
+            }`}
+          >
+            Filter
+            {facetCount > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[11px] rounded-full bg-emerald-500 text-slate-950 font-semibold">
+                {facetCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => apply(selection, sort === "desc" ? "asc" : "desc")}
+            title="Flip the order of the queue"
+            aria-label={
+              sort === "desc"
+                ? "Sorted newest first — tap for oldest first"
+                : "Sorted oldest first — tap for newest first"
+            }
+            className="min-h-[44px] shrink-0 px-3 text-sm rounded-md border bg-slate-900 text-slate-300 border-slate-700 hover:text-slate-100 inline-flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <span aria-hidden="true">{sort === "desc" ? "↓" : "↑"}</span>
+            {sort === "desc" ? "Newest first" : "Oldest first"}
+          </button>
+        </div>
+
         <div className="flex gap-2 overflow-x-auto -mx-3 px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {FILTERS.map((f) => (
             <button
@@ -364,6 +508,40 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
             </button>
           ))}
         </div>
+
+        {chips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {chips.map((c) => (
+              <span
+                key={`${c.key}:${c.value}`}
+                className="inline-flex items-center gap-1 text-xs rounded-full border border-emerald-500/50 bg-emerald-600/15 text-emerald-100 pl-3 pr-1 py-1"
+              >
+                <span className="text-emerald-300/70">{c.facetLabel}:</span>
+                {c.valueLabel}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFacets(removeFacetValue(selection, c.key, c.value))
+                  }
+                  aria-label={`Remove filter ${c.facetLabel}: ${c.valueLabel}`}
+                  title="Remove this filter"
+                  className="min-h-[28px] min-w-[28px] leading-none text-emerald-200 hover:text-white"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {chips.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setFacets({})}
+                className="min-h-[28px] text-xs px-2 text-slate-400 hover:text-slate-200 underline underline-offset-2"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* body ------------------------------------------------------------ */}
@@ -419,10 +597,25 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
 
         {!error && rows && rows.length > 0 && visible.length === 0 && (
           <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-8 text-center">
-            <p className="text-slate-300">No one matches this view</p>
-            <p className="mt-1 text-sm text-slate-500">
-              {rows.length} in the queue. Clear the search or pick “All”.
+            <p className="text-slate-300">
+              {filtersActive
+                ? "No one matches your filters"
+                : "No one matches this view"}
             </p>
+            <p className="mt-1 text-sm text-slate-500">
+              {filtersActive
+                ? `${rows.length} in the queue, none of them past the filters you have on.`
+                : `${rows.length} in the queue.`}
+            </p>
+            {filtersActive && (
+              <button
+                type="button"
+                onClick={clearEverything}
+                className="mt-3 min-h-[44px] text-sm px-4 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+              >
+                Clear all filters
+              </button>
+            )}
           </div>
         )}
 
@@ -487,12 +680,32 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
       </div>
 
       {/* sheets ----------------------------------------------------------- */}
+      {filterSheetOpen && (
+        <FilterSheet
+          rows={rows ?? []}
+          selection={selection}
+          resultCount={visible.length}
+          onToggle={(key, value) =>
+            setFacets(toggleFacetValue(selectionRef.current, key, value))
+          }
+          onClear={() => setFacets({})}
+          onClose={() => setFilterSheetOpen(false)}
+        />
+      )}
+
       {dispositionTarget && (
         <DispositionSheet
           row={dispositionTarget.row}
           eventId={dispositionTarget.eventId}
+          canUndo={!recordedEvents.has(dispositionTarget.eventId)}
           onClose={() => setDispositionTarget(null)}
           onSaved={(message) => {
+            clearPending(dispositionTarget.row.prospect_id);
+            setDispositionTarget(null);
+            setToast({ message, kind: "info" });
+            load();
+          }}
+          onRemoved={(message) => {
             clearPending(dispositionTarget.row.prospect_id);
             setDispositionTarget(null);
             setToast({ message, kind: "info" });

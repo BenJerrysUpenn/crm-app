@@ -29,6 +29,33 @@ export async function POST(
   if (!Number.isInteger(prospectId) || prospectId <= 0)
     return NextResponse.json({ error: "Bad prospect id" }, { status: 400 });
 
+  // One open call at a time (bj-finance #413). A second tap while the first
+  // has no outcome is a mis-tap, not a second call — Alina made exactly that
+  // mistake 13 seconds apart on first live use. The card disables Call now,
+  // but a stale tab wouldn't know, so the rule is enforced here too.
+  const { data: open, error: openErr } = await supabase
+    .from("outreach_events")
+    .select("id, detail")
+    .eq("prospect_id", prospectId)
+    .eq("event", "called")
+    .order("id", { ascending: false })
+    .limit(50);
+
+  if (openErr)
+    return NextResponse.json({ error: openErr.message }, { status: 500 });
+
+  const pending = (open ?? []).find(
+    (e) => !((e.detail ?? {}) as Partial<CalledDetail>).disposition,
+  );
+  if (pending)
+    return NextResponse.json(
+      {
+        error: "Log the outcome of the last call first",
+        pending_event_id: pending.id,
+      },
+      { status: 409 },
+    );
+
   const detail: CalledDetail = {
     by: user.email ?? "unknown",
     via: "call_desk",

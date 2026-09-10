@@ -90,13 +90,19 @@ const CONTACT_TYPE_LABEL: Record<string, string> = {
   email: "Email",
 };
 
+/** "Call" / "Reply" / "Email" — the contact type on its own, for filter chips. */
+export function contactTypeLabel(type: string | null | undefined): string {
+  if (!type) return "";
+  return CONTACT_TYPE_LABEL[type] ?? type;
+}
+
 /** "Email · 2h ago" for the queue row's last-contact line. */
 export function fmtLastContact(
   type: string | null | undefined,
   at: string | null | undefined,
   now: Date = new Date(),
 ): string {
-  const label = type ? (CONTACT_TYPE_LABEL[type] ?? type) : null;
+  const label = type ? contactTypeLabel(type) : null;
   const rel = fmtRelative(at, now);
   if (label && rel) return `${label} · ${rel}`;
   if (label) return label;

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { isDisposition, type CalledDetail } from "@/lib/callDesk/types";
 
@@ -195,4 +196,73 @@ export async function PATCH(
   }
 
   return NextResponse.json({ ok: true, detail });
+}
+
+// DELETE /api/call-desk/calls/:eventId
+//
+// Undo a mis-tapped "Call now" (bj-finance #413). A call that was never made
+// is worse than no record: it inflates the calls count and leaves a pending
+// disposition that can never be answered honestly. So the row goes away —
+// but only while it is still empty. Once an outcome or a recording is on it,
+// the call is history and history is not edited here.
+export async function DELETE(
+  _request: Request,
+  { params }: { params: { eventId: string } },
+) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
+  const eventId = Number(params.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0)
+    return NextResponse.json({ error: "Bad event id" }, { status: 400 });
+
+  // Read as the signed-in user: RLS decides whether they may see this row at
+  // all, so the checks below run on a row they are entitled to.
+  const { data: row, error: readErr } = await supabase
+    .from("outreach_events")
+    .select("id, event, detail")
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (readErr)
+    return NextResponse.json({ error: readErr.message }, { status: 500 });
+  if (!row) return NextResponse.json({ error: "Call not found" }, { status: 404 });
+  if (row.event !== "called")
+    return NextResponse.json(
+      { error: `Event ${eventId} is '${row.event}', not a call` },
+      { status: 409 },
+    );
+
+  const detail = (row.detail ?? {}) as Partial<CalledDetail>;
+  if (detail.disposition)
+    return NextResponse.json(
+      { error: "This call already has an outcome, so it can't be removed." },
+      { status: 409 },
+    );
+  if (detail.recording_path)
+    return NextResponse.json(
+      { error: "This call has a recording attached, so it can't be removed." },
+      { status: 409 },
+    );
+
+  // Managers hold SELECT/INSERT/UPDATE on outreach_events (supabase/crm/
+  // 001_call_desk.sql) and nothing else — the user-scoped client physically
+  // cannot delete. Rather than widen the grant with a migration, the one
+  // DELETE statement runs service-role, reached only after the sign-in check
+  // and all three row checks above have passed. Nothing else on this route
+  // uses the admin client.
+  const admin = createAdminClient();
+  const { error: delErr } = await admin
+    .from("outreach_events")
+    .delete()
+    .eq("id", eventId)
+    .eq("event", "called");
+  if (delErr)
+    return NextResponse.json({ error: delErr.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true, deleted: eventId });
 }
