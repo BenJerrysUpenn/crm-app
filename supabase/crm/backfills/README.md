@@ -9,3 +9,4 @@ never in this repo.
 | # | Script | Source | Ticket |
 |---|--------|--------|--------|
 | 003 | `003_party_type_from_sf_leads.py` | `Drive/Salesforce/Leads report 2026-08-25 (report1787707750166).csv` | bj-finance #414 |
+| 004 | `004_cake_orders_from_sf_leads.py` | same Leads report; marks the 2,067 Salesforce Cake Orders that were migrated as Closed Lost catering deals (`event_type = 'Cake Order'` + notes) | bj-finance #414 |
