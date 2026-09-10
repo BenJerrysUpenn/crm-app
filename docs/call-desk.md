@@ -59,8 +59,9 @@ The deal-side columns (`last_deal_*`, `last_event_type`, `party_type_booked`,
 `booked_*`) join on lowercased, trimmed `contact_email`. From crm/002 that
 join accepts a deal when `archived = 0` **or** `legacy_sf_id IS NOT NULL`:
 the 9,450 deals migrated from Salesforce were all imported archived, and they
-are the booking history the desk exists to show. See "Why party type is
-usually an event type" below for what those legacy rows do and don't carry.
+are the booking history the desk exists to show. See "Event type and package
+are separate columns" below for how the desk reads those columns and what the
+legacy rows do and don't carry.
 
 ### `outreach_events` 'called' row — `detail` JSON shape
 
@@ -104,37 +105,49 @@ Route handlers set `export const dynamic = "force-dynamic"`. Errors:
 every call. `do_not_call` asks for a one-tap confirm ("Stop all outreach to
 this person?") because it suppresses email too and drops the row from the queue.
 
-## Why party type is usually an event type (bj-finance #414)
+## Event type and package are separate columns (bj-finance #414)
 
-150 of the 152 "Booked before" prospects showed an empty Party type while
-wearing the badge that says they booked. Two separate causes:
+Alina's ruling, 2026-09-10: *"you need to separate party type and event type.
+just print both columns. I only really care about if it's corporate or if it's
+a birthday party or whatever. I do not care about the package they booked."*
+So the queue carries two columns, not one.
 
-1. **The view couldn't see the history.** `call_desk_queue` filtered deals to
+**Event type** — primary, listed first, normal weight. This is the field she
+reads. It falls back:
+
+| Have | Shows | Tapping filters |
+| --- | --- | --- |
+| `booked_event_type` | the booked deal's event type | `booked_event_type` |
+| else `last_event_type` | the most recent deal's event type | `last_event_type` |
+| else | "—" | nothing |
+
+The fallback is deliberate and is the reverse of what crm/002 shipped. Two
+kinds of row depend on it: past cake customers, whose deals the #414 backfill
+stamps `event_type = 'Cake Order'` ("cake orders are a deal type that's worth
+knowing"), and people who enquired but never booked, whose enquiry event type
+is the only thing the desk knows about why they got in touch. The old
+"(event type)" suffix is gone — the column header now says what the value is,
+so nothing has to be annotated.
+
+**Package** — secondary, muted. `party_type_booked` (the `package_name` of the
+last booked deal) or "—". Tapping filters `party_type_booked`. It is mostly
+empty by nature: the Salesforce translator dropped the Party Type Opportunity
+field, so only 3 of the 9,450 migrated deals carried a `package_name` until
+the `003_party_type_from_sf_leads.py` backfill recovered it from the Leads
+report. Nothing downstream reads it; it is there so a caller can see what a
+returning customer bought last time.
+
+Two other things about that history are still worth knowing:
+
+1. **The view couldn't see it at all.** `call_desk_queue` filtered deals to
    `archived = 0`; every migrated Salesforce deal is `archived = 1`. The
    `ever_booked` flag came from `sync_contacts_from_deals()`, which reads the
    same deals without that filter — badge on, columns empty. crm/002 fixes it,
-   and all 152 gain an event type.
-2. **The Salesforce translator dropped Party Type.** It is a real Opportunity
-   field (Sundae Party, Cup or Cone Party, Super Deluxe Sundae Party …) but
-   only 3 of 9,450 migrated deals carry a `package_name`. Recovering it means
-   exporting Opportunities from Salesforce and backfilling on `legacy_sf_id`
-   — bj-finance #414 leaf B, Alina's call, **not in this repo yet**.
-
-So the Party type cell reads, in order:
-
-| Have | Shows |
-| --- | --- |
-| `party_type_booked` | the package, plain |
-| else `booked_event_type` | the event type with a muted "(event type)" suffix |
-| else | "—" |
-
-The suffix is the point: an event type is *why* they booked, not *what* they
-bought, and the reader has to be able to tell. Tapping either still filters —
-a package on `party_type_booked`, a fallback on `booked_event_type`.
-
-Note this column no longer falls back to `last_event_type`. That is an
-enquiry's event type, not a booking's, and a column headed "Party type"
-should not quietly show it.
+   and all 152 "Booked before" prospects gain an event type.
+2. **Package recovery is a backfill, not a view change.** See
+   `supabase/crm/backfills/003_party_type_from_sf_leads.py`; discontinued
+   party types land in the deal's notes rather than `package_name`, which has
+   a CHECK constraint on eight names.
 
 ## Filtering and sorting (bj-finance #412)
 
@@ -152,8 +165,9 @@ One facet per column worth slicing on, in this order:
 | `last_contact_type` | Last contact | call / reply / email |
 | `last_disposition` | Last outcome | the five dispositions, plus `none` = "No outcome yet" |
 | `ever_booked` | Booked before | `yes` / `no` |
-| `party_type_booked` | Party type | package name of the last booked deal |
 | `booked_event_type` | Booked event type | event type of the last booked deal |
+| `last_event_type` | Event type (last deal) | event type of the most recent deal — what the Event type column shows when there is no booked one |
+| `party_type_booked` | Package | package name of the last booked deal |
 | `category` | Category | prospect category |
 | `city` | City | prospect city |
 | `status` | Status | prospect status |
@@ -197,9 +211,11 @@ outranks recency.
 ### Tap a value to filter
 
 Every badge and value that maps to a facet is tappable in both the mobile
-card and the desktop table: the "Booked before" badge, the party type, the
-"Call · 1h ago" type word, the outcome chip, and city / category in the
-expanded details. A tap *adds* that value to the filters (`stopPropagation`
+card and the desktop table: the "Booked before" badge, the event type, the
+package, the "Call · 1h ago" type word, the outcome chip, and city / category
+in the expanded details. The event type taps whichever facet it was read
+from — `booked_event_type` or `last_event_type` — so the filter always
+matches what is on screen. A tap *adds* that value to the filters (`stopPropagation`
 keeps the row from expanding); removal is the × on the active chip row under
 the search box. The badges look the same as before — the only affordance is
 a pointer cursor and an underline on hover/focus, plus a `title` and an

@@ -30,35 +30,40 @@ const DISPOSITION_CHIP: Record<Disposition, string> = {
 type FacetTap = (key: FacetKey, value: string) => void;
 
 /**
- * What the Party type cell should say (bj-finance #414).
+ * What the Event type cell should say (bj-finance #414).
  *
- * The package they booked is the answer to "why did this person contact us".
- * Most prospects don't have one: the Salesforce migration dropped the Party
- * Type field, so 9,447 of 9,450 legacy deals have no package_name. The booked
- * event type is the next best thing and is shown labelled as such, never
- * dressed up as a package. Anything weaker is "—" — this column is about
- * bookings, so an enquiry's event type does not belong in it.
+ * Alina reads the desk for "corporate or birthday party or whatever", not for
+ * the package that was bought, so the event type is the primary column. The
+ * booked deal's event type is the strongest answer; failing that the most
+ * recent deal's, which after the cake backfill reads "Cake Order" for past
+ * cake customers and carries the enquiry's event type for people who asked
+ * but never booked. Each source has its own facet, so a tap filters the one
+ * the cell actually showed.
  */
-export type PartyTypeCell = {
-  kind: "package" | "event_type";
+export type EventTypeCell = {
   value: string;
-  facetKey: FacetKey;
+  facetKey: Extract<FacetKey, "booked_event_type" | "last_event_type">;
 };
 
-export function partyTypeCell(row: CallDeskRow): PartyTypeCell | null {
-  if (row.party_type_booked?.trim())
-    return {
-      kind: "package",
-      value: row.party_type_booked.trim(),
-      facetKey: "party_type_booked",
-    };
+export function eventTypeCell(row: CallDeskRow): EventTypeCell | null {
   if (row.booked_event_type?.trim())
     return {
-      kind: "event_type",
       value: row.booked_event_type.trim(),
       facetKey: "booked_event_type",
     };
+  if (row.last_event_type?.trim())
+    return { value: row.last_event_type.trim(), facetKey: "last_event_type" };
   return null;
+}
+
+/**
+ * The Package cell: the package_name of the last booked deal, and nothing
+ * else. Secondary and muted — it is what they bought, not why they called.
+ * Mostly empty by nature: the Salesforce translator dropped Party Type, and
+ * the #414 backfill recovered it for only part of the base.
+ */
+export function packageCell(row: CallDeskRow): string | null {
+  return row.party_type_booked?.trim() || null;
 }
 
 /**
@@ -170,32 +175,43 @@ function LastContact({
   );
 }
 
-/** The party type itself: tappable, and honest about which column it came from. */
-function PartyTypeValue({
+/** The event type itself: tappable, filtering whichever column it came from. */
+function EventTypeValue({
   cell,
   onFacetTap,
 }: {
-  cell: PartyTypeCell;
+  cell: EventTypeCell;
   onFacetTap: FacetTap;
 }) {
   return (
-    <>
-      <TapFilter
-        onFacetTap={onFacetTap}
-        facetKey={cell.facetKey}
-        value={cell.value}
-        what={
-          cell.kind === "package"
-            ? `party type ${cell.value}`
-            : `booked event type ${cell.value}`
-        }
-      >
-        {cell.value}
-      </TapFilter>
-      {cell.kind === "event_type" && (
-        <span className="text-slate-500"> (event type)</span>
-      )}
-    </>
+    <TapFilter
+      onFacetTap={onFacetTap}
+      facetKey={cell.facetKey}
+      value={cell.value}
+      what={`event type ${cell.value}`}
+    >
+      {cell.value}
+    </TapFilter>
+  );
+}
+
+/** The package, muted. Tapping filters the booked package. */
+function PackageValue({
+  value,
+  onFacetTap,
+}: {
+  value: string;
+  onFacetTap: FacetTap;
+}) {
+  return (
+    <TapFilter
+      onFacetTap={onFacetTap}
+      facetKey="party_type_booked"
+      value={value}
+      what={`package ${value}`}
+    >
+      {value}
+    </TapFilter>
   );
 }
 
@@ -398,7 +414,8 @@ export function ProspectCard({
   onToggle: () => void;
   handlers: RowHandlers;
 }) {
-  const cell = partyTypeCell(row);
+  const eventType = eventTypeCell(row);
+  const pkg = packageCell(row);
   return (
     <li
       className={`rounded-lg border bg-slate-900 px-3 py-3 ${
@@ -460,14 +477,24 @@ export function ProspectCard({
                 : `${row.calls_count ?? 0} calls`}
             </div>
           </div>
-          <div className="col-span-2 text-slate-400 truncate">
-            {cell ? (
-              <>
-                Party type:{" "}
-                <PartyTypeValue cell={cell} onFacetTap={handlers.onFacetTap} />
-              </>
-            ) : (
-              "No previous party type"
+          {/* "Birthday Party · Sundae Party" — event type first and readable,
+              package second and muted (bj-finance #414). */}
+          <div className="col-span-2 truncate">
+            <span className="text-slate-300">
+              {eventType ? (
+                <EventTypeValue
+                  cell={eventType}
+                  onFacetTap={handlers.onFacetTap}
+                />
+              ) : (
+                "—"
+              )}
+            </span>
+            {pkg && (
+              <span className="text-slate-500">
+                {" · "}
+                <PackageValue value={pkg} onFacetTap={handlers.onFacetTap} />
+              </span>
             )}
           </div>
         </div>
@@ -505,7 +532,8 @@ export function ProspectTableRow({
   onToggle: () => void;
   handlers: RowHandlers;
 }) {
-  const cell = partyTypeCell(row);
+  const eventType = eventTypeCell(row);
+  const pkg = packageCell(row);
   return (
     <>
       <tr
@@ -535,8 +563,8 @@ export function ProspectTableRow({
         </td>
         <td className="px-3 py-3 text-sm text-slate-300">
           <div>
-            {cell ? (
-              <PartyTypeValue cell={cell} onFacetTap={handlers.onFacetTap} />
+            {eventType ? (
+              <EventTypeValue cell={eventType} onFacetTap={handlers.onFacetTap} />
             ) : (
               "—"
             )}
@@ -545,6 +573,13 @@ export function ProspectTableRow({
             <div className="mt-1">
               <BookedBadge onFacetTap={handlers.onFacetTap} />
             </div>
+          )}
+        </td>
+        <td className="px-3 py-3 text-sm text-slate-500">
+          {pkg ? (
+            <PackageValue value={pkg} onFacetTap={handlers.onFacetTap} />
+          ) : (
+            "—"
           )}
         </td>
         <td className="px-3 py-3 text-sm text-slate-300 text-center">
@@ -580,7 +615,7 @@ export function ProspectTableRow({
       </tr>
       {expanded && (
         <tr className="bg-slate-900/40">
-          <td colSpan={7} className="px-3 pb-4">
+          <td colSpan={8} className="px-3 pb-4">
             <RowDetails row={row} onFacetTap={handlers.onFacetTap} />
           </td>
         </tr>

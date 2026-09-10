@@ -648,7 +648,8 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
                     <th className="px-3 py-2 font-medium">Prospect</th>
                     <th className="px-3 py-2 font-medium">Last contact</th>
                     <th className="px-3 py-2 font-medium">Phone</th>
-                    <th className="px-3 py-2 font-medium">Party type</th>
+                    <th className="px-3 py-2 font-medium">Event type</th>
+                    <th className="px-3 py-2 font-medium">Package</th>
                     <th className="px-3 py-2 font-medium text-center">Calls</th>
                     <th className="px-3 py-2 font-medium">Outcome</th>
                     <th className="px-3 py-2 font-medium">Actions</th>
