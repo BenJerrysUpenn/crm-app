@@ -4,8 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { defaultExtraQuantity, EXTRA_BY_LABEL } from "@/lib/menuOptions";
 import {
   belowMinimum,
+  CAKE_GUEST_MAX,
+  CAKE_MAX_DRIVE_MINUTES,
+  CAKE_ORDER_URL,
   EMPTY_DEAL_FORM_PAYLOAD,
   hasErrors,
+  shouldSuggestCakes,
   validateDealPayload,
   type DealFormErrors,
   type DealFormPayload,
@@ -147,6 +151,53 @@ function YesNo({
   );
 }
 
+/** Shown under guest count for parties of CAKE_GUEST_MAX or fewer. Guidance,
+ *  not an error — sky-toned, and it never blocks the Create deal button. It is
+ *  a pointer only: no cake order is placed and nothing is written. */
+function CakePointer() {
+  const [copied, setCopied] = useState(false);
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(CAKE_ORDER_URL);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard blocked (no permission, or an insecure origin). The link
+      // button right above is still there to open the page.
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-3">
+      <p className="text-sm font-semibold text-sky-100">
+        Up to {CAKE_GUEST_MAX} guests: cakes, not catering
+      </p>
+      <p className="mt-1 text-sm text-sky-200/90">
+        Point them to ice-cream cakes — up to two sheet cakes cover{" "}
+        {CAKE_GUEST_MAX} people. Cakes travel about {CAKE_MAX_DRIVE_MINUTES}{" "}
+        minutes one-way from the shop (half our catering radius); further than
+        that, they pick up.
+      </p>
+      <a
+        href={CAKE_ORDER_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`${TAP} mt-3 flex items-center justify-center rounded-md border border-sky-400/60 bg-sky-500/20 px-3 text-sm font-medium text-sky-50 hover:bg-sky-500/30`}
+      >
+        Open the cake order page
+      </a>
+      <button
+        type="button"
+        onClick={copyLink}
+        className="mt-2 text-xs text-sky-300 underline underline-offset-2 hover:text-sky-200"
+      >
+        {copied ? "Copied" : "Copy link"}
+      </button>
+    </div>
+  );
+}
+
 function money(n: number): string {
   return `$${n.toLocaleString("en-US", {
     minimumFractionDigits: n % 1 === 0 ? 0 : 2,
@@ -274,6 +325,9 @@ export default function GenerateDealForm({
     selectedPackage?.price,
     options?.minimum_order,
   );
+  // Guidance only: a 45-guest party at high spend may still want catering, so
+  // this never gates the Create deal button.
+  const suggestCakes = shouldSuggestCakes(guests);
 
   const flavorsIncluded = options?.flavors_included ?? 0;
   const maxFlavors = options?.max_flavors ?? 0;
@@ -621,6 +675,7 @@ export default function GenerateDealForm({
                 }}
               />
             </Field>
+            {suggestCakes && <CakePointer />}
             <Field label="Outdoors?">
               <YesNo
                 value={form.is_outdoor}

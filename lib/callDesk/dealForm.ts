@@ -231,6 +231,31 @@ export function belowMinimum(
 }
 
 // ---------------------------------------------------------------------------
+// shouldSuggestCakes
+// ---------------------------------------------------------------------------
+
+/** Parties this size or smaller are a cake sale, not a catering job.
+ *  Two sheet cakes cover 50 people. Alina ruling 2026-09-09, bj-finance #411. */
+export const CAKE_GUEST_MAX = 50;
+
+/** How far a cake travels, one-way, from 218 S 40th St. Half of catering's
+ *  70-minute one-way triage cap — an assumption Alina made on 2026-09-09
+ *  (bj-finance #411), not a measurement. Beyond it, the customer picks up. */
+export const CAKE_MAX_DRIVE_MINUTES = 35;
+
+/** Where the customer actually orders. The CRM never places a cake order. */
+export const CAKE_ORDER_URL = "https://www.benjerry.com/upenn/cakes";
+
+/** Whether the call desk should point this party at cakes instead of catering.
+ *  Guidance only — it never blocks a deal, because a small-but-rich party can
+ *  still be worth catering. Returns false while guest count is unset. */
+export function shouldSuggestCakes(guestCount: number | null): boolean {
+  if (guestCount == null || !Number.isFinite(guestCount)) return false;
+  if (guestCount <= 0) return false;
+  return guestCount <= CAKE_GUEST_MAX;
+}
+
+// ---------------------------------------------------------------------------
 // validateDealPayload
 // ---------------------------------------------------------------------------
 

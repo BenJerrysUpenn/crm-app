@@ -115,6 +115,23 @@ combobox: show them as chips / radio lists on mobile):
 9. Live hint: guests × package price vs `MINIMUM_ICE_CREAM` (below-minimum
    warning; the machine's triage enforces the real rule)
 
+### Small parties → cakes
+
+A party of `CAKE_GUEST_MAX` (50) guests or fewer is a cake sale, not a
+catering job: up to two sheet cakes cover 50 people. When guest count is set
+and at or below that, a sky-toned panel appears under the Guest count field
+pointing the caller at `CAKE_ORDER_URL`
+(<https://www.benjerry.com/upenn/cakes>), with a Copy link button so Joey can
+text it. Cakes travel `CAKE_MAX_DRIVE_MINUTES` (35) minutes one-way from the
+shop — half catering's 70-minute one-way triage cap, an assumption from
+Alina's 2026-09-09 ruling (bj-finance #411), not a measurement; beyond that
+the customer picks up. All three constants and the pure `shouldSuggestCakes`
+helper live in `lib/callDesk/dealForm.ts`.
+
+It is a pointer and nothing more: no cake order is created, nothing is
+written anywhere, and Create deal stays enabled — a small party at high spend
+may still be worth a catering deal, and that stays Joey's call.
+
 Write semantics must match `modules/db.py::create_deal` in Catering-Manager
 exactly: `stage='Open'`, `payment_status='None'`, `is_active=1`,
 `source='phone'`, `created_at`/`updated_at` = UTC `YYYY-MM-DDTHH:MM:SS`,
@@ -133,4 +150,5 @@ caller email) so the worker computes drive/staff/labor and drafts the quote.
 ## Deliberately not built (this ticket)
 
 Quote-chase queue segment, SMS, auto-dialing, transcription, editing or
-deleting call rows, a profile column on deals, any change to Catering-Manager.
+deleting call rows, a profile column on deals, cake ordering inside the CRM,
+any change to Catering-Manager.
