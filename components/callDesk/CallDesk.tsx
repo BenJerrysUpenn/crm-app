@@ -10,6 +10,12 @@ import { ProspectCard, ProspectTableRow, type RowHandlers } from "./QueueRow";
 import type { CallDeskRow } from "@/lib/callDesk/types";
 import { digitsOnly, fmtClock } from "@/lib/callDesk/format";
 import {
+  callBlockReason,
+  CALLING_HOURS_LABEL,
+  isWithinCallingHours,
+  type BlockReason,
+} from "@/lib/callDesk/compliance";
+import {
   activeChips,
   activeFacetCount,
   addFacetValue,
@@ -30,10 +36,14 @@ import {
 const POLL_MS = 30_000;
 const PENDING_KEY = "callDesk.pendingCalls.v1";
 
-type Filter = "all" | "pending" | "uncalled" | "called";
+type Filter = "all" | "callable" | "pending" | "uncalled" | "called";
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
+  // The one-tap answer to "who can I actually ring right now" (#420). Every
+  // other row stays on the desk — it is the outreach desk too — so this is a
+  // chip, not a default.
+  { value: "callable", label: "Callable now" },
   { value: "pending", label: "Needs disposition" },
   { value: "uncalled", label: "Not yet called" },
   { value: "called", label: "Called" },
@@ -339,6 +349,36 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
     [],
   );
 
+  // "Reopen for calling" on a lost row (bj-finance #421). Nothing about their
+  // email standing changes either way — this only moves them between
+  // 'called_lost' and 'sequenced'.
+  const onReopen = useCallback(
+    async (row: CallDeskRow) => {
+      try {
+        const res = await fetch(
+          `/api/call-desk/prospects/${row.prospect_id}/reopen`,
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          setToast({
+            message: payload.error || `Could not reopen (${res.status})`,
+            kind: "error",
+          });
+          return;
+        }
+        setToast({
+          message: `${row.name ?? "Prospect"} is back in the call queue.`,
+          kind: "info",
+        });
+        load();
+      } catch {
+        setToast({ message: "Could not reach the CRM.", kind: "error" });
+      }
+    },
+    [load],
+  );
+
   const clearPending = useCallback((prospectId: number) => {
     setLocalPending((prev) => {
       const next = { ...prev };
@@ -358,8 +398,27 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
       onFacetTap,
       onRecordingUploaded: (eventId) =>
         setRecordedEvents((prev) => new Set(prev).add(eventId)),
+      onReopen,
     }),
-    [callerEmail, onCall, load, onFacetTap],
+    [callerEmail, onCall, load, onFacetTap, onReopen],
+  );
+
+  /**
+   * Why this row's phone is greyed out, or null when it may be dialled
+   * (bj-finance #420). The pure rule lives in lib/callDesk/compliance.ts and
+   * the server applies the same one before it will log a call; this copy only
+   * decides what the button looks like. `now` is refreshed on every queue
+   * poll, so the 7 p.m. cut-off lands within 30 seconds of the hour.
+   */
+  const blockFor = useCallback(
+    (row: CallDeskRow): BlockReason | null => {
+      const now = updatedAt ?? new Date();
+      return (
+        callBlockReason(row, now) ??
+        (pendingFor(row) ? ("pending_outcome" as const) : null)
+      );
+    },
+    [updatedAt, pendingFor],
   );
 
   // Status chip, then facets, then the text search — the intersection of all
@@ -370,6 +429,7 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
     const qDigits = digitsOnly(search);
     const byChip = (rows ?? []).filter((r) => {
       const pending = pendingFor(r);
+      if (filter === "callable" && blockFor(r)) return false;
       if (filter === "pending" && !pending) return false;
       if (filter === "uncalled" && ((r.calls_count ?? 0) > 0 || pending))
         return false;
@@ -387,7 +447,7 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
       .map((r, i) => ({ r, i, pending: pendingFor(r) ? 0 : 1 }))
       .sort((a, b) => a.pending - b.pending || a.i - b.i)
       .map((x) => x.r);
-  }, [rows, search, filter, selection, sort, pendingFor]);
+  }, [rows, search, filter, selection, sort, pendingFor, blockFor]);
 
   const chips = useMemo(() => activeChips(selection), [selection]);
   const facetCount = activeFacetCount(selection);
@@ -404,6 +464,14 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
   const pendingCount = useMemo(
     () => (rows ?? []).filter((r) => pendingFor(r)).length,
     [rows, pendingFor],
+  );
+
+  // Computed off `updatedAt` rather than at render time so the server render
+  // and the first client render agree (both have no rows yet, so neither
+  // shows the banner).
+  const callingHoursOpen = useMemo(
+    () => (updatedAt ? isWithinCallingHours(updatedAt) : true),
+    [updatedAt],
   );
 
   return (
@@ -433,6 +501,13 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
           </button>
         </div>
       </div>
+
+      {rows && !callingHoursOpen && (
+        <div className="mt-3 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+          Outside calling hours. Calls run {CALLING_HOURS_LABEL}. Everything
+          else on this page — notes, deals, email work — carries on as normal.
+        </div>
+      )}
 
       {pendingCount > 0 && (
         <div className="mt-3 rounded-md border border-rose-800 bg-rose-950/50 px-3 py-2 text-sm text-rose-200">
@@ -628,6 +703,7 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
                   key={row.prospect_id}
                   row={row}
                   pendingEventId={pendingFor(row)}
+                  blockReason={blockFor(row)}
                   recordingEventId={pendingFor(row) ?? row.last_call_event_id}
                   expanded={expanded === row.prospect_id}
                   onToggle={() =>
@@ -661,6 +737,7 @@ export default function CallDesk({ callerEmail }: { callerEmail: string }) {
                       key={row.prospect_id}
                       row={row}
                       pendingEventId={pendingFor(row)}
+                      blockReason={blockFor(row)}
                       recordingEventId={
                         pendingFor(row) ?? row.last_call_event_id
                       }

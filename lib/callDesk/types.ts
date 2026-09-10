@@ -1,8 +1,9 @@
 // Call desk types (bj-finance #409).
 //
-// The shapes here mirror supabase/crm/001_call_desk.sql exactly — the view
-// `call_desk_queue` and the `detail` JSON on an outreach_events 'called' row.
-// Keep them in step with the migration; the migration is the source of truth.
+// The shapes here mirror the migrations exactly — the view `call_desk_queue`
+// (defined by supabase/crm/003_call_desk_compliance.sql, superseding 001/002)
+// and the `detail` JSON on an outreach_events 'called' row. Keep them in step
+// with the migration; the migration is the source of truth.
 
 /** One row of the `call_desk_queue` view. */
 export type CallDeskRow = {
@@ -39,6 +40,52 @@ export type CallDeskRow = {
   party_type_booked: string | null;
   booked_event_type: string | null;
   booked_guest_count: number | null;
+
+  /* --- the lawful-dial gate (bj-finance #420) --------------------------- */
+
+  /** Last paid booking's event date, YYYY-MM-DD. The purchase clock's origin. */
+  last_paid_event_date: string | null;
+  /** Last inbound reply / interest from them. The enquiry clock's origin. */
+  last_inquiry_at: string | null;
+  /** last_paid_event_date + 12 months (PA's window). */
+  purchase_expires_on: string | null;
+  /** last_inquiry_at + 90 days (PA's window). */
+  inquiry_expires_on: string | null;
+  /** Which clock produced ebr_expires_on. Null when there is no window at all. */
+  ebr_basis: EbrBasis | null;
+  /** The later of the two expiries, YYYY-MM-DD. Null when neither exists. */
+  ebr_expires_on: string | null;
+  /** ebr_expires_on is today or later, in Eastern. */
+  ebr_active: boolean;
+  /** Digits-only phone, the internal do-not-call key. */
+  phone_digits: string | null;
+  /**
+   * This number is on the internal do-not-call list. Always false in practice:
+   * the view drops those rows entirely. The column exists so a future
+   * "show suppressed" view needs no migration.
+   */
+  phone_suppressed: boolean;
+  dnc_status: DncStatus;
+  dnc_checked_at: string | null;
+};
+
+/** Which leg of the established business relationship a row's window rests on. */
+export type EbrBasis = "purchase" | "inquiry";
+
+/** Registry-scrub state per prospect (bj-finance #420). */
+export type DncStatus =
+  | "unknown"
+  | "clear"
+  | "national"
+  | "pa_list"
+  | "internal";
+
+export const DNC_STATUS_LABEL: Record<DncStatus, string> = {
+  unknown: "Never scrubbed",
+  clear: "Scrubbed clear",
+  national: "On the national registry",
+  pa_list: "On the PA registry",
+  internal: "On our own list",
 };
 
 export type Disposition =
@@ -46,6 +93,7 @@ export type Disposition =
   | "voicemail"
   | "spoke"
   | "interested"
+  | "lost"
   | "do_not_call";
 
 /** The `detail` JSON carried by an outreach_events row with event = 'called'. */
@@ -86,6 +134,12 @@ export const DISPOSITIONS: {
     value: "interested",
     label: "Interested",
     description: "Wants a quote or a date — generate a deal next.",
+  },
+  {
+    value: "lost",
+    label: "Not now / lost (keep emailing)",
+    description:
+      "No sale this time. Leaves the call queue, stays on the email list.",
   },
   {
     value: "do_not_call",
