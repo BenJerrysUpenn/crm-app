@@ -20,6 +20,7 @@ export type FacetKey =
   | "ever_booked"
   | "party_type_booked"
   | "booked_event_type"
+  | "last_event_type"
   | "category"
   | "city"
   | "status"
@@ -35,7 +36,7 @@ export type Facet = {
   /**
    * Closed domains list their values so a hand-edited or stale URL can be
    * ignored rather than filtering the queue down to nothing. Open domains
-   * (city, category, party type…) accept whatever the data holds.
+   * (city, category, package…) accept whatever the data holds.
    */
   allowedValues?: string[];
 };
@@ -71,15 +72,24 @@ export const FACETS: Facet[] = [
     valueLabel: (v) => (v === "yes" ? "Yes" : "No"),
     allowedValues: ["yes", "no"],
   },
-  {
-    key: "party_type_booked",
-    label: "Party type",
-    getValue: (r) => text(r.party_type_booked),
-  },
+  // Event type is the column Alina reads (bj-finance #414). The desk's Event
+  // type cell prefers the booked event type and falls back to the last deal's,
+  // so both sources get a facet and a tap on the cell filters whichever one it
+  // actually displayed.
   {
     key: "booked_event_type",
     label: "Booked event type",
     getValue: (r) => text(r.booked_event_type),
+  },
+  {
+    key: "last_event_type",
+    label: "Event type (last deal)",
+    getValue: (r) => text(r.last_event_type),
+  },
+  {
+    key: "party_type_booked",
+    label: "Package",
+    getValue: (r) => text(r.party_type_booked),
   },
   { key: "category", label: "Category", getValue: (r) => text(r.category) },
   { key: "city", label: "City", getValue: (r) => text(r.city) },
