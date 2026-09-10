@@ -126,7 +126,7 @@ BEGIN
     FROM pg_constraint c
    WHERE c.conrelid = 'public.outreach_suppression'::regclass
      AND c.contype = 'p'
-     AND (SELECT array_agg(a.attname ORDER BY a.attname)
+     AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
             FROM unnest(c.conkey) k
             JOIN pg_attribute a
               ON a.attrelid = c.conrelid AND a.attnum = k) = ARRAY['email'];
