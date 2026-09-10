@@ -108,6 +108,16 @@ export type CalledDetail = {
   recording_path?: string;
   recording_uploaded_at?: string;
   consent_confirmed?: boolean;
+  /**
+   * True when the call was placed outside the established-business-relationship
+   * window with no fresh registry scrub — a knowing cold call (bj-finance
+   * #424). Written by the route handler from its own re-read of
+   * `call_desk_queue`, never from anything the client sends. Absent on a call
+   * that was inside the window, so an old row and a warm call read the same.
+   */
+  outside_window?: true;
+  /** The window's expiry as the queue saw it when the call was placed. */
+  ebr_expires_on?: string;
 };
 
 export const DISPOSITIONS: {

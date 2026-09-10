@@ -18,9 +18,13 @@
 //     runs on what the customer did, never on what we sent.
 //   * Internal do-not-call list. Permanent, phone-keyed, beats every window
 //     (47 C.F.R. §64.1200(d)(3)).
-//   * Registry scrub. A number outside its window is a cold call, which needs
-//     the national and Pennsylvania registries scrubbed within the last 31
-//     days (16 C.F.R. §310.4(b)(3)(iv)).
+//   * Registry scrub. A number outside its window is a cold call, which the
+//     policy says needs the national and Pennsylvania registries scrubbed
+//     within the last 31 days (16 C.F.R. §310.4(b)(3)(iv)). Since #424 the
+//     desk marks that case rather than blocking it: `callRisk` returns
+//     'outside_window', the button goes striped, and the call is recorded
+//     with `outside_window: true`. Honouring the scrub rule is the caller's,
+//     not the button's.
 //   * Hours. 9 a.m. – 7 p.m. Eastern, Monday to Saturday, never on a US
 //     federal legal holiday. That is PA Act 47 of 2026 (effective 2026-10-18),
 //     adopted early because it is the tightest of PA / NJ / federal and it
@@ -178,9 +182,23 @@ export type BlockReason =
   | "phone_suppressed"
   | "dnc"
   | "lost"
-  | "expired"
   | "hours"
   | "pending_outcome";
+
+/**
+ * A call that is permitted but is not a warm one. Alina's ruling on first
+ * live use, 2026-09-10: "we still need to be able to make the risky calls,
+ * but I'd like them striped green and gray rather than full green."
+ *
+ * So the out-of-window case stopped being a block and became a *risk*: the
+ * button stays live, wears diagonal green-and-grey stripes instead of solid
+ * green, and the event we write records `outside_window: true` so the log
+ * says the cold call was made knowingly. The lawful obligation is unchanged —
+ * the policy still requires a national and Pennsylvania registry scrub before
+ * dialling a registry-listed residential number — but honouring it is the
+ * caller's job now, not the button's.
+ */
+export type CallRisk = "outside_window";
 
 /** Days between two YYYY-MM-DD-ish instants, positive when `later` is later. */
 function daysBetween(earlier: Date, later: Date): number {
@@ -218,8 +236,11 @@ export function hasFreshScrub(
  * Order matters: the reason shown is the one that would take the most work to
  * clear, so the caller is never told "come back at nine" about a number he can
  * never dial. Legal blocks first; then "lost", which is a deliberate human
- * decision and carries its own Reopen button; then the clock; then the open
+ * decision and carries its own Reopen button; then the hours; then the open
  * call.
+ *
+ * Being outside the relationship window is NOT here (bj-finance #424). That
+ * is a risk, not a block — see `callRisk`.
  */
 export function callBlockReason(
   row: CallDeskRow,
@@ -228,20 +249,54 @@ export function callBlockReason(
   if (row.phone_suppressed) return "phone_suppressed";
   if (row.dnc_status && DNC_BLOCKING.has(row.dnc_status)) return "dnc";
   if (row.status === "called_lost") return "lost";
-  if (!row.ebr_active && !hasFreshScrub(row, now)) return "expired";
   if (!isWithinCallingHours(now)) return "hours";
   if (row.pending_disposition_event_id) return "pending_outcome";
   return null;
 }
 
-/** One short line for a disabled Call now button. */
+/**
+ * Why this row may be dialled but should be dialled knowingly, or null when
+ * the call is an ordinary warm one (bj-finance #424).
+ *
+ * `outside_window` is the old `expired` block, demoted. The relationship
+ * window has run out and no registry scrub inside 31 days stands in its
+ * place, so the call is a cold call. It is still placed — the button is
+ * striped rather than dead — and the `called` event records it as such.
+ */
+export function callRisk(
+  row: CallDeskRow,
+  now: Date = new Date(),
+): CallRisk | null {
+  if (!row.ebr_active && !hasFreshScrub(row, now)) return "outside_window";
+  return null;
+}
+
+/**
+ * The disabled button's own label. Two or three words, because the label is
+ * now the only place the reason is said — bj-finance #424 deleted the hint
+ * line that used to sit under the button grid.
+ */
+export const BLOCK_LABEL: Record<BlockReason, string> = {
+  phone_suppressed: "Number suppressed",
+  dnc: "On DNC list",
+  lost: "Lost",
+  hours: "After hours",
+  pending_outcome: "Log outcome first",
+};
+
+/** One short line for a disabled Call now button, now its tooltip. */
 export const BLOCK_HINT: Record<BlockReason, string> = {
   phone_suppressed: "On the do-not-call list",
   dnc: "On the do-not-call list",
   lost: "Marked lost, reopen to call",
-  expired: "Outside the relationship window, needs a registry scrub",
   hours: "Outside calling hours (9–7, Mon–Sat)",
   pending_outcome: "Log the outcome of the last call first",
+};
+
+/** The striped button's tooltip — one sentence, and the honest word for it. */
+export const RISK_HINT: Record<CallRisk, string> = {
+  outside_window:
+    "Outside the relationship window, not yet scrubbed against the registries. Calling is allowed but is a cold call.",
 };
 
 /** The longer version, for the row's expanded details and the API response. */
@@ -251,8 +306,6 @@ export const BLOCK_EXPLANATION: Record<BlockReason, string> = {
   dnc: "This number is on a do-not-call registry or on our own internal list. Do not dial it.",
   lost:
     "This prospect was marked \u201cNot now / lost\u201d on a call. They are still on the email list; reopen them to put the number back in play.",
-  expired:
-    "The relationship window has run out (12 months from a paid booking, 90 days from an enquiry — our emails do not count). Calling now is a cold call, which needs a national and Pennsylvania registry scrub inside the last 31 days first.",
   hours:
     "Calls are only placed between 9 a.m. and 7 p.m. Eastern, Monday to Saturday, and never on a federal legal holiday.",
   pending_outcome:

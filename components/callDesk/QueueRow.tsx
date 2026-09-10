@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import GenerateDealSlot from "./GenerateDealSlot";
 import RecordingUploader from "./RecordingUploader";
 import {
@@ -12,8 +12,10 @@ import {
 import type { FacetKey } from "@/lib/callDesk/filters";
 import {
   BLOCK_HINT,
-  openingScript,
+  BLOCK_LABEL,
+  RISK_HINT,
   type BlockReason,
+  type CallRisk,
 } from "@/lib/callDesk/compliance";
 import {
   contactTypeLabel,
@@ -72,43 +74,6 @@ function LostBadge() {
     >
       Lost (still emailed)
     </span>
-  );
-}
-
-/**
- * "Say first" — the one line Joey reads before any pitch (47 CFR
- * 64.1200(d)(4), 73 P.S. 2245(a)(5)). Collapsed so it does not shove the
- * buttons down the screen; 44px so it can be opened with a thumb.
- */
-function OpeningScript({
-  row,
-  callerEmail,
-}: {
-  row: CallDeskRow;
-  callerEmail: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const script = openingScript(row, callerEmail);
-  return (
-    <div className="mt-2">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        className="min-h-[44px] w-full text-left text-xs text-sky-300 hover:text-sky-200 flex items-center gap-2"
-      >
-        <span aria-hidden="true">{open ? "\u25be" : "\u25b8"}</span>
-        Say first
-      </button>
-      {open && (
-        <p className="text-xs text-slate-200 bg-slate-950 border border-slate-800 rounded px-3 py-2">
-          {script}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -314,10 +279,27 @@ export type RowHandlers = {
   onReopen: (row: CallDeskRow) => void;
 };
 
+/** Shared geometry, so every state of the call button is the same size. */
+const CALL_BUTTON_BASE =
+  "min-h-[44px] flex-1 min-w-[7rem] flex items-center justify-center gap-2 text-sm rounded-md px-3 border";
+
+/**
+ * Diagonal green-and-grey stripes for a permitted-but-cold call (bj-finance
+ * #424, Alina: "striped green and gray rather than full green"). The label
+ * sits on a semi-opaque dark pill so "Call now" stays readable wherever a
+ * stripe happens to fall behind it; hover swaps both stripe colours a shade
+ * darker, which is the only pressable feedback a gradient background gives.
+ */
+const CALL_BUTTON_RISKY =
+  "font-medium text-white border-emerald-700 " +
+  "bg-[repeating-linear-gradient(135deg,theme(colors.emerald.600)_0_10px,theme(colors.slate.600)_10px_20px)] " +
+  "hover:bg-[repeating-linear-gradient(135deg,theme(colors.emerald.700)_0_10px,theme(colors.slate.700)_10px_20px)]";
+
 function RowActions({
   row,
   pendingEventId,
   blockReason,
+  risk,
   recordingEventId,
   handlers,
 }: {
@@ -325,10 +307,13 @@ function RowActions({
   pendingEventId: number | null;
   /** Why the phone is greyed out, or null when it may be dialled. */
   blockReason: BlockReason | null;
+  /** Dialling is allowed but it is a cold call (bj-finance #424). */
+  risk: CallRisk | null;
   recordingEventId: number | null;
   handlers: RowHandlers;
 }) {
   const href = telHref(row.phone);
+  const riskId = risk ? `call-risk-${row.prospect_id}` : undefined;
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <div className="flex flex-wrap gap-2">
@@ -336,25 +321,61 @@ function RowActions({
             "just gray out the call button"). The number stays on screen and
             stays selectable, so a lawful call can always be dialled by hand,
             and everything else on the row keeps working — this desk is where
-            the email outreach gets worked too. */}
+            the email outreach gets worked too.
+
+            Since #424 the button carries the whole story itself: a blocked
+            button says why in its own label, a risky one wears stripes, and
+            nothing renders underneath either of them. */}
         {blockReason ? (
           <span
             aria-disabled="true"
             title={BLOCK_HINT[blockReason]}
-            className="min-h-[44px] flex-1 min-w-[7rem] flex items-center justify-center text-sm text-slate-400 select-all rounded-md px-3 border border-slate-800 bg-slate-900 opacity-70"
+            className={`${CALL_BUTTON_BASE} whitespace-nowrap overflow-hidden text-slate-400 border-slate-800 bg-slate-900 opacity-70`}
           >
-            {row.phone || "No phone"}
+            {/* The reason wins the space; the number keeps its old home
+                inside the button and is still selectable to dial by hand, but
+                it truncates rather than pushing the label onto a second
+                line. It is repeated in the Phone column either way. */}
+            <span className="font-medium shrink-0">
+              {BLOCK_LABEL[blockReason]}
+            </span>
+            {row.phone && (
+              <span className="min-w-0 truncate text-[11px] text-slate-500 select-all">
+                {row.phone}
+              </span>
+            )}
           </span>
         ) : href ? (
           <a
             href={href}
             onClick={() => handlers.onCall(row)}
-            className="min-h-[44px] flex-1 min-w-[7rem] flex items-center justify-center text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-3 border border-emerald-500"
+            title={risk ? RISK_HINT[risk] : undefined}
+            aria-describedby={riskId}
+            className={
+              risk
+                ? `${CALL_BUTTON_BASE} ${CALL_BUTTON_RISKY}`
+                : `${CALL_BUTTON_BASE} font-medium bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500`
+            }
           >
-            Call now
+            <span
+              className={
+                risk
+                  ? "rounded px-2 py-0.5 bg-slate-950/60 [text-shadow:0_1px_2px_rgb(2_6_23)]"
+                  : undefined
+              }
+            >
+              Call now
+            </span>
+            {risk && (
+              <span id={riskId} className="sr-only">
+                {RISK_HINT[risk]}
+              </span>
+            )}
           </a>
         ) : (
-          <span className="min-h-[44px] flex-1 min-w-[7rem] flex items-center justify-center text-sm text-slate-500 rounded-md px-3 border border-slate-800">
+          <span
+            className={`${CALL_BUTTON_BASE} text-slate-500 border-slate-800`}
+          >
             No phone
           </span>
         )}
@@ -389,16 +410,6 @@ function RowActions({
         />
       </div>
 
-      {blockReason && (
-        <p
-          className={`mt-2 text-xs ${
-            blockReason === "pending_outcome" ? "text-rose-300" : "text-amber-300"
-          }`}
-        >
-          {BLOCK_HINT[blockReason]}
-        </p>
-      )}
-
       {/* The row's own undo for "Not now / lost" (bj-finance #421). */}
       {row.status === "called_lost" && (
         <button
@@ -409,8 +420,6 @@ function RowActions({
           Reopen for calling
         </button>
       )}
-
-      <OpeningScript row={row} callerEmail={handlers.callerEmail} />
 
       <RecordingUploader
         eventId={recordingEventId}
@@ -539,6 +548,7 @@ export function ProspectCard({
   row,
   pendingEventId,
   blockReason,
+  risk,
   recordingEventId,
   expanded,
   onToggle,
@@ -547,6 +557,7 @@ export function ProspectCard({
   row: CallDeskRow;
   pendingEventId: number | null;
   blockReason: BlockReason | null;
+  risk: CallRisk | null;
   recordingEventId: number | null;
   expanded: boolean;
   onToggle: () => void;
@@ -659,6 +670,7 @@ export function ProspectCard({
           row={row}
           pendingEventId={pendingEventId}
           blockReason={blockReason}
+          risk={risk}
           recordingEventId={recordingEventId}
           handlers={handlers}
         />
@@ -672,6 +684,7 @@ export function ProspectTableRow({
   row,
   pendingEventId,
   blockReason,
+  risk,
   recordingEventId,
   expanded,
   onToggle,
@@ -680,6 +693,7 @@ export function ProspectTableRow({
   row: CallDeskRow;
   pendingEventId: number | null;
   blockReason: BlockReason | null;
+  risk: CallRisk | null;
   recordingEventId: number | null;
   expanded: boolean;
   onToggle: () => void;
@@ -772,6 +786,7 @@ export function ProspectTableRow({
             row={row}
             pendingEventId={pendingEventId}
             blockReason={blockReason}
+            risk={risk}
             recordingEventId={recordingEventId}
             handlers={handlers}
           />

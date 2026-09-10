@@ -117,9 +117,17 @@ only when the file is complete for our area codes — a partial file never clear
 anyone, and a number a registry or a customer has already flagged is never
 cleared by any import.
 
-**Open — needs the subscriptions.** Neither list is held yet. Until they are,
-every out-of-window row on the desk stays blocked, which is the correct
-behaviour and is why most of the queue reads "expired" today.
+**Open — needs the subscriptions.** Neither list is held yet, which is why most
+of the queue reads "expired" today.
+
+The desk no longer refuses those rows (bj-finance #424, Alina 2026-09-10). An
+out-of-window number is dialled from a **striped green-and-grey** Call now
+button instead of a solid green one, and the call is written to
+`outreach_events` with `outside_window: true`, so the record shows the cold
+call was made knowingly. The obligation in this section is unchanged: a
+registry-listed residential number must not be dialled, and a scrub inside 31
+days is how you know it is not one. The button now marks that duty rather than
+enforcing it, and the flag on the event is what an audit reads.
 
 ## 7. Records
 
