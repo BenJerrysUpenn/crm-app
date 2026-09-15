@@ -1,0 +1,140 @@
+# Thin trigger for the three agent PR reviewers (bj-finance #452).
+#
+# This workflow reviews nothing. It fires three cloud routines over their API
+# triggers and exits, so a review costs seconds of Actions minutes and burns
+# cloud-routine time instead. The reviewers are single-task routines shared by
+# the whole portfolio; their runbooks are canonical on bj-finance main under
+# docs/agents/scheduled-tasks/*/PROMPT.md, and what a PR here is graded against
+# is docs/agents/reviewers.yaml in this repository.
+#
+# WHY AN ACTION AND NOT A GITHUB TRIGGER. A routine holds at most one GitHub
+# trigger on one repository, so three single-task reviewers could never hear
+# seven repos' events. Every reviewed repo carries this file instead. The
+# bj-finance GitHub trigger is removed from the three routines when the tokens
+# are minted -- leaving both in place fires every reviewer twice per push.
+#
+# THE FIRE CONTRACT, verified 2026-09-15 against
+# platform.claude.com/docs/en/api/claude-code/routines-fire and
+# code.claude.com/docs/en/routines:
+#
+#   POST https://api.anthropic.com/v1/claude_code/routines/<trig_...>/fire
+#   Authorization: Bearer <per-routine token, sk-ant-oat01-...>
+#   anthropic-version: 2023-06-01
+#   anthropic-beta:   experimental-cc-routine-2026-04-01   <- 400 without it
+#   Content-Type:     application/json
+#   {"text": "<= 65536 chars, freeform, NOT parsed by the endpoint"}
+#
+# 200 returns the new session id and URL. The text reaches the routine wrapped
+# in a <routine-fire-payload> block that labels it untrusted data, which is why
+# each runbook's PHASE 0 opts into it explicitly and validates all four fields
+# before acting on any of them. There is no idempotency key: every successful
+# POST starts a session, and the reviewers' own head-SHA check is what stops a
+# duplicate fire from producing a duplicate review.
+#
+# Each token is scoped to triggering ONE routine -- no read access, no other
+# routine, no account data. `permissions: {}` leaves GITHUB_TOKEN with nothing,
+# because nothing here touches the GitHub API and nothing here is checked out.
+name: agent reviews
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+# Keyed on the PR and DELIBERATELY NOT cancel-in-progress: a fire is a fire.
+# Cancelling an in-flight fire for an older head would silently drop a review,
+# and a superseded head is already handled inside the reviewers.
+concurrency:
+  group: agent-reviews-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  fire:
+    name: fire ${{ matrix.reviewer }}
+    # Drafts are not reviewed. Each runbook's PHASE 0 drops them too; this is
+    # the cheap half of the belt and braces.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    strategy:
+      # One reviewer failing to fire must not cancel the other two.
+      fail-fast: false
+      matrix:
+        include:
+          - reviewer: scar-tissue-reviewer
+            routine_id: trig_01KMG2HcdAaapk6wkTXueLr7
+            secret_name: SCAR_TISSUE_REVIEWER_FIRE_TOKEN
+          - reviewer: documentation-reviewer
+            routine_id: trig_01G1tBTyiDb9eLuGgPKB7DfF
+            secret_name: DOCUMENTATION_REVIEWER_FIRE_TOKEN
+          - reviewer: architecture-reviewer
+            routine_id: trig_01MMh9omPkEFaji6v15Vzx39
+            secret_name: ARCHITECTURE_REVIEWER_FIRE_TOKEN
+
+    steps:
+      - name: Fire the routine
+        env:
+          REVIEWER: ${{ matrix.reviewer }}
+          ROUTINE_ID: ${{ matrix.routine_id }}
+          SECRET_NAME: ${{ matrix.secret_name }}
+          ROUTINE_TOKEN: ${{ secrets[matrix.secret_name] }}
+          # The four fields PHASE 0 parses, and nothing else. `action` is one
+          # of opened / synchronize / reopened, because `on:` admits no other.
+          FIRE_TEXT: >-
+            review-request
+            repo=${{ github.repository }}
+            pr=${{ github.event.pull_request.number }}
+            head=${{ github.event.pull_request.head.sha }}
+            action=${{ github.event.action }}
+        run: |
+          set -euo pipefail
+
+          # A missing secret FAILS, loudly. Silently skipping would leave a
+          # green check on a PR nobody reviewed, which is worse than red.
+          if [ -z "${ROUTINE_TOKEN}" ]; then
+            echo "::error title=${SECRET_NAME} is not set::The ${REVIEWER} routine" \
+                 "cannot be fired: repository secret ${SECRET_NAME} is missing or" \
+                 "empty. Mint it under that routine's API trigger at" \
+                 "https://claude.ai/code/routines and add it to this repository's" \
+                 "Actions secrets."
+            exit 1
+          fi
+
+          # --fail turns a 4xx/5xx into a nonzero exit; --show-error keeps the
+          # reason visible under --silent. The response body carries the new
+          # session URL, so print it: it is the only link back to the run.
+          http_status=0
+          curl --fail --silent --show-error --max-time 30 \
+               --output response.json --write-out '%{http_code}' \
+               -X POST "https://api.anthropic.com/v1/claude_code/routines/${ROUTINE_ID}/fire" \
+               -H "Authorization: Bearer ${ROUTINE_TOKEN}" \
+               -H "anthropic-version: 2023-06-01" \
+               -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+               -H "Content-Type: application/json" \
+               --data "$(jq -n --arg text "${FIRE_TEXT}" '{text: $text}')" \
+            > http_status.txt || http_status=$?
+
+          if [ "${http_status}" -ne 0 ]; then
+            echo "::error title=${REVIEWER} fire failed::curl exited" \
+                 "${http_status}. Response body follows."
+            cat response.json || true
+            exit "${http_status}"
+          fi
+
+          echo "${REVIEWER} fired: HTTP $(cat http_status.txt)"
+          jq -r '"session: \(.claude_code_session_url)"' response.json \
+            || cat response.json
+          {
+            echo "### ${REVIEWER}"
+            echo
+            echo "Fired \`${ROUTINE_ID}\` with:"
+            echo
+            echo '```'
+            echo "${FIRE_TEXT}"
+            echo '```'
+            echo
+            jq -r '"Session: \(.claude_code_session_url)"' response.json 2>/dev/null \
+              || echo "(no session URL in the response)"
+          } >> "$GITHUB_STEP_SUMMARY"
