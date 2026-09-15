@@ -221,6 +221,27 @@ settings, *Reminder if I'm still clocked in after my shift ends*. It only fires
 for entries the app can match to a scheduled shift, and it works the same for
 punches made on the fob clock at the shop.
 
+### 6e. Shift types (what shows on the schedule)
+
+Shift types are rows in the database, not a hardcoded list, so you add and
+retire them yourself: **Team** page, **Shift types**. Each one has a name, a
+colour (used on the schedule board) and an order, and can carry default start
+and end times so a manager can drop a standard shift in one click.
+
+The current set is Catering, PENN Opener, PENN Closer, PENN Swing Shift,
+PENN Pastry Closer, Staff Meeting, Pastry Opener and Marketing.
+
+**Marketing** covers marketing events and marketing work - tabling, samplings,
+campus activations, content days. For payroll it counts as **not in-store**, the
+same as Catering: those hours never share the in-store tip pool. That rule lives
+in the payroll process, not in this app; the app's job is to keep the label on
+the hours all the way through to the timesheet.
+
+Marketing already exists in the live database. Any other environment gets it by
+running `supabase/migration_22.sql` in the Supabase SQL editor (after
+`migration_21.sql`). It only inserts the row if it is missing, so it is safe to
+re-run.
+
 
 ---
 
