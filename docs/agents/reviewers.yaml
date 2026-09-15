@@ -1,0 +1,102 @@
+# What the three agent PR reviewers grade a pull request in this repository against.
+# Schema and deployment: BenJerrysUpenn/bj-finance
+# docs/agents/scheduled-tasks/README-reviewers.md. Lane bj-finance #452, rollout #496.
+#
+# Maintainer information, not reviewer output. A reviewer never reports what it read,
+# never says a document is thin, and never mentions a gap. It cites rules and
+# violations, or it approves silently.
+
+architecture_ground_truth:
+  - path: README.md
+    note: >-
+      104 lines: four real rules, the rest stack description and setup prose. :57 "Row
+      Level Security enabled on every table in the public schema." :65 user accounts are
+      created by hand under Authentication > Users with Auto Confirm User ticked — "No
+      public sign-up page exists." :70-80 the stage write contract — a stage change
+      writes stage, is_active (0 for the four terminal stages, else 1) and updated_at in
+      a single update via buildStagePatch in lib/dealUpdate.ts, and a move into Booked
+      Paid also sets payment_status to Deposit Paid when the row had none. :82-85 the
+      app does NOT write deals.boomerang_reason — writing it would make every stage
+      change fail, and nothing in the app reads it either (bj-finance #466); the most
+      directly gradeable rule in the file. :91 the board loads archived = 0 rows only.
+      Everything else — stack, env vars, local dev, deploy — is description, not
+      constraint.
+  - path: docs/call-desk.md
+    note: >-
+      557 lines. Not a rules file — a feature specification — but this is where the
+      repo's real code-shaped constraints live, and they are the ones a diff here can
+      actually violate. :45 prospect notes are append-only via RPC
+      call_desk_append_note. :53 do NOT use the service-role key for the outreach
+      tables; manager-only policies govern them — restated at :477-479, where the admin
+      client in lib/supabase/admin.ts "is reached only after the sign-in check and all
+      three" gates and "this is the only call-desk write that is not" manager-policy
+      governed. :103 an unresolved consent state means the UI must nag until it is
+      resolved. :245-247 the clear-flag RPC applies ONLY when mark_clear is passed, it
+      refuses to clear a suppression it did not set, and it "must never un-flag anyone.
+      The asymmetry is the point." :299 the block reason is re-computed server-side from
+      call_desk_queue, never from the client, and the route answers 409 when it is
+      non-null. :320 lost must never be conflated with a suppression. :447 the recording
+      upload consent gate is a hard requirement. :455-492 the undo and double-call
+      guard. :529 write semantics for the guided deal form must match
+      modules/db.py::create_deal in Catering-Manager, including is_outdoor never NULL.
+  - path: docs/call-desk-do-not-call-policy.md
+    note: >-
+      175 lines of legal policy. MOST OF IT IS POLICY FOR A PERSON MAKING A CALL, NOT A
+      CONSTRAINT ON A TYPESCRIPT DIFF, and cannot be violated by code — :82-90 (any
+      wording on any channel means stop; do not rebut, do not offer a discount, do not
+      ask why), :105 (the suppression list must never be used as a marketing list) and
+      :128 (a registry-listed residential number must not be dialled) govern conduct.
+      The subset a diff CAN violate is real but narrow: :32 who may be called and the
+      31-day scrub window; :37-38 the warm window is measured on what the prospect DID,
+      never on what we sent; :41 Pennsylvania allows only 12 months (73 P.S. 2245) and
+      PA is the tighter rule; :51 never on a US federal legal holiday, and the 9am-7pm
+      Mon-Sat window, both of which are lib/ date arithmetic; :99 suppression entries
+      never expire; :109-117 out-of-window numbers may only be dialled after a scrub
+      against BOTH registries and only for 31 days after it, and a partial file never
+      clears anyone; :140 recordings only with spoken consent (Pennsylvania is
+      all-party) and a five-year retention. Cite the narrow subset or drop the finding.
+
+documentation_reference: README.md
+
+deploy_notes: >-
+  This repository deploys through Vercel previews: every branch gets a preview URL, the
+  previews are SSO-gated with no CLI path, and end-to-end checks on a preview are
+  Alina's, not an agent's. Nothing under docs/ is imported by the Next.js build or read
+  at runtime, so a docs-only merge is harmless. THIS REPO HAS NO DETERMINISTIC GATE
+  STACK: package.json defines lint, typecheck and test scripts but nothing in CI ran
+  them before this file landed, so "CI green first" here means the Vercel build plus
+  whatever checks the repo actually has. That does not change the merge rule —
+  deterministic checks first, reviewer approvals advisory. Supabase migrations under
+  supabase/ are applied to a hosted project, so a migration that lands is live for every
+  viewer at once.
+
+language_notes: >-
+  A Next.js / TypeScript application, with Python and PLpgSQL alongside it (Supabase
+  migrations and RPCs in supabase/, the time-app, the Indeed CV downloader). Nothing
+  about any rule changes with the language: cite a written sentence and a changed line.
+  The practical point is WHERE the written rules bite — they are concentrated in the
+  Supabase access layer (RLS, the service-role key, the RPCs), the call-desk route
+  handlers and the stage-write path, not in component rendering, styling or hooks. A
+  diff in components/ will usually draw an empty approval, and that is correct. One
+  performance convention worth knowing while reading a migration: RLS policies in this
+  project wrap the helper as (select is_manager()), never bare is_manager() — but that
+  sentence is written in bj-finance docs/agents/system-bom.md, not here, so it is NOT in
+  this repo's ground truth and cannot be cited against a diff here.
+
+exclusions:
+  - path: docs/unsubscribe.md
+    why: >-
+      Reference prose for one flow. The strongest candidate for promotion into the
+      ground truth, since one-click unsubscribe is a legal obligation — but #496 named
+      three documents and a reviewer never widens its own closed set. Promoting it is a
+      human's edit to this file.
+  - path: CATERING-CRON-SETUP.md
+    why: A one-time operator setup guide.
+  - path: time-app/SETUP-GUIDE.md
+    why: A one-time operator setup guide for a separate application in this repo.
+  - path: time-app/ALEX-CRON-SETUP.md
+    why: A one-time operator setup guide.
+  - path: indeed-cv-downloader/README.md
+    why: A walkthrough for a standalone side tool.
+  - path: supabase/crm/backfills/README.md
+    why: A record of one-off backfills already run, not a constraint on new code.
