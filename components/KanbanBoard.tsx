@@ -159,7 +159,6 @@ export default function KanbanBoard({
       if (!(STAGES as readonly string[]).includes(newStage)) return;
 
       const previousStage = deal.stage;
-      const previousBoomerang = deal.boomerang_reason;
       const previousActive = deal.is_active;
       const previousPaymentStatus = deal.payment_status;
       const patch = buildStagePatch(newStage, deal.payment_status);
@@ -170,7 +169,6 @@ export default function KanbanBoard({
             ? {
                 ...d,
                 stage: patch.stage,
-                boomerang_reason: patch.boomerang_reason,
                 is_active: patch.is_active,
                 updated_at: patch.updated_at,
                 payment_status: patch.payment_status ?? d.payment_status,
@@ -188,7 +186,6 @@ export default function KanbanBoard({
               ? {
                   ...d,
                   stage: previousStage,
-                  boomerang_reason: previousBoomerang,
                   is_active: previousActive,
                   payment_status: previousPaymentStatus,
                 }

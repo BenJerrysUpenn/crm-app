@@ -153,7 +153,6 @@ export default function CalendarView() {
     if (deal.stage === newStage) return;
     if (!(STAGES as readonly string[]).includes(newStage)) return;
     const prevStage = deal.stage;
-    const prevBoomerang = deal.boomerang_reason;
     const prevActive = deal.is_active;
     const prevPayment = deal.payment_status;
     const patch = buildStagePatch(newStage, deal.payment_status);
@@ -163,7 +162,6 @@ export default function CalendarView() {
           ? {
               ...d,
               stage: patch.stage,
-              boomerang_reason: patch.boomerang_reason,
               is_active: patch.is_active,
               updated_at: patch.updated_at,
               payment_status: patch.payment_status ?? d.payment_status,
@@ -179,7 +177,6 @@ export default function CalendarView() {
             ? {
                 ...d,
                 stage: prevStage,
-                boomerang_reason: prevBoomerang,
                 is_active: prevActive,
                 payment_status: prevPayment,
               }

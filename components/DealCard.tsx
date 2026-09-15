@@ -4,7 +4,6 @@ import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { Deal } from "@/lib/types";
 import {
-  shouldShowBoomerang,
   shouldShowEventReminder,
   eventReminderLabel,
   formatFollowupDate,
@@ -41,7 +40,6 @@ function CardBody({
   const paid = deal.payment_status === "Paid in Full";
   const depositPaid = deal.payment_status === "Deposit Paid";
   const contact = fullName(deal);
-  const showBoomerang = shouldShowBoomerang(deal);
   const showEventReminder = shouldShowEventReminder(deal);
   const lastTouch = formatFollowupDate(deal.last_outbound_at);
   const lastOutboundDays = daysSince(deal.last_outbound_at);
@@ -54,25 +52,18 @@ function CardBody({
     deal.stage !== "Event Complete" &&
     deal.stage !== "Booked Paid" &&
     !deal.stage.startsWith("Closed");
-  // Color ramp: the boomerang flag (needs reply) wins and goes amber.
-  // Otherwise the days-since-last-touch staleness drives the color so
-  // fresh deals stay calm and stale ones stand out.
-  const followupClasses = showBoomerang
-    ? "bg-amber-500/25 text-amber-300 border-amber-500/40"
-    : lastOutboundDays === null || lastOutboundDays >= 7
-    ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-    : lastOutboundDays >= 3
-    ? "bg-sky-500/15 text-sky-300 border-sky-500/30"
-    : "bg-slate-700/40 text-slate-300 border-slate-600/40";
-  const followupChipText = showBoomerang
-    ? `↩ ${lastOutboundShort}`
-    : lastOutboundShort;
+  // Color ramp: days-since-last-touch staleness drives the color so fresh
+  // deals stay calm and stale ones stand out.
+  const followupClasses =
+    lastOutboundDays === null || lastOutboundDays >= 7
+      ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+      : lastOutboundDays >= 3
+      ? "bg-sky-500/15 text-sky-300 border-sky-500/30"
+      : "bg-slate-700/40 text-slate-300 border-slate-600/40";
+  const followupChipText = lastOutboundShort;
   const reminderLabel = eventReminderLabel(deal);
   const missing = missingRequiredFields(deal);
   const showMissing = missing.length > 0 && !deal.stage.startsWith("Closed");
-  // Next-action data folded into the followup chip's hover tooltip.
-  const nextActionVerb = (deal.next_action_verb ?? "").trim();
-  const nextActionReason = (deal.next_action_reason ?? "").trim();
   const days = daysUntilEvent(deal.event_date);
   // Urgent shade for today/tomorrow, softer amber for 2 days out.
   const reminderClasses =
@@ -141,19 +132,9 @@ function CardBody({
               </span>
               <span className="pointer-events-none absolute right-0 top-full mt-1 z-30 whitespace-nowrap rounded-md bg-slate-950 border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-200 shadow-lg opacity-0 group-hover:opacity-100 transition">
                 <span className="block text-slate-400 font-semibold uppercase tracking-wide text-[10px]">
-                  Next action
+                  Last outbound
                 </span>
-                <span className="block text-slate-100">
-                  {nextActionVerb || "No action needed"}
-                </span>
-                {nextActionReason && (
-                  <span className="block text-slate-400 text-[11px] mt-0.5">
-                    {nextActionReason}
-                  </span>
-                )}
-                <span className="block text-slate-500 text-[11px] mt-1">
-                  Last outbound: {lastTouch}
-                </span>
+                <span className="block text-slate-100">{lastTouch}</span>
               </span>
             </span>
           )}
