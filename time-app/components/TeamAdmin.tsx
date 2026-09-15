@@ -56,13 +56,18 @@ export default function TeamAdmin({
       setAddErr("Enter a valid email.");
       return;
     }
+    const fullName = newName.trim();
+    if (!fullName || fullName.includes("@")) {
+      setAddErr("Enter the person's full name.");
+      return;
+    }
     setAddBusy(true);
     const res = await fetch("/api/profiles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
-        full_name: newName.trim() || undefined,
+        full_name: fullName,
         role: newRole,
         phone: newPhone.trim() || undefined,
         hourly_rate: newRate ? Number(newRate) : undefined,
@@ -127,7 +132,8 @@ export default function TeamAdmin({
               />
               <input
                 type="text"
-                placeholder="full name"
+                required
+                placeholder="full name (required)"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 className="text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1"

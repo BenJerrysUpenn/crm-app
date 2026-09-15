@@ -14,7 +14,7 @@ import { NextResponse } from "next/server";
 // corresponding profiles row.
 //
 // Body:
-//   { email: string, full_name?: string, role?: 'employee'|'manager',
+//   { email: string, full_name: string, role?: 'employee'|'manager',
 //     phone?: string, hourly_rate?: number }
 //
 // If the auth user already exists (someone re-invited), we still upsert
@@ -43,7 +43,10 @@ export async function POST(request: Request) {
   if (!email || !email.includes("@"))
     return NextResponse.json({ error: "Valid email required" }, { status: 400 });
 
-  const full_name = (body.full_name || "").trim() || null;
+  // Required. Without it the handle_new_user trigger has no name to store.
+  const full_name = (body.full_name || "").trim();
+  if (!full_name || full_name.includes("@"))
+    return NextResponse.json({ error: "Full name required (not an email)" }, { status: 400 });
   const role: "employee" | "manager" =
     body.role === "manager" ? "manager" : "employee";
   const phone = (body.phone || "").trim() || null;
@@ -54,7 +57,7 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
 
-  // Email the sign-in link. The trigger populates profiles on first sign-in.
+  // Creates the auth user (which fires handle_new_user) and emails the link.
   const invite = await sendInvite({
     email,
     fullName: full_name,
@@ -86,7 +89,7 @@ export async function POST(request: Request) {
     role,
     active: true,
   };
-  if (full_name !== null) patch.full_name = full_name;
+  patch.full_name = full_name;
   if (phone !== null) patch.phone = phone;
   if (hourly_rate !== null) patch.hourly_rate = hourly_rate;
 
