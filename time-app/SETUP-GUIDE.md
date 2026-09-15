@@ -150,12 +150,12 @@ A few things you do once, from the app itself, as a manager.
 ### 6a. Add your employees
 
 1. In the app, open the **Team** page and click **+ Add employee**.
-2. Fill in their email (required), name, phone (needed for text alerts), role (leave as employee unless they're a manager) and pay rate, then click **Send invite**.
+2. Fill in their email and full name (both required; the name is what shows on the schedule, timesheets and alerts), phone (needed for text alerts), role (leave as employee unless they're a manager) and pay rate, then click **Send invite**.
 3. They get an email with a link. Opening it signs them in and asks them to choose a password; after that they land in the app and appear in the Team list, where you can adjust anything. Changes save as you type.
 4. Links work once and expire after about an hour. If someone's link expired, click **Resend invite** on their row.
 5. Anyone who forgets their password can use the **Forgot password?** link on the sign-in page.
 
-Manual fallback: Supabase **Authentication → Users → Add user → Create new user** with a password (tick **Auto Confirm User**) still works if you'd rather set the password yourself.
+Always add new hires from the Team page. If you ever create someone in the Supabase dashboard instead (**Authentication → Users → Add user → Create new user**, with **Auto Confirm User** ticked), that account has no name. Open the **Team** page right away: their row shows a **Name missing** badge next to their email. Type their full name in the Name box. Until you do, they show as "No name set" on the schedule, timesheets and alerts.
 
 #### Supabase URL configuration
 

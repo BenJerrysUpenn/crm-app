@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import type { Role } from "@/lib/types";
+import { displayName } from "@/lib/profileName";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -18,10 +19,11 @@ const links: { href: string; label: string; managerOnly?: boolean }[] = [
 ];
 
 export default function TopBar({
-  email,
   role,
   name,
 }: {
+  // Unused. Every caller passes profile.full_name here too; the corner label
+  // shows the name or "No name set", never an email.
   email: string;
   role: Role;
   name: string;
@@ -78,7 +80,7 @@ export default function TopBar({
         <NotificationBell />
 
         <Link href="/account" className="hidden md:flex flex-col items-end leading-tight hover:opacity-80">
-          <span className="text-xs text-slate-700 dark:text-slate-300">{name || email}</span>
+          <span className="text-xs text-slate-700 dark:text-slate-300">{displayName(name)}</span>
           <span className="text-[10px] text-slate-500 capitalize">{role} · account</span>
         </Link>
 

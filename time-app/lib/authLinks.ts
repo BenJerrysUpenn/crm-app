@@ -13,6 +13,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { emailConfigured, sendEmail } from "@/lib/email";
+import { firstName, usableName } from "@/lib/profileName";
 
 export type Delivery = "email" | "supabase";
 
@@ -61,7 +62,11 @@ export async function sendInvite(args: {
   invitedBy: string | null;
   origin: string;
 }): Promise<{ userId: string | null; delivery: Delivery } | { error: string }> {
-  const { email, fullName, invitedBy, origin } = args;
+  const { email, origin } = args;
+  // An email-like value is not a name: don't store it as one in the user's
+  // metadata and don't greet anyone with it.
+  const fullName = usableName(args.fullName);
+  const invitedBy = usableName(args.invitedBy);
   const data = fullName ? { full_name: fullName } : undefined;
 
   if (!emailConfigured()) {
@@ -81,7 +86,8 @@ export async function sendInvite(args: {
   if ("error" in made) made = await actionLink("magiclink", email, origin, data);
   if ("error" in made) return made;
 
-  const greeting = fullName ? `Hi ${fullName.split(" ")[0]},` : "Hi,";
+  const first = firstName(fullName);
+  const greeting = first ? `Hi ${first},` : "Hi,";
   const who = invitedBy ? `${invitedBy} added you` : "You've been added";
   const text = [
     greeting,
