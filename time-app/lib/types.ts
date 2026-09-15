@@ -8,6 +8,12 @@ export type Profile = {
   hourly_rate: number | null;
   active: boolean;
   notif_prefs: Record<string, boolean> | null;
+  // Staffing forms (migration_23). See lib/staffing/.
+  preferred_name: string | null;
+  start_date: string | null; // YYYY-MM-DD
+  last_day: string | null; // YYYY-MM-DD
+  has_workforce: boolean; // finished QuickBooks Workforce self-setup
+  qbo_employee_id: string | null;
   created_at: string;
 };
 
@@ -145,3 +151,54 @@ export type ClockinReminderAck = {
   body_snapshot: string;
   user_agent: string | null;
 };
+
+// One staffing form submission (onboarding, reinvite, offboarding) and its
+// ordered checklist. See lib/staffing/ and supabase/migration_23.sql.
+export type LifecycleKind = "onboarding" | "reinvite" | "offboarding";
+export type LifecycleStatus = "open" | "done" | "cancelled";
+// auto = the app does it in the request; worker = queued for the bj-finance
+// onboarding worker (browser automation as the manager); manual = checklist.
+export type StepMode = "auto" | "worker" | "manual";
+export type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
+
+export type StepDetail = {
+  lines?: string[];
+  link?: string | null;
+  recipient?: string | null;
+  reason?: string | null;
+};
+
+export type LifecycleStep = {
+  id: number;
+  lifecycle_id: number;
+  key: string;
+  seq: number;
+  mode: StepMode;
+  status: StepStatus;
+  label: string;
+  detail: StepDetail;
+  // Worker contract (mode = "worker"); see supabase/migration_23.sql.
+  system: "square" | "slack" | "qbo" | "google" | null;
+  action: string | null;
+  payload: Record<string, unknown>;
+  claimed_at: string | null;
+  attempts: number;
+  worker_log: string | null;
+  result: string | null;
+  completed_by: string | null;
+  completed_at: string | null;
+};
+
+export type Lifecycle = {
+  id: number;
+  kind: LifecycleKind;
+  employee_id: string | null;
+  status: LifecycleStatus;
+  form: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+export type LifecycleWithSteps = Lifecycle & { steps: LifecycleStep[] };
