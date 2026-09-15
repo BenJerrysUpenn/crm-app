@@ -1,5 +1,5 @@
 -- ============================================================================
--- Withers Time — migration 23: staffing forms (onboarding, payroll setup,
+-- Withers Time — migration 23: staffing forms (onboarding, reinvite,
 -- offboarding). Run once in the Supabase SQL editor, after migration_22.sql.
 -- Safe to re-run.
 --

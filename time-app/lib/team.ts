@@ -1,12 +1,12 @@
 // Inviting a person to Withers-time: create the auth user (which fires
 // handle_new_user), email the sign-in link, and upsert the profile fields.
 //
-// Shared by POST /api/profiles (the Team page's Add employee) and the
-// onboarding form on /staffing, so both do exactly the same thing. The
-// bj-finance onboarding script (modules/onboarding/adapters.py) automates
-// Withers-time by POSTing to /api/profiles; this function is what that call
-// runs, which is why the staffing flow calls it directly instead of going
-// round through HTTP.
+// Shared by POST /api/profiles and the Team page's Add employee / Re-invite
+// steps (lib/staffing/execute.ts, withers_time_invite), so both do exactly
+// the same thing. The bj-finance onboarding script
+// (modules/onboarding/adapters.py) automates Withers-time by POSTing to
+// /api/profiles; this function is what that call runs, which is why the
+// staffing steps call it directly instead of going round through HTTP.
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendInvite } from "@/lib/authLinks";

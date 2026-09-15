@@ -19,8 +19,9 @@ import { NextResponse } from "next/server";
 // If the auth user already exists (someone re-invited), we still upsert
 // their profile fields so the manager's input isn't lost.
 //
-// The work itself lives in lib/team.ts (inviteTeamMember) so the onboarding
-// form on /staffing runs the identical path.
+// The work itself lives in lib/team.ts (inviteTeamMember) so the Team page's
+// Add employee and Re-invite steps (lib/staffing/execute.ts) run the
+// identical path.
 //
 // Per Alina 2026-08-27: "Add a way to add new employees on the team page."
 export async function POST(request: Request) {

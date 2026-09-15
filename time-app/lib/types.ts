@@ -152,8 +152,8 @@ export type ClockinReminderAck = {
   user_agent: string | null;
 };
 
-// One staffing form submission (onboarding, payroll setup, offboarding) and
-// its ordered checklist. See lib/staffing/ and supabase/migration_23.sql.
+// One staffing form submission (onboarding, reinvite, offboarding) and its
+// ordered checklist. See lib/staffing/ and supabase/migration_23.sql.
 export type LifecycleKind = "onboarding" | "reinvite" | "offboarding";
 export type LifecycleStatus = "open" | "done" | "cancelled";
 // auto = the app does it in the request; worker = queued for the bj-finance
