@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { sendInvite, siteOrigin } from "@/lib/authLinks";
-import { usableName } from "@/lib/profileName";
 
 // POST /api/profiles/:id/invite
 // Manager-only. Resends a sign-in link to an existing team member (an invite
@@ -28,9 +27,8 @@ export async function POST(
 
   const r = await sendInvite({
     email: u.user.email,
-    // Never greet anyone by an email-like "name" (pre-migration_21 rows).
-    fullName: usableName(p?.full_name),
-    invitedBy: usableName(me.full_name),
+    fullName: p?.full_name ?? null,
+    invitedBy: me.full_name,
     origin: siteOrigin(request),
   });
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });

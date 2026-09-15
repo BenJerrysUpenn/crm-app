@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import ClockinRemindersAdmin, { type ReminderWithAcks } from "@/components/ClockinRemindersAdmin";
 import type { Profile, Location, ShiftType } from "@/lib/types";
 import type { AppSettings } from "@/lib/settings";
-import { isNameMissing, usableName, validateFullName } from "@/lib/profileName";
 
 export default function TeamAdmin({
   employees,
@@ -38,21 +37,15 @@ export default function TeamAdmin({
   const [newRole, setNewRole] = useState<"employee" | "manager">("employee");
   const [newRate, setNewRate] = useState<string>("");
 
-  // Returns the server's error message, or null when the save worked.
-  async function saveProfile(id: string, patch: Partial<Profile>): Promise<string | null> {
+  async function saveProfile(id: string, patch: Partial<Profile>) {
     setSavingId(id);
-    const res = await fetch(`/api/profiles/${id}`, {
+    await fetch(`/api/profiles/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
     setSavingId(null);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      return body.error ?? `Save failed (${res.status}).`;
-    }
     router.refresh();
-    return null;
   }
 
   async function addEmployee() {
@@ -63,9 +56,9 @@ export default function TeamAdmin({
       setAddErr("Enter a valid email.");
       return;
     }
-    const name = validateFullName(newName);
-    if (!name.ok) {
-      setAddErr(name.error);
+    const fullName = newName.trim();
+    if (!fullName || fullName.includes("@")) {
+      setAddErr("Enter the person's full name.");
       return;
     }
     setAddBusy(true);
@@ -74,7 +67,7 @@ export default function TeamAdmin({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
-        full_name: name.name,
+        full_name: fullName,
         role: newRole,
         phone: newPhone.trim() || undefined,
         hourly_rate: newRate ? Number(newRate) : undefined,
@@ -125,18 +118,13 @@ export default function TeamAdmin({
         <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
           Use the button above to invite a new person by email. They get a link
           to set their password, and then they appear in the list below. Use
-          Resend invite if the link expired. Anyone marked Name missing needs
-          their full name typed into the Name box.
+          Resend invite if the link expired.
         </p>
         {addOpen && (
-          <form
-            onSubmit={(ev) => { ev.preventDefault(); addEmployee(); }}
-            className="mb-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2"
-          >
+          <div className="mb-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
                 type="email"
-                required
                 placeholder="email (required)"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
@@ -145,7 +133,6 @@ export default function TeamAdmin({
               <input
                 type="text"
                 required
-                autoComplete="off"
                 placeholder="full name (required)"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
@@ -179,14 +166,15 @@ export default function TeamAdmin({
             {addOk && <div className="text-xs text-emerald-500">{addOk}</div>}
             <div className="flex justify-end">
               <button
-                type="submit"
+                type="button"
+                onClick={addEmployee}
                 disabled={addBusy}
                 className="text-xs rounded-md bg-emerald-500 text-slate-950 font-medium px-3 py-1.5 hover:bg-emerald-400 disabled:opacity-50"
               >
                 {addBusy ? "Inviting…" : "Send invite"}
               </button>
             </div>
-          </form>
+          </div>
         )}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           <table className="w-full text-sm min-w-[640px]">
@@ -368,15 +356,10 @@ function EmployeeRow({
   e: Profile;
   email: string;
   saving: boolean;
-  onSave: (id: string, patch: Partial<Profile>) => Promise<string | null>;
+  onSave: (id: string, patch: Partial<Profile>) => void;
   onResend: (id: string) => Promise<string>;
 }) {
-  // An email-like saved name is treated as no name: the box starts empty so
-  // the manager types the real one.
-  const savedName = usableName(e.full_name) ?? "";
-  const nameMissing = isNameMissing(e.full_name);
-  const [name, setName] = useState(savedName);
-  const [nameErr, setNameErr] = useState<string | null>(null);
+  const [name, setName] = useState(e.full_name ?? "");
   const [phone, setPhone] = useState(e.phone ?? "");
   const [role, setRole] = useState(e.role);
   const [rate, setRate] = useState(e.hourly_rate?.toString() ?? "");
@@ -392,33 +375,11 @@ function EmployeeRow({
     setInviteMsg(msg);
   }
 
-  // Saves on blur, like the other fields, but only when the name changed.
-  async function saveName() {
-    if (name.trim() === savedName) {
-      setNameErr(null);
-      return;
-    }
-    const checked = validateFullName(name);
-    if (!checked.ok) {
-      setNameErr(checked.error);
-      return;
-    }
-    setNameErr(await onSave(e.id, { full_name: checked.name }));
-  }
-
   return (
     <tr className="border-t border-slate-200 dark:border-slate-800">
-      <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-        {email || "—"}
-        {nameMissing && (
-          <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-800 rounded px-1.5 py-0.5">
-            Name missing
-          </span>
-        )}
-      </td>
+      <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">{email || "—"}</td>
       <td className="px-3 py-2">
-        <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={saveName} placeholder={nameMissing ? "Enter full name" : undefined} aria-invalid={nameMissing || !!nameErr} className={`bg-slate-100 dark:bg-slate-800 border rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-40 ${nameMissing || nameErr ? "border-amber-400 dark:border-amber-700" : "border-slate-300 dark:border-slate-700"}`} />
-        {nameErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[160px] whitespace-normal">{nameErr}</div>}
+        <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-40" />
       </td>
       <td className="px-3 py-2">
         <input value={phone} onChange={(ev) => setPhone(ev.target.value)} onBlur={() => onSave(e.id, { phone })} placeholder="+1215..." className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-32" />

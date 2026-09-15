@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { getProfile } from "@/lib/auth";
-import { usableName } from "@/lib/profileName";
 import TopBar from "@/components/TopBar";
 import AccountForm from "@/components/AccountForm";
 
@@ -16,7 +15,7 @@ export default async function AccountPage() {
       <main className="flex-1">
         <div className="mx-auto max-w-md px-4 py-6">
           <AccountForm
-            initialName={usableName(profile.full_name) ?? ""}
+            initialName={profile.full_name ?? ""}
             initialPhone={profile.phone ?? ""}
             profileId={profile.id}
             role={profile.role}

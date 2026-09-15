@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtDate } from "@/lib/format";
-import { displayNameOrId } from "@/lib/profileName";
 import type { Availability, Profile } from "@/lib/types";
 
 type Row = Availability & { profiles: Pick<Profile, "id" | "full_name"> };
@@ -85,7 +84,7 @@ export default function ManagerAvailability({
         return {
           key,
           anyId: arr[0].id,
-          name: displayNameOrId(arr[0].profiles?.full_name, arr[0].employee_id),
+          name: arr[0].profiles?.full_name ?? arr[0].employee_id,
           start: dates[0],
           end: dates[dates.length - 1],
           status: arr[0].status,
@@ -159,7 +158,7 @@ export default function ManagerAvailability({
       ) : (
         Array.from(byEmp.entries()).map(([id, list]) => (
           <div key={id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
-            <div className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3">{displayNameOrId(list[0].profiles?.full_name, id)}</div>
+            <div className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3">{list[0].profiles?.full_name ?? id}</div>
             <div className="flex flex-wrap gap-2">
               {list
                 .slice()

@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
-import { displayName } from "@/lib/profileName";
 import { notifyManagers } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
 import { randomUUID } from "crypto";
@@ -97,7 +96,7 @@ export async function POST(request: Request) {
 
     // Notify managers of a new time-off request.
     if ((body.is_available ?? false) === false) {
-      const who = displayName(profile.full_name, "An employee");
+      const who = profile.full_name ?? "An employee";
       const when =
         start === end
           ? fmtDate(start + "T12:00:00")
@@ -145,7 +144,7 @@ export async function POST(request: Request) {
     await notifyManagers({
       type: "availability_change",
       title: "Availability updated",
-      body: `${displayName(profile.full_name, "An employee")} updated their availability.`,
+      body: `${profile.full_name ?? "An employee"} updated their availability.`,
     }).catch(() => {});
   }
   return NextResponse.json({ availability: data });

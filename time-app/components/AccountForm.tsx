@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CHANNELS, TYPES_BY_ROLE } from "@/lib/notifPrefs";
-import { validateFullName } from "@/lib/profileName";
 import type { Role } from "@/lib/types";
 
 export default function AccountForm({
@@ -73,16 +72,11 @@ export default function AccountForm({
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
-    const checked = validateFullName(name);
-    if (!checked.ok) {
-      setProfileMsg(checked.error);
-      return;
-    }
     setSavingProfile(true);
     setProfileMsg(null);
     const { error } = await supabase
       .from("profiles")
-      .update({ full_name: checked.name, phone: phone || null })
+      .update({ full_name: name || null, phone: phone || null })
       .eq("id", profileId);
     setSavingProfile(false);
     setProfileMsg(error ? error.message : "Saved.");

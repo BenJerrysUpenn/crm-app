@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtTime } from "@/lib/format";
-import { displayName, displayNameOrId } from "@/lib/profileName";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
@@ -119,7 +118,7 @@ export default function ScheduleBoard({
 
   const dates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const rateById = new Map(employees.map((e) => [e.id, e.hourly_rate ?? 0]));
-  const nameById = new Map(employees.map((e) => [e.id, displayNameOrId(e.full_name, e.id)]));
+  const nameById = new Map(employees.map((e) => [e.id, e.full_name ?? e.id]));
   // Split pending requests by type so drop and pickup can render in their
   // own sections. `dropRequests` prop still carries both (schedule/page.tsx
   // pulls the full pending set); we partition here.
@@ -472,7 +471,7 @@ export default function ScheduleBoard({
               return (
                 <div key={r.id} className="flex items-center justify-between gap-3 text-sm border-b border-slate-200 dark:border-slate-800 pb-2 last:border-0">
                   <span className="text-slate-800 dark:text-slate-200">
-                    {displayName(r.profiles?.full_name, "Employee")} wants to pick up{" "}
+                    {r.profiles?.full_name ?? "Employee"} wants to pick up{" "}
                     {s ? `${dayLabel(nyDate(s.starts_at))} ${fmtTime(s.starts_at)}–${fmtTime(s.ends_at)}` : "a shift"}
                     {r.note ? ` · ${r.note}` : ""}
                   </span>
@@ -500,7 +499,7 @@ export default function ScheduleBoard({
               return (
                 <div key={r.id} className="flex items-center justify-between gap-3 text-sm border-b border-slate-200 dark:border-slate-800 pb-2 last:border-0">
                   <span className="text-slate-800 dark:text-slate-200">
-                    {displayName(r.profiles?.full_name, "Employee")} wants to drop{" "}
+                    {r.profiles?.full_name ?? "Employee"} wants to drop{" "}
                     {s ? `${dayLabel(nyDate(s.starts_at))} ${fmtTime(s.starts_at)}–${fmtTime(s.ends_at)}` : "a shift"}
                     {r.note ? ` · ${r.note}` : ""}
                   </span>
@@ -564,7 +563,7 @@ export default function ScheduleBoard({
                   <div className="font-medium">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
                   {isManager ? (
                     <div className={s.employee_id ? "text-slate-600 dark:text-slate-400" : "text-amber-400"}>
-                      {s.employee_id ? displayName(s.profiles?.full_name) : "Open shift"}
+                      {s.employee_id ? (s.profiles?.full_name ?? "—") : "Open shift"}
                     </div>
                   ) : (
                     !s.employee_id && <div className="text-amber-400">Open shift</div>
@@ -698,7 +697,7 @@ export default function ScheduleBoard({
               <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
                 <select value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
                   <option value="">Open (unassigned)</option>
-                  {employees.map((e) => <option key={e.id} value={e.id}>{displayNameOrId(e.full_name, e.id)}</option>)}
+                  {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
                 </select>
               </label>
               {!draft.id && !draft.employee_id && (
@@ -873,7 +872,7 @@ function ManagerMatrix({
       <Row id={null} label="Open shifts" sub={`${weekHoursFor(null).toFixed(1)}h open`} tint />
       {/* Employee rows */}
       {employees.map((e) => (
-        <Row key={e.id} id={e.id} label={displayNameOrId(e.full_name, e.id)} sub={`${weekHoursFor(e.id).toFixed(1)}h`} />
+        <Row key={e.id} id={e.id} label={e.full_name ?? e.id} sub={`${weekHoursFor(e.id).toFixed(1)}h`} />
       ))}
     </div>
   );

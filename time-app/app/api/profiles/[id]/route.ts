@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { validateFullName } from "@/lib/profileName";
 import { NextResponse } from "next/server";
 
 export async function PATCH(
@@ -12,15 +11,8 @@ export async function PATCH(
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const body = await request.json();
   const patch: Record<string, unknown> = {};
-  for (const k of ["phone", "role", "hourly_rate", "active"]) {
+  for (const k of ["full_name", "phone", "role", "hourly_rate", "active"]) {
     if (k in body) patch[k] = body[k];
-  }
-  // Same rule as POST /api/profiles: a name can be changed but never cleared
-  // or replaced with an email address.
-  if ("full_name" in body) {
-    const name = validateFullName(body.full_name);
-    if (!name.ok) return NextResponse.json({ error: name.error }, { status: 400 });
-    patch.full_name = name.name;
   }
   const supabase = createClient();
   const { data, error } = await supabase
