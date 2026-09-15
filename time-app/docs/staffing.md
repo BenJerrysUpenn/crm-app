@@ -1,102 +1,124 @@
-# Staffing forms: onboarding, payroll setup, offboarding
+# Staffing: invite, re-invite, offboard from the Team page
 
-`/staffing` (managers only) is one page with three forms. Each submission is a
-record with an ordered checklist. The app does the steps it can do itself and
-turns the rest into a line with the link and the exact fields to type, plus a
-Mark done button that records who ticked it and when.
+The Team page (managers only) is where people are added, re-invited and
+offboarded. Every one of those is a `staff_lifecycle` record with an ordered
+checklist, shown under the team table. Steps come in three kinds:
 
-The step wording is ported from bj-finance `modules/onboarding/adapters.py`
-(PR #509, issue #510) so the CLI plan and this page say the same thing. Why
-each system is manual today is written once in bj-finance
-`docs/onboarding.md`; the `reason` on each step is the one-line version.
+| Mode | Who does it | Examples |
+|---|---|---|
+| `auto` | the app, in the request | Withers-time invite, fob assignment, auth ban, role/active changes |
+| `worker` | the bj-finance onboarding worker (`scripts/onboard_worker.py`), which signs in to each system as the manager and performs the invite or deactivation, then writes the result back | Square, Slack, QuickBooks Payroll + Workforce, Google Group |
+| `manual` | a manager, by hand | a fob not yet tapped, "Workforce self-setup finished", final pay |
+
+A worker step carries the by-hand instructions too, so if the worker is down
+or hits a login wall (Cloudflare on Square, 2FA on Google) the step comes back
+`failed` with the wall named and a manager can do it and press "Done by hand".
+A record closes itself when every step is done or skipped.
+
+The by-hand wording is ported from bj-finance `modules/onboarding/adapters.py`
+(PR #509, issue #510). Why each system needs a browser worker rather than an
+API is written once in bj-finance `docs/onboarding.md`.
 
 ## Apply first
 
 `supabase/migration_23.sql` in the Supabase SQL editor, after migration_22.
 Safe to re-run. It adds five columns to `profiles` (`preferred_name`,
 `start_date`, `last_day`, `has_workforce`, `qbo_employee_id`), two tables
-(`staff_lifecycle`, `staff_lifecycle_steps`), and `revoke_user_sessions(uuid)`
-(SECURITY DEFINER, service role only). Without it the page loads but every
-form fails.
+(`staff_lifecycle`, `staff_lifecycle_steps`, manager-only RLS), and
+`revoke_user_sessions(uuid)` (SECURITY DEFINER, service role only). Without
+it the Team page's add / re-invite / offboard actions fail.
 
 ## The hard rule
 
 **Never delete a Withers-time user.** `time_entries.employee_id` cascades
 from `profiles`, so deleting a profile or auth user destroys the person's
 payroll hours. Offboarding bans the auth user and revokes their sessions
-instead. No code path on this page deletes a profile.
+instead. No code path here deletes a profile.
 
-## Onboarding
+**Archive over delete everywhere else** that it is possible and free:
+Terminated in QuickBooks, Deactivate in Slack and Square, remove group
+membership in Google. A `@withers-ventures.com` Workspace account (if the
+person had one) is the manager's call: suspending keeps paying the seat,
+deleting loses the mailbox.
 
-Fields: legal name, preferred name, email, phone, role, start date, pay rate,
-position types (from shift types, stored on the record only), fob card id.
+## Add employee (invite)
 
-| # | Step | Mode | What happens |
-|---|---|---|---|
-| 1 | Withers-time invite | auto | `inviteTeamMember` in `lib/team.ts`: creates the auth user, emails the link via Resend, upserts the profile (name, phone, role, rate, start date, preferred name, `active: true`). Same code as the Team page's Add employee. |
-| 2 | RFID fob | auto if a card id was typed, else manual | Inserts into `staff_cards`. Manual variant: tap the fob on the Pi, read `unknown card: <id>` from the log, type it into the step. |
-| 3 | Square Team | manual | Add a per-person team member, own POS passcode, Team App invite. Never the shared `Shift Leader` login. |
-| 4 | Slack | manual | Invite; `#attendance-chat` for everyone, `#managers-chat` for managers. |
-| 5 | QuickBooks Workforce invite | manual | UI only. The person enters SSN, DOB, address and bank themselves. |
-| 6 | Google Group | manual | `upennscoops@withers-ventures.com`. Managers may also get a Workspace account; that policy is undecided. |
+Fields: email, full legal name, preferred name, phone, role, hourly rate,
+start date, fob card id, and the "Also set up on" checkboxes (Square, Slack,
+QuickBooks, Google Group, fob; all ticked by default). Withers-time is always
+included.
+
+| Step | Mode | What happens |
+|---|---|---|
+| `withers_time_invite` | auto | `inviteTeamMember` in `lib/team.ts`: creates the auth user, emails the link via Resend, upserts the profile (name, phone, role, rate, start date, preferred name, `active: true`). Same code as `POST /api/profiles`. |
+| `fob_assign` | auto if a card id was typed, else manual | Inserts into `staff_cards`. Manual: tap the fob on the Pi, read `unknown card: <id>` from the log, type it into the step. |
+| `square_invite` | worker | Search the team by email first; add a per-person team member, assign the location, send the Team App invite. The POS passcode is set in the dashboard. Never the shared `Shift Leader` login. |
+| `slack_invite` | worker | Invite by email; `#attendance-chat` for everyone, `#managers-chat` for managers. |
+| `qbo_create_employee` | worker | Search by email first; create the payroll record with legal name, email, phone, hire date, hourly rate, "Every other Monday", and the default pay types. Writes the employee id to `profiles.qbo_employee_id`. |
+| `qbo_invite_workforce` | worker, after `qbo_create_employee` | Sends the Workforce self-setup invite. The person enters SSN, DOB, address and bank themselves. |
+| `workforce_completed` | manual | Marking done sets `profiles.has_workforce = true`. Active people with it false show "Workforce not finished" in the table: not payable. |
+| `google_group_add` | worker | Adds the address to `upennscoops@withers-ventures.com`. Does not create a Workspace account. |
 
 The invite link expires in about an hour. For a start date weeks out, expect
-to press Resend invite on the Team page.
+to press Re-invite.
 
-## Payroll setup
+## Re-invite
 
-Pick an existing person; the form prefills from their profile. Fields: legal
-name, email, hire date, pay type, rate, pay schedule (default Every other
-Monday), job title, pay types, QBO employee id if known.
+Per row. Re-sends the Withers-time sign-in link (and reactivates the profile),
+plus whichever other systems are ticked (none by default). Same steps as above
+for the ticked systems. This is how the per-person Square login rollout runs:
+tick Square on each row.
 
-SSN, date of birth, home address and bank details are never collected by
-this app.
+## Offboard
 
-| # | Step | Mode | What happens |
-|---|---|---|---|
-| 1 | Rate into Withers-time | auto | Sets `hourly_rate` (hourly only), `start_date` if empty, `qbo_employee_id` if given. |
-| 2 | QBO employee record | manual | The step prints the exact payload. Create it in the QBO UI, or hand the payload to a finance-agent session with the QBO payroll tool. Paste the eeid when marking done; it lands on the profile. |
-| 3 | Workforce invite | manual | UI only. |
-| 4 | Workforce finished | manual | Marking done sets `profiles.has_workforce = true`. The Payroll readiness list on the page shows every active person still false. |
+Per row: last day, reason, note, final-pay note (prefilled), "Also remove
+from" checkboxes (all ticked by default), "Remove access now". Automatic steps
+run in this order and stop at the first failure; Retry re-runs from there.
 
-## Offboarding
-
-Pick a person, last day, reason, final-pay note (prefilled). Steps run in
-this order and stop at the first failure; Retry re-runs from the failed step.
-
-| # | Step | Mode | What happens |
-|---|---|---|---|
-| 1 | Ban login | auto | `auth.admin.updateUserById(id, { ban_duration: "876000h" })`. Account and time entries kept. |
-| 2 | Sign out everywhere | auto | `rpc("revoke_user_sessions")` deletes `auth.sessions` and `auth.refresh_tokens` rows. |
-| 3 | Role to employee | auto | Removes manager access. |
-| 4 | Mark inactive | auto | `active = false`, `last_day` set. |
-| 5 | Unassign fob | auto | Deletes their `staff_cards` rows; card ids kept in the step result. |
-| 6 | QBO Terminated | manual | Status is UI-only in QBO. Do it after the final run is submitted. |
-| 7 | Slack deactivate | manual | |
-| 8 | Square deactivate | manual | Clears the passcode and Team App access. |
-| 9 | Google Group remove | manual | |
-| 10 | Final pay | manual | Hours worked through the last day are always paid (FLSA; PA WPCL). No waiver. Truncate an open last-day punch to the scheduled shift end. |
+| Step | Mode | What happens |
+|---|---|---|
+| `auth_ban` | auto | `auth.admin.updateUserById(id, { ban_duration: "876000h" })`. Account and time entries kept. |
+| `sessions_revoke` | auto | `rpc("revoke_user_sessions")` deletes `auth.sessions` and `auth.refresh_tokens` rows. |
+| `role_employee` | auto | Removes manager access. |
+| `mark_inactive` | auto | `active = false`, `last_day` set. |
+| `fob_unassign` | auto | Deletes their `staff_cards` rows; card ids kept in the step result. |
+| `slack_deactivate` | worker | Deactivate, never delete. |
+| `square_deactivate` | worker | Deactivate: clears the passcode and Team App access. |
+| `google_group_remove` | worker | Removes group membership. |
+| `final_pay` | manual | Hours worked through the last day are always paid (FLSA; PA WPCL). No waiver. Truncate an open last-day punch to the scheduled shift end. |
+| `qbo_terminate` | worker, after `final_pay` | Status Terminated with the last day. Waits for the final-pay step so QBO does not drop them from the run. |
 
 If the last day is still ahead the automatic steps wait; the record shows a
-Run button for the day. Tick "Remove access now" on the form for a no-show or
-someone let go on the spot. A manager cannot offboard themself.
+Run button for the day. "Remove access now" is for a no-show or someone let
+go on the spot. A manager cannot offboard themself.
+
+## Worker contract
+
+The worker reads `public.staff_lifecycle_steps` where `mode = 'worker'` and
+`status = 'pending'`, oldest first, and only takes a step once every lower-seq
+`auto` step on the same record is done and every key in `payload.after` is
+done. It claims with one UPDATE (status `running`, `claimed_at`, `attempts`),
+performs the flow, and writes `status` (`done` / `failed`), `result`,
+`worker_log`, `completed_at`. Three failed attempts hand the step back to the
+manager. The columns `system`, `action`, `payload` say what to do; `payload`
+never carries SSN, DOB, address or bank details.
 
 ## API
 
 All manager-only, all service-role writes after the check, all `no-store`.
 
-- `POST /api/staffing` body `{ kind, ...form }` creates the record and runs the automatic steps (offboarding: only when the last day has arrived or `run_now`).
+- `POST /api/staffing` body `{ kind: "onboarding" | "reinvite" | "offboarding", ...form, systems? }` creates the record and runs the automatic steps (offboarding: only when the last day has arrived or `run_now`).
 - `POST /api/staffing/:id/run` runs or retries pending automatic steps in order.
-- `PATCH /api/staffing/:id/steps/:key` body `{ note?, skipped?, fob_card_id?, qbo_employee_id? }` marks a manual step; `{ reopen: true }` puts it back.
+- `PATCH /api/staffing/:id/steps/:key` body `{ note?, skipped?, fob_card_id?, qbo_employee_id? }` marks a worker or manual step done by hand; `{ reopen: true }` puts it back.
 - `PATCH /api/staffing/:id` body `{ status: "cancelled" | "open" }`.
-
-A record closes itself when every step is done or skipped.
+- `POST /api/profiles` is unchanged (the bj-finance script still uses it) and shares `lib/team.ts` with the invite step.
 
 ## Code map
 
-- `lib/staffing/catalogue.ts` step definitions and wording
+- `lib/staffing/catalogue.ts` step definitions, wording, worker payloads
 - `lib/staffing/forms.ts` request parsing and validation
-- `lib/staffing/execute.ts` create, run automatic steps, manual side effects, close
-- `lib/team.ts` the shared Withers-time invite (also behind `POST /api/profiles`)
-- `components/StaffingAdmin.tsx` the page
+- `lib/staffing/execute.ts` create, run automatic steps, by-hand side effects, close
+- `lib/team.ts` the shared Withers-time invite
+- `components/TeamAdmin.tsx` the add / re-invite / offboard forms
+- `components/StaffingRecords.tsx` the checklists
 - `supabase/migration_23.sql`

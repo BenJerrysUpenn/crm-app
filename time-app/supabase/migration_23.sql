@@ -3,12 +3,19 @@
 -- offboarding). Run once in the Supabase SQL editor, after migration_22.sql.
 -- Safe to re-run.
 --
--- A manager fills one of three forms on /staffing. Each submission is a
--- staff_lifecycle record with an ordered list of steps. Steps are either
--- automatic (the app does them: Withers-time invite, fob assignment, auth
--- ban, role/active changes) or manual (Square, Slack, QuickBooks Workforce,
--- Google Group), and a manual step is a checklist line with the per-person
--- link and a Mark done button that records who and when.
+-- From the Team page a manager invites (or re-invites) a person to
+-- Withers-time and ticks which other systems to invite them to (Square,
+-- Slack, QuickBooks Payroll + Workforce, Google Group), or offboards them.
+-- Each submission is a staff_lifecycle record with an ordered list of steps:
+--   auto    the app does it in the request (Withers-time invite, fob,
+--           auth ban, role/active changes)
+--   worker  queued for the onboarding worker (bj-finance
+--           scripts/onboard_worker.py), which logs into each system as the
+--           manager and performs the invite / deactivation, then writes the
+--           result back here. A manager can also do a worker step by hand
+--           and mark it done.
+--   manual  a checklist line only (a fob that has not been tapped yet,
+--           Workforce self-setup finished, final pay).
 --
 -- Nothing here deletes a profile or an auth user, ever. time_entries has
 -- ON DELETE CASCADE from profiles, so deleting a person destroys their
@@ -31,7 +38,7 @@ comment on column public.profiles.has_workforce is
 -- ---------- staff_lifecycle: one row per form submission -------------------
 create table if not exists public.staff_lifecycle (
   id bigint generated always as identity primary key,
-  kind text not null check (kind in ('onboarding', 'payroll_setup', 'offboarding')),
+  kind text not null check (kind in ('onboarding', 'reinvite', 'offboarding')),
   -- Null until the Withers-time profile exists (an onboarding whose invite
   -- failed). Set null, never cascade: the record outlives the person.
   employee_id uuid references public.profiles (id) on delete set null,
@@ -55,12 +62,22 @@ create table if not exists public.staff_lifecycle_steps (
   lifecycle_id bigint not null references public.staff_lifecycle (id) on delete cascade,
   key text not null,
   seq integer not null,
-  mode text not null check (mode in ('auto', 'manual')),
-  status text not null default 'pending' check (status in ('pending', 'done', 'failed', 'skipped')),
+  mode text not null check (mode in ('auto', 'worker', 'manual')),
+  status text not null default 'pending' check (status in ('pending', 'running', 'done', 'failed', 'skipped')),
   label text not null,
   -- {"lines": [...], "link": "...", "recipient": "...", "reason": "..."}
+  -- The lines are the by-hand instructions, so a worker step can always be
+  -- done manually if the worker is down.
   detail jsonb not null default '{}'::jsonb,
-  -- What happened (auto) or the manager's note (manual).
+  -- Worker contract (mode = 'worker'): which system and what to do, plus
+  -- the fields the flow needs. Never SSN/DOB/address/bank.
+  system text check (system in ('square', 'slack', 'qbo', 'google')),
+  action text,
+  payload jsonb not null default '{}'::jsonb,
+  claimed_at timestamptz,
+  attempts integer not null default 0,
+  worker_log text,
+  -- What happened (auto / worker) or the manager's note (manual).
   result text,
   completed_by uuid references public.profiles (id) on delete set null,
   completed_at timestamptz,
@@ -68,6 +85,19 @@ create table if not exists public.staff_lifecycle_steps (
 );
 create index if not exists staff_lifecycle_steps_lifecycle_idx
   on public.staff_lifecycle_steps (lifecycle_id, seq);
+-- The worker's poll: pending worker steps, oldest first.
+create index if not exists staff_lifecycle_steps_worker_queue_idx
+  on public.staff_lifecycle_steps (status, mode, id)
+  where mode = 'worker';
+
+-- The worker claims a step with one statement so two workers never take the
+-- same one; a claim older than 30 minutes is treated as abandoned.
+--   update public.staff_lifecycle_steps
+--      set status = 'running', claimed_at = now(), attempts = attempts + 1
+--    where id = $1 and mode = 'worker'
+--      and (status = 'pending'
+--           or (status = 'running' and claimed_at < now() - interval '30 minutes'))
+--   returning *;
 
 -- ---------- updated_at ------------------------------------------------------
 create or replace function public.staff_lifecycle_touch()

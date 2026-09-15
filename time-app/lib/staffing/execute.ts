@@ -2,6 +2,11 @@
 // automatic steps in order, applies the side effects of marking a manual
 // step done, and closes the record when every step is done or skipped.
 //
+// Worker steps (Square, Slack, QuickBooks, Google) are not run here: the app
+// queues them and the bj-finance onboarding worker performs them as the
+// manager and writes the result back. A manager can also do one by hand and
+// mark it done here.
+//
 // Every write goes through the service-role client after the route has
 // already checked the caller is a manager. Reads through that client are
 // no-store (see lib/supabase/admin.ts), so a record never comes back stale.
@@ -20,12 +25,10 @@ import type {
   Profile,
 } from "@/lib/types";
 import {
+  inviteSteps,
   offboardingSteps,
-  onboardingSteps,
-  payrollSetupSteps,
+  type InviteForm,
   type OffboardingForm,
-  type OnboardingForm,
-  type PayrollSetupForm,
   type StepSpec,
 } from "./catalogue";
 
@@ -90,17 +93,15 @@ export async function createLifecycle(
   admin: SupabaseClient,
   args: {
     kind: LifecycleKind;
-    form: OnboardingForm | PayrollSetupForm | OffboardingForm;
+    form: InviteForm | OffboardingForm;
     employee_id: string | null;
     created_by: string;
   },
 ): Promise<{ id: number } | { error: string }> {
   const specs: StepSpec[] =
-    args.kind === "onboarding"
-      ? onboardingSteps(args.form as OnboardingForm)
-      : args.kind === "payroll_setup"
-        ? payrollSetupSteps(args.form as PayrollSetupForm)
-        : offboardingSteps(args.form as OffboardingForm);
+    args.kind === "offboarding"
+      ? offboardingSteps(args.form as OffboardingForm)
+      : inviteSteps(args.form as InviteForm, args.kind);
 
   const { data: rec, error } = await admin
     .from("staff_lifecycle")
@@ -122,6 +123,9 @@ export async function createLifecycle(
       mode: s.mode,
       label: s.label,
       detail: s.detail,
+      system: s.system ?? null,
+      action: s.action ?? null,
+      payload: s.payload ?? {},
     })),
   );
   if (sErr) return { error: sErr.message };
@@ -140,9 +144,9 @@ type Ctx = {
 };
 
 const handlers: Record<string, (c: Ctx) => Promise<Outcome>> = {
-  // -- onboarding ---------------------------------------------------------
+  // -- invite / re-invite ------------------------------------------------
   async withers_time_invite({ admin, rec, actor }) {
-    const f = rec.form as unknown as OnboardingForm;
+    const f = rec.form as unknown as InviteForm;
     const r = await inviteTeamMember({
       email: f.email,
       full_name: f.legal_name,
@@ -164,28 +168,10 @@ const handlers: Record<string, (c: Ctx) => Promise<Outcome>> = {
   },
 
   async fob_assign({ admin, rec }) {
-    const f = rec.form as unknown as OnboardingForm;
+    const f = rec.form as unknown as InviteForm;
     if (!rec.employee_id) return { ok: false, result: "No Withers-time profile yet" };
     if (!f.fob_card_id) return { ok: false, result: "No fob card id on the form" };
     return assignFob(admin, rec.employee_id, f.fob_card_id);
-  },
-
-  // -- payroll setup ----------------------------------------------------
-  async withers_time_rate({ admin, rec }) {
-    const f = rec.form as unknown as PayrollSetupForm;
-    const { data: p } = await admin
-      .from("profiles")
-      .select("start_date, qbo_employee_id")
-      .eq("id", f.employee_id)
-      .maybeSingle();
-    const patch: Record<string, unknown> = {};
-    if (f.pay_type === "hourly") patch.hourly_rate = f.pay_rate;
-    if (!p?.start_date) patch.start_date = f.hire_date;
-    if (f.qbo_employee_id && !p?.qbo_employee_id) patch.qbo_employee_id = f.qbo_employee_id;
-    if (Object.keys(patch).length === 0) return { ok: true, result: "Nothing to change" };
-    const { error } = await admin.from("profiles").update(patch).eq("id", f.employee_id);
-    if (error) return { ok: false, result: error.message };
-    return { ok: true, result: `Updated ${Object.keys(patch).join(", ")}` };
   },
 
   // -- offboarding -------------------------------------------------------
@@ -326,7 +312,7 @@ export async function completeManualStep(
   if (!rec) return { rec: null, error: "No such record" };
   const step = rec.steps.find((s) => s.key === key);
   if (!step) return { rec, error: "No such step" };
-  if (step.mode !== "manual") return { rec, error: "That step runs automatically" };
+  if (step.mode === "auto") return { rec, error: "That step runs automatically; use Run" };
 
   let result = (input.note ?? "").trim() || null;
 
@@ -340,7 +326,7 @@ export async function completeManualStep(
       if (!out.ok) return { rec, error: out.result };
       result = result ? `${out.result}. ${result}` : out.result;
     }
-    if (key === "qbo_employee_record" && rec.employee_id) {
+    if (key === "qbo_create_employee" && rec.employee_id) {
       const eeid = (input.qbo_employee_id ?? "").trim();
       if (eeid) {
         const { error } = await admin
@@ -379,8 +365,14 @@ export async function reopenStep(
   if (!rec) return { rec: null, error: "No such record" };
   const step = rec.steps.find((s) => s.key === key);
   if (!step) return { rec, error: "No such step" };
-  if (step.mode !== "manual") return { rec, error: "Automatic steps are re-run, not reopened" };
-  await setStep(admin, step, { status: "pending", result: null, completed_by: null, completed_at: null });
+  if (step.mode === "auto") return { rec, error: "Automatic steps are re-run, not reopened" };
+  await setStep(admin, step, {
+    status: "pending",
+    result: null,
+    completed_by: null,
+    completed_at: null,
+    claimed_at: null,
+  });
   await admin
     .from("staff_lifecycle")
     .update({ status: "open", completed_at: null })

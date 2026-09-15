@@ -154,10 +154,12 @@ export type ClockinReminderAck = {
 
 // One staffing form submission (onboarding, payroll setup, offboarding) and
 // its ordered checklist. See lib/staffing/ and supabase/migration_23.sql.
-export type LifecycleKind = "onboarding" | "payroll_setup" | "offboarding";
+export type LifecycleKind = "onboarding" | "reinvite" | "offboarding";
 export type LifecycleStatus = "open" | "done" | "cancelled";
-export type StepMode = "auto" | "manual";
-export type StepStatus = "pending" | "done" | "failed" | "skipped";
+// auto = the app does it in the request; worker = queued for the bj-finance
+// onboarding worker (browser automation as the manager); manual = checklist.
+export type StepMode = "auto" | "worker" | "manual";
+export type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
 export type StepDetail = {
   lines?: string[];
@@ -175,6 +177,13 @@ export type LifecycleStep = {
   status: StepStatus;
   label: string;
   detail: StepDetail;
+  // Worker contract (mode = "worker"); see supabase/migration_23.sql.
+  system: "square" | "slack" | "qbo" | "google" | null;
+  action: string | null;
+  payload: Record<string, unknown>;
+  claimed_at: string | null;
+  attempts: number;
+  worker_log: string | null;
   result: string | null;
   completed_by: string | null;
   completed_at: string | null;

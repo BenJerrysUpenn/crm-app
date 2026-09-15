@@ -6,6 +6,7 @@ import { getSettings } from "@/lib/settings";
 import TopBar from "@/components/TopBar";
 import TeamAdmin from "@/components/TeamAdmin";
 import type { ReminderWithAcks } from "@/components/ClockinRemindersAdmin";
+import { listLifecycles } from "@/lib/staffing/execute";
 import type { Profile, Location, ShiftType, ClockinReminder } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,9 @@ export default async function TeamPage() {
       })),
   }));
 
+  // Invite / re-invite / offboarding checklists (managers read all under RLS).
+  const records = await listLifecycles(supabase, { limit: 60 });
+
   // Map each profile id to its login email (needs the service role key).
   // Falls back to empty strings if the key isn't set (e.g. local dev).
   const emailById: Record<string, string> = {};
@@ -72,6 +76,7 @@ export default async function TeamPage() {
             shiftTypes={(shiftTypes as ShiftType[]) ?? []}
             reminders={reminders}
             employeeCount={((emps as Profile[]) ?? []).filter((e) => e.active).length}
+            records={records}
           />
         </div>
       </main>
