@@ -8,6 +8,12 @@ export type Profile = {
   hourly_rate: number | null;
   active: boolean;
   notif_prefs: Record<string, boolean> | null;
+  // Staffing forms (migration_23). See lib/staffing/.
+  preferred_name: string | null;
+  start_date: string | null; // YYYY-MM-DD
+  last_day: string | null; // YYYY-MM-DD
+  has_workforce: boolean; // finished QuickBooks Workforce self-setup
+  qbo_employee_id: string | null;
   created_at: string;
 };
 
@@ -145,3 +151,45 @@ export type ClockinReminderAck = {
   body_snapshot: string;
   user_agent: string | null;
 };
+
+// One staffing form submission (onboarding, payroll setup, offboarding) and
+// its ordered checklist. See lib/staffing/ and supabase/migration_23.sql.
+export type LifecycleKind = "onboarding" | "payroll_setup" | "offboarding";
+export type LifecycleStatus = "open" | "done" | "cancelled";
+export type StepMode = "auto" | "manual";
+export type StepStatus = "pending" | "done" | "failed" | "skipped";
+
+export type StepDetail = {
+  lines?: string[];
+  link?: string | null;
+  recipient?: string | null;
+  reason?: string | null;
+};
+
+export type LifecycleStep = {
+  id: number;
+  lifecycle_id: number;
+  key: string;
+  seq: number;
+  mode: StepMode;
+  status: StepStatus;
+  label: string;
+  detail: StepDetail;
+  result: string | null;
+  completed_by: string | null;
+  completed_at: string | null;
+};
+
+export type Lifecycle = {
+  id: number;
+  kind: LifecycleKind;
+  employee_id: string | null;
+  status: LifecycleStatus;
+  form: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+export type LifecycleWithSteps = Lifecycle & { steps: LifecycleStep[] };
