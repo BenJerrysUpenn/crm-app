@@ -32,6 +32,25 @@ source is resolved in this order:
 With neither set, the pages render a "feed not wired yet" state. No real
 financial data or secrets are ever committed to this repo.
 
+### One-click unsubscribe (`/api/unsubscribe/[token]`)
+The RFC 8058 unsubscribe control for the warm outreach lane (bj-finance #440).
+Full contract, including how `outreach/warm_sender.py` mints a matching token:
+**`docs/unsubscribe.md`**.
+
+| Name | Value |
+| --- | --- |
+| `UNSUBSCRIBE_SECRET` | HMAC signing key for unsubscribe tokens. Server-only. Generate with `openssl rand -hex 32` |
+
+Before the sender ships the headers, Alina must:
+
+1. Set `UNSUBSCRIBE_SECRET` on the Vercel project and redeploy.
+2. Set **the same value** in `/etc/bj-finance/outreach.env` on the droplet
+   (`ssh bj-box`) — the file the warm lane's units source. A mismatch means
+   every token in a delivered email fails to verify.
+3. Apply `supabase/crm/005_unsubscribe.sql` once in the Supabase SQL editor.
+
+Unset, the endpoint answers `503` rather than silently dropping opt-outs.
+
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
 
