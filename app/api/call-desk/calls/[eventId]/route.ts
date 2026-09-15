@@ -224,9 +224,8 @@ export async function PATCH(
 
     if (closeDealId !== null) {
       // Through the CRM's own stage-change path (lib/dealUpdate.ts), the same
-      // one the Kanban board and the calendar use, so boomerang_reason and
-      // is_active land the way Catering-Manager's automation expects. Never a
-      // raw stage write.
+      // one the Kanban board and the calendar use, so `is_active` lands the
+      // way Catering-Manager's automation expects. Never a raw stage write.
       const { data: deal, error: dealErr } = await supabase
         .from("deals")
         .select("id, stage, payment_status, contact_email")

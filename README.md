@@ -49,14 +49,21 @@ If the board later needs to read/write other tables (e.g. `quote_versions`,
 `invoices`), add the same policy for each.
 
 ## Stage write rules
-When a card is dragged to a new column, the app writes four fields in a single
-update:
+When a card is dragged to a new column, the app writes three fields in a single
+update (`buildStagePatch` in `lib/dealUpdate.ts`):
 
 1. `stage` = new stage
-2. `boomerang_reason` = `null` (always, to satisfy the database CHECK constraint)
-3. `is_active` = `0` for terminal stages (Event Complete, Closed Lost, Closed
+2. `is_active` = `0` for terminal stages (Event Complete, Closed Lost, Closed
    Below Min, Closed Marketing Event), else `1`
-4. `updated_at` = current ISO timestamp
+3. `updated_at` = current ISO timestamp
+
+A move into `Booked Paid` also sets `payment_status` to `Deposit Paid` when the
+row had none.
+
+The app does **not** write `deals.boomerang_reason`. The automatic boomerang
+follow-up was retired by bj-finance #333 and the column is dropped by
+Catering-Manager migration `018b`; writing it would make every stage change
+fail. Nothing in the app reads it either (bj-finance #466).
 
 Updates are optimistic: the card moves immediately, and rolls back with a toast
 if the write fails.

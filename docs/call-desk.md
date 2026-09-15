@@ -280,8 +280,8 @@ emailing)**, does exactly that and nothing more:
   Review), the sheet offers **Also close deal #N as lost**, which moves it to
   `Closed Lost` through the CRM's own stage-change path (`buildStagePatch` +
   `writeStageChange` in `lib/dealUpdate.ts` — the same code the Kanban board and
-  the calendar use), so `boomerang_reason` and `is_active` stay consistent with
-  what Catering-Manager's automation expects.
+  the calendar use), so `is_active` stays consistent with what
+  Catering-Manager's automation expects.
 - The row is **not** hidden. It stays on the desk with a "Lost (still emailed)"
   badge, Call now greyed with "Marked lost, reopen to call", and a **Reopen for
   calling** button that posts to `/api/call-desk/prospects/[id]/reopen`. The

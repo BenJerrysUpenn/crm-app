@@ -37,12 +37,7 @@ export type Deal = {
   signed_contract_total: number | null;
   deposit_amount: number | null;
   payment_status: string;
-  boomerang_reason: string | null;
   last_outbound_at: string | null;
-  next_action_verb: string | null;
-  next_action_reason: string | null;
-  next_action_category: string | null;
-  next_action_computed_at: string | null;
   is_active: number;
   archived: number;
   tax_exempt: number;

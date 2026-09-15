@@ -490,7 +490,7 @@ export default function DealDetailDrawer({
                 onClick={() => requestJob("followup")}
                 disabled={quoteRequesting || jobInFlight}
                 className="text-xs sm:text-sm bg-sky-500/20 text-sky-200 border border-sky-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Draft a polite follow-up email (uses boomerang reason: quote_reply / deposit_due / balance_due)"
+                title="Draft a polite follow-up email for this deal's current stage"
               >
                 {jobKind === "followup" && quoteRequesting
                   ? "Queueing…"
@@ -1233,7 +1233,6 @@ export default function DealDetailDrawer({
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
                   Pipeline (read only)
                 </h3>
-                <ReadOnlyRow label="Boomerang" value={current.boomerang_reason} />
                 <ReadOnlyRow
                   label="Last outbound"
                   value={fmtEasternDateTime(current.last_outbound_at)}
