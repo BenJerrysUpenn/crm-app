@@ -9,6 +9,15 @@ const PF_ROUTES = ["/money", "/dial", "/safe"];
 export async function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const { pathname } = request.nextUrl;
+
+  // One-click unsubscribe (bj-finance #440) is public by construction: the
+  // recipient is not a CRM user, the token is the authorisation, and RFC 8058
+  // §3.2 forbids the endpoint from redirecting at all — which is exactly what
+  // the auth gate below does to an anonymous request. Returned before
+  // updateSession so there is no Supabase round trip either.
+  if (pathname.startsWith("/api/unsubscribe/")) {
+    return NextResponse.next();
+  }
   const isPfRoute = PF_ROUTES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`)
   );
