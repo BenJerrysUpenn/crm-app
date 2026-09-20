@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import ClockinRemindersAdmin, { type ReminderWithAcks } from "@/components/ClockinRemindersAdmin";
-import type { Profile, Location, ShiftType } from "@/lib/types";
+import StoreHoursAdmin from "@/components/StoreHoursAdmin";
+import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } from "@/lib/types";
+import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
 
 export default function TeamAdmin({
@@ -14,6 +16,10 @@ export default function TeamAdmin({
   shiftTypes,
   reminders,
   employeeCount,
+  storeHours,
+  storeExceptions,
+  storeHoursReady,
+  holidays,
 }: {
   employees: Profile[];
   locations: Location[];
@@ -22,6 +28,10 @@ export default function TeamAdmin({
   shiftTypes: ShiftType[];
   reminders: ReminderWithAcks[];
   employeeCount: number;
+  storeHours: StoreHours[];
+  storeExceptions: StoreHoursException[];
+  storeHoursReady: boolean;
+  holidays: Holiday[];
 }) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -204,6 +214,13 @@ export default function TeamAdmin({
         employeeCount={employeeCount}
       />
 
+      <StoreHoursAdmin
+        hours={storeHours}
+        exceptions={storeExceptions}
+        holidays={holidays}
+        ready={storeHoursReady}
+      />
+
       <ShiftTypesSection shiftTypes={shiftTypes} />
 
       <LocationSection locations={locations} />
@@ -225,7 +242,12 @@ function ShiftTypesSection({ shiftTypes }: { shiftTypes: ShiftType[] }) {
     await fetch("/api/shift-types", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName.trim(), color: newColor, sort_order: shiftTypes.length + 1 }),
+      body: JSON.stringify({
+        name: newName.trim(),
+        color: newColor,
+        sort_order: shiftTypes.length + 1,
+        in_store: true,
+      }),
     });
     setBusy(false);
     setNewName("");
@@ -244,13 +266,26 @@ function ShiftTypesSection({ shiftTypes }: { shiftTypes: ShiftType[] }) {
     router.refresh();
   }
 
+  // shift_types.in_store arrives with migration 24. If the column isn't there,
+  // Supabase simply omits the key, so every row reads as undefined.
+  const inStoreSupported = shiftTypes.some((t) => t.in_store !== undefined);
+
   return (
     <section>
       <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Shift types</h2>
-      <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">These appear in the schedule dropdown and color-code shifts.</p>
+      <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+        These appear in the schedule dropdown and color-code shifts. Tick
+        <span className="font-medium"> In-store</span> for the ones that put someone behind the
+        counter — only those count toward store coverage.
+      </p>
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 space-y-3">
+        {!inStoreSupported && shiftTypes.length > 0 && (
+          <div className="text-xs rounded border border-amber-300 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 px-3 py-2">
+            In-store can&rsquo;t be set until migration 24 is applied in Supabase.
+          </div>
+        )}
         {shiftTypes.map((t) => (
-          <ShiftTypeRow key={t.id} t={t} onSave={save} onRemove={remove} />
+          <ShiftTypeRow key={t.id} t={t} onSave={save} onRemove={remove} inStoreSupported={inStoreSupported} />
         ))}
         <div className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
           <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="w-9 h-9 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700" />
@@ -266,15 +301,19 @@ function ShiftTypeRow({
   t,
   onSave,
   onRemove,
+  inStoreSupported,
 }: {
   t: ShiftType;
   onSave: (id: number, patch: Partial<ShiftType>) => void;
   onRemove: (id: number) => void;
+  inStoreSupported: boolean;
 }) {
   const [name, setName] = useState(t.name);
   const [color, setColor] = useState(t.color);
   const [ds, setDs] = useState((t.default_start ?? "").slice(0, 5));
   const [de, setDe] = useState((t.default_end ?? "").slice(0, 5));
+  // Undefined means the column isn't there yet; read that as in-store.
+  const [inStore, setInStore] = useState(t.in_store ?? true);
   return (
     <div className="flex flex-wrap items-center gap-2">
       <input type="color" value={color} onChange={(e) => { setColor(e.target.value); onSave(t.id, { color: e.target.value }); }} className="w-9 h-9 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700" />
@@ -282,6 +321,19 @@ function ShiftTypeRow({
       <span className="text-[11px] text-slate-500">default</span>
       <input type="time" value={ds} onChange={(e) => setDs(e.target.value)} onBlur={() => onSave(t.id, { default_start: ds ? ds + ":00" : null } as Partial<ShiftType>)} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-1.5 text-slate-900 dark:text-slate-100 text-xs" />
       <input type="time" value={de} onChange={(e) => setDe(e.target.value)} onBlur={() => onSave(t.id, { default_end: de ? de + ":00" : null } as Partial<ShiftType>)} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-1.5 text-slate-900 dark:text-slate-100 text-xs" />
+      <label
+        title="Counts toward store coverage"
+        className="flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-400 select-none"
+      >
+        <input
+          type="checkbox"
+          checked={inStore}
+          disabled={!inStoreSupported}
+          onChange={(e) => { setInStore(e.target.checked); onSave(t.id, { in_store: e.target.checked }); }}
+          className="disabled:opacity-40"
+        />
+        In-store
+      </label>
       <button onClick={() => onRemove(t.id)} className="text-xs text-slate-500 hover:text-rose-400 px-2">Remove</button>
     </div>
   );

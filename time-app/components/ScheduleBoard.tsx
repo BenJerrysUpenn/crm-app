@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtTime } from "@/lib/format";
+import { describeGap, describeHoursNotSet, type CoverageGap, type HoursNotSetDay } from "@/lib/coverage";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
@@ -94,6 +95,8 @@ export default function ScheduleBoard({
   const [ackingId, setAckingId] = useState<number | null>(null);
   const [howMany, setHowMany] = useState(1);
   const [annDraft, setAnnDraft] = useState<null | { title: string; message: string; start_date: string; end_date: string; color: string; business_closed: boolean; no_time_off: boolean; announcement: boolean }>(null);
+  // Set when publishing is refused because the week has uncovered opening hours.
+  const [coverage, setCoverage] = useState<null | { gaps: CoverageGap[]; hoursNotSet: HoursNotSetDay[] }>(null);
 
   async function saveAnnotation() {
     if (!annDraft) return;
@@ -240,21 +243,36 @@ export default function ScheduleBoard({
     router.refresh();
   }
 
-  async function publishWeek() {
+  // force: publish even though the week leaves the store uncovered. The server
+  // refuses with 409 first; the manager has to say so in the dialog below.
+  async function publishWeek(force = false) {
     setCopying(true);
     setCopyMsg(null);
     const res = await fetch("/api/shifts/publish-week", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ weekStart }),
+      body: JSON.stringify({ weekStart, force }),
     });
     setCopying(false);
     const j = await res.json().catch(() => ({}));
+    if (res.status === 409 && j.error === "coverage_gaps") {
+      setCoverage({ gaps: j.gaps ?? [], hoursNotSet: j.hoursNotSet ?? [] });
+      return;
+    }
     if (!res.ok) {
       setCopyMsg(j.error ?? "Publish failed.");
       return;
     }
-    setCopyMsg(j.published ? `Published ${j.published} shift${j.published === 1 ? "" : "s"} for the week.` : "No draft shifts to publish.");
+    setCoverage(null);
+    const published = j.published ? `Published ${j.published} shift${j.published === 1 ? "" : "s"} for the week.` : "No draft shifts to publish.";
+    const notSet: HoursNotSetDay[] = j.hoursNotSet ?? [];
+    setCopyMsg(
+      j.coverageSkipped
+        ? `${published} Store coverage wasn't checked.`
+        : notSet.length
+          ? `${published} Store hours aren't set for ${describeHoursNotSet(notSet)}. Set them on the Team page.`
+          : published,
+    );
     router.refresh();
   }
 
@@ -376,7 +394,7 @@ export default function ScheduleBoard({
         <div className="flex flex-wrap items-center gap-2">
           {isManager && (
             <>
-              <button onClick={publishWeek} disabled={copying} className="px-3 py-1 text-sm rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">
+              <button onClick={() => publishWeek()} disabled={copying} className="px-3 py-1 text-sm rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">
                 {copying ? "…" : "Publish week"}
               </button>
               <button onClick={autoFill} disabled={copying} className="px-2.5 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
@@ -627,6 +645,40 @@ export default function ScheduleBoard({
           </div>
         ))}
       </div>
+      )}
+
+      {coverage && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setCoverage(null)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-semibold text-slate-900 dark:text-slate-100">Nobody is in the store</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              The store is open at these times this week, and no one is scheduled in store:
+            </p>
+            <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
+              {coverage.gaps.map((g) => (
+                <li key={`${g.date}-${g.from}-${g.to}`} className="text-sm text-amber-900 dark:text-amber-200">
+                  {describeGap(g)}
+                </li>
+              ))}
+            </ul>
+            {coverage.hoursNotSet.length > 0 && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
+              </p>
+            )}
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Nothing has been published. Add or assign shifts to fill the gaps, or publish anyway.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => { setCoverage(null); publishWeek(true); }} disabled={copying} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
+                Publish anyway
+              </button>
+              <button onClick={() => setCoverage(null)} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400">
+                Go back and fix
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {annDraft && (
