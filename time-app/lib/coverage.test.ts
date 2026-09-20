@@ -15,6 +15,7 @@ import {
   describeHoursNotSet,
   nyWallClock,
   resolveOpenWindow,
+  selectWeekShifts,
   shiftSegments,
   type ClosedDateRange,
   type CoverageShift,
@@ -529,6 +530,35 @@ test("DST fall-back: the repeated hour is ambiguous, and this pins the behaviour
     }).gaps,
     [{ date: "2026-11-01", from: "01:30", to: "02:00" }],
   );
+});
+
+// --- which shifts belong to the week ----------------------------------------
+
+test("selectWeekShifts publishes only in-week drafts but checks the spill-in too", () => {
+  const rows = [
+    { tag: "draft-in-week", starts_at: edt(TUE, "09:00"), ends_at: edt(TUE, "17:00"), published: false },
+    { tag: "published-in-week", starts_at: edt(WED, "09:00"), ends_at: edt(WED, "17:00"), published: true },
+    { tag: "spill-in", starts_at: edt("2026-09-19", "22:00"), ends_at: edt(SUN, "06:00"), published: true },
+    { tag: "draft-before-week", starts_at: edt("2026-09-19", "09:00"), ends_at: edt("2026-09-19", "17:00"), published: false },
+    { tag: "draft-after-week", starts_at: edt("2026-09-27", "09:00"), ends_at: edt("2026-09-27", "17:00"), published: false },
+    { tag: "spill-out", starts_at: edt(SAT, "20:00"), ends_at: edt("2026-09-27", "02:00"), published: false },
+  ];
+  const { publishable, forCoverage } = selectWeekShifts(rows, WEEK);
+
+  // Publishing is untouched by the wider window: drafts starting in the week.
+  assert.deepEqual(publishable.map((r) => r.tag), ["draft-in-week", "spill-out"]);
+  // The check also sees the already-published ones and the overnight spill-in.
+  assert.deepEqual(forCoverage.map((r) => r.tag), [
+    "draft-in-week",
+    "published-in-week",
+    "spill-in",
+    "spill-out",
+  ]);
+});
+
+test("selectWeekShifts treats a missing published flag as a draft", () => {
+  const rows = [{ tag: "no-flag", starts_at: edt(TUE, "09:00"), ends_at: edt(TUE, "17:00") }];
+  assert.equal(selectWeekShifts(rows, WEEK).publishable.length, 1);
 });
 
 // --- plain words ------------------------------------------------------------

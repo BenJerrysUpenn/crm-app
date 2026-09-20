@@ -15,6 +15,21 @@ const PRE_DEPARTURE_MIN = 60; // start this many minutes before departure
 const DEFAULT_STAFF = 1;
 const DEFAULT_LABOR_HOURS = 4;
 
+// At or above this many hours a shift is not credible and must be looked at by
+// a person. Deal 25156 (Terrain, 2026-09-27) had labor_hours = 26, which became
+// shift 350 running 13:30 on the 27th to 15:30 on the 28th, and it was
+// published: no layer between the deal and the schedule ever asked whether a
+// human could work it.
+//
+// We still create the shifts — the crew must not lose their slot over a bad
+// number, and guessing a "sensible" length would quietly hide the error. We
+// just refuse to do it silently.
+//
+// The time-app repeats this number in time-app/lib/shiftChecks.ts. The two are
+// separate Next apps (the root tsconfig excludes time-app/), so they cannot
+// share a module. Change both together.
+const LONG_SHIFT_HOURS = 15;
+
 // The stages at which a booked event should have crew shifts.
 const BOOKED_STAGES = ["Booked Unpaid", "Booked Paid"];
 
@@ -82,9 +97,12 @@ function nyWallTimeToUTCISO(dateStr: string, timeStr: string): string | null {
 // that's our guarantee the timing is real. No departure_time => no shift yet
 // (returns null; the caller skips and a later reconcile picks it up once the
 // picklist runs).
+//
+// `hours` is the length the deal asked for, handed back so the caller can
+// decide what to do about an implausible one. Nothing here clamps it.
 export function computeShiftWindow(
   deal: DealTimes,
-): { startISO: string; endISO: string } | null {
+): { startISO: string; endISO: string; hours: number } | null {
   const date = (deal.event_date ?? "").trim();
   const departure = (deal.departure_time ?? "").trim();
   if (!date || !departure) return null;
@@ -99,11 +117,25 @@ export function computeShiftWindow(
 
   const start = new Date(new Date(baseISO).getTime() - PRE_DEPARTURE_MIN * 60000);
   const end = new Date(start.getTime() + laborHours * 60 * 60000);
-  return { startISO: start.toISOString(), endISO: end.toISOString() };
+  return { startISO: start.toISOString(), endISO: end.toISOString(), hours: laborHours };
+}
+
+// True when the deal is asking for a shift no one could work.
+export function isLongShiftHours(hours: number): boolean {
+  return hours >= LONG_SHIFT_HOURS;
+}
+
+// The marker that goes at the front of the shift notes, and into the API
+// response, when the deal's hours are not credible. Deliberately shouty and
+// deliberately first in the notes, so it is the first thing a manager reads on
+// the shift card.
+export function longShiftWarning(hours: number): string {
+  const shown = Number.isInteger(hours) ? String(hours) : String(Number(hours.toFixed(2)));
+  return `CHECK HOURS: deal says ${shown}h per person.`;
 }
 
 export type CreateResult =
-  | { created: number; skipped?: false }
+  | { created: number; skipped?: false; warning?: string }
   | { created: 0; skipped: true; reason: string };
 
 // Create the draft shifts for a booked deal. Idempotent by deal_id.
@@ -136,7 +168,15 @@ export async function createDraftShiftsForDeal(
       : DEFAULT_STAFF;
 
   const where = deal.venue_name || deal.company || "Catering event";
+  // labor_hours is PER STAFF MEMBER: every crew member gets their own shift of
+  // that length. A plausible number is a working day; 26 is not one, and the
+  // shape of the error (roughly a day's work times a small crew) is what a
+  // total-hours figure would look like if it were written into a per-person
+  // field. We do not assume that — we flag it and let a person decide.
+  const longShift = isLongShiftHours(win.hours);
+  const marker = longShift ? longShiftWarning(win.hours) : null;
   const noteBits = [
+    marker,
     `Auto-created from booked deal #${deal.id}`,
     where,
     deal.venue_address || null,
@@ -164,7 +204,10 @@ export async function createDraftShiftsForDeal(
     .upsert(rows, { onConflict: "deal_id,deal_slot", ignoreDuplicates: true })
     .select("id");
   if (error) throw new Error(error.message);
-  return { created: data?.length ?? 0 };
+  return {
+    created: data?.length ?? 0,
+    ...(marker ? { warning: `Deal #${deal.id}: ${marker}` } : {}),
+  };
 }
 
 // Columns we need off a deal to build its shifts. Shared by the instant trigger
@@ -178,7 +221,7 @@ export const DEAL_SHIFT_COLUMNS =
 // generated AFTER booking (the moment the stage-change trigger can't catch).
 export async function reconcileBookedDeals(
   admin: SupabaseClient,
-): Promise<{ scanned: number; created: number; deals: number }> {
+): Promise<{ scanned: number; created: number; deals: number; warnings: string[] }> {
   const { data: deals, error } = await admin
     .from("deals")
     .select(DEAL_SHIFT_COLUMNS)
@@ -188,12 +231,16 @@ export async function reconcileBookedDeals(
 
   let created = 0;
   let touched = 0;
+  // Deals whose hours are not credible. Carried out to the cron response so the
+  // sweep cannot create an impossible shift without leaving a trace.
+  const warnings: string[] = [];
   for (const deal of (deals ?? []) as DealTimes[]) {
     const r = await createDraftShiftsForDeal(admin, deal).catch(() => null);
     if (r && !("skipped" in r && r.skipped) && r.created > 0) {
       created += r.created;
       touched += 1;
+      if (r.warning) warnings.push(r.warning);
     }
   }
-  return { scanned: deals?.length ?? 0, created, deals: touched };
+  return { scanned: deals?.length ?? 0, created, deals: touched, warnings };
 }

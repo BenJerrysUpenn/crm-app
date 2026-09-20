@@ -4,6 +4,7 @@ import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import {
   checkWeekCoverage,
+  selectWeekShifts,
   type ClosedDateRange,
   type CoverageResult,
   type CoverageShift,
@@ -11,17 +12,14 @@ import {
   type StoreHoursException,
   type StoreHoursRow,
 } from "@/lib/coverage";
+import { findLongShifts } from "@/lib/shiftChecks";
 import { isMissingTable, isMissingInStoreColumn } from "@/lib/storeHours";
 import { NextResponse } from "next/server";
 
-const TZ = "America/New_York";
 function addDays(d: string, n: number) {
   const x = new Date(d + "T00:00:00Z");
   x.setUTCDate(x.getUTCDate() + n);
   return x.toISOString().slice(0, 10);
-}
-function nyDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
 }
 
 type Supabase = ReturnType<typeof createClient>;
@@ -130,13 +128,21 @@ async function loadClosedRanges(supabase: Supabase, weekStart: string, lastDate:
 // Publish every draft shift in the given week.
 // Body: { weekStart: "YYYY-MM-DD", force?: boolean }
 //
-// Before anything is published we check that in-store shifts cover every hour
-// the store is open that week. Gaps stop the publish with a 409 unless the
-// manager sends force: true — a hole in the published schedule means nobody is
-// behind the counter with the door open, which is what this guards against.
+// Two checks run before anything is published:
 //
-// force: true is the manager's override. It covers both "publish anyway
-// despite the gaps" and "publish even though the check could not run".
+//  1. Coverage — do in-store shifts cover every hour the store is open? A hole
+//     in the published schedule means nobody behind the counter with the door
+//     open, which is the bug this route was built to stop.
+//  2. Length — is any shift 15+ hours? Catering deal 25156 produced a published
+//     26-hour shift because the deal's labor_hours became the shift's length
+//     unquestioned. This check needs nothing from migration 24, so it runs even
+//     when the store-hours tables are missing.
+//
+// Either one stops the publish with a 409 carrying both results.
+//
+// force: true is the manager's override. It covers "publish despite the gaps",
+// "publish despite the long shift", and "publish even though the coverage check
+// could not run".
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile || profile.role !== "manager")
@@ -164,19 +170,18 @@ export async function POST(request: Request) {
     .lt("starts_at", qEnd);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  // What gets published: unchanged — drafts whose NY start date is in the week.
-  const inWeek = (windowShifts ?? []).filter((s) => {
-    const d = nyDate(s.starts_at as string);
-    return !s.published && d >= weekStart && d < weekEnd;
-  });
+  // publishable: exactly what this route has always published (unpublished,
+  // starting in the week). forCoverage: wider, so an overnight shift spilling
+  // in from Saturday counts towards Sunday morning. See selectWeekShifts.
+  const { publishable: inWeek, forCoverage: coverageShifts } = selectWeekShifts(windowShifts ?? [], weekStart);
 
-  // What the check sees: anything whose NY span touches the week at all, so an
-  // overnight shift spilling in from Saturday counts towards Sunday morning.
-  const coverageShifts = (windowShifts ?? []).filter(
-    (s) => nyDate(s.starts_at as string) < weekEnd && nyDate(s.ends_at as string) >= weekStart,
-  );
+  // Length is judged on the same set as coverage, and needs no store-hours
+  // tables — so a 26-hour shift is caught even on an unmigrated database.
+  const longShifts = findLongShifts(coverageShifts);
 
   const load = await loadCoverageInputs(supabase, weekStart, weekEnd);
+  // The outage comes first: it is the one the manager can do something about by
+  // waiting. Once it clears they see whatever the checks actually found.
   if (load.status === "unavailable" && !force) {
     return NextResponse.json({ error: "coverage_unavailable" }, { status: 503 });
   }
@@ -192,12 +197,19 @@ export async function POST(request: Request) {
       shifts: coverageShifts as CoverageShift[],
       closedRanges,
     });
-    if (coverage.gaps.length > 0 && !force) {
-      return NextResponse.json(
-        { error: "coverage_gaps", gaps: coverage.gaps, hoursNotSet: coverage.hoursNotSet },
-        { status: 409 },
-      );
-    }
+  }
+
+  const gaps = coverage?.gaps ?? [];
+  if (!force && (gaps.length > 0 || longShifts.length > 0)) {
+    return NextResponse.json(
+      {
+        error: "schedule_checks",
+        gaps,
+        longShifts,
+        hoursNotSet: coverage?.hoursNotSet ?? [],
+      },
+      { status: 409 },
+    );
   }
 
   // Days whose hours nobody has set never block the publish; they ride along on

@@ -293,6 +293,36 @@ function uncovered(opens: number, closes: number, merged: { from: number; to: nu
   return gaps.filter((g) => g.to > g.from);
 }
 
+/**
+ * Split a padded query window into the two sets "publish week" needs.
+ *
+ *  - `publishable` — the drafts this publish will flip live: unpublished, and
+ *    starting inside the week in New York. Exactly the set the route has always
+ *    published; widening the query window must never widen this.
+ *  - `forCoverage` — everything whose New York span touches the week at all,
+ *    published or not. Wider on purpose: a shift starting Saturday evening and
+ *    running into Sunday morning is not publishable here but is certainly
+ *    standing in the store, and a check that could not see it would invent a
+ *    gap at Sunday open.
+ *
+ * Pure, so the distinction can be tested without a database.
+ */
+export function selectWeekShifts<T extends { starts_at: string; ends_at: string; published?: boolean | null }>(
+  shifts: T[],
+  weekStart: string,
+): { publishable: T[]; forCoverage: T[] } {
+  const weekEnd = addDays(weekStart, 7);
+  const publishable: T[] = [];
+  const forCoverage: T[] = [];
+  for (const shift of shifts) {
+    const startDate = nyWallClock(shift.starts_at).date;
+    const endDate = nyWallClock(shift.ends_at).date;
+    if (!shift.published && startDate >= weekStart && startDate < weekEnd) publishable.push(shift);
+    if (startDate < weekEnd && endDate >= weekStart) forCoverage.push(shift);
+  }
+  return { publishable, forCoverage };
+}
+
 // ---------------------------------------------------------------------------
 // The check
 // ---------------------------------------------------------------------------

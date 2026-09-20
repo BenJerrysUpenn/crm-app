@@ -28,6 +28,12 @@ export async function GET(request: Request) {
   try {
     const admin = createAdminClient();
     const result = await reconcileBookedDeals(admin);
+    // A deal asking for a 15+ hour shift per person is almost certainly a bad
+    // number upstream. The shifts are created either way, but the sweep says so
+    // — in the response and in the cron log, which is where anyone looks first.
+    if (result.warnings.length > 0) {
+      console.warn("[catering-shifts] implausible shift hours:", result.warnings.join(" | "));
+    }
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     return NextResponse.json(
