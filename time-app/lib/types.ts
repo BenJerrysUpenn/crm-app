@@ -107,7 +107,34 @@ export type ShiftType = {
   active: boolean;
   default_start: string | null;
   default_end: string | null;
+  // Does this kind of shift put someone behind the counter? Only in-store
+  // types count toward store coverage (Catering, Marketing and Staff Meeting
+  // do not). Optional because the column arrives in migration 24 — undefined
+  // means the column is not there yet and should be read as true.
+  in_store?: boolean | null;
   created_at: string;
+};
+
+// The store's normal opening hours for one weekday. One row per weekday, and a
+// weekday with no row means "hours not set" rather than "closed".
+export type StoreHours = {
+  weekday: number; // 0 = Sunday .. 6 = Saturday, matching Date#getDay
+  is_closed: boolean;
+  opens: string | null; // "HH:MM:SS"
+  closes: string | null;
+  updated_at: string | null;
+};
+
+// A one-off override for a single date: a holiday closure, or special hours.
+// Never changes the weekly pattern — delete the row and the date goes back to
+// its normal weekday hours.
+export type StoreHoursException = {
+  date: string; // "YYYY-MM-DD"
+  label: string | null;
+  is_closed: boolean;
+  opens: string | null; // "HH:MM:SS", when open on special hours
+  closes: string | null;
+  created_at: string | null;
 };
 
 export type Annotation = {

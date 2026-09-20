@@ -2,8 +2,17 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
+import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { NextResponse } from "next/server";
 
+// PATCH: edit a shift (manager only). Body carries any of employee_id,
+// location_id, starts_at, ends_at, position, notes, published, plus
+// confirmLong.
+//
+// An edit that leaves the shift 15+ hours long is refused with 409 unless the
+// body carries confirmLong: true. The check is run against the shift as it will
+// be, not as the body describes it — moving only the end time still has to be
+// judged against the stored start.
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } },
@@ -15,12 +24,26 @@ export async function PATCH(
   const body = await request.json();
   const supabase = createClient();
 
-  // Detect a publish transition to fire a notification.
+  // Detect a publish transition to fire a notification, and get the times the
+  // patch is being applied on top of.
   const { data: before } = await supabase
     .from("shifts")
-    .select("published")
+    .select("published, starts_at, ends_at")
     .eq("id", params.id)
     .single();
+
+  const startsAt = (("starts_at" in body ? body.starts_at : before?.starts_at) ?? "") as string;
+  const endsAt = (("ends_at" in body ? body.ends_at : before?.ends_at) ?? "") as string;
+  if (startsAt && endsAt) {
+    const startMs = new Date(startsAt).getTime();
+    const endMs = new Date(endsAt).getTime();
+    if (Number.isNaN(startMs) || Number.isNaN(endMs))
+      return NextResponse.json({ error: "A start and end time are required." }, { status: 400 });
+    if (endMs <= startMs)
+      return NextResponse.json({ error: "The end time must be after the start time." }, { status: 400 });
+    if (isLongShift(startsAt, endsAt) && body.confirmLong !== true)
+      return NextResponse.json({ error: "long_shift", hours: shiftHours(startsAt, endsAt) }, { status: 409 });
+  }
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const k of ["employee_id", "location_id", "starts_at", "ends_at", "position", "notes", "published"]) {

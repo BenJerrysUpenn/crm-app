@@ -42,6 +42,8 @@ export async function POST(
 
   try {
     const result = await createDraftShiftsForDeal(admin, deal);
+    // Carries `warning` through when the deal asked for an implausible number
+    // of hours per person; the shifts are still created.
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     return NextResponse.json(

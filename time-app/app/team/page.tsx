@@ -3,10 +3,20 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
+import { dayKey } from "@/lib/format";
+import { addMonths, holidaysBetween } from "@/lib/holidays";
+import { isMissingTable } from "@/lib/storeHours";
 import TopBar from "@/components/TopBar";
 import TeamAdmin from "@/components/TeamAdmin";
 import type { ReminderWithAcks } from "@/components/ClockinRemindersAdmin";
-import type { Profile, Location, ShiftType, ClockinReminder } from "@/lib/types";
+import type {
+  Profile,
+  Location,
+  ShiftType,
+  ClockinReminder,
+  StoreHours,
+  StoreHoursException,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +58,34 @@ export default async function TeamPage() {
       })),
   }));
 
+  // Store hours and the one-off overrides on top of them. Migration 24 creates
+  // these tables; until the owner applies it by hand the queries come back with
+  // "relation does not exist", which we treat as "not set up yet" so the rest
+  // of the Team page still renders.
+  const today = dayKey(new Date().toISOString());
+  let storeHoursReady = true;
+  let storeHours: StoreHours[] = [];
+  let storeExceptions: StoreHoursException[] = [];
+  try {
+    const hoursRes = await supabase.from("store_hours").select("*").order("weekday");
+    const excRes = await supabase
+      .from("store_hours_exceptions")
+      .select("*")
+      .gte("date", today)
+      .order("date");
+    if (isMissingTable(hoursRes.error) || isMissingTable(excRes.error)) {
+      storeHoursReady = false;
+    } else {
+      storeHours = (hoursRes.data as StoreHours[]) ?? [];
+      storeExceptions = (excRes.data as StoreHoursException[]) ?? [];
+    }
+  } catch {
+    storeHoursReady = false;
+  }
+  // Computed here rather than in the client component so the list is identical
+  // on both sides of hydration.
+  const holidays = holidaysBetween(today, addMonths(today, 6));
+
   // Map each profile id to its login email (needs the service role key).
   // Falls back to empty strings if the key isn't set (e.g. local dev).
   const emailById: Record<string, string> = {};
@@ -72,6 +110,10 @@ export default async function TeamPage() {
             shiftTypes={(shiftTypes as ShiftType[]) ?? []}
             reminders={reminders}
             employeeCount={((emps as Profile[]) ?? []).filter((e) => e.active).length}
+            storeHours={storeHours}
+            storeExceptions={storeExceptions}
+            storeHoursReady={storeHoursReady}
+            holidays={holidays}
           />
         </div>
       </main>

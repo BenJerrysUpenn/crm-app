@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtTime } from "@/lib/format";
+import { describeGap, describeHoursNotSet, type CoverageGap, type HoursNotSetDay } from "@/lib/coverage";
+import { describeLongShift, formatHours, type LongShift } from "@/lib/shiftChecks";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
@@ -94,6 +96,16 @@ export default function ScheduleBoard({
   const [ackingId, setAckingId] = useState<number | null>(null);
   const [howMany, setHowMany] = useState(1);
   const [annDraft, setAnnDraft] = useState<null | { title: string; message: string; start_date: string; end_date: string; color: string; business_closed: boolean; no_time_off: boolean; announcement: boolean }>(null);
+  // Set when publishing is refused: either the week fails a schedule check
+  // (uncovered opening hours, or a shift nobody could work), or the coverage
+  // check could not run at all.
+  const [coverage, setCoverage] = useState<
+    | null
+    | { kind: "checks"; gaps: CoverageGap[]; longShifts: LongShift[]; hoursNotSet: HoursNotSetDay[] }
+    | { kind: "unavailable" }
+  >(null);
+  // Hours of a shift the manager is saving that is long enough to query.
+  const [longSave, setLongSave] = useState<number | null>(null);
 
   async function saveAnnotation() {
     if (!annDraft) return;
@@ -240,21 +252,45 @@ export default function ScheduleBoard({
     router.refresh();
   }
 
-  async function publishWeek() {
+  // force: publish even though the week leaves the store uncovered. The server
+  // refuses with 409 first; the manager has to say so in the dialog below.
+  async function publishWeek(force = false) {
     setCopying(true);
     setCopyMsg(null);
     const res = await fetch("/api/shifts/publish-week", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ weekStart }),
+      body: JSON.stringify({ weekStart, force }),
     });
     setCopying(false);
     const j = await res.json().catch(() => ({}));
+    if (res.status === 409 && j.error === "schedule_checks") {
+      setCoverage({
+        kind: "checks",
+        gaps: j.gaps ?? [],
+        longShifts: j.longShifts ?? [],
+        hoursNotSet: j.hoursNotSet ?? [],
+      });
+      return;
+    }
+    if (res.status === 503 && j.error === "coverage_unavailable") {
+      setCoverage({ kind: "unavailable" });
+      return;
+    }
     if (!res.ok) {
       setCopyMsg(j.error ?? "Publish failed.");
       return;
     }
-    setCopyMsg(j.published ? `Published ${j.published} shift${j.published === 1 ? "" : "s"} for the week.` : "No draft shifts to publish.");
+    setCoverage(null);
+    const published = j.published ? `Published ${j.published} shift${j.published === 1 ? "" : "s"} for the week.` : "No draft shifts to publish.";
+    const notSet: HoursNotSetDay[] = j.hoursNotSet ?? [];
+    setCopyMsg(
+      j.coverageSkipped
+        ? `${published} Store coverage wasn't checked.`
+        : notSet.length
+          ? `${published} Store hours aren't set for ${describeHoursNotSet(notSet)}. Set them on the Team page.`
+          : published,
+    );
     router.refresh();
   }
 
@@ -286,6 +322,7 @@ export default function ScheduleBoard({
 
   function newShift(dateStr: string, employeeId?: string) {
     setErr(null);
+    setLongSave(null);
     setHowMany(1);
     setDraft({
       employee_id: employeeId ?? employees[0]?.id ?? "",
@@ -300,6 +337,7 @@ export default function ScheduleBoard({
 
   function editShift(s: ShiftWithEmployee) {
     setErr(null);
+    setLongSave(null);
     setDraft({
       id: s.id,
       employee_id: s.employee_id ?? "",
@@ -312,7 +350,9 @@ export default function ScheduleBoard({
     });
   }
 
-  async function save() {
+  // confirmLong: the manager has seen how long this shift is and meant it. The
+  // server refuses a 15+ hour shift without it.
+  async function save(confirmLong = false) {
     if (!draft) return;
     const start = new Date(draft.starts_at);
     const end = new Date(draft.ends_at);
@@ -326,6 +366,7 @@ export default function ScheduleBoard({
     }
     setBusy(true);
     setErr(null);
+    if (!confirmLong) setLongSave(null);
     try {
       const payload = {
         employee_id: draft.employee_id || null,
@@ -335,6 +376,7 @@ export default function ScheduleBoard({
         position: draft.position || null,
         notes: draft.notes || null,
         published: draft.published,
+        confirmLong,
       };
       // Open shifts can be created in bulk (How Many).
       const count = !draft.id && !draft.employee_id ? Math.max(1, Math.min(20, howMany)) : 1;
@@ -347,11 +389,16 @@ export default function ScheduleBoard({
         });
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
+          if (res.status === 409 && j.error === "long_shift") {
+            setLongSave(typeof j.hours === "number" ? j.hours : 0);
+            return;
+          }
           setErr(j.error ?? `Save failed (${res.status}).`);
           return;
         }
       }
       setDraft(null);
+      setLongSave(null);
       router.refresh();
     } catch (e) {
       setErr((e as Error)?.message ?? "Network error.");
@@ -376,7 +423,7 @@ export default function ScheduleBoard({
         <div className="flex flex-wrap items-center gap-2">
           {isManager && (
             <>
-              <button onClick={publishWeek} disabled={copying} className="px-3 py-1 text-sm rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">
+              <button onClick={() => publishWeek()} disabled={copying} className="px-3 py-1 text-sm rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">
                 {copying ? "…" : "Publish week"}
               </button>
               <button onClick={autoFill} disabled={copying} className="px-2.5 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
@@ -629,6 +676,78 @@ export default function ScheduleBoard({
       </div>
       )}
 
+      {coverage && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setCoverage(null)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+              {coverage.kind !== "checks"
+                ? "Store coverage couldn't be checked"
+                : coverage.gaps.length === 0
+                  ? "Check this shift before publishing"
+                  : "Nobody is in the store"}
+            </h2>
+            {coverage.kind === "checks" ? (
+              <>
+                {coverage.gaps.length > 0 && (
+                  <>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      The store is open at these times this week, and no one is scheduled in store:
+                    </p>
+                    <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
+                      {coverage.gaps.map((g) => (
+                        <li key={`${g.date}-${g.from}-${g.to}`} className="text-sm text-amber-900 dark:text-amber-200">
+                          {describeGap(g)}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {coverage.longShifts.length > 0 && (
+                  <>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      {coverage.longShifts.length === 1 ? "This shift is" : "These shifts are"} too long to be right:
+                    </p>
+                    <ul className="space-y-1 rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2">
+                      {coverage.longShifts.map((s, i) => (
+                        <li key={s.id ?? `${s.starts_at}-${i}`} className="text-sm text-rose-900 dark:text-rose-200">
+                          {describeLongShift(s)}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {coverage.hoursNotSet.length > 0 && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
+                  </p>
+                )}
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Nothing has been published. Fix the shifts above, or publish anyway.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Something went wrong reading the store hours, so we couldn&apos;t tell whether anyone is scheduled for
+                every open hour this week. Nothing has been published. Try again in a moment, or publish without the
+                check.
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => { setCoverage(null); publishWeek(true); }} disabled={copying} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
+                Publish anyway
+              </button>
+              <button
+                onClick={() => { if (coverage.kind === "unavailable") { setCoverage(null); publishWeek(); } else setCoverage(null); }}
+                disabled={copying}
+                className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50"
+              >
+                {coverage.kind === "checks" ? "Go back and fix" : "Try again"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {annDraft && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setAnnDraft(null)}>
           <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
@@ -749,13 +868,20 @@ export default function ScheduleBoard({
               <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
             </label>
             {err && <div className="text-sm text-rose-300">{err}</div>}
+            {longSave !== null && (
+              <div className="rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2 text-sm text-rose-900 dark:text-rose-200">
+                This shift is {formatHours(longSave)} hours long. Save anyway?
+              </div>
+            )}
             <div className="flex items-center justify-between pt-2">
               {draft.id ? (
                 <button onClick={remove} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
               ) : <span />}
               <div className="flex gap-2">
                 <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-                <button onClick={save} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">{busy ? "Submitting…" : "Submit"}</button>
+                <button onClick={() => save(longSave !== null)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
+                  {busy ? "Submitting…" : longSave !== null ? "Save anyway" : "Submit"}
+                </button>
               </div>
             </div>
           </div>
