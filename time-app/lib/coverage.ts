@@ -230,7 +230,22 @@ type DaySegment = { date: string; from: number; to: number };
  * Break a shift into per-NY-date wall-clock segments. A shift that runs past
  * midnight contributes to two dates (or more, though nobody works a 48-hour
  * shift); a shift ending exactly at midnight contributes only to the day it
- * started.
+ * started. A shift that starts before the week and ends inside it therefore
+ * still covers the part that lands in the week — the caller just has to hand
+ * it in.
+ *
+ * Known limitation, on the fall-back morning only. 01:00–02:00 happens twice
+ * that day, and a wall-clock segment cannot say which pass it means. A shift
+ * from 00:00 EDT to 01:30 EST is two and a half real hours but reads here as
+ * wall clock 00:00–01:30, so against a 00:00–02:00 window it reports a gap of
+ * 01:30–02:00. That gap is real in wall-clock terms — those thirty minutes on
+ * the second pass genuinely are unstaffed — but the same segment would be
+ * produced by a shift that ended at 01:30 EDT and worked an hour less. The
+ * alternative (deriving the end from elapsed minutes when the two offsets
+ * differ) trades this for a worse error: it would place that shift's end at
+ * wall clock 02:30 and claim cover of an hour nobody worked. Wall clock is the
+ * unit opening hours are written in, so wall clock is what we compare. The shop
+ * opens late morning, so the ambiguous window is never trading time anyway.
  */
 export function shiftSegments(shift: CoverageShift): DaySegment[] {
   const start = nyWallClock(shift.starts_at);

@@ -95,8 +95,11 @@ export default function ScheduleBoard({
   const [ackingId, setAckingId] = useState<number | null>(null);
   const [howMany, setHowMany] = useState(1);
   const [annDraft, setAnnDraft] = useState<null | { title: string; message: string; start_date: string; end_date: string; color: string; business_closed: boolean; no_time_off: boolean; announcement: boolean }>(null);
-  // Set when publishing is refused because the week has uncovered opening hours.
-  const [coverage, setCoverage] = useState<null | { gaps: CoverageGap[]; hoursNotSet: HoursNotSetDay[] }>(null);
+  // Set when publishing is refused: either the week leaves the store uncovered,
+  // or the coverage check could not run at all.
+  const [coverage, setCoverage] = useState<
+    null | { kind: "gaps"; gaps: CoverageGap[]; hoursNotSet: HoursNotSetDay[] } | { kind: "unavailable" }
+  >(null);
 
   async function saveAnnotation() {
     if (!annDraft) return;
@@ -256,7 +259,11 @@ export default function ScheduleBoard({
     setCopying(false);
     const j = await res.json().catch(() => ({}));
     if (res.status === 409 && j.error === "coverage_gaps") {
-      setCoverage({ gaps: j.gaps ?? [], hoursNotSet: j.hoursNotSet ?? [] });
+      setCoverage({ kind: "gaps", gaps: j.gaps ?? [], hoursNotSet: j.hoursNotSet ?? [] });
+      return;
+    }
+    if (res.status === 503 && j.error === "coverage_unavailable") {
+      setCoverage({ kind: "unavailable" });
       return;
     }
     if (!res.ok) {
@@ -650,31 +657,47 @@ export default function ScheduleBoard({
       {coverage && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setCoverage(null)}>
           <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">Nobody is in the store</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              The store is open at these times this week, and no one is scheduled in store:
-            </p>
-            <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
-              {coverage.gaps.map((g) => (
-                <li key={`${g.date}-${g.from}-${g.to}`} className="text-sm text-amber-900 dark:text-amber-200">
-                  {describeGap(g)}
-                </li>
-              ))}
-            </ul>
-            {coverage.hoursNotSet.length > 0 && (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
+            <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+              {coverage.kind === "gaps" ? "Nobody is in the store" : "Store coverage couldn't be checked"}
+            </h2>
+            {coverage.kind === "gaps" ? (
+              <>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  The store is open at these times this week, and no one is scheduled in store:
+                </p>
+                <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
+                  {coverage.gaps.map((g) => (
+                    <li key={`${g.date}-${g.from}-${g.to}`} className="text-sm text-amber-900 dark:text-amber-200">
+                      {describeGap(g)}
+                    </li>
+                  ))}
+                </ul>
+                {coverage.hoursNotSet.length > 0 && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
+                  </p>
+                )}
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Nothing has been published. Add or assign shifts to fill the gaps, or publish anyway.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Something went wrong reading the store hours, so we couldn&apos;t tell whether anyone is scheduled for
+                every open hour this week. Nothing has been published. Try again in a moment, or publish without the
+                check.
               </p>
             )}
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Nothing has been published. Add or assign shifts to fill the gaps, or publish anyway.
-            </p>
             <div className="flex justify-end gap-2 pt-1">
               <button onClick={() => { setCoverage(null); publishWeek(true); }} disabled={copying} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
                 Publish anyway
               </button>
-              <button onClick={() => setCoverage(null)} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400">
-                Go back and fix
+              <button
+                onClick={() => { if (coverage.kind === "unavailable") { setCoverage(null); publishWeek(); } else setCoverage(null); }}
+                disabled={copying}
+                className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50"
+              >
+                {coverage.kind === "gaps" ? "Go back and fix" : "Try again"}
               </button>
             </div>
           </div>

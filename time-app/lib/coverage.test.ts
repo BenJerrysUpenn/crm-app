@@ -204,6 +204,26 @@ test("a shift with an unrecognised position counts as in-store", () => {
   assert.deepEqual(result.gaps, []);
 });
 
+test("a shift spilling in from the night before covers the week's first morning", () => {
+  // Saturday 22:00 through Sunday 10:00. The week starts on that Sunday, so the
+  // shift is not publishable here but it is certainly standing in the store.
+  const spillIn: CoverageShift = {
+    starts_at: edt("2026-09-19", "22:00"),
+    ends_at: edt(SUN, "10:00"),
+    employee_id: "emp-1",
+    position: "PENN Closer",
+  };
+  const result = check({
+    shifts: [spillIn, shift(SUN, "10:00", "17:00"), ...without(SUN, fullWeekShifts())],
+  });
+  assert.deepEqual(result.gaps, []);
+
+  // Without it, Sunday morning is a hole — which is the false gap the route
+  // would report if it filtered the week by start date alone.
+  const withoutSpillIn = check({ shifts: [shift(SUN, "10:00", "17:00"), ...without(SUN, fullWeekShifts())] });
+  assert.deepEqual(withoutSpillIn.gaps, [{ date: SUN, from: "09:00", to: "10:00" }]);
+});
+
 test("shifts outside the week are ignored", () => {
   const result = check({
     shifts: [...fullWeekShifts(), shift("2026-09-19", "09:00", "17:00"), shift("2026-09-27", "09:00", "17:00")],
@@ -483,6 +503,31 @@ test("DST spring-forward (2027-03-14): the missing hour is not a gap", () => {
     checkWeekCoverage({ weekStart: "2027-03-14", storeHours, exceptions: [], shiftTypes: SHIFT_TYPES, shifts: [short] })
       .gaps,
     [{ date: "2027-03-14", from: "04:00", to: "06:00" }],
+  );
+});
+
+test("DST fall-back: the repeated hour is ambiguous, and this pins the behaviour", () => {
+  // 00:00 EDT to 01:30 EST is two and a half real hours, but wall clock cannot
+  // distinguish the two passes through 01:00–02:00, so it reads as 00:00–01:30.
+  // See the note on shiftSegments: the reported 01:30–02:00 gap is real in wall
+  // clock terms, and the alternative reading is worse. Documented, not fixed.
+  const storeHours: StoreHoursRow[] = [{ weekday: 0, is_closed: false, opens: "00:00:00", closes: "02:00:00" }];
+  const ambiguous: CoverageShift = {
+    starts_at: "2026-11-01T00:00:00-04:00",
+    ends_at: "2026-11-01T01:30:00-05:00",
+    employee_id: "emp-1",
+    position: "PENN Closer",
+  };
+  assert.deepEqual(shiftSegments(ambiguous), [{ date: "2026-11-01", from: 0, to: 90 }]);
+  assert.deepEqual(
+    checkWeekCoverage({
+      weekStart: "2026-11-01",
+      storeHours,
+      exceptions: [],
+      shiftTypes: SHIFT_TYPES,
+      shifts: [ambiguous],
+    }).gaps,
+    [{ date: "2026-11-01", from: "01:30", to: "02:00" }],
   );
 });
 

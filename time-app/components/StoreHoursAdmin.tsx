@@ -56,16 +56,25 @@ export default function StoreHoursAdmin({
     setBusy(true);
     setErr(null);
     setMsg(null);
-    const res = await fetch(url, init);
-    const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) {
-      setErr(body.error ?? `Failed (${res.status}).`);
+    // finally, not a plain call after the await: if the request throws (phone
+    // drops off wifi mid-save, which is the normal case here) every button in
+    // the section would otherwise stay disabled until the page is reloaded.
+    try {
+      const res = await fetch(url, init);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErr(body.error ?? `Failed (${res.status}).`);
+        return false;
+      }
+      setMsg(okMsg);
+      router.refresh();
+      return true;
+    } catch {
+      setErr("Couldn't reach the server. Check your connection and try again.");
       return false;
+    } finally {
+      setBusy(false);
     }
-    setMsg(okMsg);
-    router.refresh();
-    return true;
   }
 
   const json = (payload: unknown): RequestInit => ({

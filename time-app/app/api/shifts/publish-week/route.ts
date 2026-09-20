@@ -11,6 +11,7 @@ import {
   type StoreHoursException,
   type StoreHoursRow,
 } from "@/lib/coverage";
+import { isMissingTable, isMissingInStoreColumn } from "@/lib/storeHours";
 import { NextResponse } from "next/server";
 
 const TZ = "America/New_York";
@@ -25,19 +26,41 @@ function nyDate(iso: string) {
 
 type Supabase = ReturnType<typeof createClient>;
 
+type CoverageInputs = {
+  storeHours: StoreHoursRow[];
+  exceptions: StoreHoursException[];
+  shiftTypes: ShiftTypeCoverage[];
+};
+
+/**
+ * Three outcomes, deliberately distinguished:
+ *
+ *  - "ok"            — run the check.
+ *  - "not_migrated"  — migration 24 has not been applied. Publishing carries on
+ *                      exactly as it did before the check existed, because the
+ *                      feature genuinely is not installed yet.
+ *  - "unavailable"   — something else went wrong: a timeout, an RLS change, a
+ *                      transient 5xx. The check is the whole point of this
+ *                      route, so a failure to run it must not read as a pass.
+ */
+type CoverageLoad =
+  | { status: "ok"; inputs: CoverageInputs }
+  | { status: "not_migrated" }
+  | { status: "unavailable" };
+
 /**
  * Load everything the coverage check needs.
  *
- * Returns null when the store-hours tables (or shift_types.in_store) are not
- * there yet — migration 24 is applied by hand, so a deploy can land ahead of
- * it. In that case publishing must carry on exactly as it did before rather
- * than 500, and the response says so with coverageSkipped.
+ * The migration is applied by hand, so a deploy can land ahead of it — that
+ * case has to degrade quietly. Everything else has to be loud: silently
+ * skipping the check on a timeout would let exactly the bug this route exists
+ * to prevent slip through, with no sign anything was wrong.
  */
 async function loadCoverageInputs(
   supabase: Supabase,
   weekStart: string,
   weekEnd: string,
-): Promise<{ storeHours: StoreHoursRow[]; exceptions: StoreHoursException[]; shiftTypes: ShiftTypeCoverage[] } | null> {
+): Promise<CoverageLoad> {
   try {
     const [hours, exceptions, types] = await Promise.all([
       supabase.from("store_hours").select("weekday, is_closed, opens, closes"),
@@ -48,19 +71,34 @@ async function loadCoverageInputs(
         .lt("date", weekEnd),
       supabase.from("shift_types").select("name, in_store"),
     ]);
-    if (hours.error || exceptions.error || types.error) return null;
+
+    // The store-hours tables arrive in migration 24; so does shift_types.in_store.
+    const notMigrated =
+      isMissingTable(hours.error) || isMissingTable(exceptions.error) || isMissingInStoreColumn(types.error);
+    // Any error that is NOT the missing migration means we could not check.
+    const otherFailure =
+      (hours.error && !isMissingTable(hours.error)) ||
+      (exceptions.error && !isMissingTable(exceptions.error)) ||
+      (types.error && !isMissingInStoreColumn(types.error));
+
+    if (otherFailure) return { status: "unavailable" };
+    if (notMigrated) return { status: "not_migrated" };
+
     return {
-      storeHours: (hours.data ?? []) as StoreHoursRow[],
-      exceptions: (exceptions.data ?? []) as StoreHoursException[],
-      // in_store is `not null default true`; anything else reads as in-store so
-      // an unclassified type can never excuse an uncovered hour.
-      shiftTypes: ((types.data ?? []) as { name: string; in_store?: boolean | null }[]).map((t) => ({
-        name: t.name,
-        in_store: t.in_store !== false,
-      })) satisfies ShiftTypeCoverage[],
+      status: "ok",
+      inputs: {
+        storeHours: (hours.data ?? []) as StoreHoursRow[],
+        exceptions: (exceptions.data ?? []) as StoreHoursException[],
+        // in_store is `not null default true`; anything else reads as in-store so
+        // an unclassified type can never excuse an uncovered hour.
+        shiftTypes: ((types.data ?? []) as { name: string; in_store?: boolean | null }[]).map((t) => ({
+          name: t.name,
+          in_store: t.in_store !== false,
+        })) satisfies ShiftTypeCoverage[],
+      },
     };
   } catch {
-    return null;
+    return { status: "unavailable" };
   }
 }
 
@@ -96,6 +134,9 @@ async function loadClosedRanges(supabase: Supabase, weekStart: string, lastDate:
 // the store is open that week. Gaps stop the publish with a 409 unless the
 // manager sends force: true — a hole in the published schedule means nobody is
 // behind the counter with the door open, which is what this guards against.
+//
+// force: true is the manager's override. It covers both "publish anyway
+// despite the gaps" and "publish even though the check could not run".
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile || profile.role !== "manager")
@@ -106,7 +147,11 @@ export async function POST(request: Request) {
   const force = body?.force === true;
   if (!weekStart) return NextResponse.json({ error: "weekStart required" }, { status: 400 });
   const weekEnd = addDays(weekStart, 7);
-  const qStart = addDays(weekStart, -1) + "T00:00:00Z";
+  // Two days of lead-in, not one, so a shift that starts the evening before the
+  // week and runs into its first morning is fetched. It is not publishable
+  // here, but it does cover the store, and a check that could not see it would
+  // invent a gap at Sunday open.
+  const qStart = addDays(weekStart, -2) + "T00:00:00Z";
   const qEnd = addDays(weekStart, 8) + "T00:00:00Z";
 
   const supabase = createClient();
@@ -119,22 +164,32 @@ export async function POST(request: Request) {
     .lt("starts_at", qEnd);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  const weekShifts = (windowShifts ?? []).filter((s) => {
+  // What gets published: unchanged — drafts whose NY start date is in the week.
+  const inWeek = (windowShifts ?? []).filter((s) => {
     const d = nyDate(s.starts_at as string);
-    return d >= weekStart && d < weekEnd;
+    return !s.published && d >= weekStart && d < weekEnd;
   });
-  const inWeek = weekShifts.filter((s) => !s.published);
 
-  const inputs = await loadCoverageInputs(supabase, weekStart, weekEnd);
+  // What the check sees: anything whose NY span touches the week at all, so an
+  // overnight shift spilling in from Saturday counts towards Sunday morning.
+  const coverageShifts = (windowShifts ?? []).filter(
+    (s) => nyDate(s.starts_at as string) < weekEnd && nyDate(s.ends_at as string) >= weekStart,
+  );
+
+  const load = await loadCoverageInputs(supabase, weekStart, weekEnd);
+  if (load.status === "unavailable" && !force) {
+    return NextResponse.json({ error: "coverage_unavailable" }, { status: 503 });
+  }
+
   let coverage: CoverageResult | null = null;
-  if (inputs) {
+  if (load.status === "ok") {
     const closedRanges = await loadClosedRanges(supabase, weekStart, addDays(weekStart, 6));
     coverage = checkWeekCoverage({
       weekStart,
-      storeHours: inputs.storeHours,
-      exceptions: inputs.exceptions,
-      shiftTypes: inputs.shiftTypes,
-      shifts: weekShifts as CoverageShift[],
+      storeHours: load.inputs.storeHours,
+      exceptions: load.inputs.exceptions,
+      shiftTypes: load.inputs.shiftTypes,
+      shifts: coverageShifts as CoverageShift[],
       closedRanges,
     });
     if (coverage.gaps.length > 0 && !force) {

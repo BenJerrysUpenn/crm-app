@@ -14,9 +14,24 @@ export const WEEKDAY_NAMES = [
   "Saturday",
 ] as const;
 
-// Postgres error codes that mean "migration 24 has not been applied".
-const UNDEFINED_TABLE = "42P01";
-const UNDEFINED_COLUMN = "42703";
+// "Migration 24 has not been applied yet" arrives in two different dialects,
+// and we have to recognise both.
+//
+//  * Postgres itself, when the statement reaches the database:
+//      42P01 relation "public.store_hours" does not exist
+//      42703 column "in_store" of relation "shift_types" does not exist
+//  * PostgREST, which on hosted Supabase rejects the request before it ever
+//    reaches Postgres because the object is absent from its schema cache:
+//      PGRST205 Could not find the table 'public.store_hours' in the schema cache
+//      PGRST204 Could not find the 'in_store' column of 'shift_types' in the schema cache
+//      PGRST202 (same idea, for a function)
+//
+// Hosted Supabase is the deployment that matters, so the PGRST codes are the
+// ones that actually fire in production. Matching only the Postgres codes made
+// the Team page render the full editor before migration 24 and surface a raw
+// schema-cache error on save.
+const MISSING_TABLE_CODES = new Set(["42P01", "PGRST205", "PGRST202"]);
+const MISSING_COLUMN_CODES = new Set(["42703", "PGRST204"]);
 
 type MaybePgError = { code?: string; message?: string } | null | undefined;
 
@@ -24,16 +39,29 @@ type MaybePgError = { code?: string; message?: string } | null | undefined;
 // this to degrade to an empty, clearly-labelled state instead of a 500.
 export function isMissingTable(error: MaybePgError): boolean {
   if (!error) return false;
-  if (error.code === UNDEFINED_TABLE) return true;
   const m = error.message ?? "";
-  return /relation .*store_hours.* does not exist/i.test(m);
+  // An error about a COLUMN is never a missing table, and both dialects make
+  // that easy to get wrong: Postgres says
+  //   column "in_store" of relation "shift_types" does not exist
+  // which contains "relation ... does not exist", and PostgREST's column error
+  // says "in the schema cache" just like its table error. Rule this out first
+  // or a missing column sends the manager off to run an applied migration.
+  if (/\bcolumn\b/i.test(m)) return false;
+  if (error.code && MISSING_TABLE_CODES.has(error.code)) return true;
+  if (/relation\b.*\bdoes not exist/i.test(m)) return true;
+  return /schema cache/i.test(m) && /\btable\b/i.test(m);
 }
 
-// True when a write failed only because shift_types.in_store isn't there yet.
+// True when a write failed only because shift_types.in_store isn't there yet,
+// so the caller can retry without the column instead of failing the edit.
 export function isMissingInStoreColumn(error: MaybePgError): boolean {
   if (!error) return false;
-  if (error.code === UNDEFINED_COLUMN) return true;
-  return /column .*in_store.* does not exist/i.test(error.message ?? "");
+  const m = error.message ?? "";
+  // A message that names some other column is not about in_store — retrying
+  // without in_store would not help and would hide the real error.
+  if (m && /\bcolumn\b/i.test(m) && !/in_store/i.test(m)) return false;
+  if (error.code && MISSING_COLUMN_CODES.has(error.code)) return true;
+  return /in_store/i.test(m) && (/does not exist/i.test(m) || /schema cache/i.test(m));
 }
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };

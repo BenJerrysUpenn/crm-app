@@ -235,35 +235,56 @@ function ShiftTypesSection({ shiftTypes }: { shiftTypes: ShiftType[] }) {
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState("#10b981");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Every write goes through here. These calls used to ignore the response and
+  // refresh regardless, so a rejected save looked exactly like a successful
+  // one and the row silently reverted.
+  async function run(url: string, init: RequestInit): Promise<boolean> {
+    setErr(null);
+    try {
+      const res = await fetch(url, init);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErr(body.error ?? `Failed (${res.status}).`);
+        return false;
+      }
+      if (body.warning) setErr(body.warning);
+      router.refresh();
+      return true;
+    } catch {
+      setErr("Couldn't reach the server. Check your connection and try again.");
+      return false;
+    }
+  }
+
+  const asJson = (method: string, payload: unknown): RequestInit => ({
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 
   async function add() {
     if (!newName.trim()) return;
     setBusy(true);
-    await fetch("/api/shift-types", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const ok = await run(
+      "/api/shift-types",
+      asJson("POST", {
         name: newName.trim(),
         color: newColor,
         sort_order: shiftTypes.length + 1,
         in_store: true,
       }),
-    });
+    );
     setBusy(false);
-    setNewName("");
-    router.refresh();
+    // Keep what they typed if it failed, so they can retry.
+    if (ok) setNewName("");
   }
   async function save(id: number, patch: Partial<ShiftType>) {
-    await fetch(`/api/shift-types/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    router.refresh();
+    await run(`/api/shift-types/${id}`, asJson("PATCH", patch));
   }
   async function remove(id: number) {
-    await fetch(`/api/shift-types/${id}`, { method: "DELETE" });
-    router.refresh();
+    await run(`/api/shift-types/${id}`, { method: "DELETE" });
   }
 
   // shift_types.in_store arrives with migration 24. If the column isn't there,
@@ -284,6 +305,7 @@ function ShiftTypesSection({ shiftTypes }: { shiftTypes: ShiftType[] }) {
             In-store can&rsquo;t be set until migration 24 is applied in Supabase.
           </div>
         )}
+        {err && <div className="text-xs text-rose-500">{err}</div>}
         {shiftTypes.map((t) => (
           <ShiftTypeRow key={t.id} t={t} onSave={save} onRemove={remove} inStoreSupported={inStoreSupported} />
         ))}
