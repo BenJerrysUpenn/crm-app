@@ -6,6 +6,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // member (staff_count), each running for the deal's labor_hours, starting ~1
 // hour before the crew's departure_time.
 //
+// Cart events are the exception: the crew has to collect the ice cream cart
+// from the storage unit first, so their shift starts two hours before departure
+// instead of one. See CART_STORAGE_PICKUP_MIN.
+//
 // Idempotent: every shift is stamped with deal_id, and we skip creation if any
 // shift already exists for that deal. That makes the endpoint safe to call on
 // any transition into Booked Unpaid without ever double-creating.
@@ -14,6 +18,24 @@ const CATERING_POSITION = "Catering";
 const PRE_DEPARTURE_MIN = 60; // start this many minutes before departure
 const DEFAULT_STAFF = 1;
 const DEFAULT_LABOR_HOURS = 4;
+
+// A cart event's crew does not start at the shop: they go to the storage unit
+// to collect and pack the ice cream cart, then leave at departure_time. That is
+// two hours before departure, not one.
+//
+// This mirrors STORAGE_UNIT_BUFFER_MIN in the catering automation's
+// modules/logistics.py (a separate Python repo), which computes
+// storage_pickup_time = departure_time - 120 min and prints it on the picklist.
+// It never writes that time back to `deals`, so this app has to derive it the
+// same way. The two numbers must change together — if they drift, the picklist
+// tells the crew to be at the storage unit at a time their shift has not
+// started.
+//
+// The extra hour is ADDED, not shifted: the end of the shift stays exactly
+// where labor_hours puts it, so a cart shift is one hour longer than the quote
+// priced. That is deliberate — the hour is real work that the quote's
+// labor_hours has no component for.
+const CART_STORAGE_PICKUP_MIN = 120;
 
 // At or above this many hours a shift is not credible and must be looked at by
 // a person. Deal 25156 (Terrain, 2026-09-27) had labor_hours = 26, which became
@@ -42,10 +64,32 @@ type DealTimes = {
   event_end_time?: string | null; // "HH:MM"
   labor_hours?: number | null;
   staff_count?: number | null;
+  // 1 when the event includes the ice cream cart. Written as an integer 0/1 by
+  // the deal form and kept in sync with the "Ice Cream Cart" extra, but typed
+  // loosely here because it reaches us straight off a row.
+  cart_service?: number | string | boolean | null;
   company?: string | null;
   venue_name?: string | null;
   venue_address?: string | null;
 };
+
+/**
+ * Does this deal include the ice cream cart?
+ *
+ * `cart_service` is an integer 0/1 column, but it arrives unvalidated from a
+ * database row and a `"1"` string or a `true` would be just as meaningful.
+ * Anything else — 0, null, undefined, "" — means no cart. The bias is towards
+ * not claiming a cart that isn't there: a false positive would send the crew to
+ * the storage unit for nothing.
+ */
+export function isCartEvent(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    return v === "1" || v === "true";
+  }
+  return false;
+}
 
 // Minutes that America/New_York is offset from UTC at the given instant
 // (handles EST/EDT automatically). Returns a negative number (e.g. -240 in
@@ -98,11 +142,20 @@ function nyWallTimeToUTCISO(dateStr: string, timeStr: string): string | null {
 // (returns null; the caller skips and a later reconcile picks it up once the
 // picklist runs).
 //
-// `hours` is the length the deal asked for, handed back so the caller can
-// decide what to do about an implausible one. Nothing here clamps it.
-export function computeShiftWindow(
-  deal: DealTimes,
-): { startISO: string; endISO: string; hours: number } | null {
+// A cart event starts earlier (at the storage unit) and ends in the same place
+// it otherwise would, so its shift is one hour longer than labor_hours.
+//
+// `hours` is the real length of the shift, not what the quote priced — it is
+// what the long-shift check judges and what a person reads on the card.
+// `laborHours` is what the deal asked for, so a caller can tell the two apart.
+// Nothing here clamps either.
+export function computeShiftWindow(deal: DealTimes): {
+  startISO: string;
+  endISO: string;
+  hours: number;
+  laborHours: number;
+  cartEvent: boolean;
+} | null {
   const date = (deal.event_date ?? "").trim();
   const departure = (deal.departure_time ?? "").trim();
   if (!date || !departure) return null;
@@ -115,9 +168,22 @@ export function computeShiftWindow(
       ? deal.labor_hours
       : DEFAULT_LABOR_HOURS;
 
-  const start = new Date(new Date(baseISO).getTime() - PRE_DEPARTURE_MIN * 60000);
-  const end = new Date(start.getTime() + laborHours * 60 * 60000);
-  return { startISO: start.toISOString(), endISO: end.toISOString(), hours: laborHours };
+  const departureMs = new Date(baseISO).getTime();
+  const cartEvent = isCartEvent(deal.cart_service);
+
+  // The end never moves: it is anchored to the ordinary start plus the hours
+  // the quote priced. The cart only pulls the start earlier.
+  const endMs = departureMs - PRE_DEPARTURE_MIN * 60000 + laborHours * 60 * 60000;
+  const leadMin = cartEvent ? CART_STORAGE_PICKUP_MIN : PRE_DEPARTURE_MIN;
+  const startMs = departureMs - leadMin * 60000;
+
+  return {
+    startISO: new Date(startMs).toISOString(),
+    endISO: new Date(endMs).toISOString(),
+    hours: (endMs - startMs) / 3600000,
+    laborHours,
+    cartEvent,
+  };
 }
 
 // True when the deal is asking for a shift no one could work.
@@ -125,14 +191,30 @@ export function isLongShiftHours(hours: number): boolean {
   return hours >= LONG_SHIFT_HOURS;
 }
 
+function showHours(hours: number): string {
+  return Number.isInteger(hours) ? String(hours) : String(Number(hours.toFixed(2)));
+}
+
 // The marker that goes at the front of the shift notes, and into the API
-// response, when the deal's hours are not credible. Deliberately shouty and
+// response, when the shift's hours are not credible. Deliberately shouty and
 // deliberately first in the notes, so it is the first thing a manager reads on
 // the shift card.
-export function longShiftWarning(hours: number): string {
-  const shown = Number.isInteger(hours) ? String(hours) : String(Number(hours.toFixed(2)));
-  return `CHECK HOURS: deal says ${shown}h per person.`;
+//
+// `shiftHours` is the real length; `laborHours` is what the deal priced. On a
+// cart event they differ by the storage-unit hour, and the message has to say
+// so — sending someone to check a deal for "15.5h" when the deal plainly says
+// 14.5 wastes the trip.
+export function longShiftWarning(shiftHours: number, laborHours: number = shiftHours): string {
+  if (Math.abs(shiftHours - laborHours) < 0.001) {
+    return `CHECK HOURS: deal says ${showHours(shiftHours)}h per person.`;
+  }
+  const added = showHours(shiftHours - laborHours);
+  return `CHECK HOURS: shift is ${showHours(shiftHours)}h per person (deal says ${showHours(laborHours)}h plus ${added}h cart pickup).`;
 }
+
+// Goes on every cart event's shift note so the crew knows where to be, and the
+// manager knows why the shift starts earlier than the quote's hours imply.
+export const CART_NOTE = "Cart event: start at the storage unit, includes 1h cart pickup";
 
 export type CreateResult =
   | { created: number; skipped?: false; warning?: string }
@@ -173,10 +255,14 @@ export async function createDraftShiftsForDeal(
   // shape of the error (roughly a day's work times a small crew) is what a
   // total-hours figure would look like if it were written into a per-person
   // field. We do not assume that — we flag it and let a person decide.
+  //
+  // The check judges win.hours, the real length of the shift — a cart event's
+  // storage-unit hour is worked whether or not the quote priced it.
   const longShift = isLongShiftHours(win.hours);
-  const marker = longShift ? longShiftWarning(win.hours) : null;
+  const marker = longShift ? longShiftWarning(win.hours, win.laborHours) : null;
   const noteBits = [
     marker,
+    win.cartEvent ? CART_NOTE : null,
     `Auto-created from booked deal #${deal.id}`,
     where,
     deal.venue_address || null,
@@ -213,7 +299,7 @@ export async function createDraftShiftsForDeal(
 // Columns we need off a deal to build its shifts. Shared by the instant trigger
 // and the reconcile sweep so they stay in lockstep.
 export const DEAL_SHIFT_COLUMNS =
-  "id, stage, event_date, departure_time, event_start_time, event_end_time, labor_hours, staff_count, company, venue_name, venue_address";
+  "id, stage, event_date, departure_time, event_start_time, event_end_time, labor_hours, staff_count, cart_service, company, venue_name, venue_address";
 
 // Sweep every booked deal that now has a departure_time (i.e. its picklist has
 // been generated) and create any missing draft shifts. Idempotent and safe to
