@@ -7,13 +7,21 @@ import {
   CAKE_GUEST_MAX,
   CAKE_MAX_DRIVE_MINUTES,
   CAKE_ORDER_URL,
+  DEAL_SOURCE,
   EMPTY_DEAL_FORM_PAYLOAD,
   hasErrors,
   shouldSuggestCakes,
   validateDealPayload,
   type DealFormErrors,
+  type DealFormMode,
   type DealFormPayload,
 } from "@/lib/callDesk/dealForm";
+import {
+  DEDUPE_IS_ADVISORY,
+  MANUAL_DEAL_SOURCES,
+  type DedupeMatch,
+  type DedupeResponse,
+} from "@/lib/dealIntake";
 import {
   defaultQuantityForExtra,
   type DealFormExtraOption,
@@ -30,16 +38,26 @@ export type CallDeskProspect = {
   phone: string | null;
 };
 
+// The same component serves two intakes. `prospect: null` is the manual "New
+// deal" form at /deals/new: no prospect to hand off, the human picks the
+// source, and only a name plus one contact method plus the source is
+// required. See docs/manual-deal-intake.md.
+const CALL_DESK_ENDPOINT = "/api/call-desk/deals";
+const MANUAL_ENDPOINT = "/api/deals";
+
 type DryRunResponse = {
   dry_run: true;
   reason?: string;
   deal_insert: Record<string, unknown>;
   quote_jobs: { kind: string }[];
+  quote_skipped?: string;
 };
 
 type LiveResponse = {
   deal_id: number;
   quote_job_ids: number[];
+  quote_skipped?: string;
+  sf_lead_state?: string | null;
   warnings?: string[];
 };
 
@@ -198,6 +216,77 @@ function CakePointer() {
   );
 }
 
+/** Advisory duplicate warning for manual intake.
+ *
+ *  It is loud (amber, above the form) and powerless (Create deal stays
+ *  enabled). Alina's business has repeat customers by design — the same
+ *  office manager books four parties a year — so the only wrong behaviour
+ *  here is stopping somebody. What it must do is make it impossible to
+ *  create a duplicate WITHOUT having seen the match, which is what the
+ *  tick-box is: the route refuses a manual create that is not carrying
+ *  `confirm_duplicate` once a match exists.
+ */
+function DuplicateWarning({
+  matches,
+  acknowledged,
+  onAcknowledge,
+}: {
+  matches: DedupeMatch[];
+  acknowledged: boolean;
+  onAcknowledge: (next: boolean) => void;
+}) {
+  return (
+    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-4 mb-4">
+      <p className="text-amber-100 font-semibold">
+        We may already have {matches.length === 1 ? "this contact" : "these"}
+      </p>
+      <p className="text-xs text-amber-200/80 mt-0.5">{DEDUPE_IS_ADVISORY}</p>
+      <ul className="mt-3 space-y-2">
+        {matches.map((m) => (
+          <li
+            key={`${m.kind}-${m.id}`}
+            className="text-sm text-amber-50 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2"
+          >
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-medium">{m.name || "No name"}</span>
+              {m.company && (
+                <span className="text-amber-200/80">{m.company}</span>
+              )}
+              <span className="text-[11px] uppercase tracking-wide text-amber-300/70">
+                {m.kind === "deal" ? `deal #${m.id}` : `prospect #${m.id}`}
+              </span>
+            </div>
+            <div className="text-xs text-amber-200/80 mt-0.5">
+              {m.kind === "deal" && (
+                <>
+                  {m.stage ?? "—"}
+                  {m.event_date ? ` · ${m.event_date}` : ""} ·{" "}
+                </>
+              )}
+              matched on {m.matched.join(" and ") || "—"}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {matches.some((m) => m.kind === "deal") && (
+        <p className="text-xs text-amber-200/80 mt-3">
+          If one of those deals IS this enquiry, close this form and update it
+          on the board instead.
+        </p>
+      )}
+      <label className="flex items-start gap-2 mt-3 text-sm text-amber-100 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          onChange={(e) => onAcknowledge(e.target.checked)}
+          className="mt-1 h-4 w-4 accent-amber-500"
+        />
+        <span>I have looked — create a new deal anyway</span>
+      </label>
+    </div>
+  );
+}
+
 function money(n: number): string {
   return `$${n.toLocaleString("en-US", {
     minimumFractionDigits: n % 1 === 0 ? 0 : 2,
@@ -234,27 +323,41 @@ export default function GenerateDealForm({
   onClose,
   onCreated,
 }: {
-  prospect: CallDeskProspect;
+  /** null for the manual "New deal" form — see the note above. */
+  prospect: CallDeskProspect | null;
   callerEmail: string;
   onClose: () => void;
   onCreated: (dealId: number) => void;
 }) {
+  const mode: DealFormMode = prospect ? "call_desk" : "manual";
+  const manual = mode === "manual";
+  /** Whether a field the call desk insists on should show its asterisk. */
+  const strictReq = !manual;
+
   const [options, setOptions] = useState<DealFormOptionsResponse | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [form, setForm] = useState<DealFormPayload>(() => {
-    const full = (prospect.name ?? "").trim();
+    const full = (prospect?.name ?? "").trim();
     const space = full.indexOf(" ");
     return {
       ...EMPTY_DEAL_FORM_PAYLOAD,
       contact_first_name: space === -1 ? full : full.slice(0, space),
       contact_last_name: space === -1 ? "" : full.slice(space + 1).trim(),
-      company: prospect.company ?? "",
-      contact_email: prospect.email ?? "",
-      contact_phone: prospect.phone ?? "",
+      company: prospect?.company ?? "",
+      contact_email: prospect?.email ?? "",
+      contact_phone: prospect?.phone ?? "",
+      // The call desk is the phone channel by definition and never asks.
+      source: prospect ? DEAL_SOURCE : "",
     };
   });
+
+  // Duplicate warning. Advisory: it never disables Create deal. `acknowledged`
+  // is what the route's `confirm_duplicate` is set from, so a human has to
+  // have seen the list before the deal is written.
+  const [duplicates, setDuplicates] = useState<DedupeMatch[]>([]);
+  const [dupeAcknowledged, setDupeAcknowledged] = useState(false);
   // Extras are held as name → quantity and flattened to the repeated-name list
   // the DB stores only at submit time.
   const [extraQty, setExtraQty] = useState<Record<string, number>>({});
@@ -290,6 +393,45 @@ export default function GenerateDealForm({
       cancelled = true;
     };
   }, []);
+
+  // Duplicate lookup. Manual intake only: the call desk started FROM a
+  // prospect, so of course that prospect matches, and warning about it would
+  // be noise. Debounced because it fires while somebody is typing an email
+  // address one character at a time.
+  const email = form.contact_email;
+  const phone = form.contact_phone;
+  useEffect(() => {
+    if (!manual) return;
+    const hasKeys = email.trim() !== "" || phone.trim() !== "";
+    if (!hasKeys) {
+      setDuplicates([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch("/api/deals/dedupe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, phone }),
+          });
+          if (!res.ok || cancelled) return;
+          const body = (await res.json()) as DedupeResponse;
+          if (cancelled) return;
+          setDuplicates(body.matches ?? []);
+          setDupeAcknowledged(false);
+        } catch {
+          // A duplicate check that cannot run must never stop somebody
+          // writing down a customer standing at the counter. Stay silent.
+        }
+      })();
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [manual, email, phone]);
 
   const set = useCallback(
     <K extends keyof DealFormPayload>(key: K, value: DealFormPayload[K]) => {
@@ -380,7 +522,7 @@ export default function GenerateDealForm({
   async function submit() {
     if (submitting) return;
     const payload = { ...form, extras: extrasList };
-    const found = validateDealPayload(payload, { maxFlavors });
+    const found = validateDealPayload(payload, { maxFlavors, mode });
     setErrors(found);
     if (hasErrors(found)) {
       setSubmitError("Some fields need fixing — see the red notes above.");
@@ -390,12 +532,14 @@ export default function GenerateDealForm({
     setSubmitError(null);
     setDryRun(null);
     try {
-      const res = await fetch("/api/call-desk/deals", {
+      const res = await fetch(manual ? MANUAL_ENDPOINT : CALL_DESK_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...payload,
-          prospect_id: prospect.prospect_id,
+          ...(prospect ? { prospect_id: prospect.prospect_id } : {}),
+          // Only ever true once the human has seen the list and ticked it.
+          ...(manual ? { confirm_duplicate: dupeAcknowledged } : {}),
           customer_profile_label:
             options?.customer_profiles.find(
               (p) => p.value === form.customer_profile,
@@ -406,6 +550,17 @@ export default function GenerateDealForm({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (body.field_errors) setErrors(body.field_errors as DealFormErrors);
+        if (res.status === 409 && Array.isArray(body.duplicates)) {
+          // The server found something the debounced check had not. Show it
+          // and make the human tick the box rather than retrying silently.
+          setDuplicates(body.duplicates as DedupeMatch[]);
+          setDupeAcknowledged(false);
+          setSubmitError(
+            "We may already have this contact — check the matches above, " +
+              "then tick the box to create anyway.",
+          );
+          return;
+        }
         setSubmitError(body.error || `Create failed (${res.status})`);
         return;
       }
@@ -431,12 +586,18 @@ export default function GenerateDealForm({
         <header className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-800 bg-slate-900/60 shrink-0">
           <div className="min-w-0">
             <h2 className="text-slate-100 font-semibold truncate">
-              Generate deal
+              {prospect ? "Generate deal" : "New deal"}
             </h2>
             <p className="text-xs text-slate-400 truncate">
-              {prospect.name || "Unnamed prospect"}
-              {prospect.company ? ` · ${prospect.company}` : ""} · prospect #
-              {prospect.prospect_id}
+              {prospect ? (
+                <>
+                  {prospect.name || "Unnamed prospect"}
+                  {prospect.company ? ` · ${prospect.company}` : ""} · prospect #
+                  {prospect.prospect_id}
+                </>
+              ) : (
+                "Someone who did not use the catering form"
+              )}
             </p>
           </div>
           <button
@@ -478,9 +639,22 @@ export default function GenerateDealForm({
               Deal #{live.deal_id} created
             </p>
             <p className="text-emerald-200/90">
-              The quote worker is pricing it now; the draft lands in Gmail
-              Drafts for a human to send.
+              {live.quote_job_ids.length > 0
+                ? "The quote worker is pricing it now; the draft lands in Gmail Drafts for a human to send."
+                : "It is on the board at stage Open."}
             </p>
+            {live.quote_skipped && (
+              <p className="text-xs text-emerald-200/80 mt-2">
+                {live.quote_skipped}
+              </p>
+            )}
+            {live.sf_lead_state === "queued" && (
+              <p className="text-xs text-emerald-300/70 mt-2">
+                Queued for Salesforce: the nightly mirror will look for a
+                corporate lead and, once lead creation is switched on, make one
+                if there is none.
+              </p>
+            )}
             {live.quote_job_ids.length > 0 && (
               <p className="text-xs text-emerald-300/70 mt-2">
                 Queued jobs: {live.quote_job_ids.join(", ")}
@@ -499,7 +673,7 @@ export default function GenerateDealForm({
             onClick={onClose}
             className={`${TAP} mt-4 w-full rounded-md bg-slate-800 border border-slate-700 text-slate-200`}
           >
-            Back to the queue
+            {manual ? "Back to the board" : "Back to the queue"}
           </button>
         </div>
       );
@@ -509,7 +683,45 @@ export default function GenerateDealForm({
     return (
       <>
         <div className="flex-1 overflow-y-auto px-4 py-4">
-          {dryRun && <DryRunPanel result={dryRun} onDismiss={() => setDryRun(null)} />}
+          {dryRun && (
+            <DryRunPanel
+              result={dryRun}
+              onDismiss={() => setDryRun(null)}
+              withProspect={prospect != null}
+            />
+          )}
+
+          {manual && duplicates.length > 0 && (
+            <DuplicateWarning
+              matches={duplicates}
+              acknowledged={dupeAcknowledged}
+              onAcknowledge={setDupeAcknowledged}
+            />
+          )}
+
+          {manual && (
+            <Section step={0} title="Where it came from">
+              <Field
+                label="Source"
+                required
+                error={errors.source}
+                hint="Recorded on the deal for attribution, and it is what tells Salesforce there is no corporate lead for this one."
+              >
+                <div className="grid grid-cols-2 gap-2">
+                  {MANUAL_DEAL_SOURCES.map((s) => (
+                    <Chip
+                      key={s.value}
+                      selected={form.source === s.value}
+                      onClick={() => set("source", s.value)}
+                      title={s.hint}
+                    >
+                      {s.label}
+                    </Chip>
+                  ))}
+                </div>
+              </Field>
+            </Section>
+          )}
 
           <Section step={1} title="Contact">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -532,7 +744,12 @@ export default function GenerateDealForm({
                 />
               </Field>
             </div>
-            <Field label="Email" required error={errors.contact_email}>
+            <Field
+              label="Email"
+              required={strictReq}
+              error={errors.contact_email}
+              hint={manual ? "Email or phone — one of the two." : undefined}
+            >
               <input
                 className={INPUT}
                 type="email"
@@ -542,7 +759,12 @@ export default function GenerateDealForm({
                 onChange={(e) => set("contact_email", e.target.value)}
               />
             </Field>
-            <Field label="Phone" required error={errors.contact_phone}>
+            <Field
+              label="Phone"
+              required={strictReq}
+              error={errors.contact_phone}
+              hint={manual ? "Email or phone — one of the two." : undefined}
+            >
               <input
                 className={INPUT}
                 type="tel"
@@ -589,7 +811,11 @@ export default function GenerateDealForm({
           </Section>
 
           <Section step={3} title="Event">
-            <Field label="Event type" required error={errors.event_type}>
+            <Field
+              label="Event type"
+              required={strictReq}
+              error={errors.event_type}
+            >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {options.event_types.map((t) => (
                   <Chip
@@ -616,7 +842,7 @@ export default function GenerateDealForm({
                 placeholder="e.g. Sarah's 40th"
               />
             </Field>
-            <Field label="Date" required error={errors.event_date}>
+            <Field label="Date" required={strictReq} error={errors.event_date}>
               <input
                 className={INPUT}
                 type="date"
@@ -625,7 +851,7 @@ export default function GenerateDealForm({
               />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Start" required error={errors.event_start_time}>
+              <Field label="Start" required={strictReq} error={errors.event_start_time}>
                 <input
                   className={INPUT}
                   type="time"
@@ -633,7 +859,7 @@ export default function GenerateDealForm({
                   onChange={(e) => set("event_start_time", e.target.value)}
                 />
               </Field>
-              <Field label="End" required error={errors.event_end_time}>
+              <Field label="End" required={strictReq} error={errors.event_end_time}>
                 <input
                   className={INPUT}
                   type="time"
@@ -661,7 +887,7 @@ export default function GenerateDealForm({
                 onChange={(e) => set("venue_address", e.target.value)}
               />
             </Field>
-            <Field label="Guest count" required error={errors.guest_count}>
+            <Field label="Guest count" required={strictReq} error={errors.guest_count}>
               <input
                 className={INPUT}
                 type="number"
@@ -902,7 +1128,7 @@ export default function GenerateDealForm({
               onClick={onClose}
               className={`${TAP} flex-1 rounded-md bg-slate-800 border border-slate-700 text-slate-300`}
             >
-              Cancel
+              {manual ? "Back to the board" : "Cancel"}
             </button>
             <button
               type="button"
@@ -914,7 +1140,8 @@ export default function GenerateDealForm({
             </button>
           </div>
           <p className="text-[11px] text-slate-500 mt-2 text-center">
-            Creates at stage Open, source phone, lead source {callerEmail}.
+            Creates at stage Open, source {form.source || DEAL_SOURCE}, lead
+            source {callerEmail}.
           </p>
         </footer>
       </>
@@ -963,9 +1190,12 @@ const DRY_RUN_LABELS: [string, string][] = [
 function DryRunPanel({
   result,
   onDismiss,
+  withProspect,
 }: {
   result: DryRunResponse;
   onDismiss: () => void;
+  /** Call-desk runs also touch the prospect; manual ones have none. */
+  withProspect: boolean;
 }) {
   const row = result.deal_insert;
   return (
@@ -1004,10 +1234,14 @@ function DryRunPanel({
       </dl>
       <p className="text-xs text-amber-200/80 mt-3">
         Would also queue:{" "}
-        {result.quote_jobs.map((j) => j.kind).join(" then ") || "nothing"} · log
-        deal_created + handed_off on the prospect and set its status to
-        handed_off.
+        {result.quote_jobs.map((j) => j.kind).join(" then ") || "nothing"}
+        {withProspect
+          ? " · log deal_created + handed_off on the prospect and set its status to handed_off."
+          : "."}
       </p>
+      {result.quote_skipped && (
+        <p className="text-xs text-amber-200/80 mt-2">{result.quote_skipped}</p>
+      )}
     </div>
   );
 }

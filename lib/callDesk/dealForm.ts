@@ -12,6 +12,13 @@
 // GET /api/call-desk/options.
 
 import { serializeMultiselect } from "@/lib/menuOptions";
+import {
+  initialSfLeadState,
+  isManualDealSource,
+  manualSourceLabel,
+  type ManualDealSource,
+  type SfLeadState,
+} from "@/lib/dealIntake";
 
 // ---------------------------------------------------------------------------
 // Column allowlist
@@ -61,6 +68,13 @@ export type DealFormColumn = (typeof DEAL_FORM_COLUMNS)[number];
 // Set by create_deal itself, never by the caller's payload. db.py calls these
 // `internal_keys` and strips them before validate_deal_update_fields, because
 // `is_active` is auto-maintained and `created_at` is in FORBIDDEN_DEAL_COLUMNS.
+//
+// `sf_lead_state` joins them from Catering-Manager migration 023. It is the
+// one Salesforce column intake is allowed to set, and only ever to 'queued':
+// "this deal did not come from the corporate form, so the mirror must make
+// sure a Lead exists before it can convert one." Every later transition is the
+// mirror's, through its own narrow writer (`sf_sync.write_sf_mirror`), which
+// is why the other four sf_* columns are still absent from this list.
 export const DEAL_INSERT_INTERNAL_COLUMNS = [
   "created_at",
   "updated_at",
@@ -68,6 +82,7 @@ export const DEAL_INSERT_INTERNAL_COLUMNS = [
   "payment_status",
   "is_active",
   "source",
+  "sf_lead_state",
 ] as const;
 
 const ALLOWED_INSERT_KEYS: ReadonlySet<string> = new Set<string>([
@@ -75,8 +90,24 @@ const ALLOWED_INSERT_KEYS: ReadonlySet<string> = new Set<string>([
   ...DEAL_INSERT_INTERNAL_COLUMNS,
 ]);
 
-// db.py::VALID_SOURCES — the call desk is always the phone channel.
+// db.py::VALID_SOURCES — the call desk is always the phone channel. The
+// manual "New deal" form picks its own from MANUAL_DEAL_SOURCES, so this is
+// the default rather than the only possibility.
 export const DEAL_SOURCE = "phone" as const;
+
+/** How strictly to validate. The two intakes want different things:
+ *
+ *  `call_desk` — Joey is on the phone with the customer and can ask for
+ *  anything, and the deal goes straight to the quote worker, which needs a
+ *  package, a date and a guest count to price. So everything is required.
+ *
+ *  `manual` — somebody left a voicemail, or wrote two lines by email, or
+ *  asked at the counter on their way out. Alina's rule for this form is a
+ *  name plus one way to reach them plus where it came from; the rest is
+ *  filled in as it is learned. A deal this thin gets no quote job (there is
+ *  nothing to price), which is the one behavioural difference downstream.
+ */
+export type DealFormMode = "call_desk" | "manual";
 
 // Pending a human ruling on what identifier belongs in lead_source (#409 says
 // "stamped to the caller, identifier pending ruling; default the caller's
@@ -127,6 +158,9 @@ export type DealFormPayload = {
   day_of_contact_name: string;
   day_of_contact_phone: string;
   first_note: string;
+  /** Intake channel. Empty on the call desk, where it is always 'phone';
+   *  required on the manual form, where it is the third mandatory field. */
+  source: ManualDealSource | "";
 };
 
 export type DealInsert = {
@@ -135,14 +169,17 @@ export type DealInsert = {
   stage: "Open";
   payment_status: "None";
   is_active: 1;
-  source: typeof DEAL_SOURCE;
+  source: ManualDealSource;
+  sf_lead_state: SfLeadState | null;
 } & Partial<Record<DealFormColumn, string | number | null>>;
 
 export type BuildDealInsertContext = {
   callerEmail: string;
   /** The instant the deal is being created. */
   nowUtc: Date;
-  prospectId: number;
+  /** The call-desk prospect this deal was generated from, or null when a
+   *  human typed it into the manual form with no prospect behind it. */
+  prospectId: number | null;
   /** Human label of the picked customer profile, e.g. "Office admin". */
   profileLabel: string;
 };
@@ -172,6 +209,7 @@ export const EMPTY_DEAL_FORM_PAYLOAD: DealFormPayload = {
   day_of_contact_name: "",
   day_of_contact_phone: "",
   first_note: "",
+  source: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -269,22 +307,48 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Field-level errors for the guided form. Structural only — it does not know
  *  the enumerations (those are DB-sourced and validated by the CHECK
  *  constraints on insert). `limits.maxFlavors` is the MAX_FLAVORS scalar,
- *  passed in by the caller because it lives in pricing_scalars. */
+ *  passed in by the caller because it lives in pricing_scalars.
+ *
+ *  `limits.mode` picks the required set; it defaults to `call_desk`, so every
+ *  existing caller keeps the behaviour it had. See `DealFormMode`.
+ *
+ *  Format checks apply in BOTH modes: a manual deal may leave the event date
+ *  blank, but if somebody types one it still has to be a date. Nothing is
+ *  loosened, only made optional. */
 export function validateDealPayload(
   payload: DealFormPayload,
-  limits?: { maxFlavors?: number },
+  limits?: { maxFlavors?: number; mode?: DealFormMode },
 ): DealFormErrors {
   const errors: DealFormErrors = {};
+  const mode: DealFormMode = limits?.mode ?? "call_desk";
+  const strict = mode === "call_desk";
   const req = (key: keyof DealFormPayload, message: string) => {
     if (!textOrNull(String(payload[key] ?? ""))) errors[key] = message;
   };
 
   req("contact_first_name", "First name is required");
-  req("contact_email", "Email is required");
-  req("contact_phone", "Phone is required");
-  req("event_type", "Pick an event type");
-  req("venue_address", "Venue address is required");
-  req("package_name", "Pick a package");
+
+  if (strict) {
+    req("contact_email", "Email is required");
+    req("contact_phone", "Phone is required");
+    req("event_type", "Pick an event type");
+    req("venue_address", "Venue address is required");
+    req("package_name", "Pick a package");
+  } else {
+    // Minimal required set (Alina, the manual-intake spec): a name, ONE way
+    // to reach them, and where the enquiry came from. Which contact method
+    // is missing is not the point, so the message goes on both fields.
+    const email = textOrNull(payload.contact_email);
+    const phone = textOrNull(payload.contact_phone);
+    if (!email && !phone) {
+      const message = "Give an email or a phone number";
+      errors.contact_email = message;
+      errors.contact_phone = message;
+    }
+    if (!isManualDealSource(payload.source)) {
+      errors.source = "Say where this enquiry came from";
+    }
+  }
 
   const email = textOrNull(payload.contact_email);
   if (email && !EMAIL_RE.test(email)) {
@@ -292,20 +356,23 @@ export function validateDealPayload(
   }
 
   const date = textOrNull(payload.event_date);
-  if (!date) errors.event_date = "Event date is required";
-  else if (!DATE_RE.test(date)) errors.event_date = "Use YYYY-MM-DD";
+  if (!date) {
+    if (strict) errors.event_date = "Event date is required";
+  } else if (!DATE_RE.test(date)) errors.event_date = "Use YYYY-MM-DD";
 
   const start = textOrNull(payload.event_start_time);
-  if (!start) errors.event_start_time = "Start time is required";
-  else if (!TIME_RE.test(start)) errors.event_start_time = "Use HH:MM (24h)";
+  if (!start) {
+    if (strict) errors.event_start_time = "Start time is required";
+  } else if (!TIME_RE.test(start)) errors.event_start_time = "Use HH:MM (24h)";
 
   const end = textOrNull(payload.event_end_time);
-  if (!end) errors.event_end_time = "End time is required";
-  else if (!TIME_RE.test(end)) errors.event_end_time = "Use HH:MM (24h)";
+  if (!end) {
+    if (strict) errors.event_end_time = "End time is required";
+  } else if (!TIME_RE.test(end)) errors.event_end_time = "Use HH:MM (24h)";
 
   const guests = payload.guest_count;
   if (guests == null || Number.isNaN(guests)) {
-    errors.guest_count = "Guest count is required";
+    if (strict) errors.guest_count = "Guest count is required";
   } else if (!Number.isInteger(guests) || guests <= 0) {
     errors.guest_count = "Guest count must be a whole number above zero";
   }
@@ -316,6 +383,35 @@ export function validateDealPayload(
   }
 
   return errors;
+}
+
+// ---------------------------------------------------------------------------
+// Quote readiness
+// ---------------------------------------------------------------------------
+
+/** Whether a freshly created deal carries enough for the quote worker.
+ *
+ *  The worker re-triages (drive time, staff, labour) and then prices, and it
+ *  cannot do either without a venue to drive to, a date to check staffing
+ *  against, a head count and a package. Queueing a job for a deal that has
+ *  none of those produces a failed job and a puzzled operator, so the manual
+ *  intake queues nothing until the deal is complete — the deal sits in Open on
+ *  the board like any other enquiry waiting on information.
+ *
+ *  A call-desk deal always satisfies this, because `validateDealPayload` in
+ *  `call_desk` mode requires exactly these fields. That is deliberate: the two
+ *  functions are the same rule stated for two purposes, and if the strict
+ *  required set ever changes this is the function that has to change with it.
+ */
+export function isQuoteReady(payload: DealFormPayload): boolean {
+  return Boolean(
+    textOrNull(payload.venue_address) &&
+      textOrNull(payload.event_date) &&
+      textOrNull(payload.package_name) &&
+      payload.guest_count != null &&
+      Number.isInteger(payload.guest_count) &&
+      (payload.guest_count ?? 0) > 0,
+  );
 }
 
 export function hasErrors(errors: DealFormErrors): boolean {
@@ -335,10 +431,16 @@ export function buildNotes(
 ): string {
   const today = todayIsoEastern(ctx.nowUtc);
   const profile = textOrNull(ctx.profileLabel) ?? "not recorded";
-  const lines = [
-    `[${today}] Created from call desk by ${ctx.callerEmail} ` +
-      `(prospect #${ctx.prospectId}). Profile: ${profile}.`,
-  ];
+  // Provenance is the whole point of this line: six months later, "why is
+  // there no email thread on this deal?" is answered by "a human typed it in
+  // after a walk-in", and attribution needs to survive in the row itself, not
+  // only in an events table nobody opens.
+  const origin =
+    ctx.prospectId != null
+      ? `Created from call desk by ${ctx.callerEmail} (prospect #${ctx.prospectId})`
+      : `Created by hand by ${ctx.callerEmail} ` +
+        `(source: ${manualSourceLabel(payload.source || DEAL_SOURCE)})`;
+  const lines = [`[${today}] ${origin}. Profile: ${profile}.`];
   const first = textOrNull(payload.first_note);
   if (first) lines.push(`[${today}] ${first}`);
   return lines.join("\n");
@@ -362,6 +464,12 @@ export function buildDealInsert(
 ): DealInsert {
   const now = nowIso(ctx.nowUtc);
   const extras = payload.extras.filter((e) => e.trim() !== "");
+  // An unrecognised source can only come from a tampered request body; the
+  // route validates first, so falling back to 'phone' here is belt-and-braces
+  // rather than a real branch. It must never fall back to 'form'.
+  const source: ManualDealSource = isManualDealSource(payload.source)
+    ? payload.source
+    : DEAL_SOURCE;
 
   const insert: DealInsert = {
     // create_deal internals
@@ -370,7 +478,9 @@ export function buildDealInsert(
     stage: "Open",
     payment_status: "None",
     is_active: 1, // 'Open' is not in TERMINAL_STAGES
-    source: DEAL_SOURCE,
+    source,
+    // Non-form deal, so no corporate Lead exists: ask the mirror to make one.
+    sf_lead_state: initialSfLeadState(source),
 
     // 1. Contact
     contact_first_name: textOrNull(payload.contact_first_name),
