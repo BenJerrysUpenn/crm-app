@@ -115,6 +115,24 @@ search genuinely misses. Creating is behind its own switch,
 `SF_LEAD_CREATE_ENABLED`, which is off. The full story, including what is
 proven and what is not, is `sfmirror/README.md` in the Catering-Manager repo.
 
+The source the human picks travels with the deal all the way into Salesforce,
+and it travels honestly (Alina's ruling, 2026-09-20). Each channel gets its own
+Lead Source, and only a form enquiry carries a website URL:
+
+| Source picked here | Salesforce Lead Source | Source URL |
+| --- | --- | --- |
+| Phone call | `Phone Inquiry` | *(blank)* |
+| Email | `Email` | *(blank)* |
+| Walk-in | `Walk-In` | *(blank)* |
+| Other | `Other` | *(blank)* |
+| *(the corporate form, not this page)* | `Web` | the page they used |
+
+Stamping `benjerry.com` on a walk-in would be a claim about web traffic that
+never happened, and corporate reads Source URL to attribute exactly that. The
+four values above are provisional until the portal's real picklist is read;
+a deal whose value the org does not offer parks for a human rather than
+guessing. The mapping lives in `Catering-Manager/modules/sf_mapper.py`.
+
 The CRM's whole involvement is that one word, `queued`. Every state after it
 belongs to the mirror.
 
