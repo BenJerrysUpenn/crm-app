@@ -25,7 +25,12 @@ import {
   validateDealPayload,
   type DealFormPayload,
 } from "@/lib/callDesk/dealForm";
-import { planDeal, QUOTE_SKIPPED_INCOMPLETE } from "@/lib/callDesk/dealCreate";
+import {
+  isMigration023Missing,
+  MIGRATION_023_MISSING,
+  planDeal,
+  QUOTE_SKIPPED_INCOMPLETE,
+} from "@/lib/callDesk/dealCreate";
 import { toMatch } from "@/lib/dealDedupe";
 
 const NOW = new Date("2026-09-20T18:30:00Z");
@@ -374,5 +379,45 @@ describe("dedupe match shaping", () => {
     });
     expect(match.matched).toEqual(["phone"]);
     expect("stage" in match).toBe(false);
+  });
+});
+
+describe("migration 023 ordering", () => {
+  // The apply order is migration FIRST, then merge. If it happens the other
+  // way round the form must say so in a sentence a person can act on, not
+  // leak a PostgREST code — and it must create nothing.
+  it("recognises both ways a pre-023 database refuses the insert", () => {
+    // sf_lead_state does not exist yet.
+    expect(
+      isMigration023Missing({
+        code: "42703",
+        message: 'column "sf_lead_state" of relation "deals" does not exist',
+      }),
+    ).toBe(true);
+    // source = 'walk_in' against the old CHECK.
+    expect(
+      isMigration023Missing({
+        code: "23514",
+        message:
+          'new row for relation "deals" violates check constraint "deals_source_check"',
+      }),
+    ).toBe(true);
+  });
+
+  it("does not claim every failure is a missing migration", () => {
+    expect(isMigration023Missing(null)).toBe(false);
+    expect(
+      isMigration023Missing({ code: "23505", message: "duplicate key value" }),
+    ).toBe(false);
+    expect(
+      isMigration023Missing({ code: "42501", message: "permission denied" }),
+    ).toBe(false);
+  });
+
+  it("names the file to run", () => {
+    expect(MIGRATION_023_MISSING).toContain(
+      "023_manual_deal_sources_and_sf_lead_state.sql",
+    );
+    expect(MIGRATION_023_MISSING).toContain("Nothing was created");
   });
 });

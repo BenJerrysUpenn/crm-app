@@ -80,13 +80,35 @@ export type CreateDealSuccess = {
   warnings: string[];
 };
 
-// PostgREST / Postgres "column does not exist". Raised when Catering-Manager
-// migration 023 has not been applied yet, which is a human step.
+// The two ways a pre-migration-023 database refuses this insert. Both are
+// real: migrations are applied by hand in the Supabase SQL editor and this
+// app deploys itself on merge, so there is a window where the code knows
+// about a column and a source value the database does not.
+//
+// Unlike the Python side — which omits the column so the sweep's own live
+// intake paths keep working — the CRM does NOT degrade. Nobody is standing at
+// a counter when `deals` is missing a column: a person is looking at a form,
+// and the honest answer is "apply the migration", not a deal quietly created
+// without the Salesforce queue it was promised.
+//
+// `42703` is "column does not exist" (sf_lead_state); `23514` is a CHECK
+// violation (source = 'walk_in' or 'other' against the pre-023 constraint).
 const UNDEFINED_COLUMN = "42703";
+const CHECK_VIOLATION = "23514";
 export const MIGRATION_023_MISSING =
-  "The deals table is missing the manual-intake columns. Apply " +
+  "The deals table has not been prepared for manual intake yet. Apply " +
   "Catering-Manager migrations/023_manual_deal_sources_and_sf_lead_state.sql " +
-  "in the Supabase SQL editor, then try again.";
+  "in the Supabase SQL editor, then try again. Nothing was created.";
+
+/** Whether this insert failure is "migration 023 has not been applied". */
+export function isMigration023Missing(err: {
+  code?: string;
+  message?: string;
+} | null): boolean {
+  if (!err) return false;
+  if (err.code === UNDEFINED_COLUMN || err.code === CHECK_VIOLATION) return true;
+  return /sf_lead_state|deals_source_check/.test(err.message ?? "");
+}
 
 /** Compute every row this deal implies. Pure apart from the clock. */
 export function planDeal(args: CreateDealArgs): CreateDealPlan {
@@ -151,13 +173,10 @@ export async function writeDeal(
     .select("id")
     .single();
   if (dealErr || !deal) {
-    const missingColumn =
-      dealErr?.code === UNDEFINED_COLUMN ||
-      /sf_lead_state|deals\.source/.test(dealErr?.message ?? "");
     return {
       ok: false,
       status: 500,
-      error: missingColumn
+      error: isMigration023Missing(dealErr)
         ? `${MIGRATION_023_MISSING} (${dealErr?.message})`
         : (dealErr?.message ?? "Deal insert returned no row"),
     };
