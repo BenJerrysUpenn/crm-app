@@ -127,12 +127,20 @@ create unique index if not exists held_tips_source_payment_key
   on public.held_tips (source_payment_id)
   where source_payment_id is not null;
 
--- The second guard against a double entry, for rows with no Square payment id
--- to key on: the same deal, payer, date and amount is the shape the phantom
--- $100 had (Geraci and Burlington were one payment against deal 25188).
--- Entered twice on purpose? Give one of them a source_payment_id, or a
--- distinguishing note is not enough — this index means the ledger would rather
--- refuse than quietly double-count money.
+-- The second guard, for rows with no Square payment id to key on: the same
+-- deal, payer, date and amount twice is a straightforward double entry, and the
+-- ledger would rather refuse it than quietly double-count money. Two rows that
+-- really are two payments get their source_payment_id filled in, which exempts
+-- them.
+--
+-- This index does NOT catch the phantom $100. That was one payment entered
+-- under two different payer names (Geraci and Burlington, deal 25188), so the
+-- names made the rows look distinct here. Catching it needs a check that
+-- ignores the payer, and ignoring the payer is too blunt to enforce as a
+-- constraint — so that one is reported, not refused: findDuplicates() in
+-- lib/payroll/heldTips.ts keys on deal, date and amount alone, and the §3.6
+-- tie-out fails by exactly the doubled amount. Three guards, because the money
+-- arrives from a system that does not know about this table.
 create unique index if not exists held_tips_natural_key
   on public.held_tips (deal_id, payer, paid_date, tip_cents)
   where source_payment_id is null and deal_id is not null;
