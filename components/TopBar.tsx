@@ -43,7 +43,17 @@ export default function TopBar({ email }: { email: string }) {
           );
         })}
       </nav>
-      <div className="flex items-center gap-4 order-2 sm:order-3">
+      <div className="flex items-center gap-2 sm:gap-4 order-2 sm:order-3">
+        {/* Manual intake: somebody rang, emailed or walked in. Sits beside
+            Sign out rather than in the tab row because it is an action, not
+            a place, and it has to be reachable from every page — a walk-in
+            does not wait for you to navigate to the board. */}
+        <Link
+          href="/deals/new"
+          className="text-sm bg-sky-600 hover:bg-sky-500 text-white rounded-md px-3 py-1.5 whitespace-nowrap"
+        >
+          New deal
+        </Link>
         <span className="hidden sm:inline text-sm text-slate-400 truncate max-w-[16rem]">
           {email}
         </span>
