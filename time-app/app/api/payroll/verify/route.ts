@@ -131,8 +131,14 @@ async function loadShiftTypes(supabase: Supabase): Promise<ShiftTypeRow[]> {
   const withColumn = await supabase.from("shift_types").select("name, in_store");
   if (!withColumn.error) return (withColumn.data ?? []) as ShiftTypeRow[];
   // shift_types.in_store arrives in migration 24. Without it every type reads
-  // as in-store, which is the column's own default and can only over-report
-  // coverage checks, never excuse a hole.
+  // as in-store — the column's own default, and the same choice lib/coverage.ts
+  // makes for an unrecognised position, so the two checks agree about a
+  // database that is behind the deploy. It is not a free choice either way: it
+  // lets a Catering punch look like cover (1.8 under-reports), where the
+  // opposite would invent gaps on every catering evening. This is the fallback
+  // for a MISSING COLUMN only; any other error returns nothing rather than
+  // guessing, which has the same effect but without pretending it read
+  // something.
   if (!isMissingInStoreColumn(withColumn.error)) return [];
   const plain = await supabase.from("shift_types").select("name");
   return ((plain.data ?? []) as { name: string }[]).map((t) => ({ name: t.name, in_store: true }));
