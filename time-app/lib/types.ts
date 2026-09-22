@@ -7,6 +7,11 @@ export type Profile = {
   role: Role;
   hourly_rate: number | null;
   active: boolean;
+  // QuickBooks Payroll employee id (Intuit.ems.iop local id) — the only join
+  // between this app and QBO, because names differ between the two systems and
+  // between QBO's own endpoints (payroll spec 2.5). Optional because the column
+  // arrives in migration 26; undefined means the column is not there yet.
+  qbo_employee_id?: string | null;
   notif_prefs: Record<string, boolean> | null;
   created_at: string;
 };
