@@ -24,8 +24,9 @@
 -- editor arrives as postgres with no JWT at all. Recording only auth.uid()
 -- would leave exactly the deletions this table exists for looking anonymous, so
 -- every row carries all three: the uid when there is one, the JWT role claim,
--- and the database role. The 09-10 deletion would have been attributable by the
--- db role alone.
+-- and the database role. Which of the three would have named the 09-10 deletion
+-- is unknowable now, and that is the point — with none of them recorded there
+-- was nothing to ask.
 --
 -- APPEND-ONLY. There is no insert, update or delete policy on row_audit — only
 -- a manager SELECT policy. Nothing reaching the database through PostgREST can
