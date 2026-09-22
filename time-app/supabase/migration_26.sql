@@ -41,7 +41,7 @@ comment on column public.profiles.qbo_employee_id is
 -- because most rows are null and nulls must not collide with each other — and
 -- because two people pointing at one QBO employee means somebody gets paid
 -- twice and somebody not at all, which is exactly the failure the id exists to
--- prevent. Blank strings are normalised to null by the API (lib/qboEmployee.ts)
+-- prevent. Blank strings are normalised to null by the API (lib/payroll/qboEmployee.ts)
 -- so '' can never sit in the index pretending to be a value.
 create unique index if not exists profiles_qbo_employee_id_key
   on public.profiles (qbo_employee_id)
@@ -92,8 +92,9 @@ create trigger profiles_qbo_employee_id_guard
 --
 -- released_in_run is the RUN's pay date (period end + 3, a Wednesday, §0.1),
 -- which is how every other artefact of a pay run is identified. Null unless the
--- row is released, and required when it is — enforced below, because a released
--- row with no run is precisely the shape the phantom $100 had.
+-- row is released, and required when it is — enforced by a CHECK below, so
+-- "paid out" always says which run paid it. Money marked paid with no run
+-- attached is money nobody can trace, and the tie-out would still balance.
 create table if not exists public.held_tips (
   id               bigint generated always as identity primary key,
   -- The catering deal. bigint, matching shifts.deal_id: the deals table lives
