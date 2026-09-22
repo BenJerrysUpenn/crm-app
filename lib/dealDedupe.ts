@@ -1,6 +1,6 @@
 // Duplicate lookup for manual deal intake.
 //
-// Thin wrapper over the `deal_dedupe_candidates` RPC (supabase/crm/005). The
+// Thin wrapper over the `deal_dedupe_candidates` RPC (supabase/crm/006). The
 // matching itself is in SQL because the phone key has to be normalised on the
 // column side, which PostgREST filters cannot do — see the migration.
 //
@@ -32,7 +32,7 @@ type RpcRow = {
 // PostgREST/Postgres "function does not exist".
 const UNDEFINED_FUNCTION = "42883";
 export const DEDUPE_MIGRATION_MISSING =
-  "Duplicate checking is unavailable until supabase/crm/005_manual_deal_intake.sql " +
+  "Duplicate checking is unavailable until supabase/crm/006_manual_deal_intake.sql " +
   "is applied. Creating deals still works.";
 
 /** Shape one RPC row into the client's view of a match. */

@@ -144,7 +144,7 @@ In this order, in the Supabase SQL editor. Both are idempotent.
    — widens the `deals.source` CHECK to admit `walk_in` and `other`, and adds
    `deals.sf_lead_state`. `deals` is owned by Catering-Manager, which is why
    its DDL lives there and not in `supabase/crm/`.
-2. **`supabase/crm/005_manual_deal_intake.sql`** — the
+2. **`supabase/crm/006_manual_deal_intake.sql`** — the
    `deal_dedupe_candidates` RPC and two indexes. Needs crm/003 for
    `public.normalize_phone`.
 
@@ -171,7 +171,7 @@ mechanism (#409).
 | Payload, validation modes, the row builder | `lib/callDesk/dealForm.ts` |
 | The shared writer | `lib/callDesk/dealCreate.ts` |
 | Untrusted-body coercion | `lib/callDesk/dealRequest.ts` |
-| Duplicate lookup | `lib/dealDedupe.ts` + `supabase/crm/005` |
+| Duplicate lookup | `lib/dealDedupe.ts` + `supabase/crm/006` |
 | The form | `components/callDesk/GenerateDealForm.tsx` (`prospect: null`) |
 | Page and entry point | `app/deals/new/page.tsx`, `components/NewDealForm.tsx`, `components/TopBar.tsx` |
 | Routes | `app/api/deals/route.ts`, `app/api/deals/dedupe/route.ts` |

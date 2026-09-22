@@ -1,5 +1,5 @@
 -- ============================================================================
--- Withers CRM — migration crm/005: manual deal intake
+-- Withers CRM — migration crm/006: manual deal intake
 --
 -- Staff need to add a deal when the customer did not use the catering form on
 -- benjerry.com/upenn/catering: they rang, emailed, or asked at the counter.
