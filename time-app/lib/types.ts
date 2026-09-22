@@ -172,3 +172,27 @@ export type ClockinReminderAck = {
   body_snapshot: string;
   user_agent: string | null;
 };
+
+// One append-only entry in the write log for `time_entries` and `shifts`
+// (migration 25). Written by the `audit_row_change` trigger, readable by
+// managers, writable by nobody.
+//
+// The three actor columns answer "who" for the three kinds of writer this app
+// has: a signed-in person through PostgREST (actor_uid + actor_role), a cron or
+// catering job on the service-role key (actor_role = 'service_role', no uid),
+// and somebody in the SQL editor (neither, so db_role is the only answer).
+//
+// before_image is null on INSERT and after_image is null on DELETE — a missing
+// image and an empty row are different things.
+export type RowAudit = {
+  id: number;
+  table_name: "time_entries" | "shifts" | string;
+  row_id: number | null;
+  op: "INSERT" | "UPDATE" | "DELETE";
+  at: string;
+  actor_uid: string | null;
+  actor_role: string | null;
+  db_role: string;
+  before_image: Record<string, unknown> | null;
+  after_image: Record<string, unknown> | null;
+};
