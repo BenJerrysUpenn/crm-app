@@ -561,8 +561,8 @@ test("1.9: a 4h+ solo tail out before 22:00 is eligible within 2h of close (2.4 
 });
 
 test("1.9: a short solo tail out before 22:00 within 2h of close gets NO dropdown (ruling C)", () => {
-  // The trigger the previous rework added — any last clock-out before 22:00 —
-  // is gone. Cole leaves at 20:00, Carli at 20:30: 30 minutes alone.
+  // Out before 22:00 and within 2h of close, but alone under 4h: not eligible.
+  // Cole leaves at 20:00, Carli at 20:30: 30 minutes alone.
   const result = run({
     ...WED_ONLY,
     punches: [
