@@ -19,6 +19,11 @@ import { recordChoice, resetChoice } from "./choiceApi";
 // PRESELECTED DEFAULT, and there is ONE approval for the whole run, which any
 // manager may give. The §1.9 solo-close dropdown lives on the schedule view;
 // this tab shows what was chosen and links there.
+//
+// Follow-up ruling, same day: the approval is FINAL. It is only offered once
+// the pay period has ended, it starts payroll (the script that stages the run
+// in QBO), and it locks every choice in the period. The button asks for a
+// plain confirmation first, and a locked case is shown read-only.
 
 type ApiResult = LoadedVerify;
 
@@ -190,8 +195,14 @@ function Summary({ result }: { result: ApiResult }) {
 
 /**
  * The one approval for the whole run. Any manager may give it; the only
- * conditions are the data's. Flags never block — they are here so the person
- * approving sees, before they click, anything that pays a manager by a choice.
+ * conditions are the data's and the calendar's. Flags never block — they are
+ * here so the person approving sees, before they click, anything that pays a
+ * manager by a choice.
+ *
+ * Approval is final: it starts payroll and cannot be cancelled or undone. So
+ * the button is disabled, with the reason shown, until the period has ended,
+ * and a click opens a confirmation that says exactly that before anything is
+ * sent.
  */
 function ApprovePanel({
   result,
@@ -204,33 +215,68 @@ function ApprovePanel({
   busy: boolean;
   onApprove: () => void;
 }) {
-  const blocker = approvalBlocker(result, result.migrations.approvals);
+  const [confirming, setConfirming] = useState(false);
+  const blocker = approvalBlocker(result, result.migrations.approvals, result.today, result.otherApprovals);
   const wouldPayMe = paysApprover(result.findings, meId);
-  const state = result.approvalState;
+  const approved = result.approvalState === "approved";
   return (
     <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 text-sm">
       <div className="flex flex-wrap items-center gap-3">
         <div className="font-medium text-slate-900 dark:text-slate-100">
-          {state === "approved" && "Pay run approved"}
-          {state === "stale" && "Approval is stale — a choice changed after it was given"}
-          {state === "not_approved" && "Pay run not approved"}
+          {approved ? "Pay run approved — payroll has started" : "Pay run not approved"}
         </div>
         {result.approval && (
           <div className="text-xs text-slate-500">
-            last approved {new Date(result.approval.approved_at).toLocaleString("en-US", { timeZone: "America/New_York" })}
+            approved {new Date(result.approval.approved_at).toLocaleString("en-US", { timeZone: "America/New_York" })}
+            {result.approval.status === "approved_pending_stage" && " · waiting to be staged in QuickBooks"}
           </div>
         )}
-        <button
-          type="button"
-          onClick={onApprove}
-          disabled={busy || !!blocker}
-          title={blocker ?? "Approve every case as it stands, defaults included"}
-          className="ml-auto rounded-md bg-emerald-600 text-white text-sm font-medium px-4 py-2 disabled:opacity-40"
-        >
-          {state === "approved" ? "Approve again" : "Approve pay run"}
-        </button>
+        {!approved && !confirming && (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            disabled={busy || !!blocker}
+            title={blocker ?? "Approve every case as it stands, defaults included, and start payroll"}
+            className="ml-auto rounded-md bg-emerald-600 text-white text-sm font-medium px-4 py-2 disabled:opacity-40"
+          >
+            Approve pay run
+          </button>
+        )}
       </div>
-      {blocker && <div className="text-xs text-slate-500 mt-2">{blocker}</div>}
+      {!approved && blocker && <div className="text-xs text-slate-500 mt-2">{blocker}</div>}
+      {!approved && confirming && !blocker && (
+        <div role="alertdialog" aria-labelledby="approve-confirm-title" className="mt-3 rounded-md border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 p-3">
+          <div id="approve-confirm-title" className="font-semibold text-rose-800 dark:text-rose-300">
+            This starts payroll. It cannot be cancelled.
+          </div>
+          <p className="text-xs text-rose-800 dark:text-rose-300 mt-1 max-w-prose">
+            Approving the run for {result.window.start} → {result.window.end} starts the payroll script, which stages this
+            pay run in QuickBooks. It cannot be cancelled or undone, and every choice for this period is locked from
+            now on.
+          </p>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setConfirming(false);
+                onApprove();
+              }}
+              className="rounded-md bg-rose-600 text-white text-sm font-medium px-4 py-2 disabled:opacity-40"
+            >
+              Approve and start payroll
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirming(false)}
+              className="rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm px-4 py-2"
+            >
+              Not yet
+            </button>
+          </div>
+        </div>
+      )}
       {result.flags.length > 0 && (
         <ul className="mt-2 space-y-1">
           {result.flags.map((flag) => (
@@ -240,16 +286,16 @@ function ApprovePanel({
           ))}
         </ul>
       )}
-      {wouldPayMe.length > 0 && state !== "approved" && (
+      {wouldPayMe.length > 0 && !approved && (
         <div className="text-xs text-amber-600 dark:text-amber-500 mt-2">
           ⚑ Approving pays you {wouldPayMe.length === 1 ? "one tip" : `${wouldPayMe.length} tips`} chosen here (
           {wouldPayMe.map((f) => f.key).join(", ")}). That is allowed, and it is flagged on the payroll sheet.
         </div>
       )}
       <p className="text-xs text-slate-500 mt-2 max-w-prose">
-        One approval covers the whole run. Every case stands on its default unless a manager changed it. The payroll
-        sheet will not produce a keyable sheet until the run is approved, and a choice changed after approval needs
-        approving again.
+        One approval covers the whole run, and it is final. It can be given once the pay period has ended. Every case
+        stands on its default unless a manager changed it; once the run is approved, every choice for the period is
+        locked.
       </p>
     </section>
   );
@@ -316,7 +362,7 @@ function FindingRow({
 
         {hasDefault && <ChoiceRow finding={finding} busy={busy} onRule={onRule} onClear={onClear} />}
 
-        {finding.status === "needs_ruling" && !hasDefault && !finding.ruling && (
+        {finding.status === "needs_ruling" && !hasDefault && !finding.ruling && !finding.lockedBy && (
           <div className="mt-2 space-y-2">
             <input
               value={note}
@@ -349,16 +395,20 @@ function FindingRow({
           <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
             Ruled: {labelFor(finding, finding.ruling.choice)}
             {finding.ruling.note ? ` — ${finding.ruling.note}` : ""}{" "}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onClear(finding)}
-              className="text-slate-500 hover:text-rose-500 underline disabled:opacity-50 ml-1"
-            >
-              change
-            </button>
+            {!finding.lockedBy && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onClear(finding)}
+                className="text-slate-500 hover:text-rose-500 underline disabled:opacity-50 ml-1"
+              >
+                change
+              </button>
+            )}
           </div>
         )}
+
+        {finding.status === "needs_ruling" && finding.lockedBy && <Locked windowEnd={finding.lockedBy} />}
 
         {finding.status === "needs_fix" && (
           <div className="mt-1 text-xs text-rose-500">
@@ -392,7 +442,12 @@ function ChoiceRow({
   const payeeName = effective?.payee?.name;
   return (
     <div className="mt-2 text-xs space-y-1">
-      {finding.check === "1.9" ? (
+      {finding.lockedBy ? (
+        <div className="text-slate-700 dark:text-slate-300">
+          {labelFor(finding, effective?.choice ?? "").replace(/ \(default\)$/, "")}
+          {payeeName ? ` — ${payeeName}` : ""} {recorded ? "(changed from default)" : "(default)"}
+        </div>
+      ) : finding.check === "1.9" ? (
         <div className="text-slate-700 dark:text-slate-300">
           {labelFor(finding, effective?.choice ?? "skip").replace(/ \(default\)$/, "")}
           {payeeName ? ` — ${payeeName}` : ""} {recorded ? "(changed from default)" : "(default)"}{" "}
@@ -434,6 +489,15 @@ function ChoiceRow({
       {(finding.flags ?? []).map((flag) => (
         <div key={flag} className="text-amber-600 dark:text-amber-500">⚑ {flag}</div>
       ))}
+    </div>
+  );
+}
+
+/** A case in an approved run: read-only, because approval is final. */
+function Locked({ windowEnd }: { windowEnd: string }) {
+  return (
+    <div className="mt-1 text-[11px] text-slate-500">
+      Locked: the pay run ending {windowEnd} is approved, and approval is final.
     </div>
   );
 }

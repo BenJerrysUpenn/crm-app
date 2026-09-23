@@ -12,6 +12,9 @@ import { recordChoice } from "./choiceApi";
 //
 // One <select> carries both the choice and, for "unpunched manager", which
 // manager: `unpunched_manager:<profile id>`.
+//
+// Once the pay run the night falls in is approved, the dropdown is read-only:
+// approval is final (ruled 2026-09-22), and migration 27 refuses the write.
 
 export default function SoloCloseSelect({
   finding,
@@ -31,6 +34,7 @@ export default function SoloCloseSelect({
       ? `unpunched_manager:${effective.payee.id}`
       : effective?.choice ?? "skip";
   const closer = finding.scheduledCloser ?? null;
+  const locked = !!finding.lockedBy;
 
   async function change(value: string) {
     const [choice, managerId] = value.split(":");
@@ -47,10 +51,14 @@ export default function SoloCloseSelect({
     <div className="flex flex-wrap items-center gap-2">
       <select
         value={current}
-        disabled={busy}
+        disabled={busy || locked}
         onChange={(e) => change(e.target.value)}
         className="text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 disabled:opacity-50"
-        title="Solo-close bonus for this night (payroll spec 1.9 / 2.4)"
+        title={
+          locked
+            ? `Locked: the pay run ending ${finding.lockedBy} is approved`
+            : "Solo-close bonus for this night (payroll spec 1.9 / 2.4)"
+        }
       >
         <option value="skip">Skip payment{finding.defaultChoice === "skip" ? " (default)" : ""}</option>
         <option value="scheduled_closer" disabled={!closer}>
@@ -62,6 +70,11 @@ export default function SoloCloseSelect({
           </option>
         ))}
       </select>
+      {locked && (
+        <span className="text-[11px] text-slate-500">
+          Locked: the pay run ending {finding.lockedBy} is approved, and approval is final.
+        </span>
+      )}
       {effective?.source === "recorded" && (
         <span className="text-[11px] text-slate-500">changed from default</span>
       )}

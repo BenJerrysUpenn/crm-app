@@ -54,8 +54,8 @@ export default function SoloCloseNights({ weekStart }: { weekStart: string }) {
       <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Solo close — nights nobody&rsquo;s punch closed</div>
       <p className="text-xs text-slate-500 mt-1 max-w-prose">
         The last in-store clock-out was before 10 PM or well before close. Choose who, if anyone, is paid the $30
-        solo-close bonus. Leaving it on skip pays nobody. Any manager can change these; payroll uses them once the run is
-        approved on the Finance tab.
+        solo-close bonus. Leaving it on skip pays nobody. Any manager can change these until the pay run is approved on
+        the Finance tab; approval is final and locks them.
       </p>
       {error && <div className="text-xs text-rose-500 mt-2">{error}</div>}
       <ul className="mt-2 divide-y divide-slate-200 dark:divide-slate-800">

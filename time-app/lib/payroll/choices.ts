@@ -2,7 +2,8 @@
 // 2026-09-22). Pure and dependency-free so `node --test` runs it, and the
 // rulings route, the approve route and the UI all apply the same rules.
 
-import { RULING_CHOICES, choicePays, type Finding, type VerifyResult } from "./verify.ts";
+import { RULING_CHOICES, choicePays, type ApprovalRow, type Finding, type VerifyResult } from "./verify.ts";
+import { firstApprovalDay, periodEnded } from "./window.ts";
 
 /** A payee as the route found it in `profiles`, or null if the id is unknown. */
 export type PayeeProfile = { id: string; role: string | null; active: boolean } | null;
@@ -56,13 +57,26 @@ export function approvalSnapshot(findings: Finding[]): SnapshotEntry[] {
 }
 
 /**
- * Why this run cannot be approved yet, or null when it can.
+ * Why this run cannot be approved, or null when it can.
  *
  * "Any manager can approve" (ruled 2026-09-22): the only conditions are the
- * data's, never who is asking.
+ * data's and the calendar's, never who is asking. Approval is FINAL — it
+ * starts payroll — so a run is approved once, only after its period has
+ * ended, and never over a run that shares its days. Migration 27's trigger
+ * refuses the same things in the database.
  */
-export function approvalBlocker(result: Pick<VerifyResult, "ready" | "counts">, approvalsReady: boolean): string | null {
+export function approvalBlocker(
+  result: Pick<VerifyResult, "ready" | "counts" | "window" | "approval">,
+  approvalsReady: boolean,
+  today: string,
+  otherApprovals: Pick<ApprovalRow, "window_end">[] = [],
+): string | null {
   if (!approvalsReady) return "Approvals need migration 27. Run it in Supabase first.";
+  if (result.approval) return "This pay run is already approved. Approval is final.";
+  if (!periodEnded(result.window, today))
+    return `The pay period ends ${result.window.end}. It can be approved from ${firstApprovalDay(result.window)}.`;
+  const overlap = otherApprovals.find((a) => a.window_end);
+  if (overlap) return `The pay run ending ${overlap.window_end} is already approved and shares days with this one.`;
   if (result.counts.needsFix > 0) return `${result.counts.needsFix} finding(s) must be fixed in the app first.`;
   if (!result.ready) return "Some cases have no default and still need a choice.";
   return null;

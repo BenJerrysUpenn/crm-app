@@ -13,6 +13,8 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
 const MAX_NOTE = 2000;
+/** Postgres: raise_exception, what migration 27's lock trigger raises. */
+const RAISED_BY_TRIGGER = "P0001";
 
 type Body = {
   window_end?: unknown;
@@ -58,8 +60,11 @@ function parseTarget(source: { window_end?: unknown; check_id?: unknown; finding
 // 2026-09-22). ANY manager may record or change a choice. Re-answering the same
 // case replaces the previous answer rather than adding a second one: the
 // unique index is (check_id, finding_key), so the table holds the choice that
-// stands, and the schedule and the Finance tab write the same row. A choice
-// recorded after the run was approved makes that approval stale.
+// stands, and the schedule and the Finance tab write the same row.
+//
+// Once the run a case falls in is approved, its choice is LOCKED: approval is
+// final and has started payroll. Migration 27's trigger refuses the write
+// (and works out the case's date itself); this route turns that into a 409.
 export async function POST(request: Request) {
   const me = await getProfile();
   if (!me || me.role !== "manager")
@@ -110,6 +115,7 @@ export async function POST(request: Request) {
       { error: "Payroll rulings need migration 27. Run it in Supabase first." },
       { status: 503 },
     );
+  if (error?.code === RAISED_BY_TRIGGER) return NextResponse.json({ error: error.message }, { status: 409 });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ ruling: data });
 }
@@ -117,7 +123,7 @@ export async function POST(request: Request) {
 // DELETE /api/payroll/rulings?window_end=&check_id=&finding_key=
 //
 // Puts a case back to its default (or, for §1.4/§1.5, back in front of the
-// person). Deleting the row rather than writing an empty choice keeps "not
+// person). Refused, like any change, once the case's run is approved. Deleting the row rather than writing an empty choice keeps "not
 // changed" a single state — the default is the rule, and there is no second
 // way to hold it.
 export async function DELETE(request: Request) {
@@ -145,6 +151,7 @@ export async function DELETE(request: Request) {
       { error: "Payroll rulings need migration 27. Run it in Supabase first." },
       { status: 503 },
     );
+  if (error?.code === RAISED_BY_TRIGGER) return NextResponse.json({ error: error.message }, { status: 409 });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

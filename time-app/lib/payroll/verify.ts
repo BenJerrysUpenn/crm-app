@@ -50,7 +50,7 @@ import {
   type StoreHoursRow,
 } from "../coverage.ts";
 import { LONG_SHIFT_HOURS } from "../shiftChecks.ts";
-import { inWindow, windowDates, type PayWindow } from "./window.ts";
+import { PERIOD_DAYS, addDays, inWindow, windowDates, type PayWindow } from "./window.ts";
 
 // ---------------------------------------------------------------------------
 // Thresholds. Every one of these is a number the spec names; they are constants
@@ -157,10 +157,18 @@ export type RulingRow = {
   decided_at?: string | null;
 };
 
-/** The one approval a pay run gets (migration 27, payroll_run_approvals). */
+/**
+ * The one approval a pay run gets (migration 27, payroll_run_approvals).
+ * FINAL (ruled 2026-09-22): it starts payroll, cannot be undone, and locks
+ * every choice in its fourteen days.
+ */
 export type ApprovalRow = {
   approved_by: string | null;
   approved_at: string;
+  /** The period's last day. Always set for rows read from the database. */
+  window_end?: string;
+  /** 'approved_pending_stage' until the §6 staging script (not built) takes it. */
+  status?: string;
 };
 
 export type VerifyInput = {
@@ -187,6 +195,12 @@ export type VerifyInput = {
   /** §3.5 — event deals whose event_date falls in the window. */
   windowDeals?: DealRow[];
   approval?: ApprovalRow | null;
+  /**
+   * Approvals of OTHER windows that share days with this one. A case dated
+   * inside any of them is locked too: a solo-close night chosen on the
+   * schedule belongs to whichever approved run covers it.
+   */
+  otherApprovals?: ApprovalRow[];
 };
 
 // ---------------------------------------------------------------------------
@@ -246,6 +260,12 @@ export type Finding = {
   effective?: EffectiveChoice | null;
   /** Things the approver must see about this case. They never block. */
   flags?: string[];
+  /**
+   * The last day of the approved run this case falls in, if any. An approved
+   * run's choices are locked (read-only here, refused by migration 27's
+   * trigger): approval is final.
+   */
+  lockedBy?: string | null;
 };
 
 export type Person = { id: string; name: string };
@@ -256,7 +276,8 @@ export type EffectiveChoice = {
   source: "recorded" | "default";
 };
 
-export type ApprovalState = "approved" | "stale" | "not_approved";
+/** Approval is final: there is no "stale" and no approving again. */
+export type ApprovalState = "approved" | "not_approved";
 
 export type CheckGroup = {
   check: string;
@@ -281,7 +302,6 @@ export type VerifyResult = {
   /** Nothing to fix, and every case answered by a recording or a default. */
   ready: boolean;
   approval: ApprovalRow | null;
-  /** Approved before a choice last changed is STALE: approve again. */
   approvalState: ApprovalState;
   /** Every flag on every finding, for the approve panel. */
   flags: { key: string; message: string }[];
@@ -1446,10 +1466,15 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
   // survives re-running Verify and disappears if the finding it answered does.
   const rulings = new Map((input.rulings ?? []).map((r) => [`${r.check_id}|${r.finding_key}`, r]));
   const approval = input.approval ?? null;
+  const approvedWindows = [
+    ...(approval ? [window.end] : []),
+    ...(input.otherApprovals ?? []).map((a) => a.window_end).filter((end): end is string => !!end),
+  ];
   for (const f of findings) {
     if (f.status !== "needs_ruling") continue;
     f.ruling = rulings.get(`${f.check}|${f.key}`) ?? null;
     settleChoice(f, approval, profiles);
+    f.lockedBy = lockingWindow(caseDate(f, window), approvedWindows);
   }
 
   const needsRuling = findings.filter((f) => f.status === "needs_ruling");
@@ -1478,18 +1503,27 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
     },
     ready: needsFix.length === 0 && needsRuling.every(isAnswered),
     approval,
-    approvalState: approvalStateOf(approval, ruled),
+    approvalState: approval ? "approved" : "not_approved",
     flags: findings.flatMap((f) => (f.flags ?? []).map((message) => ({ key: f.key, message }))),
   };
 }
 
 /**
- * An approval is of the choices as they stood when it was given. A choice
- * recorded after it reopens the run: the approver never saw that version.
+ * The day a case falls on, which decides the approved run that locks it.
+ * Migration 27's payroll_case_date() dates the same keys the same way: the
+ * night (1.9), the event (3.5), the punch's New York day (1.4/1.5), and the
+ * window's own last day for the one-per-window 3.7 case.
  */
-export function approvalStateOf(approval: ApprovalRow | null, ruled: Finding[]): ApprovalState {
-  if (!approval) return "not_approved";
-  const at = new Date(approval.approved_at).getTime();
-  const changedAfter = ruled.some((f) => f.ruling?.decided_at && new Date(f.ruling.decided_at).getTime() > at);
-  return changedAfter ? "stale" : "approved";
+export function caseDate(f: Finding, window: PayWindow): string | null {
+  if (f.check === "3.7") return window.end;
+  return f.evidence.date ?? null;
+}
+
+/** The approved window (by its last day) whose fourteen days hold `date`. */
+export function lockingWindow(date: string | null, approvedWindowEnds: string[]): string | null {
+  if (!date) return null;
+  for (const end of [...approvedWindowEnds].sort()) {
+    if (date >= addDays(end, -(PERIOD_DAYS - 1)) && date <= end) return end;
+  }
+  return null;
 }

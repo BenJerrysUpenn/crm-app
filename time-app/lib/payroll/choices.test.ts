@@ -5,6 +5,15 @@ import assert from "node:assert/strict";
 
 import { approvalBlocker, approvalSnapshot, paysApprover, validateChoice } from "./choices.ts";
 import type { Finding } from "./verify.ts";
+import { payWindowEnding, type PayWindow } from "./window.ts";
+
+const WINDOW: PayWindow = (() => {
+  const r = payWindowEnding("2026-09-20");
+  if (!r.ok) throw new Error(r.error);
+  return r.window;
+})();
+/** A day after WINDOW has ended. */
+const AFTER = "2026-09-22";
 
 const MGR = { id: "m", role: "manager", active: true };
 const STAFF = { id: "s", role: "employee", active: true };
@@ -68,10 +77,35 @@ test("an unanswered no-default case snapshots as empty rather than guessed", () 
 
 test("approval is blocked by a missing table, a fix, or an unanswered case, and nothing else", () => {
   const counts = { total: 0, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 0 };
-  assert.match(approvalBlocker({ ready: true, counts }, false)!, /migration 27/);
-  assert.match(approvalBlocker({ ready: false, counts: { ...counts, needsFix: 2 } }, true)!, /2 finding/);
-  assert.match(approvalBlocker({ ready: false, counts }, true)!, /still need a choice/);
-  assert.equal(approvalBlocker({ ready: true, counts }, true), null);
+  const base = { ready: true, counts, window: WINDOW, approval: null };
+  assert.match(approvalBlocker(base, false, AFTER)!, /migration 27/);
+  assert.match(approvalBlocker({ ...base, ready: false, counts: { ...counts, needsFix: 2 } }, true, AFTER)!, /2 finding/);
+  assert.match(approvalBlocker({ ...base, ready: false }, true, AFTER)!, /still need a choice/);
+  assert.equal(approvalBlocker(base, true, AFTER), null);
+});
+
+test("approval is only available after the pay period has ended", () => {
+  const counts = { total: 0, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 0 };
+  const base = { ready: true, counts, window: WINDOW, approval: null };
+  // On the period's own Sunday it has not ended.
+  assert.equal(
+    approvalBlocker(base, true, "2026-09-20"),
+    "The pay period ends 2026-09-20. It can be approved from 2026-09-21.",
+  );
+  assert.match(approvalBlocker(base, true, "2026-09-14")!, /can be approved from 2026-09-21/);
+  assert.equal(approvalBlocker(base, true, "2026-09-21"), null);
+});
+
+test("approval is final: an approved run, or one sharing days with an approved run, cannot be approved", () => {
+  const counts = { total: 0, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 0 };
+  const base = { ready: true, counts, window: WINDOW, approval: null };
+  const given = { approved_by: "m", approved_at: "2026-09-21T16:00:00Z" };
+  assert.equal(approvalBlocker({ ...base, approval: given }, true, AFTER), "This pay run is already approved. Approval is final.");
+  assert.match(
+    approvalBlocker(base, true, AFTER, [{ window_end: "2026-09-13" }])!,
+    /run ending 2026-09-13 is already approved and shares days/,
+  );
+  assert.equal(approvalBlocker(base, true, AFTER, [{ window_end: undefined }]), null);
 });
 
 test("approving would pay you: crewless and Olo cases only", () => {

@@ -21,7 +21,7 @@ import {
   type ShiftTypeRow,
   type VerifyResult,
 } from "@/lib/payroll/verify";
-import { addDays, type PayWindow } from "@/lib/payroll/window";
+import { PERIOD_DAYS, addDays, type PayWindow } from "@/lib/payroll/window";
 import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/coverage";
 
 // How far back to look for deletions. A shift scheduled inside the window can
@@ -33,6 +33,10 @@ type Supabase = ReturnType<typeof createClient>;
 
 export type LoadedVerify = VerifyResult & {
   migrations: { storeHours: boolean; rulings: boolean; approvals: boolean };
+  /** Today in New York, as the server saw it: the approval gate's calendar. */
+  today: string;
+  /** Approved runs of OTHER windows that share days with this one. */
+  otherApprovals: ApprovalRow[];
 };
 
 export async function loadVerify(
@@ -73,7 +77,7 @@ export async function loadVerify(
     loadDeals(supabase, shifts),
     loadWindowDeals(supabase, window),
     loadAuditDeletes(supabase, window),
-    loadApproval(supabase, window),
+    loadApprovals(supabase, window),
   ]);
 
   const input = {
@@ -91,6 +95,7 @@ export async function loadVerify(
     windowDeals,
     auditDeletes,
     approval: approval.row,
+    otherApprovals: approval.others,
   };
 
   // Two passes. Choices are keyed by CASE, not by pay window (migration 27):
@@ -111,6 +116,8 @@ export async function loadVerify(
       // deploy. The audit case is not reported here: it is a finding (1.13),
       // because an unverifiable window is a result, not a UI state.
       migrations: { storeHours: storeHours.ready, rulings: rulings.ready, approvals: approval.ready },
+      today,
+      otherApprovals: approval.others,
     },
   };
 }
@@ -269,20 +276,31 @@ async function loadWindowDeals(supabase: Supabase, window: PayWindow): Promise<D
   }
 }
 
-/** The run's approval, if any. Missing table (migration 27) → not approvable. */
-async function loadApproval(
+/**
+ * The run's approval, if any, and the approvals of other windows that share
+ * any of its fourteen days (window_end within 13 days either side). Approval is
+ * final and locks every choice dated in its window, so a case here can be
+ * locked by a neighbouring run as well as its own. Missing table (migration
+ * 27) → not approvable.
+ */
+async function loadApprovals(
   supabase: Supabase,
   window: PayWindow,
-): Promise<{ row: ApprovalRow | null; ready: boolean }> {
+): Promise<{ row: ApprovalRow | null; others: ApprovalRow[]; ready: boolean }> {
   try {
     const { data, error } = await supabase
       .from("payroll_run_approvals")
-      .select("approved_by, approved_at")
-      .eq("window_end", window.end)
-      .maybeSingle();
-    if (error) return { row: null, ready: false };
-    return { row: (data as ApprovalRow | null) ?? null, ready: true };
+      .select("window_end, approved_by, approved_at, status")
+      .gte("window_end", window.start)
+      .lte("window_end", addDays(window.end, PERIOD_DAYS - 1));
+    if (error) return { row: null, others: [], ready: false };
+    const rows = (data ?? []) as ApprovalRow[];
+    return {
+      row: rows.find((r) => r.window_end === window.end) ?? null,
+      others: rows.filter((r) => r.window_end !== window.end),
+      ready: true,
+    };
   } catch {
-    return { row: null, ready: false };
+    return { row: null, others: [], ready: false };
   }
 }

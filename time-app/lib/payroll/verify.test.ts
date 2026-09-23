@@ -17,7 +17,9 @@ import assert from "node:assert/strict";
 
 import {
   RULING_CHOICES,
+  caseDate,
   choicePays,
+  lockingWindow,
   sameNameWords,
   verifyTimesheets,
   type ApprovalRow,
@@ -616,7 +618,7 @@ test("approval: none recorded is not approved", () => {
   assert.equal(earlyCloseNight().approvalState, "not_approved");
 });
 
-test("approval: given after every recorded choice, it stands", () => {
+test("approval: once given it stands, and it is final", () => {
   const result = earlyCloseNight(
     [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: COLE, decided_at: at("2026-09-21", "10:00") }],
     { approved_by: COLE, approved_at: at("2026-09-21", "12:00") },
@@ -625,20 +627,58 @@ test("approval: given after every recorded choice, it stands", () => {
   assert.deepEqual(result.approval, { approved_by: COLE, approved_at: at("2026-09-21", "12:00") });
 });
 
-test("approval: a choice changed afterwards makes it stale", () => {
+test("approval: there is no stale state — a later timestamp on a choice does not reopen the run", () => {
+  // The database refuses such a change (migration 27); even if one got through,
+  // the approval is final and the app does not invite approving again.
   const result = earlyCloseNight(
     [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: COLE, decided_at: at("2026-09-21", "13:00") }],
     { approved_by: COLE, approved_at: at("2026-09-21", "12:00") },
   );
-  assert.equal(result.approvalState, "stale");
+  assert.equal(result.approvalState, "approved");
 });
 
-test("approval: a recorded choice with no timestamp cannot make it stale", () => {
-  const result = earlyCloseNight(
-    [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip" }],
-    { approved_by: COLE, approved_at: at("2026-09-21", "12:00") },
-  );
-  assert.equal(result.approvalState, "approved");
+test("approval: every choice in the approved run is locked", () => {
+  const result = earlyCloseNight([], { approved_by: COLE, approved_at: at("2026-09-21", "12:00") });
+  const cases = result.findings.filter((f) => f.status === "needs_ruling");
+  assert.ok(cases.length > 0);
+  for (const f of cases) assert.equal(f.lockedBy, WINDOW.end, f.key);
+});
+
+test("approval: nothing is locked before the run is approved", () => {
+  for (const f of earlyCloseNight().findings.filter((x) => x.status === "needs_ruling")) assert.equal(f.lockedBy, null);
+});
+
+test("approval: a night inside a neighbouring approved run is locked by that run", () => {
+  // The schedule asks about the window ending a week later than the approved
+  // one; the 09-09 night still belongs to the run ending 09-20.
+  const result = run({
+    ...WED_ONLY,
+    punches: [
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+    ],
+    otherApprovals: [
+      { window_end: "2026-09-13", approved_by: COLE, approved_at: at("2026-09-14", "12:00") },
+      { window_end: undefined, approved_by: COLE, approved_at: at("2026-09-14", "12:00") },
+    ],
+  });
+  assert.equal(only(result.findings, "1.9")[0].lockedBy, "2026-09-13");
+  assert.equal(result.approvalState, "not_approved");
+});
+
+test("approval: the 3.7 case is dated by its window's last day", () => {
+  const f = { check: "3.7", evidence: {} } as unknown as Finding;
+  assert.equal(caseDate(f, WINDOW), WINDOW.end);
+  assert.equal(caseDate({ check: "3.5", evidence: {} } as unknown as Finding, WINDOW), null);
+  assert.equal(caseDate({ check: "1.9", evidence: { date: "2026-09-09" } } as unknown as Finding, WINDOW), "2026-09-09");
+});
+
+test("approval: a run's lock covers exactly its fourteen days", () => {
+  assert.equal(lockingWindow("2026-09-07", ["2026-09-20"]), "2026-09-20");
+  assert.equal(lockingWindow("2026-09-20", ["2026-09-20"]), "2026-09-20");
+  assert.equal(lockingWindow("2026-09-06", ["2026-09-20"]), null);
+  assert.equal(lockingWindow("2026-09-21", ["2026-09-20"]), null);
+  assert.equal(lockingWindow(null, ["2026-09-20"]), null);
+  assert.equal(lockingWindow("2026-09-15", ["2026-09-27", "2026-09-20"]), "2026-09-20");
 });
 
 test("1.9: a day nobody punched at all is 1.8's whole-day gap, not a closing question", () => {

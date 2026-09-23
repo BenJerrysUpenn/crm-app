@@ -61,9 +61,33 @@ There is **one approval for the whole pay run**, not one per case, and **any
 manager** can give it (`POST /api/payroll/approve`, the button on the Finance
 tab). It is refused until the button above is green. It stores a snapshot of
 every case's effective choice, defaults included, in `payroll_run_approvals`.
-A choice changed after the approval makes it **stale**: approve again. The
-payroll sheet (bj-finance `modules/payroll_sheet.py`) will not produce a
+The payroll sheet (bj-finance `modules/payroll_sheet.py`) will not produce a
 keyable sheet until the run is approved.
+
+**Approval is final** (ruled 2026-09-22). It starts the payroll script that
+stages the run in QBO, so it cannot be cancelled or undone:
+
+- **Only after the period ends.** Before the Monday after the period's last
+  Sunday the button is disabled and says when it can be approved. The approve
+  route refuses it too (409), and so does migration 27's trigger.
+- **A plain confirmation first.** The button opens a confirmation saying that
+  this starts payroll and cannot be cancelled; nothing is sent until the
+  manager confirms.
+- **Once.** There is no re-approval and no "stale" state. A second approval,
+  an edit or a delete of an approval is refused by the database.
+- **It locks every choice in the period.** A locked case is read-only on the
+  Finance tab and on the schedule, and migration 27's trigger refuses any
+  insert, change or delete of a choice dated inside an approved run. The
+  trigger dates the case from its key: the night (1.9), the event (3.5), the
+  punch's New York day (1.4/1.5), the window's last day (3.7).
+- **No overlapping runs.** A window sharing a day with an approved run cannot
+  be approved.
+
+**The seam to §6.** The approval row is written with
+`status = 'approved_pending_stage'`. That row is what the QBO staging script
+(spec §6) will consume. It is not built: nothing in this app starts it or
+touches QBO (`TODO(bj-finance #519, spec §6)` in the approve route and
+migration 27).
 
 **Flags** never block; they are shown to the approver and on the sheet:
 
@@ -127,7 +151,7 @@ Notes on the ones that surprise people:
 | --- | --- |
 | `time-app/supabase/migration_25.sql` | `row_audit` + triggers — 1.13 |
 | `time-app/supabase/migration_26.sql` | `profiles.qbo_employee_id`, `profiles.pay_type`, `held_tips` — spec 2.5, 3.6 |
-| `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices) and `payroll_run_approvals` |
+| `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is approved) and `payroll_run_approvals` (final; `status` is the §6 seam) |
 
 All three are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Until 25 is applied, Verify reports 1.13 as a blocker; until 27
