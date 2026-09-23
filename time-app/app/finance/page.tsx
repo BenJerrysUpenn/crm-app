@@ -60,7 +60,7 @@ export default async function FinancePage({
           </nav>
 
           {tab === "payroll" ? (
-            <PayrollVerify defaultWindowEnd={defaultWindowEnd} />
+            <PayrollVerify defaultWindowEnd={defaultWindowEnd} meId={profile.id} />
           ) : (
             <MetricsPlaceholder />
           )}

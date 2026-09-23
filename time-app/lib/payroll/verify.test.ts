@@ -17,7 +17,10 @@ import assert from "node:assert/strict";
 
 import {
   RULING_CHOICES,
+  choicePays,
+  sameNameWords,
   verifyTimesheets,
+  type ApprovalRow,
   type AuditRow,
   type DealRow,
   type Finding,
@@ -45,10 +48,10 @@ const COLE = "33333333-3333-3333-3333-333333333333";
 const JOEY = "44444444-4444-4444-4444-444444444444";
 
 const PROFILES: ProfileRow[] = [
-  { id: SOPHIA, full_name: "Malmgren, Sophia", active: true, qbo_employee_id: "10" },
-  { id: CARLI, full_name: "Freeman, Carli", active: true, qbo_employee_id: "11" },
-  { id: COLE, full_name: "McCullough, Cole", active: true, qbo_employee_id: "12" },
-  { id: JOEY, full_name: "Barrett, Joey", active: false, qbo_employee_id: null },
+  { id: SOPHIA, full_name: "Malmgren, Sophia", active: true, role: "manager", qbo_employee_id: "10" },
+  { id: CARLI, full_name: "Freeman, Carli", active: true, role: "employee", qbo_employee_id: "11" },
+  { id: COLE, full_name: "McCullough, Cole", active: true, role: "manager", qbo_employee_id: "12" },
+  { id: JOEY, full_name: "Barrett, Joey", active: false, role: "employee", qbo_employee_id: null },
 ];
 
 const SHIFT_TYPES: ShiftTypeRow[] = [
@@ -494,7 +497,7 @@ test("1.8: a day whose hours nobody has set is reported, never judged", () => {
 
 // --- §1.9 no closing punch --------------------------------------------------
 
-test("1.9: the last in-store clock-out more than 2h before close is a ruling, defaulting to salaried cover", () => {
+test("1.9: the last in-store clock-out more than 2h before close is a choice, defaulting to skip", () => {
   const result = run({
     ...WED_ONLY,
     punches: [
@@ -503,23 +506,139 @@ test("1.9: the last in-store clock-out more than 2h before close is a ruling, de
   });
   const f = only(result.findings, "1.9")[0];
   assert.equal(f.status, "needs_ruling");
-  assert.equal(f.defaultChoice, "salaried_cover");
+  assert.equal(f.defaultChoice, "skip");
   assert.match(f.summary, /Freeman, Carli at 6:00 PM/);
   assert.match(f.summary, /4h before the 10:00 PM close/);
-  // Sophia, 2026-09-21: "if it's missing a punch it would be me closing".
+  assert.deepEqual(f.options!.map((o) => o.choice), ["skip", "scheduled_closer", "unpunched_manager"]);
   assert.match(f.options![0].effect, /No solo-close bonus/);
-  assert.match(f.options![1].effect, /Freeman, Carli/);
-  assert.equal(result.ready, false);
+  assert.match(f.options![1].effect, /Nobody was scheduled to close/);
+  // Ruled 2026-09-22: the default stands on its own, so nothing is owed here.
+  assert.deepEqual(f.effective, { choice: "skip", payee: null, source: "default" });
+  assert.equal(result.ready, true);
+  // This night, and the period's missing bake shift (3.7), both stand on defaults.
+  assert.equal(result.counts.defaulted, 2);
 });
 
-test("1.9: a clock-out within 2h of close is a normal night", () => {
+test("1.9: a close at or after 22:00 within 2h of close is a normal night", () => {
+  const result = run({
+    ...WED_ONLY,
+    punches: [
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "22:05") }),
+    ],
+  });
+  assert.deepEqual(only(result.findings, "1.9"), []);
+});
+
+test("1.9: a clock-out before 22:00 qualifies even within 2h of close (2.4 routes it)", () => {
+  // The payroll sheet routes every close before 22:00 to 1.9, so the dropdown
+  // has to exist for those nights too or the sheet could only ever skip them.
   const result = run({
     ...WED_ONLY,
     punches: [
       punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "20:30") }),
     ],
   });
-  assert.deepEqual(only(result.findings, "1.9"), []);
+  assert.equal(only(result.findings, "1.9").length, 1);
+});
+
+test("1.9: the scheduled closer is the in-store shift ending last; the manager list is managers only", () => {
+  const early = shift({ employee_id: COLE, starts_at: at("2026-09-09", "11:00"), ends_at: at("2026-09-09", "17:00") });
+  const close = shift({
+    employee_id: CARLI,
+    starts_at: at("2026-09-09", "16:00"),
+    ends_at: at("2026-09-09", "22:00"),
+    position: "PENN Closer",
+  });
+  const event = shift({
+    employee_id: SOPHIA,
+    starts_at: at("2026-09-09", "18:00"),
+    ends_at: at("2026-09-09", "23:00"),
+    position: "Catering",
+    deal_id: 25188,
+  });
+  const result = run({
+    ...WED_ONLY,
+    shifts: [early, close, event],
+    punches: [
+      punch({ employee_id: COLE, shift_id: early.id, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "17:00") }),
+    ],
+  });
+  const f = only(result.findings, "1.9")[0];
+  assert.deepEqual(f.scheduledCloser, { id: CARLI, name: "Freeman, Carli" });
+  assert.match(f.options![1].effect, /Freeman, Carli was scheduled to close/);
+  assert.deepEqual(f.candidates!.map((c) => c.id), [SOPHIA, COLE]);
+  assert.deepEqual(f.evidence.shift_ids, [close.id]);
+});
+
+function earlyCloseNight(rulings: RulingRow[] = [], approval: ApprovalRow | null = null) {
+  return run({
+    ...WED_ONLY,
+    punches: [
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+    ],
+    rulings,
+    approval,
+  });
+}
+
+test("1.9: a manager who changes the dropdown to pay themselves is flagged, not refused", () => {
+  const result = earlyCloseNight([
+    {
+      check_id: "1.9",
+      finding_key: "1.9:2026-09-09",
+      choice: "unpunched_manager",
+      payee_id: SOPHIA,
+      decided_by: SOPHIA,
+      decided_at: at("2026-09-21", "10:00"),
+    },
+  ]);
+  const f = only(result.findings, "1.9")[0];
+  assert.deepEqual(f.effective, {
+    choice: "unpunched_manager",
+    payee: { id: SOPHIA, name: "Malmgren, Sophia" },
+    source: "recorded",
+  });
+  assert.equal(f.flags!.length, 1);
+  assert.match(result.flags[0].message, /Malmgren, Sophia set this night's dropdown to pay themselves/);
+  assert.equal(result.ready, true);
+});
+
+test("1.9: another manager paying her is not a flag", () => {
+  const result = earlyCloseNight([
+    { check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "unpunched_manager", payee_id: SOPHIA, decided_by: COLE },
+  ]);
+  assert.deepEqual(result.flags, []);
+});
+
+// --- one approval per run ---------------------------------------------------
+
+test("approval: none recorded is not approved", () => {
+  assert.equal(earlyCloseNight().approvalState, "not_approved");
+});
+
+test("approval: given after every recorded choice, it stands", () => {
+  const result = earlyCloseNight(
+    [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: COLE, decided_at: at("2026-09-21", "10:00") }],
+    { approved_by: COLE, approved_at: at("2026-09-21", "12:00") },
+  );
+  assert.equal(result.approvalState, "approved");
+  assert.deepEqual(result.approval, { approved_by: COLE, approved_at: at("2026-09-21", "12:00") });
+});
+
+test("approval: a choice changed afterwards makes it stale", () => {
+  const result = earlyCloseNight(
+    [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: COLE, decided_at: at("2026-09-21", "13:00") }],
+    { approved_by: COLE, approved_at: at("2026-09-21", "12:00") },
+  );
+  assert.equal(result.approvalState, "stale");
+});
+
+test("approval: a recorded choice with no timestamp cannot make it stale", () => {
+  const result = earlyCloseNight(
+    [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip" }],
+    { approved_by: COLE, approved_at: at("2026-09-21", "12:00") },
+  );
+  assert.equal(result.approvalState, "approved");
 });
 
 test("1.9: a day nobody punched at all is 1.8's whole-day gap, not a closing question", () => {
@@ -777,6 +896,129 @@ test("1.14: a full_name containing '@' is the invite-flow bug, reported and not 
   assert.match(f.resolution ?? "", /qbo_employee_id, never a name/);
   assert.equal(f.status, "auto_resolved");
   assert.equal(result.ready, true);
+});
+
+// --- §3.5 crewless catering event -------------------------------------------
+
+const PWC: DealRow = { id: 25100, event_date: "2026-09-09", staff_count: 2, company: "PwC", stage: "Booked Paid" };
+
+test("3.5: a booked event with nobody on it gets a picker, default Sophia, and the upstream warning", () => {
+  const result = run({ windowDeals: [PWC] });
+  const f = only(result.findings, "3.5")[0];
+  assert.equal(f.key, "3.5:deal:25100");
+  assert.equal(f.status, "needs_ruling");
+  assert.equal(f.defaultChoice, "staff");
+  // "Malmgren, Sophia" on file is the ruled default "Sophia Malmgren".
+  assert.deepEqual(f.defaultPayee, { id: SOPHIA, name: "Malmgren, Sophia" });
+  assert.match(f.summary, /Add the event's Catering shift/);
+  assert.deepEqual(f.candidates!.map((c) => c.id), [CARLI, SOPHIA, COLE]);
+  assert.equal(result.ready, true, "the default stands on its own");
+});
+
+test("3.5: a Catering shift linked to the deal, or on the event date, is a crew", () => {
+  const linked = shift({
+    employee_id: CARLI,
+    starts_at: at("2026-09-08", "15:00"),
+    ends_at: at("2026-09-08", "18:00"),
+    position: "Catering",
+    deal_id: 25100,
+  });
+  const sameDay = shift({
+    employee_id: CARLI,
+    starts_at: at("2026-09-09", "15:00"),
+    ends_at: at("2026-09-09", "18:00"),
+    position: "Catering",
+    deal_id: 99999,
+  });
+  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [linked] }).findings, "3.5"), []);
+  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [sameDay] }).findings, "3.5"), []);
+});
+
+test("3.5: an unassigned Catering shift is not a crew", () => {
+  const open = shift({
+    employee_id: null,
+    starts_at: at("2026-09-09", "15:00"),
+    ends_at: at("2026-09-09", "18:00"),
+    position: "Catering",
+    deal_id: 25100,
+  });
+  assert.equal(only(run({ windowDeals: [PWC], shifts: [open] }).findings, "3.5").length, 1);
+});
+
+test("3.5: a lost deal, or one outside the window, is not asked about", () => {
+  const lost = { ...PWC, stage: "Closed Lost" };
+  const later = { ...PWC, event_date: "2026-10-05" };
+  const unnamed = { ...PWC, id: 25101, company: null, stage: null };
+  assert.deepEqual(only(run({ windowDeals: [lost, later] }).findings, "3.5"), []);
+  assert.match(only(run({ windowDeals: [unnamed] }).findings, "3.5")[0].summary, /deal 25101/);
+});
+
+test("3.5: a crewless tip paid to the person who approves the run is flagged, default or not", () => {
+  const approval = { approved_by: SOPHIA, approved_at: at("2026-09-21", "12:00") };
+  const byDefault = run({ windowDeals: [PWC], approval });
+  assert.match(byDefault.flags[0].message, /Paid to Malmgren, Sophia, who approved this run/);
+
+  const picked = run({
+    windowDeals: [PWC],
+    approval,
+    rulings: [{ check_id: "3.5", finding_key: "3.5:deal:25100", choice: "staff", payee_id: CARLI, decided_by: SOPHIA }],
+  });
+  assert.deepEqual(picked.flags, []);
+  assert.equal(only(picked.findings, "3.5")[0].effective?.payee?.id, CARLI);
+});
+
+test("3.5: with nobody on file matching the default, the case must be answered", () => {
+  const result = run({ windowDeals: [PWC], profiles: PROFILES.filter((p) => p.id !== SOPHIA) });
+  const f = only(result.findings, "3.5")[0];
+  assert.equal(f.defaultPayee, null);
+  assert.equal(result.ready, false);
+});
+
+// --- §3.7 no bake shift ----------------------------------------------------
+
+test("3.7: an open period with no Pastry Opener shift worked is a schedule anomaly with a picker", () => {
+  const scheduledNotWorked = shift({
+    employee_id: CARLI,
+    starts_at: at("2026-09-09", "06:00"),
+    ends_at: at("2026-09-09", "10:00"),
+    position: "Pastry Opener",
+  });
+  const result = run({ ...WED_ONLY, shifts: [scheduledNotWorked] });
+  const f = only(result.findings, "3.7")[0];
+  assert.equal(f.key, "3.7:olo:2026-09-20");
+  assert.match(f.summary, /norm is at least 4/);
+  assert.deepEqual(f.defaultPayee, { id: SOPHIA, name: "Malmgren, Sophia" });
+});
+
+test("3.7: one bake shift worked is enough to split over", () => {
+  const bake = shift({
+    employee_id: CARLI,
+    starts_at: at("2026-09-09", "06:00"),
+    ends_at: at("2026-09-09", "10:00"),
+    position: "Pastry Opener",
+  });
+  const result = run({
+    ...WED_ONLY,
+    shifts: [bake],
+    punches: [
+      punch({ employee_id: CARLI, shift_id: bake.id, clock_in_at: at("2026-09-09", "06:00"), clock_out_at: at("2026-09-09", "10:00") }),
+    ],
+  });
+  assert.deepEqual(only(result.findings, "3.7"), []);
+});
+
+test("3.7: a period the store never opened is not asked about", () => {
+  assert.deepEqual(only(run().findings, "3.7"), []);
+});
+
+test("choices: the paying choices are exactly the ones that need a payee", () => {
+  assert.equal(choicePays("1.9", "skip"), false);
+  assert.equal(choicePays("1.9", "scheduled_closer"), true);
+  assert.equal(choicePays("3.5", "staff"), true);
+  assert.equal(choicePays("1.5", "scheduled"), false);
+  assert.equal(sameNameWords("Sophia Malmgren", "Malmgren, Sophia"), true);
+  assert.equal(sameNameWords("", ""), false);
+  assert.equal(sameNameWords(null, "Sophia"), false);
 });
 
 // --- the button -------------------------------------------------------------

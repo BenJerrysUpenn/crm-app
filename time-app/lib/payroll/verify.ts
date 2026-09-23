@@ -19,8 +19,13 @@
 //   auto_resolved — a rule decided it. The finding is still reported, because
 //                   the person signing off is entitled to see what the rule
 //                   did, but it does not hold the button.
-//   needs_ruling  — code cannot decide (§1.4 with no shift, §1.5, §1.9). The
-//                   screen shows both bases and records the choice.
+//   needs_ruling  — code cannot decide (§1.4 with no shift, §1.5, §1.9, §3.5,
+//                   §3.7). The screen shows the options and records the
+//                   choice. §1.9, §3.5 and §3.7 are PER-CASE CHOICES WITH A
+//                   PRESELECTED DEFAULT (Alina, 2026-09-22, #519): skip,
+//                   Sophia, Sophia. A default satisfies the button on its own;
+//                   a manager changes it only when the case needs it. §1.4 and
+//                   §1.5 have no default and still need an answer.
 //   needs_fix     — the data is wrong and no ruling can make it right: an open
 //                   punch has no end (§1.1), two overlapping punches double-pay
 //                   (§1.7), and with no audit table nothing here is defensible
@@ -64,6 +69,27 @@ export const COVERAGE_GAP_MINUTES = 15;
 export const CLOSING_GAP_HOURS = 2;
 /** §1.10 — how far outside a shift's hours a cover punch may still bracket it. */
 export const COVER_GRACE_MINUTES = 30;
+/**
+ * §2.4 — "closer must clock out ≥ 22:00 else route to 1.9". The payroll sheet
+ * (bj-finance modules/payroll_sheet.py) routes on this, so 1.9 asks about the
+ * same nights: a last in-store clock-out before 22:00 qualifies even when it is
+ * within 2h of close.
+ */
+export const SOLO_CLOSE_EARLIEST_OUT_MINUTES = 22 * 60;
+/** §3.7 — the bake shift, and the norm: at least 2 a week, 4 a period. */
+export const PASTRY_POSITION = "Pastry Opener";
+export const BAKE_SHIFT_NORM_PER_PERIOD = 4;
+/** §3.5 — the shift type that makes somebody an event's crew. */
+export const CATERING_POSITION = "Catering";
+/** §3.5 — deals that are real events (lib/cateringShifts.ts BOOKED_STAGES + done). */
+export const EVENT_DEAL_STAGES = ["Booked Unpaid", "Booked Paid", "Event Complete"] as const;
+/**
+ * §3.5 / §3.7 — who a crewless catering tip or a stranded Olo tip goes to when
+ * no manager picks anybody else (Alina, 2026-09-22). Matched to a profile by
+ * name words, in any order, because the default has to name a person before
+ * anybody has picked one; the pick itself is stored by profile id.
+ */
+export const DEFAULT_TIP_PAYEE_NAME = "Sophia Malmgren";
 
 // ---------------------------------------------------------------------------
 // Input rows. Deliberately the shapes the database returns, minus the columns
@@ -74,6 +100,7 @@ export type ProfileRow = {
   id: string;
   full_name: string | null;
   active: boolean;
+  role?: string | null;
   qbo_employee_id?: string | null;
 };
 
@@ -96,8 +123,14 @@ export type ShiftRow = {
 
 export type ShiftTypeRow = { name: string; in_store?: boolean | null };
 
-/** Just enough of a CRM deal for §1.12. */
-export type DealRow = { id: number; event_date: string | null; staff_count: number | null; company?: string | null };
+/** Just enough of a CRM deal for §1.12 and §3.5. */
+export type DealRow = {
+  id: number;
+  event_date: string | null;
+  staff_count: number | null;
+  company?: string | null;
+  stage?: string | null;
+};
 
 /** One row of public.row_audit (migration 25), as §1.13 reads it. */
 export type AuditRow = {
@@ -117,9 +150,17 @@ export type RulingRow = {
   check_id: string;
   finding_key: string;
   choice: string;
+  /** The profile the choice pays, for the choices that pay somebody. */
+  payee_id?: string | null;
   note?: string | null;
   decided_by?: string | null;
   decided_at?: string | null;
+};
+
+/** The one approval a pay run gets (migration 27, payroll_run_approvals). */
+export type ApprovalRow = {
+  approved_by: string | null;
+  approved_at: string;
 };
 
 export type VerifyInput = {
@@ -143,6 +184,9 @@ export type VerifyInput = {
   /** The newest store_hours.updated_at, for §0.6. */
   storeHoursUpdatedAt?: string | null;
   rulings?: RulingRow[];
+  /** §3.5 — event deals whose event_date falls in the window. */
+  windowDeals?: DealRow[];
+  approval?: ApprovalRow | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -189,10 +233,30 @@ export type Finding = {
   /** What the rule did, for auto_resolved findings. */
   resolution?: string;
   options?: RulingOption[];
-  /** §1.9 has a default the spec names; §1.4 and §1.5 deliberately have none. */
+  /** §1.9, §3.5 and §3.7 have defaults; §1.4 and §1.5 deliberately have none. */
   defaultChoice?: string;
   ruling?: RulingRow | null;
+  /** Who a paying choice may name. Managers for §1.9, active staff for §3.5/3.7. */
+  candidates?: Person[];
+  /** The person the default pays, when the default pays somebody (§3.5/3.7). */
+  defaultPayee?: Person | null;
+  /** §1.9 — who was scheduled to close that night, if anybody. */
+  scheduledCloser?: Person | null;
+  /** What stands: the recorded choice, else the default. Choice checks only. */
+  effective?: EffectiveChoice | null;
+  /** Things the approver must see about this case. They never block. */
+  flags?: string[];
 };
+
+export type Person = { id: string; name: string };
+
+export type EffectiveChoice = {
+  choice: string;
+  payee: Person | null;
+  source: "recorded" | "default";
+};
+
+export type ApprovalState = "approved" | "stale" | "not_approved";
 
 export type CheckGroup = {
   check: string;
@@ -205,9 +269,22 @@ export type VerifyResult = {
   window: PayWindow;
   findings: Finding[];
   groups: CheckGroup[];
-  counts: { total: number; autoResolved: number; needsRuling: number; ruled: number; needsFix: number };
-  /** The green button: nothing to fix, and every ruling recorded. */
+  counts: {
+    total: number;
+    autoResolved: number;
+    needsRuling: number;
+    ruled: number;
+    /** Choice-with-default cases standing on their default. */
+    defaulted: number;
+    needsFix: number;
+  };
+  /** Nothing to fix, and every case answered by a recording or a default. */
   ready: boolean;
+  approval: ApprovalRow | null;
+  /** Approved before a choice last changed is STALE: approve again. */
+  approvalState: ApprovalState;
+  /** Every flag on every finding, for the approve panel. */
+  flags: { key: string; message: string }[];
 };
 
 // The rule text, verbatim from docs/specs/payroll-pipeline.md §0 and §1. Kept
@@ -243,7 +320,7 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "1.9": {
     title: "No closing punch",
-    rule: "last in-store clock-out > 2h before store close → RULING: early close (solo bonus to last person) / salaried cover (no bonus). Default = salaried cover.",
+    rule: "last in-store clock-out > 2h before store close, or before 22:00 (2.4) → a dropdown on the schedule: pay scheduled closer / pay unpunched manager / skip payment. Default = skip (ruled 2026-09-22). Flag a night where the manager paid is the one who changed the dropdown.",
   },
   "1.10": {
     title: "Cover punches",
@@ -262,12 +339,23 @@ const RULES: Record<string, { title: string; rule: string }> = {
     rule: "no audit table exists; ids 1270–1274 and ≥3 shifts vanished inside the window. Precondition for trusting anything above: add time_entries/shifts audit triggers (who, when, before-image).",
   },
   "1.14": { title: "Name hygiene", rule: "profiles.full_name containing '@' (invite-flow bug)" },
+  "3.5": {
+    title: "Crewless catering event",
+    rule: "deal shift unassigned + nobody punched → a staff picker on the event, default Sophia (ruled 2026-09-22). Flag a crewless tip paid to the person who approves the run. Upstream: the event needs its Catering shift added.",
+  },
+  "3.7": {
+    title: "No bake shift worked",
+    rule: "a window with zero Pastry Opener shifts is a schedule anomaly (norm ≥ 2/week, ≥ 4/period); any stranded Olo tips go to a staff picker, default Sophia, flagged when paid to the approver (ruled 2026-09-22).",
+  },
 };
 
-const CHECK_ORDER = ["0.1", "0.6", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.10", "1.11", "1.12", "1.13", "1.14"];
+const CHECK_ORDER = [
+  "0.1", "0.6", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.10", "1.11", "1.12", "1.13", "1.14",
+  "3.5", "3.7",
+];
 
 /** The ruling-class checks. A finding outside this set can never need a ruling. */
-export const RULING_CHECKS = ["1.4", "1.5", "1.9"] as const;
+export const RULING_CHECKS = ["1.4", "1.5", "1.9", "3.5", "3.7"] as const;
 
 /**
  * Every choice each ruling-class check may be answered with.
@@ -281,8 +369,40 @@ export const RULING_CHECKS = ["1.4", "1.5", "1.9"] as const;
 export const RULING_CHOICES: Record<string, readonly string[]> = {
   "1.4": ["real_hours", "void"],
   "1.5": ["as_punched", "scheduled"],
-  "1.9": ["salaried_cover", "early_close"],
+  "1.9": ["skip", "scheduled_closer", "unpunched_manager"],
+  "3.5": ["staff"],
+  "3.7": ["staff"],
 };
+
+/**
+ * The choices that pay a named person, and so must carry a payee. Everything
+ * else (skip, and every §1.4/§1.5 answer) must not. The route and the payroll
+ * sheet read the same rule: a paying choice with nobody to pay is refused here
+ * and reported as an open item there.
+ */
+export const PAYING_CHOICES: ReadonlySet<string> = new Set([
+  "1.9:scheduled_closer",
+  "1.9:unpunched_manager",
+  "3.5:staff",
+  "3.7:staff",
+]);
+
+export function choicePays(check: string, choice: string): boolean {
+  return PAYING_CHOICES.has(`${check}:${choice}`);
+}
+
+/** "Sophia Malmgren" and "Malmgren, Sophia" are the same words. */
+export function sameNameWords(a: string | null | undefined, b: string | null | undefined): boolean {
+  const words = (s: string | null | undefined) =>
+    (s ?? "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean)
+      .sort()
+      .join(" ");
+  const left = words(a);
+  return left !== "" && left === words(b);
+}
 
 // ---------------------------------------------------------------------------
 // The enriched punch every check reads
@@ -823,17 +943,21 @@ function push(map: Map<string, { from: number; to: number }[]>, date: string, fr
  * §1.9 — no closing punch.
  *
  * Three nights in the 2026-09-23 window ended more than two hours before the
- * door did, and the run had to ask Sophia what happened. Her answer became the
- * default: "if it's missing a punch it would be me closing" (2026-09-21), which
- * is salaried cover and carries no bonus. The other basis is that the store
- * genuinely shut early, and then the last person out is owed the solo-close
- * bonus (§2.4) — so both options are shown with the person named.
+ * door did, and the run had to ask Sophia what happened. Alina ruled on
+ * 2026-09-22 (#519) that this is a per-night choice on the SCHEDULE view, with
+ * three options — pay the scheduled closer, pay a manager who closed without
+ * punching, or skip — and that the default is SKIP: no bonus unless a manager
+ * says otherwise.
+ *
+ * A night qualifies when the last in-store clock-out is more than 2h before
+ * close OR before 22:00, because the payroll sheet routes every close before
+ * 22:00 here (§2.4) and the two must ask about the same nights.
  *
  * Only days with at least one in-store punch are asked about: with nobody in at
- * all there is no "last person out" for the early-close option to pay, and §1.8
- * has already reported the whole day as uncovered.
+ * all there is no evening to ask about, and §1.8 has already reported the whole
+ * day as uncovered.
  */
-function checkClosingPunch(views: PunchView[], input: VerifyInput): Finding[] {
+function checkClosingPunch(views: PunchView[], input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
   const { window } = input;
   const exceptions = input.storeHoursExceptions ?? [];
   const closedRanges = input.closedRanges ?? [];
@@ -849,6 +973,12 @@ function checkClosingPunch(views: PunchView[], input: VerifyInput): Finding[] {
     if (!current || v.endMs > current.endMs!) lastOutByDate.set(date, v);
   }
 
+  const managers = input.profiles
+    .filter((p) => p.active && p.role === "manager")
+    .map((p) => ({ id: p.id, name: nameOf(profiles, p.id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const inStoreByName = new Map(input.shiftTypes.map((t) => [t.name, t.in_store ?? true]));
+
   const out: Finding[] = [];
   for (const date of windowDates(window)) {
     const open = resolveOpenWindow(date, input.storeHours, exceptions, closedRanges);
@@ -861,38 +991,196 @@ function checkClosingPunch(views: PunchView[], input: VerifyInput): Finding[] {
     // calendar day is 1470, not 30, so closing at 22:00 is correctly "after".
     const outMinutes = outAt.date === date ? outAt.minutes : outAt.minutes + 1440;
     const gapMinutes = open.closes - outMinutes;
-    if (gapMinutes <= CLOSING_GAP_HOURS * 60) continue;
+    if (gapMinutes <= CLOSING_GAP_HOURS * 60 && outMinutes >= SOLO_CLOSE_EARLIEST_OUT_MINUTES) continue;
+
+    const closer = scheduledCloser(input.shifts, date, inStoreByName);
+    const closerPerson = closer?.employee_id ? { id: closer.employee_id, name: nameOf(profiles, closer.employee_id) } : null;
 
     out.push(
       finding("1.9", {
         key: `1.9:${date}`,
         status: "needs_ruling",
         severity: "warn",
-        summary: `${formatDayLabel(date)}: last in-store clock-out was ${last.name} at ${formatClock(formatMinutes(outAt.minutes))}, ${describeDuration(gapMinutes / 60)} before the ${formatClock(formatMinutes(open.closes))} close.`,
-        defaultChoice: "salaried_cover",
+        summary: `${formatDayLabel(date)}: last in-store clock-out was ${last.name} at ${formatClock(formatMinutes(outAt.minutes))}, ${describeDuration(Math.max(0, gapMinutes) / 60)} before the ${formatClock(formatMinutes(open.closes))} close.`,
+        defaultChoice: "skip",
         options: [
+          { choice: "skip", label: "Skip payment (default)", effect: "No solo-close bonus for this night." },
           {
-            choice: "salaried_cover",
-            label: "Salaried cover (default)",
-            effect: "A salaried manager closed. No solo-close bonus, no extra hours.",
+            choice: "scheduled_closer",
+            label: "Pay scheduled closer",
+            effect: closerPerson
+              ? `${closerPerson.name} was scheduled to close and is paid the $30 solo-close bonus.`
+              : "Nobody was scheduled to close this night, so there is nobody to pay.",
           },
           {
-            choice: "early_close",
-            label: "Early close",
-            effect: `The store shut early. ${last.name} was last out and is owed the solo-close bonus if the tail qualifies (2.4).`,
+            choice: "unpunched_manager",
+            label: "Pay unpunched manager",
+            effect: "A manager closed without punching and is paid the $30 solo-close bonus. Pick which one.",
           },
         ],
+        candidates: managers,
+        scheduledCloser: closerPerson,
         evidence: {
           date,
           employee_id: last.employeeId,
           employee_name: last.name,
           punch_ids: [last.row.id],
+          shift_ids: closer ? [closer.id] : undefined,
           minutes: gapMinutes,
         },
       }),
     );
   }
   return out;
+}
+
+/** The in-store shift that ends last on a date, with somebody on it. */
+function scheduledCloser(shifts: ShiftRow[], date: string, inStoreByName: Map<string, boolean>): ShiftRow | null {
+  let best: ShiftRow | null = null;
+  for (const s of shifts) {
+    if (!s.employee_id) continue;
+    if (nyWallClock(s.starts_at).date !== date) continue;
+    if (!positionIsInStore(s.position, inStoreByName)) continue;
+    if (!best || new Date(s.ends_at).getTime() > new Date(best.ends_at).getTime()) best = s;
+  }
+  return best;
+}
+
+/** Active people, by name, for a staff picker. */
+function staffCandidates(input: VerifyInput, profiles: Map<string, ProfileRow>): Person[] {
+  return input.profiles
+    .filter((p) => p.active)
+    .map((p) => ({ id: p.id, name: nameOf(profiles, p.id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The profile the §3.5/§3.7 default names, or null if nobody on file matches. */
+function defaultTipPayee(input: VerifyInput, profiles: Map<string, ProfileRow>): Person | null {
+  const p = input.profiles.find((row) => row.active && sameNameWords(row.full_name, DEFAULT_TIP_PAYEE_NAME));
+  return p ? { id: p.id, name: nameOf(profiles, p.id) } : null;
+}
+
+/**
+ * §3.5 — a catering event nobody is on.
+ *
+ * A booked event in the window with no Catering shift that has a person on it,
+ * either linked to the deal or on the event's date. Any catering tip on it
+ * would otherwise go to nobody, so the event gets a staff picker, default
+ * Sophia (ruled 2026-09-22). The same finding is the upstream warning: the
+ * event should have its shift added so the next run pays it the normal way.
+ *
+ * This app cannot see the tip itself (it arrives on a Square invoice), so it
+ * asks about every crewless event; the payroll sheet applies the pick only to
+ * an event that actually carries a tip.
+ */
+function checkCrewlessEvents(input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
+  const { window } = input;
+  const out: Finding[] = [];
+  const candidates = staffCandidates(input, profiles);
+  const defaultPayee = defaultTipPayee(input, profiles);
+  for (const deal of input.windowDeals ?? []) {
+    const date = deal.event_date?.slice(0, 10) ?? "";
+    if (!inWindow(date, window)) continue;
+    if (deal.stage && !(EVENT_DEAL_STAGES as readonly string[]).includes(deal.stage)) continue;
+    const crewed = input.shifts.some(
+      (s) =>
+        s.position === CATERING_POSITION &&
+        !!s.employee_id &&
+        (s.deal_id === deal.id || nyWallClock(s.starts_at).date === date),
+    );
+    if (crewed) continue;
+    const label = deal.company?.trim() || `deal ${deal.id}`;
+    out.push(
+      finding("3.5", {
+        key: `3.5:deal:${deal.id}`,
+        status: "needs_ruling",
+        severity: "warn",
+        summary: `${formatDayLabel(date)} ${label}: no crew on the schedule. Add the event's Catering shift so it is paid the normal way; until then any catering tip on it goes to the person picked here.`,
+        defaultChoice: "staff",
+        options: [
+          { choice: "staff", label: "Pay this person", effect: "The event's catering tip, if it has one, is paid to them." },
+        ],
+        candidates,
+        defaultPayee,
+        evidence: { date, deal_id: deal.id },
+      }),
+    );
+  }
+  return out;
+}
+
+/**
+ * §3.7 — no bake shift worked.
+ *
+ * Olo tips are split by Pastry Opener shifts worked. A window where nobody
+ * worked one strands the money, and is a schedule anomaly in its own right: the
+ * norm is at least 2 a week, 4 a period. One case per window, with a staff
+ * picker for any stranded Olo money, default Sophia (ruled 2026-09-22).
+ *
+ * A window in which the store never opened is not asked about.
+ */
+function checkBakeShifts(views: PunchView[], input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
+  const { window } = input;
+  const exceptions = input.storeHoursExceptions ?? [];
+  const closedRanges = input.closedRanges ?? [];
+  const anyOpen = windowDates(window).some(
+    (date) => resolveOpenWindow(date, input.storeHours, exceptions, closedRanges).state === "open",
+  );
+  if (!anyOpen) return [];
+  const worked = input.shifts.filter(
+    (s) =>
+      s.position === PASTRY_POSITION &&
+      !!s.employee_id &&
+      inWindow(nyWallClock(s.starts_at).date, window) &&
+      views.some((v) => v.shift?.id === s.id && v.employeeId === s.employee_id),
+  );
+  if (worked.length > 0) return [];
+  return [
+    finding("3.7", {
+      key: `3.7:olo:${window.end}`,
+      status: "needs_ruling",
+      severity: "warn",
+      summary: `No ${PASTRY_POSITION} shift was worked in this period (the norm is at least ${BAKE_SHIFT_NORM_PER_PERIOD}). Schedule anomaly: any Olo tips have nobody to split over and go to the person picked here.`,
+      defaultChoice: "staff",
+      options: [{ choice: "staff", label: "Pay this person", effect: "Any stranded Olo tips for the period are paid to them." }],
+      candidates: staffCandidates(input, profiles),
+      defaultPayee: defaultTipPayee(input, profiles),
+      evidence: {},
+    }),
+  ];
+}
+
+/**
+ * What stands for one choice-with-default case, and the flags it raises.
+ *
+ * Flags (ruled 2026-09-22) never block; the approver sees them:
+ *   §1.9       a night paid to the manager who changed its dropdown
+ *   §3.5/§3.7  money paid to the manager who approved the run, default or not
+ */
+function settleChoice(f: Finding, approval: ApprovalRow | null, profiles: Map<string, ProfileRow>): void {
+  if (!f.defaultChoice) return;
+  const r = f.ruling;
+  const payeeOf = (id: string | null | undefined): Person | null =>
+    id ? { id, name: nameOf(profiles, id) } : null;
+  f.effective = r
+    ? { choice: r.choice, payee: payeeOf(r.payee_id), source: "recorded" }
+    : { choice: f.defaultChoice, payee: f.defaultPayee ?? null, source: "default" };
+  const flags: string[] = [];
+  const payee = f.effective.payee;
+  if (f.check === "1.9" && r && payee && r.decided_by === payee.id) {
+    flags.push(`${payee.name} set this night's dropdown to pay themselves the solo-close bonus.`);
+  }
+  if ((f.check === "3.5" || f.check === "3.7") && payee && approval?.approved_by === payee.id) {
+    flags.push(`Paid to ${payee.name}, who approved this run.`);
+  }
+  f.flags = flags;
+}
+
+/** A case is answered when a choice is recorded, or its default can stand. */
+function isAnswered(f: Finding): boolean {
+  if (f.ruling) return true;
+  if (!f.defaultChoice) return false;
+  return !choicePays(f.check, f.defaultChoice) || !!f.defaultPayee;
 }
 
 /** §1.10 — how every blank shift_id was resolved, and the ones that were not. */
@@ -939,9 +1227,6 @@ function checkCoverPunches(views: PunchView[], window: PayWindow): Finding[] {
   }
   return out;
 }
-
-/** The shift types whose work is catering. */
-const CATERING_POSITION = "Catering";
 
 /** §1.11 — a catering shift with no deal_id. A scheduling-time flag. */
 function checkCateringWithoutDeal(shifts: ShiftRow[], window: PayWindow, profiles: Map<string, ProfileRow>): Finding[] {
@@ -1147,24 +1432,29 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
     ...checkTestPunches(views, window),
     ...checkOverlaps(views, window),
     ...checkCoverageGaps(views, input),
-    ...checkClosingPunch(views, input),
+    ...checkClosingPunch(views, input, profiles),
     ...checkCoverPunches(views, window),
     ...checkCateringWithoutDeal(input.shifts, window, profiles),
     ...checkCateringUnderPunched(views, input.shifts, window, input.deals ?? []),
     ...checkDeletedRows(input, profiles),
     ...checkNameHygiene(input.profiles),
+    ...checkCrewlessEvents(input, profiles),
+    ...checkBakeShifts(views, input, profiles),
   ];
 
   // Attach any recorded ruling. Keyed on (check, finding key), so a ruling
   // survives re-running Verify and disappears if the finding it answered does.
   const rulings = new Map((input.rulings ?? []).map((r) => [`${r.check_id}|${r.finding_key}`, r]));
+  const approval = input.approval ?? null;
   for (const f of findings) {
     if (f.status !== "needs_ruling") continue;
     f.ruling = rulings.get(`${f.check}|${f.key}`) ?? null;
+    settleChoice(f, approval, profiles);
   }
 
   const needsRuling = findings.filter((f) => f.status === "needs_ruling");
   const ruled = needsRuling.filter((f) => f.ruling);
+  const defaulted = needsRuling.filter((f) => !f.ruling && isAnswered(f));
   const needsFix = findings.filter((f) => f.status === "needs_fix");
 
   const groups: CheckGroup[] = CHECK_ORDER.map((check) => ({
@@ -1183,8 +1473,23 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
       autoResolved: findings.filter((f) => f.status === "auto_resolved").length,
       needsRuling: needsRuling.length,
       ruled: ruled.length,
+      defaulted: defaulted.length,
       needsFix: needsFix.length,
     },
-    ready: needsFix.length === 0 && ruled.length === needsRuling.length,
+    ready: needsFix.length === 0 && needsRuling.every(isAnswered),
+    approval,
+    approvalState: approvalStateOf(approval, ruled),
+    flags: findings.flatMap((f) => (f.flags ?? []).map((message) => ({ key: f.key, message }))),
   };
+}
+
+/**
+ * An approval is of the choices as they stood when it was given. A choice
+ * recorded after it reopens the run: the approver never saw that version.
+ */
+export function approvalStateOf(approval: ApprovalRow | null, ruled: Finding[]): ApprovalState {
+  if (!approval) return "not_approved";
+  const at = new Date(approval.approved_at).getTime();
+  const changedAfter = ruled.some((f) => f.ruling?.decided_at && new Date(f.ruling.decided_at).getTime() > at);
+  return changedAfter ? "stale" : "approved";
 }

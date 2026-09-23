@@ -1,17 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import type { CheckGroup, Finding, VerifyResult } from "@/lib/payroll/verify";
+import Link from "next/link";
+import type { CheckGroup, Finding } from "@/lib/payroll/verify";
+import type { LoadedVerify } from "@/lib/payroll/loadVerify";
+import { approvalBlocker, paysApprover } from "@/lib/payroll/choices";
+import { recordChoice, resetChoice } from "./choiceApi";
 
 // The Verify timesheets screen (bj-finance #519, payroll spec §1).
 //
 // The whole rulebook lives in lib/payroll/verify.ts and runs on the server.
-// This component does three things and nothing else: press the button, render
-// what came back grouped by check, and record a ruling. It computes no findings
-// and decides nothing — if it did, the rules would have two homes and the tests
-// would only cover one of them.
+// This component does four things and nothing else: press the button, render
+// what came back grouped by check, record a per-case choice, and approve the
+// run. It computes no findings and decides nothing — if it did, the rules would
+// have two homes and the tests would only cover one of them.
+//
+// Ruled 2026-09-22: every judgement call is a per-case choice with a
+// PRESELECTED DEFAULT, and there is ONE approval for the whole run, which any
+// manager may give. The §1.9 solo-close dropdown lives on the schedule view;
+// this tab shows what was chosen and links there.
 
-type ApiResult = VerifyResult & { migrations: { storeHours: boolean; rulings: boolean } };
+type ApiResult = LoadedVerify;
 
 const SEVERITY_DOT: Record<string, string> = {
   error: "bg-rose-500",
@@ -19,7 +28,7 @@ const SEVERITY_DOT: Record<string, string> = {
   info: "bg-slate-400",
 };
 
-export default function PayrollVerify({ defaultWindowEnd }: { defaultWindowEnd: string }) {
+export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindowEnd: string; meId: string }) {
   const [windowEnd, setWindowEnd] = useState(defaultWindowEnd);
   const [result, setResult] = useState<ApiResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,43 +48,49 @@ export default function PayrollVerify({ defaultWindowEnd }: { defaultWindowEnd: 
     setResult(body as ApiResult);
   }
 
-  // A ruling is recorded server-side and the whole window is then re-verified,
+  // A choice is recorded server-side and the whole window is then re-verified,
   // rather than the answer being patched into the findings here. Re-running is
-  // the only way the green button means what it says: it is the same rulebook,
-  // over the same data, with the answer now in it.
-  async function rule(finding: Finding, choice: string, note: string) {
+  // the only way the button means what it says: it is the same rulebook, over
+  // the same data, with the answer now in it.
+  async function rule(finding: Finding, choice: string, payeeId: string | null, note: string) {
+    const end = result?.window.end ?? windowEnd;
     setBusy(true);
     setError(null);
-    const res = await fetch("/api/payroll/rulings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        window_end: result?.window.end ?? windowEnd,
-        check_id: finding.check,
-        finding_key: finding.key,
-        choice,
-        note: note || undefined,
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
+    const err = await recordChoice(end, finding, choice, payeeId, note);
+    if (err) {
       setBusy(false);
-      setError(body.error ?? `Could not record that (${res.status}).`);
+      setError(err);
       return;
     }
-    await verify(result?.window.end ?? windowEnd);
+    await verify(end);
   }
 
   async function unrule(finding: Finding) {
     const end = result?.window.end ?? windowEnd;
     setBusy(true);
     setError(null);
-    const params = new URLSearchParams({ window_end: end, check_id: finding.check, finding_key: finding.key });
-    const res = await fetch(`/api/payroll/rulings?${params}`, { method: "DELETE" });
+    const err = await resetChoice(end, finding);
+    if (err) {
+      setBusy(false);
+      setError(err);
+      return;
+    }
+    await verify(end);
+  }
+
+  async function approve() {
+    const end = result?.window.end ?? windowEnd;
+    setBusy(true);
+    setError(null);
+    const res = await fetch("/api/payroll/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ window_end: end }),
+    });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       setBusy(false);
-      setError(body.error ?? `Could not clear that (${res.status}).`);
+      setError(body.error ?? `Could not approve (${res.status}).`);
       return;
     }
     await verify(end);
@@ -118,6 +133,7 @@ export default function PayrollVerify({ defaultWindowEnd }: { defaultWindowEnd: 
       {result && (
         <>
           <Summary result={result} />
+          <ApprovePanel result={result} meId={meId} busy={busy} onApprove={approve} />
           {result.groups.map((group) => (
             <GroupCard key={group.check} group={group} busy={busy} onRule={rule} onClear={unrule} />
           ))}
@@ -138,7 +154,7 @@ function ReadyBadge({ result }: { result: ApiResult }) {
   const waiting =
     result.counts.needsFix > 0
       ? `${result.counts.needsFix} to fix`
-      : `${result.counts.needsRuling - result.counts.ruled} to rule on`;
+      : `${result.counts.needsRuling - result.counts.ruled - result.counts.defaulted} to answer`;
   return (
     <span className="rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-sm px-3 py-2">
       Not verified — {waiting}
@@ -154,19 +170,87 @@ function Summary({ result }: { result: ApiResult }) {
       </div>
       <div className="text-slate-600 dark:text-slate-400 mt-1">
         {result.counts.total} finding{result.counts.total === 1 ? "" : "s"}:{" "}
-        {result.counts.autoResolved} resolved by rule, {result.counts.ruled} of{" "}
-        {result.counts.needsRuling} rulings recorded, {result.counts.needsFix} needing a fix in the app.
+        {result.counts.autoResolved} resolved by rule, {result.counts.needsRuling} case
+        {result.counts.needsRuling === 1 ? "" : "s"} to choose ({result.counts.ruled} changed or answered,{" "}
+        {result.counts.defaulted} on their default), {result.counts.needsFix} needing a fix in the app.
       </div>
       {!result.migrations.storeHours && (
         <div className="text-amber-600 dark:text-amber-500 mt-2">
           Store hours are unavailable, so the mid-day gap check (1.8) judged nothing. Run migration 24.
         </div>
       )}
-      {!result.migrations.rulings && (
+      {(!result.migrations.rulings || !result.migrations.approvals) && (
         <div className="text-amber-600 dark:text-amber-500 mt-2">
-          Rulings cannot be read or recorded. Run migration 27.
+          Choices and the run approval cannot be read or recorded. Run migration 27.
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * The one approval for the whole run. Any manager may give it; the only
+ * conditions are the data's. Flags never block — they are here so the person
+ * approving sees, before they click, anything that pays a manager by a choice.
+ */
+function ApprovePanel({
+  result,
+  meId,
+  busy,
+  onApprove,
+}: {
+  result: ApiResult;
+  meId: string;
+  busy: boolean;
+  onApprove: () => void;
+}) {
+  const blocker = approvalBlocker(result, result.migrations.approvals);
+  const wouldPayMe = paysApprover(result.findings, meId);
+  const state = result.approvalState;
+  return (
+    <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="font-medium text-slate-900 dark:text-slate-100">
+          {state === "approved" && "Pay run approved"}
+          {state === "stale" && "Approval is stale — a choice changed after it was given"}
+          {state === "not_approved" && "Pay run not approved"}
+        </div>
+        {result.approval && (
+          <div className="text-xs text-slate-500">
+            last approved {new Date(result.approval.approved_at).toLocaleString("en-US", { timeZone: "America/New_York" })}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onApprove}
+          disabled={busy || !!blocker}
+          title={blocker ?? "Approve every case as it stands, defaults included"}
+          className="ml-auto rounded-md bg-emerald-600 text-white text-sm font-medium px-4 py-2 disabled:opacity-40"
+        >
+          {state === "approved" ? "Approve again" : "Approve pay run"}
+        </button>
+      </div>
+      {blocker && <div className="text-xs text-slate-500 mt-2">{blocker}</div>}
+      {result.flags.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {result.flags.map((flag) => (
+            <li key={`${flag.key}|${flag.message}`} className="text-xs text-amber-600 dark:text-amber-500">
+              ⚑ {flag.message}
+            </li>
+          ))}
+        </ul>
+      )}
+      {wouldPayMe.length > 0 && state !== "approved" && (
+        <div className="text-xs text-amber-600 dark:text-amber-500 mt-2">
+          ⚑ Approving pays you {wouldPayMe.length === 1 ? "one tip" : `${wouldPayMe.length} tips`} chosen here (
+          {wouldPayMe.map((f) => f.key).join(", ")}). That is allowed, and it is flagged on the payroll sheet.
+        </div>
+      )}
+      <p className="text-xs text-slate-500 mt-2 max-w-prose">
+        One approval covers the whole run. Every case stands on its default unless a manager changed it. The payroll
+        sheet will not produce a keyable sheet until the run is approved, and a choice changed after approval needs
+        approving again.
+      </p>
     </section>
   );
 }
@@ -179,7 +263,7 @@ function GroupCard({
 }: {
   group: CheckGroup;
   busy: boolean;
-  onRule: (finding: Finding, choice: string, note: string) => void;
+  onRule: (finding: Finding, choice: string, payeeId: string | null, note: string) => void;
   onClear: (finding: Finding) => void;
 }) {
   return (
@@ -212,10 +296,11 @@ function FindingRow({
 }: {
   finding: Finding;
   busy: boolean;
-  onRule: (finding: Finding, choice: string, note: string) => void;
+  onRule: (finding: Finding, choice: string, payeeId: string | null, note: string) => void;
   onClear: (finding: Finding) => void;
 }) {
   const [note, setNote] = useState("");
+  const hasDefault = !!finding.defaultChoice;
 
   return (
     <div className="flex gap-3">
@@ -229,7 +314,9 @@ function FindingRow({
 
         <Evidence finding={finding} />
 
-        {finding.status === "needs_ruling" && !finding.ruling && (
+        {hasDefault && <ChoiceRow finding={finding} busy={busy} onRule={onRule} onClear={onClear} />}
+
+        {finding.status === "needs_ruling" && !hasDefault && !finding.ruling && (
           <div className="mt-2 space-y-2">
             <input
               value={note}
@@ -243,7 +330,7 @@ function FindingRow({
                   key={o.choice}
                   type="button"
                   disabled={busy}
-                  onClick={() => onRule(finding, o.choice, note)}
+                  onClick={() => onRule(finding, o.choice, null, note)}
                   title={o.effect}
                   className={`text-xs rounded-md px-3 py-1.5 border disabled:opacity-50 ${
                     o.choice === finding.defaultChoice
@@ -258,7 +345,7 @@ function FindingRow({
           </div>
         )}
 
-        {finding.ruling && (
+        {!hasDefault && finding.ruling && (
           <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
             Ruled: {labelFor(finding, finding.ruling.choice)}
             {finding.ruling.note ? ` — ${finding.ruling.note}` : ""}{" "}
@@ -279,6 +366,74 @@ function FindingRow({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A case with a preselected default (§1.9, §3.5, §3.7). The default is shown as
+ * already standing; changing it records a choice, and "reset" puts the default
+ * back. §1.9 is changed on the schedule, per the ruling, so here it is shown
+ * with a link there.
+ */
+function ChoiceRow({
+  finding,
+  busy,
+  onRule,
+  onClear,
+}: {
+  finding: Finding;
+  busy: boolean;
+  onRule: (finding: Finding, choice: string, payeeId: string | null, note: string) => void;
+  onClear: (finding: Finding) => void;
+}) {
+  const effective = finding.effective;
+  const recorded = effective?.source === "recorded";
+  const payeeName = effective?.payee?.name;
+  return (
+    <div className="mt-2 text-xs space-y-1">
+      {finding.check === "1.9" ? (
+        <div className="text-slate-700 dark:text-slate-300">
+          {labelFor(finding, effective?.choice ?? "skip").replace(/ \(default\)$/, "")}
+          {payeeName ? ` — ${payeeName}` : ""} {recorded ? "(changed from default)" : "(default)"}{" "}
+          {finding.evidence.date && (
+            <Link href={`/schedule?week=${finding.evidence.date}`} className="underline text-slate-500 hover:text-emerald-600 ml-1">
+              change on the schedule
+            </Link>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-600 dark:text-slate-400">Pay to</span>
+          <select
+            value={effective?.payee?.id ?? ""}
+            disabled={busy}
+            onChange={(e) => onRule(finding, finding.defaultChoice!, e.target.value || null, "")}
+            className="rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 disabled:opacity-50"
+          >
+            {!effective?.payee && <option value="">— pick somebody —</option>}
+            {(finding.candidates ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+                {finding.defaultPayee?.id === c.id ? " (default)" : ""}
+              </option>
+            ))}
+          </select>
+          {recorded && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onClear(finding)}
+              className="text-slate-500 hover:text-rose-500 underline disabled:opacity-50"
+            >
+              reset to default
+            </button>
+          )}
+        </div>
+      )}
+      {(finding.flags ?? []).map((flag) => (
+        <div key={flag} className="text-amber-600 dark:text-amber-500">⚑ {flag}</div>
+      ))}
     </div>
   );
 }

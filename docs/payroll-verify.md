@@ -15,9 +15,13 @@ the person, with both options costed before they are shown.
 | --- | --- |
 | The rulebook (pure, tested) | `time-app/lib/payroll/verify.ts` |
 | The pay window (§0.1) | `time-app/lib/payroll/window.ts` |
+| Choice rules, approval snapshot (pure, tested) | `time-app/lib/payroll/choices.ts` |
+| Loader shared by the routes | `time-app/lib/payroll/loadVerify.ts` |
 | Findings endpoint | `GET /api/payroll/verify?window_end=YYYY-MM-DD` |
-| Rulings endpoint | `POST` / `DELETE /api/payroll/rulings` |
+| Choices endpoint | `POST` / `DELETE /api/payroll/rulings` |
+| Approval endpoint | `POST /api/payroll/approve` |
 | The page | `/finance?tab=payroll`, manager-only |
+| Solo-close dropdowns | the **Schedule** view, manager-only (`components/SoloCloseNights.tsx`) |
 | Tests | `time-app/lib/payroll/*.test.ts` — `npm test` |
 
 The rulebook is pure and dependency-free, like `lib/coverage.ts`: the route
@@ -40,13 +44,36 @@ Every finding is one of:
 
 - **Resolved by rule** — reported so the person can see what the rule did. Does
   not hold the button.
-- **Needs a ruling** — code cannot decide. The screen shows both bases and
-  records the choice, who made it and when, in `payroll_rulings`.
-- **Needs a fix** — the data is wrong and no ruling can make it right. Fix it in
+- **A choice** — code cannot decide. Alina ruled on 2026-09-22 (bj-finance #519)
+  that these are **per-case choices made in the app, each with a preselected
+  default** (1.9, 3.5, 3.7). The default stands on its own; a manager changes
+  it only when the case needs it, and the change is recorded with who and when
+  in `payroll_rulings`. 1.4 and 1.5 have no default and must be answered.
+- **Needs a fix** — the data is wrong and no choice can make it right. Fix it in
   the app and press Verify again.
 
-**The button is green only when there is nothing to fix and every ruling has
-been recorded.**
+**The button is green when there is nothing to fix and every case is answered
+by a recorded choice or its default.**
+
+## One approval per run
+
+There is **one approval for the whole pay run**, not one per case, and **any
+manager** can give it (`POST /api/payroll/approve`, the button on the Finance
+tab). It is refused until the button above is green. It stores a snapshot of
+every case's effective choice, defaults included, in `payroll_run_approvals`.
+A choice changed after the approval makes it **stale**: approve again. The
+payroll sheet (bj-finance `modules/payroll_sheet.py`) will not produce a
+keyable sheet until the run is approved.
+
+**Flags** never block; they are shown to the approver and on the sheet:
+
+- 1.9 — a night paid to the manager who changed its dropdown.
+- 3.5 / 3.7 — a crewless catering tip or stranded Olo tip paid to the manager
+  who approved the run, whether by default or by a change.
+
+Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
+`3.7:olo:2026-09-20`, `1.5:punch:1281`), not by pay window, so the schedule
+(which shows calendar weeks) and the Finance tab write and read the same row.
 
 ## The checks
 
@@ -63,21 +90,28 @@ been recorded.**
 | 1.6 | Under 5 min with nothing scheduled | rule: 0 hours, listed |
 | 1.7 | Same person, overlapping punches | **fix** |
 | 1.8 | Opening hours with no in-store punch running, ≥15 min | rule, warning |
-| 1.9 | Last in-store clock-out >2h before close | **ruling**: early close / salaried cover (**default: salaried cover**) |
+| 1.9 | Last in-store clock-out >2h before close, or before 10 PM (2.4) | **choice on the schedule**: pay scheduled closer / pay unpunched manager / skip (**default: skip**) |
 | 1.10 | Blank `shift_id` — own shift, then a cover swap | rule |
 | 1.11 | Catering shift with no `deal_id` | rule (a scheduling-time flag) |
 | 1.12 | Fewer crew punched than `deals.staff_count` | rule, warning |
 | 1.13 | Rows deleted from inside the window | rule; **fix** when there is no audit table |
 | 1.14 | `full_name` containing `@` | rule, warning |
+| 3.5 | Booked event in the window with no Catering shift crewed | **choice**: who is paid its tip (**default: Sophia**); also the upstream warning to add the shift |
+| 3.7 | No Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: Sophia**); a schedule anomaly (norm ≥ 4 a period) |
 
 Notes on the ones that surprise people:
 
 - **1.5 is the only check that can make a day longer.** Every other rule here
   shortens a runaway. Carli's 09-18 punch was 2m 11s against a 7h shift because
   Sophia closed for her.
-- **1.9's default is salaried cover** — Sophia, 2026-09-21: "if it's missing a
-  punch it would be me closing". Salaried cover carries no solo-close bonus;
-  early close means the last person out is owed one.
+- **1.9's default is skip** (ruled 2026-09-22): no solo-close bonus unless a
+  manager picks the scheduled closer or a manager who closed without punching.
+  The dropdown is on the schedule, next to the week it happened in. A night
+  qualifies before 10 PM too, because the payroll sheet routes every close
+  before 10 PM here (spec 2.4).
+- **3.5 cannot see the tip.** The tip arrives on a Square invoice, which this app
+  does not read, so it asks about every crewless booked event; the payroll sheet
+  applies the pick only where there is a tip.
 - **1.13 blocks when the audit table is missing.** "Nothing was deleted" and "a
   deletion would have left no trace" are different answers, and the second is
   what the 2026-09-23 run had.
@@ -92,15 +126,16 @@ Notes on the ones that surprise people:
 | Migration | What it is for |
 | --- | --- |
 | `time-app/supabase/migration_25.sql` | `row_audit` + triggers — 1.13 |
-| `time-app/supabase/migration_26.sql` | `profiles.qbo_employee_id`, `held_tips` — spec 2.5, 3.6 |
-| `time-app/supabase/migration_27.sql` | `payroll_rulings` — the recorded choices |
+| `time-app/supabase/migration_26.sql` | `profiles.qbo_employee_id`, `profiles.pay_type`, `held_tips` — spec 2.5, 3.6 |
+| `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices) and `payroll_run_approvals` |
 
 All three are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Until 25 is applied, Verify reports 1.13 as a blocker; until 27
-is applied, rulings cannot be recorded and the button stays grey.
+is applied, choices cannot be recorded and the run cannot be approved.
 
 ## Not built yet
 
-Build items 9.4–9.6 of the spec: the hours and tips computation that produces
-the staged sheet (§2, §3, §5), the QBO staging automation behind a Preview-only
-boundary (§6), and the run emails, paystub PDF and HP ePrint receipt (§7).
+Build items 9.5–9.6 of the spec: the QBO staging automation behind a
+Preview-only boundary (§6), and the run emails, paystub PDF and HP ePrint
+receipt (§7). Item 9.4, the staged sheet, is bj-finance `modules/payroll_sheet.py`
+(bj-finance PR #541), which reads the choices and the approval recorded here.

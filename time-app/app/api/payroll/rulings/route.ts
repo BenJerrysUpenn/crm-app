@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { isMissingTable } from "@/lib/storeHours";
 import { RULING_CHOICES } from "@/lib/payroll/verify";
+import { validateChoice, type PayeeProfile } from "@/lib/payroll/choices";
 import { payWindowEnding } from "@/lib/payroll/window";
 import { NextResponse } from "next/server";
 
@@ -18,6 +19,7 @@ type Body = {
   check_id?: unknown;
   finding_key?: unknown;
   choice?: unknown;
+  payee_id?: unknown;
   note?: unknown;
 };
 
@@ -27,9 +29,10 @@ type Parsed = { window_end: string; check_id: string; finding_key: string };
  * Validate what every ruling call has in common: which window, which check,
  * which finding.
  *
- * The check must be one the spec makes a RULING (§1.4, §1.5, §1.9). Recording
- * a "ruling" against an auto-resolved check would be a decision nobody is
- * entitled to make: those are decided by rule, and the rule is the record.
+ * The check must be one that takes a choice (§1.4, §1.5, §1.9, §3.5, §3.7).
+ * Recording a "ruling" against an auto-resolved check would be a decision
+ * nobody is entitled to make: those are decided by rule, and the rule is the
+ * record.
  */
 function parseTarget(source: { window_end?: unknown; check_id?: unknown; finding_key?: unknown }): Parsed | string {
   const windowEnd = typeof source.window_end === "string" ? source.window_end : "";
@@ -49,12 +52,14 @@ function parseTarget(source: { window_end?: unknown; check_id?: unknown; finding
 }
 
 // POST /api/payroll/rulings
-// Body: { window_end, check_id, finding_key, choice, note? }
+// Body: { window_end, check_id, finding_key, choice, payee_id?, note? }
 //
-// Records one manager's answer to one ruling-class finding (bj-finance #519,
-// payroll spec §1). Re-answering the same finding replaces the previous answer
-// rather than adding a second one: the unique index is (window_end, check_id,
-// finding_key), so the table holds the decision that stands.
+// Records one manager's choice for one case (bj-finance #519, ruled
+// 2026-09-22). ANY manager may record or change a choice. Re-answering the same
+// case replaces the previous answer rather than adding a second one: the
+// unique index is (check_id, finding_key), so the table holds the choice that
+// stands, and the schedule and the Finance tab write the same row. A choice
+// recorded after the run was approved makes that approval stale.
 export async function POST(request: Request) {
   const me = await getProfile();
   if (!me || me.role !== "manager")
@@ -68,29 +73,34 @@ export async function POST(request: Request) {
   if (typeof target === "string") return NextResponse.json({ error: target }, { status: 400 });
 
   // The choice is validated against the rulebook's own vocabulary, never
-  // against anything the browser offered.
+  // against anything the browser offered, and a paying choice against the
+  // person it names.
   const choice = typeof body.choice === "string" ? body.choice.trim() : "";
-  const allowed = RULING_CHOICES[target.check_id];
-  if (!allowed.includes(choice))
-    return NextResponse.json(
-      { error: `${choice || "That choice"} is not one of the options for check ${target.check_id}.` },
-      { status: 400 },
-    );
+  const payeeId = typeof body.payee_id === "string" && body.payee_id.trim() ? body.payee_id.trim() : null;
+
+  const supabase = createClient();
+  let payee: PayeeProfile = null;
+  if (payeeId) {
+    const { data } = await supabase.from("profiles").select("id, role, active").eq("id", payeeId).maybeSingle();
+    payee = (data as PayeeProfile) ?? null;
+  }
+  const invalid = validateChoice(target.check_id, choice, payeeId, payee);
+  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 
   const note = typeof body.note === "string" ? body.note.trim().slice(0, MAX_NOTE) || null : null;
 
-  const supabase = createClient();
   const { data, error } = await supabase
     .from("payroll_rulings")
     .upsert(
       {
         ...target,
         choice,
+        payee_id: payeeId,
         note,
         decided_by: me.id,
         decided_at: new Date().toISOString(),
       },
-      { onConflict: "window_end,check_id,finding_key" },
+      { onConflict: "check_id,finding_key" },
     )
     .select()
     .single();
@@ -106,10 +116,10 @@ export async function POST(request: Request) {
 
 // DELETE /api/payroll/rulings?window_end=&check_id=&finding_key=
 //
-// Un-answers a finding, putting it back in front of the person. Deleting the
-// row rather than writing an empty choice keeps "not answered yet" a single
-// state — the button's rule reads it once, and there is no second way to be
-// unanswered.
+// Puts a case back to its default (or, for §1.4/§1.5, back in front of the
+// person). Deleting the row rather than writing an empty choice keeps "not
+// changed" a single state — the default is the rule, and there is no second
+// way to hold it.
 export async function DELETE(request: Request) {
   const me = await getProfile();
   if (!me || me.role !== "manager")
@@ -127,7 +137,6 @@ export async function DELETE(request: Request) {
   const { error } = await supabase
     .from("payroll_rulings")
     .delete()
-    .eq("window_end", target.window_end)
     .eq("check_id", target.check_id)
     .eq("finding_key", target.finding_key);
 
