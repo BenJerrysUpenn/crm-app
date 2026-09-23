@@ -1,12 +1,14 @@
 -- ============================================================================
--- Withers Time — migration 26: the QBO employee map and the held-tip ledger
+-- Withers Time — migration 26: the QBO employee map, pay type, and the held-tip ledger
 -- Run once in the Supabase SQL editor, after migration_25.sql. Safe to re-run.
 --
 -- Two pieces of payroll bookkeeping the 2026-09-23 run did in prose and got
 -- wrong (bj-finance #519, payroll spec §2.5 and §3.6, build order 9.2).
 --
 --   1. profiles.qbo_employee_id — the roster join to QuickBooks Payroll.
---   2. held_tips                — the ledger of catering tips paid but not yet
+--   2. profiles.pay_type        — salaried or hourly, set by a manager on the
+--                                 Team page (ruled 2026-09-22 on #519).
+--   3. held_tips                — the ledger of catering tips paid but not yet
 --                                 released into a pay run.
 --
 -- WHY NOT JOIN ON NAMES (§2.5). The run matched Withers-time people to QBO
@@ -47,37 +49,61 @@ create unique index if not exists profiles_qbo_employee_id_key
   on public.profiles (qbo_employee_id)
   where qbo_employee_id is not null;
 
--- Only a manager may set or change the mapping.
+-- ---------- profiles.pay_type ------------------------------------------------
+-- Salaried or hourly. The payroll sheet prints "salary" instead of hours for a
+-- salaried person, and it used to read that from a JSON file handed to the CLI
+-- (--qbo-map). Alina ruled on 2026-09-22 (#519) that it lives here instead,
+-- beside the QBO id, set by a manager on the Team page. NULL means nobody has
+-- said yet, which the sheet reports rather than guessing hourly. Once the QBO
+-- roster read (spec 4.1) exists, the sheet flags a mismatch against QBO's own
+-- compensation record; until then this column is the only statement of it.
+alter table public.profiles
+  add column if not exists pay_type text;
+
+alter table public.profiles drop constraint if exists profiles_pay_type_ck;
+alter table public.profiles add constraint profiles_pay_type_ck
+  check (pay_type is null or pay_type in ('hourly', 'salaried'));
+
+comment on column public.profiles.pay_type is
+  'salaried | hourly | null (not set). Set by a manager on the Team page; the payroll sheet reads it (bj-finance #519, ruled 2026-09-22).';
+
+-- Only a manager may set or change either payroll column.
 --
 -- This needs its own guard because of the policy stack it lands in:
 -- profiles_update_self lets any signed-in person update their OWN row, and it
 -- does not restrict which columns. Without this trigger an employee could point
--- their profile at somebody else's QBO employee id and redirect a paycheque.
+-- their profile at somebody else's QBO employee id and redirect a paycheque, or
+-- mark themselves salaried.
 --
 -- auth.uid() is null for the service-role client and in the SQL editor; those
 -- are trusted server contexts (the invite flow upserts profiles that way) and
--- are left alone. The check is on a CHANGE, so an update that leaves the column
--- as it was — which is every ordinary profile edit — never trips it.
-create or replace function public.guard_qbo_employee_id()
+-- are left alone. The check is on a CHANGE, so an update that leaves both
+-- columns as they were — which is every ordinary profile edit — never trips it.
+create or replace function public.guard_payroll_profile_columns()
 returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
 begin
-  if new.qbo_employee_id is distinct from old.qbo_employee_id
+  if (new.qbo_employee_id is distinct from old.qbo_employee_id
+      or new.pay_type is distinct from old.pay_type)
      and auth.uid() is not null
      and not (select public.is_manager()) then
-    raise exception 'Only a manager may change qbo_employee_id'
+    raise exception 'Only a manager may change qbo_employee_id or pay_type'
       using errcode = 'insufficient_privilege';
   end if;
   return new;
 end;
 $$;
 
+-- An earlier draft of this migration named the trigger for the QBO id alone.
+-- Dropping both names keeps a re-run from leaving two guards in place.
 drop trigger if exists profiles_qbo_employee_id_guard on public.profiles;
-create trigger profiles_qbo_employee_id_guard
+drop function if exists public.guard_qbo_employee_id();
+drop trigger if exists profiles_payroll_columns_guard on public.profiles;
+create trigger profiles_payroll_columns_guard
   before update on public.profiles
-  for each row execute function public.guard_qbo_employee_id();
+  for each row execute function public.guard_payroll_profile_columns();
 
 -- ---------- held_tips --------------------------------------------------------
 -- One row per catering tip payment, not per deal: a deal can be paid in two

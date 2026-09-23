@@ -7,6 +7,7 @@ import StoreHoursAdmin from "@/components/StoreHoursAdmin";
 import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } from "@/lib/types";
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
+import { PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/payroll/payType";
 
 export default function TeamAdmin({
   employees,
@@ -139,6 +140,8 @@ export default function TeamAdmin({
           Resend invite if the link expired. <strong>QBO id</strong> is that
           person&rsquo;s employee id in QuickBooks Payroll — payroll matches
           people on it, never on their name, so anyone paid needs one.
+          <strong> Pay</strong> is salaried or hourly: the payroll sheet prints
+          &ldquo;salary&rdquo; instead of hours for a salaried person.
         </p>
         {addOpen && (
           <div className="mb-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
@@ -206,6 +209,7 @@ export default function TeamAdmin({
                 <th className="text-left px-3 py-2">Role</th>
                 <th className="text-right px-3 py-2">Rate $/h</th>
                 <th className="text-left px-3 py-2">QBO id</th>
+                <th className="text-left px-3 py-2">Pay</th>
                 <th className="text-center px-3 py-2">Active</th>
                 <th className="text-left px-3 py-2">Invite</th>
               </tr>
@@ -450,6 +454,17 @@ function EmployeeRow({
   const [rate, setRate] = useState(e.hourly_rate?.toString() ?? "");
   const [qbo, setQbo] = useState(e.qbo_employee_id ?? "");
   const [qboErr, setQboErr] = useState<string | null>(null);
+  const [payType, setPayType] = useState<string>(e.pay_type ?? "");
+  const [payErr, setPayErr] = useState<string | null>(null);
+
+  // Same read-back as the QBO id: a refused save puts the select back to what
+  // the database holds, so the row never shows a pay type that is not stored.
+  async function savePayType(next: string) {
+    setPayType(next);
+    const err = await onSave(e.id, { pay_type: next === "" ? null : (next as Profile["pay_type"]) });
+    setPayErr(err);
+    if (err) setPayType(e.pay_type ?? "");
+  }
   const [active, setActive] = useState(e.active);
 
   // The QBO employee id is the one field on this row a save can refuse, so it
@@ -502,6 +517,19 @@ function EmployeeRow({
           className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-24"
         />
         {qboErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px]">{qboErr}</div>}
+      </td>
+      <td className="px-3 py-2">
+        <select
+          value={payType}
+          onChange={(ev) => savePayType(ev.target.value)}
+          title="Salaried or hourly. The payroll sheet reads this."
+          className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100"
+        >
+          {(["", ...PAY_TYPES] as const).map((t) => (
+            <option key={t} value={t}>{PAY_TYPE_LABELS[t]}</option>
+          ))}
+        </select>
+        {payErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px]">{payErr}</div>}
       </td>
       <td className="px-3 py-2 text-center">
         <input type="checkbox" checked={active} onChange={(ev) => { setActive(ev.target.checked); onSave(e.id, { active: ev.target.checked }); }} />

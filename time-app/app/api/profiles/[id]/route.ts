@@ -2,10 +2,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { isMissingColumn } from "@/lib/storeHours";
 import { parseQboEmployeeId } from "@/lib/payroll/qboEmployee";
+import { parsePayType } from "@/lib/payroll/payType";
 import { NextResponse } from "next/server";
 
 // The fields a manager may set on somebody's profile from the Team page.
-const EDITABLE = ["full_name", "phone", "role", "hourly_rate", "active", "qbo_employee_id"] as const;
+const EDITABLE = ["full_name", "phone", "role", "hourly_rate", "active", "qbo_employee_id", "pay_type"] as const;
 
 export async function PATCH(
   request: Request,
@@ -31,6 +32,15 @@ export async function PATCH(
     patch.qbo_employee_id = parsed.value;
   }
 
+  // Salaried or hourly (ruled 2026-09-22 on bj-finance #519). The payroll
+  // sheet reads it, so only the two words the database CHECK allows get
+  // through, and a blank is "not set" rather than a guess.
+  if ("pay_type" in patch) {
+    const parsed = parsePayType(patch.pay_type);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    patch.pay_type = parsed.value;
+  }
+
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
@@ -41,9 +51,9 @@ export async function PATCH(
   // Migration 26 is applied by hand, so a deploy can land ahead of it. Saying
   // so beats a raw schema-cache error, and the rest of the row is untouched
   // because the update is rejected whole.
-  if (isMissingColumn(error, "qbo_employee_id"))
+  if (isMissingColumn(error, "qbo_employee_id") || isMissingColumn(error, "pay_type"))
     return NextResponse.json(
-      { error: "QBO employee id needs migration 26. Run it in Supabase first." },
+      { error: "QBO employee id and pay type need migration 26. Run it in Supabase first." },
       { status: 503 },
     );
   // The partial unique index on qbo_employee_id. Two people on one QBO employee
