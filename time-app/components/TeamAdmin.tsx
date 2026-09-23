@@ -7,6 +7,7 @@ import StoreHoursAdmin from "@/components/StoreHoursAdmin";
 import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } from "@/lib/types";
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
+import { PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/payroll/payType";
 
 export default function TeamAdmin({
   employees,
@@ -47,15 +48,23 @@ export default function TeamAdmin({
   const [newRole, setNewRole] = useState<"employee" | "manager">("employee");
   const [newRate, setNewRate] = useState<string>("");
 
-  async function saveProfile(id: string, patch: Partial<Profile>) {
+  // Returns the server's message when a save is refused, or null when it stuck.
+  // Most edits here cannot be refused, but the QBO employee id can: it is
+  // validated (payroll spec 2.5) and unique across the team, and silently
+  // swallowing "that id is already on someone else" would leave the manager
+  // looking at a value the database does not have.
+  async function saveProfile(id: string, patch: Partial<Profile>): Promise<string | null> {
     setSavingId(id);
-    await fetch(`/api/profiles/${id}`, {
+    const res = await fetch(`/api/profiles/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
     setSavingId(null);
     router.refresh();
+    if (res.ok) return null;
+    const body = await res.json().catch(() => ({}));
+    return body.error ?? `Save failed (${res.status}).`;
   }
 
   async function addEmployee() {
@@ -128,7 +137,11 @@ export default function TeamAdmin({
         <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
           Use the button above to invite a new person by email. They get a link
           to set their password, and then they appear in the list below. Use
-          Resend invite if the link expired.
+          Resend invite if the link expired. <strong>QBO id</strong> is that
+          person&rsquo;s employee id in QuickBooks Payroll — payroll matches
+          people on it, never on their name, so anyone paid needs one.
+          <strong> Pay</strong> is salaried or hourly: the payroll sheet prints
+          &ldquo;salary&rdquo; instead of hours for a salaried person.
         </p>
         {addOpen && (
           <div className="mb-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
@@ -195,6 +208,8 @@ export default function TeamAdmin({
                 <th className="text-left px-3 py-2">Phone</th>
                 <th className="text-left px-3 py-2">Role</th>
                 <th className="text-right px-3 py-2">Rate $/h</th>
+                <th className="text-left px-3 py-2">QBO id</th>
+                <th className="text-left px-3 py-2">Pay</th>
                 <th className="text-center px-3 py-2">Active</th>
                 <th className="text-left px-3 py-2">Invite</th>
               </tr>
@@ -430,14 +445,39 @@ function EmployeeRow({
   e: Profile;
   email: string;
   saving: boolean;
-  onSave: (id: string, patch: Partial<Profile>) => void;
+  onSave: (id: string, patch: Partial<Profile>) => Promise<string | null>;
   onResend: (id: string) => Promise<string>;
 }) {
   const [name, setName] = useState(e.full_name ?? "");
   const [phone, setPhone] = useState(e.phone ?? "");
   const [role, setRole] = useState(e.role);
   const [rate, setRate] = useState(e.hourly_rate?.toString() ?? "");
+  const [qbo, setQbo] = useState(e.qbo_employee_id ?? "");
+  const [qboErr, setQboErr] = useState<string | null>(null);
+  const [payType, setPayType] = useState<string>(e.pay_type ?? "");
+  const [payErr, setPayErr] = useState<string | null>(null);
+
+  // Same read-back as the QBO id: a refused save puts the select back to what
+  // the database holds, so the row never shows a pay type that is not stored.
+  async function savePayType(next: string) {
+    setPayType(next);
+    const err = await onSave(e.id, { pay_type: next === "" ? null : (next as Profile["pay_type"]) });
+    setPayErr(err);
+    if (err) setPayType(e.pay_type ?? "");
+  }
   const [active, setActive] = useState(e.active);
+
+  // The QBO employee id is the one field on this row a save can refuse, so it
+  // is the one that reads its answer back. On a refusal the typed value is put
+  // back to what the database still holds, so the cell never shows a mapping
+  // that is not there.
+  async function saveQbo() {
+    const next = qbo.trim();
+    if (next === (e.qbo_employee_id ?? "")) return;
+    const err = await onSave(e.id, { qbo_employee_id: next === "" ? null : next });
+    setQboErr(err);
+    if (err) setQbo(e.qbo_employee_id ?? "");
+  }
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMsg, setInviteMsg] = useState<string | null>(null);
 
@@ -466,6 +506,30 @@ function EmployeeRow({
       </td>
       <td className="px-3 py-2 text-right">
         <input value={rate} onChange={(ev) => setRate(ev.target.value)} onBlur={() => onSave(e.id, { hourly_rate: rate ? Number(rate) : null })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-20 text-right" />
+      </td>
+      <td className="px-3 py-2">
+        <input
+          value={qbo}
+          onChange={(ev) => { setQbo(ev.target.value); setQboErr(null); }}
+          onBlur={saveQbo}
+          placeholder="not set"
+          title="QuickBooks Payroll employee id. Payroll matches people on this, never on names."
+          className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-24"
+        />
+        {qboErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px]">{qboErr}</div>}
+      </td>
+      <td className="px-3 py-2">
+        <select
+          value={payType}
+          onChange={(ev) => savePayType(ev.target.value)}
+          title="Salaried or hourly. The payroll sheet reads this."
+          className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100"
+        >
+          {(["", ...PAY_TYPES] as const).map((t) => (
+            <option key={t} value={t}>{PAY_TYPE_LABELS[t]}</option>
+          ))}
+        </select>
+        {payErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px]">{payErr}</div>}
       </td>
       <td className="px-3 py-2 text-center">
         <input type="checkbox" checked={active} onChange={(ev) => { setActive(ev.target.checked); onSave(e.id, { active: ev.target.checked }); }} />
