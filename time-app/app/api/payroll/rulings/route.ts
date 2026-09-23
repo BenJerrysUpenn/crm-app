@@ -31,7 +31,8 @@ type Parsed = { window_end: string; check_id: string; finding_key: string };
  * Validate what every ruling call has in common: which window, which check,
  * which finding.
  *
- * The check must be one that takes a choice (§1.4, §1.5, §1.9, §3.5, §3.7).
+ * The check must be one that takes a choice (§1.9, §3.5, §3.7). §1.4 and §1.5
+ * do not (ruling D, 2026-09-22): the punch is corrected in Withers-time.
  * Recording a "ruling" against an auto-resolved check would be a decision
  * nobody is entitled to make: those are decided by rule, and the rule is the
  * record.
@@ -122,8 +123,8 @@ export async function POST(request: Request) {
 
 // DELETE /api/payroll/rulings?window_end=&check_id=&finding_key=
 //
-// Puts a case back to its default (or, for §1.4/§1.5, back in front of the
-// person). Refused, like any change, once the case's run is approved. Deleting the row rather than writing an empty choice keeps "not
+// Puts a case back to its default. Refused, like any change, once the case's
+// run is approved. Deleting the row rather than writing an empty choice keeps "not
 // changed" a single state — the default is the rule, and there is no second
 // way to hold it.
 export async function DELETE(request: Request) {

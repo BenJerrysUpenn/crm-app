@@ -345,7 +345,6 @@ function FindingRow({
   onRule: (finding: Finding, choice: string, payeeId: string | null, note: string) => void;
   onClear: (finding: Finding) => void;
 }) {
-  const [note, setNote] = useState("");
   const hasDefault = !!finding.defaultChoice;
 
   return (
@@ -362,58 +361,18 @@ function FindingRow({
 
         {hasDefault && <ChoiceRow finding={finding} busy={busy} onRule={onRule} onClear={onClear} />}
 
-        {finding.status === "needs_ruling" && !hasDefault && !finding.ruling && !finding.lockedBy && (
-          <div className="mt-2 space-y-2">
-            <input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="why (optional, kept with the ruling)"
-              className="w-full max-w-md text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1"
-            />
-            <div className="flex flex-wrap gap-2">
-              {finding.options?.map((o) => (
-                <button
-                  key={o.choice}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onRule(finding, o.choice, null, note)}
-                  title={o.effect}
-                  className={`text-xs rounded-md px-3 py-1.5 border disabled:opacity-50 ${
-                    o.choice === finding.defaultChoice
-                      ? "border-emerald-500 text-emerald-700 dark:text-emerald-400"
-                      : "border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300"
-                  }`}
-                >
-                  {o.label} — {o.effect}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {!hasDefault && finding.ruling && (
-          <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
-            Ruled: {labelFor(finding, finding.ruling.choice)}
-            {finding.ruling.note ? ` — ${finding.ruling.note}` : ""}{" "}
-            {!finding.lockedBy && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onClear(finding)}
-                className="text-slate-500 hover:text-rose-500 underline disabled:opacity-50 ml-1"
-              >
-                change
-              </button>
-            )}
-          </div>
-        )}
-
         {finding.status === "needs_ruling" && finding.lockedBy && <Locked windowEnd={finding.lockedBy} />}
 
         {finding.status === "needs_fix" && (
           <div className="mt-1 text-xs text-rose-500">
-            Fix this in the app, then verify again. No ruling can stand in for it.
+            {finding.check === "1.4" || finding.check === "1.5"
+              ? "Correct this punch on the Timesheets page, then verify again. There is no default, and the run cannot be approved until it is fixed."
+              : "Fix this in the app, then verify again. No ruling can stand in for it."}
           </div>
+        )}
+
+        {finding.check === "3.4" && (
+          <div className="mt-1 text-xs text-amber-600 dark:text-amber-500">⚑ A flag for the approver. It does not block the run.</div>
         )}
       </div>
     </div>

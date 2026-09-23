@@ -48,9 +48,12 @@ Every finding is one of:
   that these are **per-case choices made in the app, each with a preselected
   default** (1.9, 3.5, 3.7). The default stands on its own; a manager changes
   it only when the case needs it, and the change is recorded with who and when
-  in `payroll_rulings`. 1.4 and 1.5 have no default and must be answered.
+  in `payroll_rulings`.
 - **Needs a fix** — the data is wrong and no choice can make it right. Fix it in
-  the app and press Verify again.
+  the app and press Verify again. This includes **1.4** (a runaway punch with no
+  scheduled shift) and **1.5** (a punch under 25% of its scheduled shift): they
+  have **no default and no picker** (ruled 2026-09-22, ruling D). The punch is
+  corrected on the Timesheets page.
 
 **The button is green when there is nothing to fix and every case is answered
 by a recorded choice or its default.**
@@ -59,7 +62,10 @@ by a recorded choice or its default.**
 
 There is **one approval for the whole pay run**, not one per case, and **any
 manager** can give it (`POST /api/payroll/approve`, the button on the Finance
-tab). It is refused until the button above is green. It stores a snapshot of
+tab). It is refused until the button above is green. While any 1.4 or 1.5
+punch is uncorrected, Approve is disabled and the reason names each punch; the
+approve route refuses it (409), and migration 27's trigger refuses it in the
+database (`payroll_punch_blockers()`). It stores a snapshot of
 every case's effective choice, defaults included, in `payroll_run_approvals`.
 The payroll sheet (bj-finance `modules/payroll_sheet.py`) will not produce a
 keyable sheet until the run is approved.
@@ -79,7 +85,7 @@ stages the run in QBO, so it cannot be cancelled or undone:
   Finance tab and on the schedule, and migration 27's trigger refuses any
   insert, change or delete of a choice dated inside an approved run. The
   trigger dates the case from its key: the night (1.9), the event (3.5), the
-  punch's New York day (1.4/1.5), the window's last day (3.7).
+  window's last day (3.7).
 - **No overlapping runs.** A window sharing a day with an approved run cannot
   be approved.
 
@@ -94,9 +100,13 @@ migration 27).
 - 1.9 — a night paid to the manager who changed its dropdown.
 - 3.5 / 3.7 — a crewless catering tip or stranded Olo tip paid to the manager
   who approved the run, whether by default or by a change.
+- 3.4 — an invoice tip that joins to no deal, **from any point in history**
+  (ruled 2026-09-22, ruling A). The Finance tab reads these from `held_tips`
+  rows with no `deal_id` (migration 26); the payroll sheet lists every one it
+  finds in Square.
 
 Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
-`3.7:olo:2026-09-20`, `1.5:punch:1281`), not by pay window, so the schedule
+`3.7:olo:2026-09-20`), not by pay window, so the schedule
 (which shows calendar weeks) and the Finance tab write and read the same row.
 
 ## The checks
@@ -109,17 +119,18 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 | 1.2 | Punch over 15h | rule → 1.4 |
 | 1.3 | Clock-out within 5s of the same person's next clock-in | rule → 1.4 |
 | 1.4 | Truncation — with a shift, cut to the scheduled end | rule |
-| 1.4 | Truncation — with **no** shift | **ruling**: real hours / void |
-| 1.5 | Punch under 25% of its scheduled shift | **ruling**: as punched / scheduled |
+| 1.4 | Truncation — with **no** shift | **fix**: correct the punch (no default) |
+| 1.5 | Punch under 25% of its scheduled shift | **fix**: correct the punch (no default) |
 | 1.6 | Under 5 min with nothing scheduled | rule: 0 hours, listed |
 | 1.7 | Same person, overlapping punches | **fix** |
 | 1.8 | Opening hours with no in-store punch running, ≥15 min | rule, warning |
-| 1.9 | Last in-store clock-out >2h before close, or before 10 PM (2.4) | **choice on the schedule**: pay scheduled closer / pay unpunched manager / skip (**default: skip**) |
+| 1.9 | Solo-close eligible nights only: last in-store clock-out >2h before close, or a solo tail ≥4h with the closer out before 10 PM (2.4 qualifying) | **choice on the schedule**: pay scheduled closer / pay unpunched manager / skip (**default: skip**) |
 | 1.10 | Blank `shift_id` — own shift, then a cover swap | rule |
 | 1.11 | Catering shift with no `deal_id` | rule (a scheduling-time flag) |
 | 1.12 | Fewer crew punched than `deals.staff_count` | rule, warning |
 | 1.13 | Rows deleted from inside the window | rule; **fix** when there is no audit table |
 | 1.14 | `full_name` containing `@` | rule, warning |
+| 3.4 | Invoice tip with no deal, any date | rule, **flag** (never blocks) |
 | 3.5 | Booked event in the window with no Catering shift crewed | **choice**: who is paid its tip (**default: Sophia**); also the upstream warning to add the shift |
 | 3.7 | No Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: Sophia**); a schedule anomaly (norm ≥ 4 a period) |
 
@@ -130,16 +141,20 @@ Notes on the ones that surprise people:
   Sophia closed for her.
 - **1.9's default is skip** (ruled 2026-09-22): no solo-close bonus unless a
   manager picks the scheduled closer or a manager who closed without punching.
-  The dropdown is on the schedule, next to the week it happened in. A night
-  qualifies before 10 PM too, because the payroll sheet routes every close
-  before 10 PM here (spec 2.4).
+  The dropdown is on the schedule, next to the week it happened in. It appears
+  **only on solo-close eligible nights** (ruled 2026-09-22, ruling C): the last
+  in-store clock-out more than 2h before close (1.9), or somebody alone for 4h
+  or more who clocked out before 10 PM (2.4 qualifying, which the rule cannot
+  pay). Any other night before 10 PM gets no dropdown and no bonus. The payroll
+  sheet routes exactly the same nights. A day with no closing time is judged on
+  2.4 alone.
 - **3.5 cannot see the tip.** The tip arrives on a Square invoice, which this app
   does not read, so it asks about every crewless booked event; the payroll sheet
   applies the pick only where there is a tip.
 - **1.13 blocks when the audit table is missing.** "Nothing was deleted" and "a
   deletion would have left no trace" are different answers, and the second is
   what the 2026-09-23 run had.
-- **1.8 and 1.9 read `store_hours`.** A day whose hours nobody has set is
+- **1.8 and 1.9 read `store_hours`.** For 1.8 a day whose hours nobody has set is
   reported, never judged — hours-not-set is deliberately different from closed,
   the same distinction `lib/coverage.ts` draws for the publish check.
 - **Catering and Marketing shifts are off-site.** They never cover the store and

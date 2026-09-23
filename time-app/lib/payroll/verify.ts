@@ -19,18 +19,20 @@
 //   auto_resolved — a rule decided it. The finding is still reported, because
 //                   the person signing off is entitled to see what the rule
 //                   did, but it does not hold the button.
-//   needs_ruling  — code cannot decide (§1.4 with no shift, §1.5, §1.9, §3.5,
-//                   §3.7). The screen shows the options and records the
-//                   choice. §1.9, §3.5 and §3.7 are PER-CASE CHOICES WITH A
-//                   PRESELECTED DEFAULT (Alina, 2026-09-22, #519): skip,
-//                   Sophia, Sophia. A default satisfies the button on its own;
-//                   a manager changes it only when the case needs it. §1.4 and
-//                   §1.5 have no default and still need an answer.
+//   needs_ruling  — code cannot decide (§1.9, §3.5, §3.7). These are
+//                   PER-CASE CHOICES WITH A PRESELECTED DEFAULT (Alina,
+//                   2026-09-22, #519): skip, Sophia, Sophia. A default
+//                   satisfies the button on its own; a manager changes it only
+//                   when the case needs it.
 //   needs_fix     — the data is wrong and no ruling can make it right: an open
 //                   punch has no end (§1.1), two overlapping punches double-pay
-//                   (§1.7), and with no audit table nothing here is defensible
-//                   at all (§1.13). These clear by fixing the data and running
-//                   Verify again.
+//                   (§1.7), with no audit table nothing here is defensible at
+//                   all (§1.13), and — ruling D, 2026-09-22 — a runaway punch
+//                   with no scheduled shift (§1.4) or a punch under 25% of its
+//                   scheduled shift (§1.5). Those two have NO default and no
+//                   picker: the punch is corrected in Withers-time. All of
+//                   these clear by fixing the data and running Verify again,
+//                   and until then the run cannot be approved.
 //
 // Times. Punches are instants; opening hours are wall clock. Everything that
 // compares the two goes through lib/coverage.ts, which owns that conversion and
@@ -51,6 +53,7 @@ import {
 } from "../coverage.ts";
 import { LONG_SHIFT_HOURS } from "../shiftChecks.ts";
 import { PERIOD_DAYS, addDays, inWindow, windowDates, type PayWindow } from "./window.ts";
+import { formatCents, type HeldTipRow } from "./heldTips.ts";
 
 // ---------------------------------------------------------------------------
 // Thresholds. Every one of these is a number the spec names; they are constants
@@ -70,12 +73,13 @@ export const CLOSING_GAP_HOURS = 2;
 /** §1.10 — how far outside a shift's hours a cover punch may still bracket it. */
 export const COVER_GRACE_MINUTES = 30;
 /**
- * §2.4 — "closer must clock out ≥ 22:00 else route to 1.9". The payroll sheet
- * (bj-finance modules/payroll_sheet.py) routes on this, so 1.9 asks about the
- * same nights: a last in-store clock-out before 22:00 qualifies even when it is
- * within 2h of close.
+ * §2.4 — "closer must clock out ≥ 22:00 else route to 1.9". A closer out
+ * before 22:00 is never paid by rule; the night gets a dropdown only if it is
+ * solo-close ELIGIBLE (ruling C, 2026-09-22) — see checkClosingPunch.
  */
 export const SOLO_CLOSE_EARLIEST_OUT_MINUTES = 22 * 60;
+/** §2.4 — the solo tail that earns the $30 closing-alone bonus. */
+export const SOLO_TAIL_HOURS = 4;
 /** §3.7 — the bake shift, and the norm: at least 2 a week, 4 a period. */
 export const PASTRY_POSITION = "Pastry Opener";
 export const BAKE_SHIFT_NORM_PER_PERIOD = 4;
@@ -194,6 +198,12 @@ export type VerifyInput = {
   rulings?: RulingRow[];
   /** §3.5 — event deals whose event_date falls in the window. */
   windowDeals?: DealRow[];
+  /**
+   * §3.4 — invoice tips that join to no deal, from ANY point in history
+   * (held_tips rows with no deal_id, migration 26). Shown as flags; they never
+   * block the run (ruling A, 2026-09-22).
+   */
+  unmatchedTips?: HeldTipRow[];
   approval?: ApprovalRow | null;
   /**
    * Approvals of OTHER windows that share days with this one. A case dated
@@ -247,7 +257,7 @@ export type Finding = {
   /** What the rule did, for auto_resolved findings. */
   resolution?: string;
   options?: RulingOption[];
-  /** §1.9, §3.5 and §3.7 have defaults; §1.4 and §1.5 deliberately have none. */
+  /** §1.9, §3.5 and §3.7 have defaults. §1.4 and §1.5 are fixes, not choices. */
   defaultChoice?: string;
   ruling?: RulingRow | null;
   /** Who a paying choice may name. Managers for §1.9, active staff for §3.5/3.7. */
@@ -326,11 +336,11 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "1.4": {
     title: "Truncation",
-    rule: "1.2/1.3 with a scheduled shift → use scheduled end, note it. With NO scheduled shift → RULING (real hours / void).",
+    rule: "1.2/1.3 with a scheduled shift → use scheduled end, note it. With NO scheduled shift → no default: correct the punch in Withers-time. The run cannot be approved until it is fixed (ruled 2026-09-22).",
   },
   "1.5": {
     title: "Short punch on a scheduled shift",
-    rule: "punch < 25% of scheduled length → RULING: as punched / scheduled length. Existing rules only shorten runaways; this one is about extending.",
+    rule: "punch < 25% of scheduled length → no default: correct the punch in Withers-time. The run cannot be approved until it is fixed (ruled 2026-09-22).",
   },
   "1.6": { title: "Test punch", rule: "< 5 min AND no scheduled shift → 0h, listed" },
   "1.7": { title: "Overlaps", rule: "same person, overlapping intervals" },
@@ -340,7 +350,7 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "1.9": {
     title: "No closing punch",
-    rule: "last in-store clock-out > 2h before store close, or before 22:00 (2.4) → a dropdown on the schedule: pay scheduled closer / pay unpunched manager / skip payment. Default = skip (ruled 2026-09-22). Flag a night where the manager paid is the one who changed the dropdown.",
+    rule: "solo-close eligible nights only: last in-store clock-out > 2h before store close (1.9), or a solo tail ≥ 4h with the closer out before 22:00 (2.4 qualifying) → a dropdown on the schedule: pay scheduled closer / pay unpunched manager / skip payment. Default = skip (ruled 2026-09-22). Flag a night where the manager paid is the one who changed the dropdown.",
   },
   "1.10": {
     title: "Cover punches",
@@ -359,6 +369,10 @@ const RULES: Record<string, { title: string; rule: string }> = {
     rule: "no audit table exists; ids 1270–1274 and ≥3 shifts vanished inside the window. Precondition for trusting anything above: add time_entries/shifts audit triggers (who, when, before-image).",
   },
   "1.14": { title: "Name hygiene", rule: "profiles.full_name containing '@' (invite-flow bug)" },
+  "3.4": {
+    title: "Invoice tip with no deal",
+    rule: "an invoice tip that joins to no deal, from any point in history, is listed, never summed. A flag, not a block (ruled 2026-09-22): the approver sees it and the deal is fixed so a later run pays it.",
+  },
   "3.5": {
     title: "Crewless catering event",
     rule: "deal shift unassigned + nobody punched → a staff picker on the event, default Sophia (ruled 2026-09-22). Flag a crewless tip paid to the person who approves the run. Upstream: the event needs its Catering shift added.",
@@ -371,11 +385,15 @@ const RULES: Record<string, { title: string; rule: string }> = {
 
 const CHECK_ORDER = [
   "0.1", "0.6", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.10", "1.11", "1.12", "1.13", "1.14",
-  "3.5", "3.7",
+  "3.4", "3.5", "3.7",
 ];
 
-/** The ruling-class checks. A finding outside this set can never need a ruling. */
-export const RULING_CHECKS = ["1.4", "1.5", "1.9", "3.5", "3.7"] as const;
+/**
+ * The choice checks. A finding outside this set can never need a ruling.
+ * §1.4 and §1.5 are NOT here (ruling D, 2026-09-22): they have no default and
+ * no picker, and are fixed by correcting the punch.
+ */
+export const RULING_CHECKS = ["1.9", "3.5", "3.7"] as const;
 
 /**
  * Every choice each ruling-class check may be answered with.
@@ -387,8 +405,6 @@ export const RULING_CHECKS = ["1.4", "1.5", "1.9", "3.5", "3.7"] as const;
  * two cannot drift apart.
  */
 export const RULING_CHOICES: Record<string, readonly string[]> = {
-  "1.4": ["real_hours", "void"],
-  "1.5": ["as_punched", "scheduled"],
   "1.9": ["skip", "scheduled_closer", "unpunched_manager"],
   "3.5": ["staff"],
   "3.7": ["staff"],
@@ -396,7 +412,7 @@ export const RULING_CHOICES: Record<string, readonly string[]> = {
 
 /**
  * The choices that pay a named person, and so must carry a payee. Everything
- * else (skip, and every §1.4/§1.5 answer) must not. The route and the payroll
+ * else (skip) must not. The route and the payroll
  * sheet read the same rule: a paying choice with nobody to pay is refused here
  * and reported as an open item there.
  */
@@ -711,8 +727,9 @@ function checkAutoClosed(views: PunchView[], window: PayWindow): PunchView[] {
 /**
  * §1.4 — truncation. A rule, not a ruling, WHEN there is a scheduled shift:
  * the punch is cut back to the shift's end and the change is noted. With no
- * shift to cut back to there is nothing to compute from, so the screen asks:
- * the hours as punched, or void.
+ * shift to cut back to there is nothing to compute from, and there is NO
+ * default (ruling D, 2026-09-22): the punch is corrected in Withers-time, and
+ * until it is the run cannot be approved.
  */
 function checkTruncation(runaways: PunchView[], reasons: Map<number, string[]>): Finding[] {
   const seen = new Set<number>();
@@ -747,13 +764,10 @@ function checkTruncation(runaways: PunchView[], reasons: Map<number, string[]>):
       out.push(
         finding("1.4", {
           key: `1.4:punch:${v.row.id}`,
-          status: "needs_ruling",
+          status: "needs_fix",
           severity: "error",
           summary: `${v.name} ${formatDayLabel(v.date)}: ${describeDuration(punched)} punched (${why}), with no scheduled shift to cut it back to.`,
-          options: [
-            { choice: "real_hours", label: "Real hours", effect: `Pay ${round2(punched)}h as punched.` },
-            { choice: "void", label: "Void", effect: "Pay 0h for this punch." },
-          ],
+          resolution: "No default. Correct the punch on the Timesheets page (its real clock-out, or remove it), then verify again.",
           evidence: {
             employee_id: v.employeeId,
             employee_name: v.name,
@@ -773,9 +787,10 @@ function checkTruncation(runaways: PunchView[], reasons: Map<number, string[]>):
  *
  * New in this spec, and the only check that can make somebody's day longer:
  * every other rule here shortens a runaway. Carli's 09-18 punch was 2m 11s
- * against a 7h shift because Sophia closed for her; the ruling that run was "as
- * punched". There is deliberately no default — the two answers differ by nearly
- * a full shift's pay and the run that needs it will have a reason either way.
+ * against a 7h shift because Sophia closed for her. There is deliberately no
+ * default — the two answers differ by nearly a full shift's pay — and no
+ * picker either (ruling D, 2026-09-22): the punch is corrected in
+ * Withers-time, and until it is the run cannot be approved.
  */
 function checkShortPunches(views: PunchView[], window: PayWindow, runawayIds: Set<number>): Finding[] {
   const out: Finding[] = [];
@@ -790,13 +805,10 @@ function checkShortPunches(views: PunchView[], window: PayWindow, runawayIds: Se
     out.push(
       finding("1.5", {
         key: `1.5:punch:${v.row.id}`,
-        status: "needs_ruling",
-        severity: "warn",
+        status: "needs_fix",
+        severity: "error",
         summary: `${v.name} ${formatDayLabel(v.date)}: punched ${describeDuration(v.hours)} against a ${round2(scheduled)}h scheduled shift.`,
-        options: [
-          { choice: "as_punched", label: "As punched", effect: `Pay ${round2(v.hours)}h.` },
-          { choice: "scheduled", label: "Scheduled length", effect: `Pay ${round2(scheduled)}h.` },
-        ],
+        resolution: "No default. Correct the punch on the Timesheets page to the hours really worked, then verify again.",
         evidence: {
           employee_id: v.employeeId,
           employee_name: v.name,
@@ -960,7 +972,7 @@ function push(map: Map<string, { from: number; to: number }[]>, date: string, fr
 }
 
 /**
- * §1.9 — no closing punch.
+ * §1.9 — no closing punch, and the §2.4 nights the rule cannot pay.
  *
  * Three nights in the 2026-09-23 window ended more than two hours before the
  * door did, and the run had to ask Sophia what happened. Alina ruled on
@@ -969,9 +981,18 @@ function push(map: Map<string, { from: number; to: number }[]>, date: string, fr
  * punching, or skip — and that the default is SKIP: no bonus unless a manager
  * says otherwise.
  *
- * A night qualifies when the last in-store clock-out is more than 2h before
- * close OR before 22:00, because the payroll sheet routes every close before
- * 22:00 here (§2.4) and the two must ask about the same nights.
+ * The dropdown is for SOLO-CLOSE ELIGIBLE nights only (ruling C, 2026-09-22):
+ *
+ *   §1.9       the last in-store clock-out is more than 2h before close;
+ *   §2.4       the closer was alone for 4h or more (the solo tail: their
+ *              clock-out back to the later of their own arrival and the last
+ *              other in-store clock-out) but clocked out before 22:00, so the
+ *              rule cannot pay it.
+ *
+ * Any other night before 22:00 gets no dropdown and no bonus. The payroll
+ * sheet (bj-finance modules/payroll_sheet.py, solo_closes) routes exactly these
+ * nights, so the two ask about the same nights. A day with no closing time
+ * (hours not set, or closed) is judged on §2.4 alone, as the sheet does.
  *
  * Only days with at least one in-store punch are asked about: with nobody in at
  * all there is no evening to ask about, and §1.8 has already reported the whole
@@ -982,15 +1003,15 @@ function checkClosingPunch(views: PunchView[], input: VerifyInput, profiles: Map
   const exceptions = input.storeHoursExceptions ?? [];
   const closedRanges = input.closedRanges ?? [];
 
-  const lastOutByDate = new Map<string, PunchView>();
+  // A punch belongs to the day it STARTED on, even when it ends after
+  // midnight: the person who clocked out at 00:20 closed Saturday night, not
+  // Sunday morning.
+  const inStoreByDate = new Map<string, PunchView[]>();
   for (const v of views) {
     if (!v.inStore || v.endMs === null) continue;
-    // A punch belongs to the day it STARTED on, even when it ends after
-    // midnight: the person who clocked out at 00:20 closed Saturday night, not
-    // Sunday morning.
-    const date = v.date;
-    const current = lastOutByDate.get(date);
-    if (!current || v.endMs > current.endMs!) lastOutByDate.set(date, v);
+    const list = inStoreByDate.get(v.date);
+    if (list) list.push(v);
+    else inStoreByDate.set(v.date, [v]);
   }
 
   const managers = input.profiles
@@ -1002,26 +1023,33 @@ function checkClosingPunch(views: PunchView[], input: VerifyInput, profiles: Map
   const out: Finding[] = [];
   for (const date of windowDates(window)) {
     const open = resolveOpenWindow(date, input.storeHours, exceptions, closedRanges);
-    if (open.state !== "open") continue;
-    const last = lastOutByDate.get(date);
-    if (!last) continue;
+    const closes = open.state === "open" ? open.closes : null;
+    const punches = inStoreByDate.get(date);
+    if (!punches) continue;
+    const last = punches.reduce((a, b) => (b.endMs! > a.endMs! ? b : a));
 
     const outAt = nyWallClock(last.row.clock_out_at!);
     // Minutes past the day's own midnight; a 00:30 clock-out on the next
     // calendar day is 1470, not 30, so closing at 22:00 is correctly "after".
     const outMinutes = outAt.date === date ? outAt.minutes : outAt.minutes + 1440;
-    const gapMinutes = open.closes - outMinutes;
-    if (gapMinutes <= CLOSING_GAP_HOURS * 60 && outMinutes >= SOLO_CLOSE_EARLIEST_OUT_MINUTES) continue;
+    const tailHours = soloTailHours(punches, last);
+    const gapMinutes = closes === null ? null : closes - outMinutes;
+    const noClosingPunch = gapMinutes !== null && gapMinutes > CLOSING_GAP_HOURS * 60;
+    const earlySolo = outMinutes < SOLO_CLOSE_EARLIEST_OUT_MINUTES && tailHours >= SOLO_TAIL_HOURS;
+    if (!noClosingPunch && !earlySolo) continue;
 
     const closer = scheduledCloser(input.shifts, date, inStoreByName);
     const closerPerson = closer?.employee_id ? { id: closer.employee_id, name: nameOf(profiles, closer.employee_id) } : null;
+    const why = noClosingPunch
+      ? `${describeDuration(gapMinutes! / 60)} before the ${formatClock(formatMinutes(closes!))} close`
+      : `before 22:00, after ${describeDuration(tailHours)} alone`;
 
     out.push(
       finding("1.9", {
         key: `1.9:${date}`,
         status: "needs_ruling",
         severity: "warn",
-        summary: `${formatDayLabel(date)}: last in-store clock-out was ${last.name} at ${formatClock(formatMinutes(outAt.minutes))}, ${describeDuration(Math.max(0, gapMinutes) / 60)} before the ${formatClock(formatMinutes(open.closes))} close.`,
+        summary: `${formatDayLabel(date)}: last in-store clock-out was ${last.name} at ${formatClock(formatMinutes(outAt.minutes))}, ${why}.`,
         defaultChoice: "skip",
         options: [
           { choice: "skip", label: "Skip payment (default)", effect: "No solo-close bonus for this night." },
@@ -1046,12 +1074,27 @@ function checkClosingPunch(views: PunchView[], input: VerifyInput, profiles: Map
           employee_name: last.name,
           punch_ids: [last.row.id],
           shift_ids: closer ? [closer.id] : undefined,
-          minutes: gapMinutes,
+          minutes: gapMinutes ?? undefined,
+          hours: round2(tailHours),
+          notes: [noClosingPunch ? "1.9: no closing punch" : "2.4 qualifying: solo tail of 4h or more, out before 22:00"],
         },
       }),
     );
   }
   return out;
+}
+
+/**
+ * §2.4's solo tail for one night: the closer's clock-out back to the later of
+ * their own first arrival and the last OTHER in-store clock-out. Off-site
+ * punches never reach here, so a catering event cannot break the tail.
+ */
+export function soloTailHours(punches: PunchView[], last: PunchView): number {
+  const own = punches.filter((v) => v.employeeId === last.employeeId);
+  const others = punches.filter((v) => v.employeeId !== last.employeeId);
+  let from = Math.min(...own.map((v) => v.startMs));
+  for (const v of others) from = Math.max(from, v.endMs!);
+  return Math.max(0, (last.endMs! - Math.min(from, last.endMs!)) / MS_HOUR);
 }
 
 /** The in-store shift that ends last on a date, with somebody on it. */
@@ -1201,6 +1244,29 @@ function isAnswered(f: Finding): boolean {
   if (f.ruling) return true;
   if (!f.defaultChoice) return false;
   return !choicePays(f.check, f.defaultChoice) || !!f.defaultPayee;
+}
+
+/**
+ * §3.4 — an invoice tip that joins to no deal. From any point in history, it
+ * is a FLAG and never a block (ruling A, 2026-09-22): it is listed here and on
+ * the payroll sheet, carried to the approve panel, and resolved by fixing the
+ * deal so a later run pays it.
+ */
+function checkUnmatchedTips(rows: HeldTipRow[]): Finding[] {
+  return rows
+    .filter((row) => row.deal_id === null)
+    .map((row) => {
+      const message = `${formatCents(row.tip_cents)} invoice tip from ${row.payer?.trim() || "an unnamed payer"}, paid ${row.paid_date}, joins to no deal.`;
+      return finding("3.4", {
+        key: `3.4:held:${row.id ?? row.source_payment_id ?? `${row.paid_date}:${row.tip_cents}`}`,
+        status: "auto_resolved",
+        severity: "warn",
+        summary: message,
+        resolution: "Flag only: it does not block the run. Link the tip to its deal so a later run pays it.",
+        evidence: { date: row.paid_date, notes: row.note ? [row.note] : undefined },
+        flags: [message],
+      });
+    });
 }
 
 /** §1.10 — how every blank shift_id was resolved, and the ones that were not. */
@@ -1460,6 +1526,7 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
     ...checkNameHygiene(input.profiles),
     ...checkCrewlessEvents(input, profiles),
     ...checkBakeShifts(views, input, profiles),
+    ...checkUnmatchedTips(input.unmatchedTips ?? []),
   ];
 
   // Attach any recorded ruling. Keyed on (check, finding key), so a ruling
@@ -1511,8 +1578,8 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
 /**
  * The day a case falls on, which decides the approved run that locks it.
  * Migration 27's payroll_case_date() dates the same keys the same way: the
- * night (1.9), the event (3.5), the punch's New York day (1.4/1.5), and the
- * window's own last day for the one-per-window 3.7 case.
+ * night (1.9), the event (3.5), and the window's own last day for the
+ * one-per-window 3.7 case.
  */
 export function caseDate(f: Finding, window: PayWindow): string | null {
   if (f.check === "3.7") return window.end;

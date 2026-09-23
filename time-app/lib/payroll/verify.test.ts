@@ -236,18 +236,30 @@ test("1.4: a runaway WITH a scheduled shift is truncated to the scheduled end by
   assert.equal(result.ready, true, "a rule decided it; nothing to ask");
 });
 
-test("1.4: a runaway with NO scheduled shift is a ruling — real hours or void", () => {
+test("1.4: a runaway with NO scheduled shift has no default and no picker — it is fixed upstream (ruling D)", () => {
   const result = run({
     punches: [
       punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-10", "06:00") }),
     ],
   });
   const f = only(result.findings, "1.4")[0];
-  assert.equal(f.status, "needs_ruling");
-  assert.deepEqual(f.options?.map((o) => o.choice), ["real_hours", "void"]);
-  assert.match(f.options![0].effect, /19h/);
-  assert.equal(f.defaultChoice, undefined, "the spec gives no default here");
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.options, undefined, "no picker");
+  assert.equal(f.defaultChoice, undefined, "no default");
+  assert.match(f.resolution!, /Correct the punch on the Timesheets page/);
+  assert.equal(result.counts.needsFix, 1);
   assert.equal(result.ready, false);
+});
+
+test("1.4: a recorded choice cannot answer a runaway — only correcting the punch clears it", () => {
+  const runaway = punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-10", "06:00") });
+  const result = run({
+    punches: [runaway],
+    rulings: [{ check_id: "1.4", finding_key: `1.4:punch:${runaway.id}`, choice: "real_hours" }],
+  });
+  assert.equal(only(result.findings, "1.4")[0].ruling, undefined);
+  assert.equal(result.ready, false);
+  assert.equal("1.4" in RULING_CHOICES, false, "the API refuses a 1.4 choice");
 });
 
 test("1.4: one punch flagged by both 1.2 and 1.3 gets one ruling, naming both reasons", () => {
@@ -268,7 +280,7 @@ test("1.4: one punch flagged by both 1.2 and 1.3 gets one ruling, naming both re
 
 // --- §1.5 short punch -------------------------------------------------------
 
-test("1.5: a punch under 25% of its scheduled shift is a ruling — as punched or scheduled", () => {
+test("1.5: a punch under 25% of its scheduled shift has no default and no picker — it is fixed upstream (ruling D)", () => {
   // Carli, 2026-09-18: 2m 11s against a 7h shift, because Sophia closed for
   // her. This is the only check in §1 that can make a day LONGER.
   const scheduled = shift({
@@ -289,11 +301,13 @@ test("1.5: a punch under 25% of its scheduled shift is a ruling — as punched o
     ],
   });
   const f = only(result.findings, "1.5")[0];
-  assert.equal(f.status, "needs_ruling");
+  assert.equal(f.status, "needs_fix");
   assert.match(f.summary, /2m 11s against a 7h scheduled shift/);
-  assert.deepEqual(f.options?.map((o) => o.choice), ["as_punched", "scheduled"]);
-  assert.match(f.options![1].effect, /Pay 7h/);
-  assert.equal(f.defaultChoice, undefined, "two answers a shift's pay apart; the run decides");
+  assert.equal(f.options, undefined, "no picker");
+  assert.equal(f.defaultChoice, undefined, "two answers a shift's pay apart; no default");
+  assert.match(f.resolution!, /Correct the punch on the Timesheets page/);
+  assert.equal(result.ready, false);
+  assert.equal("1.5" in RULING_CHOICES, false, "the API refuses a 1.5 choice");
 });
 
 test("1.5: a punch at exactly 25% of the shift is not short", () => {
@@ -531,16 +545,72 @@ test("1.9: a close at or after 22:00 within 2h of close is a normal night", () =
   assert.deepEqual(only(result.findings, "1.9"), []);
 });
 
-test("1.9: a clock-out before 22:00 qualifies even within 2h of close (2.4 routes it)", () => {
-  // The payroll sheet routes every close before 22:00 to 1.9, so the dropdown
-  // has to exist for those nights too or the sheet could only ever skip them.
+test("1.9: a 4h+ solo tail out before 22:00 is eligible within 2h of close (2.4 qualifying, ruling C)", () => {
+  // Alone from 11:00 to 20:30: the rule cannot pay it (out before 22:00), so
+  // the night gets the dropdown. The payroll sheet routes the same night.
   const result = run({
     ...WED_ONLY,
     punches: [
       punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "20:30") }),
     ],
   });
-  assert.equal(only(result.findings, "1.9").length, 1);
+  const f = only(result.findings, "1.9")[0];
+  assert.match(f.summary, /before 22:00, after 9h 30m alone/);
+  assert.equal(f.evidence.hours, 9.5);
+  assert.deepEqual(f.evidence.notes, ["2.4 qualifying: solo tail of 4h or more, out before 22:00"]);
+});
+
+test("1.9: a short solo tail out before 22:00 within 2h of close gets NO dropdown (ruling C)", () => {
+  // The trigger the previous rework added — any last clock-out before 22:00 —
+  // is gone. Cole leaves at 20:00, Carli at 20:30: 30 minutes alone.
+  const result = run({
+    ...WED_ONLY,
+    punches: [
+      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "20:00") }),
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "16:00"), clock_out_at: at("2026-09-09", "20:30") }),
+    ],
+  });
+  assert.deepEqual(only(result.findings, "1.9"), []);
+});
+
+test("1.9: more than 2h before close is eligible however short the tail", () => {
+  const result = run({
+    ...WED_ONLY,
+    punches: [
+      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "19:00") }),
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "16:00"), clock_out_at: at("2026-09-09", "19:30") }),
+    ],
+  });
+  const f = only(result.findings, "1.9")[0];
+  assert.match(f.summary, /2h 30m before the 10:00 PM close/);
+  assert.deepEqual(f.evidence.notes, ["1.9: no closing punch"]);
+});
+
+test("1.9: a partner who left before the closer arrived does not shorten the tail", () => {
+  const result = run({
+    ...WED_ONLY,
+    punches: [
+      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "09:00"), clock_out_at: at("2026-09-09", "12:00") }),
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "16:00"), clock_out_at: at("2026-09-09", "20:30") }),
+    ],
+  });
+  assert.equal(only(result.findings, "1.9")[0].evidence.hours, 4.5);
+});
+
+test("1.9: a day with no closing time is judged on 2.4 alone, as the payroll sheet judges it", () => {
+  // ALL_CLOSED: no close to measure 1.9's gap against.
+  const long = run({
+    punches: [
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+    ],
+  });
+  assert.equal(only(long.findings, "1.9").length, 1);
+  const short = run({
+    punches: [
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") }),
+    ],
+  });
+  assert.deepEqual(only(short.findings, "1.9"), []);
 });
 
 test("1.9: the scheduled closer is the in-store shift ending last; the manager list is managers only", () => {
@@ -942,6 +1012,38 @@ test("1.14: a full_name containing '@' is the invite-flow bug, reported and not 
 
 const PWC: DealRow = { id: 25100, event_date: "2026-09-09", staff_count: 2, company: "PwC", stage: "Booked Paid" };
 
+test("3.4: an invoice tip with no deal, from any point in history, is a flag and never a block (ruling A)", () => {
+  const result = run({
+    unmatchedTips: [
+      { id: 41, deal_id: null, payer: "Nobody Known", tip_cents: 2500, paid_date: "2025-11-03", event_date: null, status: "held", released_in_run: null },
+      { id: 42, deal_id: null, payer: null, tip_cents: 1000, paid_date: "2026-09-03", event_date: null, status: "held", released_in_run: null, note: "no invoice title" },
+      // Defensive: a row that does carry a deal is not unmatched.
+      { id: 43, deal_id: 25188, payer: "Bo Geraci", tip_cents: 10000, paid_date: "2026-09-02", event_date: "2026-09-19", status: "held", released_in_run: null },
+    ],
+  });
+  const found = only(result.findings, "3.4");
+  assert.deepEqual(found.map((f) => [f.key, f.status]), [
+    ["3.4:held:41", "auto_resolved"],
+    ["3.4:held:42", "auto_resolved"],
+  ]);
+  assert.match(found[0].summary, /\$25\.00 invoice tip from Nobody Known, paid 2025-11-03, joins to no deal/);
+  assert.match(found[1].summary, /from an unnamed payer/);
+  assert.deepEqual(found[1].evidence.notes, ["no invoice title"]);
+  assert.deepEqual(result.flags.map((flag) => flag.key), ["3.4:held:41", "3.4:held:42"]);
+  assert.equal(result.ready, true, "a flag never holds the button");
+  assert.equal("3.4" in RULING_CHOICES, false);
+});
+
+test("3.4: a row with no id is keyed by its payment id, else its date and amount", () => {
+  const result = run({
+    unmatchedTips: [
+      { deal_id: null, payer: "A", tip_cents: 500, paid_date: "2026-09-01", event_date: null, status: "held", released_in_run: null, source_payment_id: "sq_1" },
+      { deal_id: null, payer: "B", tip_cents: 700, paid_date: "2026-09-02", event_date: null, status: "held", released_in_run: null },
+    ],
+  });
+  assert.deepEqual(only(result.findings, "3.4").map((f) => f.key), ["3.4:held:sq_1", "3.4:held:2026-09-02:700"]);
+});
+
 test("3.5: a booked event with nobody on it gets a picker, default Sophia, and the upstream warning", () => {
   const result = run({ windowDeals: [PWC] });
   const f = only(result.findings, "3.5")[0];
@@ -1063,7 +1165,7 @@ test("choices: the paying choices are exactly the ones that need a payee", () =>
 
 // --- the button -------------------------------------------------------------
 
-test("§1: the button is green only when every finding is auto-resolved or ruled", () => {
+test("§1: a short punch holds the button until the punch itself is corrected (ruling D)", () => {
   const scheduled = shift({
     employee_id: CARLI,
     starts_at: at("2026-09-18", "15:00"),
@@ -1076,45 +1178,30 @@ test("§1: the button is green only when every finding is auto-resolved or ruled
     clock_in_at: at("2026-09-18", "15:00"),
     clock_out_at: `2026-09-18T15:02:11-04:00`,
   });
-  const input = { shifts: [scheduled], punches: [short] };
 
-  const before = run(input);
-  assert.equal(before.counts.needsRuling, 1);
-  assert.equal(before.counts.ruled, 0);
+  const before = run({ shifts: [scheduled], punches: [short] });
+  assert.equal(before.counts.needsFix, 1);
+  assert.equal(before.counts.needsRuling, 0, "nothing to choose: the punch is the only thing wrong");
   assert.equal(before.ready, false);
 
-  const ruling: RulingRow = {
-    check_id: "1.5",
-    finding_key: `1.5:punch:${short.id}`,
-    choice: "as_punched",
-    decided_by: SOPHIA,
-    decided_at: at("2026-09-21", "11:00"),
-  };
-  const after = run({ ...input, rulings: [ruling] });
-  assert.equal(after.counts.ruled, 1);
+  const corrected = { ...short, clock_out_at: at("2026-09-18", "22:00") };
+  const after = run({ shifts: [scheduled], punches: [corrected] });
+  assert.deepEqual(only(after.findings, "1.5"), []);
+  assert.equal(after.counts.needsFix, 0);
   assert.equal(after.ready, true);
-  assert.equal(only(after.findings, "1.5")[0].ruling?.choice, "as_punched");
 });
 
 test("§1: a ruling recorded against a different finding does not answer this one", () => {
-  const scheduled = shift({
-    employee_id: CARLI,
-    starts_at: at("2026-09-18", "15:00"),
-    ends_at: at("2026-09-18", "22:00"),
-  });
-  const short = punch({
-    employee_id: CARLI,
-    shift_id: scheduled.id,
-    clock_in_at: at("2026-09-18", "15:00"),
-    clock_out_at: `2026-09-18T15:02:11-04:00`,
-  });
   const after = run({
-    shifts: [scheduled],
-    punches: [short],
-    rulings: [{ check_id: "1.5", finding_key: "1.5:punch:999999", choice: "scheduled" }],
+    ...WED_ONLY,
+    punches: [
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+    ],
+    rulings: [{ check_id: "1.9", finding_key: "1.9:2026-09-02", choice: "scheduled_closer", payee_id: CARLI }],
   });
-  assert.equal(after.ready, false);
-  assert.equal(only(after.findings, "1.5")[0].ruling, null);
+  const f = only(after.findings, "1.9")[0];
+  assert.equal(f.ruling, null);
+  assert.equal(f.effective?.source, "default");
 });
 
 test("§1: a fix-class finding cannot be ruled away", () => {
@@ -1153,14 +1240,19 @@ test("§1: every option a finding offers is in the API's ruling vocabulary", () 
         clock_in_at: at("2026-09-18", "15:00"),
         clock_out_at: `2026-09-18T15:02:11-04:00`,
       }),
-      // A runaway with no shift, on a day the store is shut: 1.4's ruling.
+      // A runaway with no shift, on a day the store is shut: 1.4, a fix.
       punch({ employee_id: COLE, clock_in_at: at("2026-09-14", "11:00"), clock_out_at: at("2026-09-15", "06:00") }),
-      // An early finish on the one open day: 1.9's ruling.
+      // An early finish on the one open day: 1.9's choice.
       punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
   });
   const ruling = result.findings.filter((f) => f.status === "needs_ruling");
-  assert.ok(ruling.length >= 3, "the fixture should produce 1.4, 1.5 and 1.9 rulings");
+  assert.ok(ruling.length >= 2, "the fixture should produce 1.9 and 3.7 choices");
+  // Ruling D: 1.4 and 1.5 are fixes, never choices.
+  assert.deepEqual(
+    result.findings.filter((f) => f.check === "1.4" || f.check === "1.5").map((f) => f.status),
+    ["needs_fix", "needs_fix"],
+  );
   for (const f of ruling) {
     const allowed = RULING_CHOICES[f.check];
     assert.ok(allowed, `check ${f.check} produced a ruling with no vocabulary`);

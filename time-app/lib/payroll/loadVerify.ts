@@ -22,6 +22,7 @@ import {
   type VerifyResult,
 } from "@/lib/payroll/verify";
 import { PERIOD_DAYS, addDays, type PayWindow } from "@/lib/payroll/window";
+import type { HeldTipRow } from "@/lib/payroll/heldTips";
 import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/coverage";
 
 // How far back to look for deletions. A shift scheduled inside the window can
@@ -71,13 +72,14 @@ export async function loadVerify(
   }
 
   const shifts = (shiftsRes.data ?? []) as ShiftRow[];
-  const [shiftTypes, storeHours, deals, windowDeals, auditDeletes, approval] = await Promise.all([
+  const [shiftTypes, storeHours, deals, windowDeals, auditDeletes, approval, unmatchedTips] = await Promise.all([
     loadShiftTypes(supabase),
     loadStoreHours(supabase, window),
     loadDeals(supabase, shifts),
     loadWindowDeals(supabase, window),
     loadAuditDeletes(supabase, window),
     loadApprovals(supabase, window),
+    loadUnmatchedTips(supabase),
   ]);
 
   const input = {
@@ -96,6 +98,7 @@ export async function loadVerify(
     auditDeletes,
     approval: approval.row,
     otherApprovals: approval.others,
+    unmatchedTips,
   };
 
   // Two passes. Choices are keyed by CASE, not by pay window (migration 27):
@@ -120,6 +123,21 @@ export async function loadVerify(
       otherApprovals: approval.others,
     },
   };
+}
+
+/**
+ * §3.4 — invoice tips with no deal, from all history (held_tips, migration 26).
+ * A flag on the Finance tab, never a block (ruling A, 2026-09-22). Before
+ * migration 26 there is nothing to read, and nothing is shown: the payroll
+ * sheet still lists every unmatched tip from Square itself.
+ */
+async function loadUnmatchedTips(supabase: Supabase): Promise<HeldTipRow[]> {
+  const res = await supabase
+    .from("held_tips")
+    .select("id, deal_id, payer, tip_cents, paid_date, event_date, status, released_in_run, source_payment_id, note")
+    .is("deal_id", null)
+    .order("paid_date");
+  return res.error ? [] : ((res.data ?? []) as HeldTipRow[]);
 }
 
 async function loadShiftTypes(supabase: Supabase): Promise<ShiftTypeRow[]> {

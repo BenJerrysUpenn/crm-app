@@ -21,7 +21,11 @@ const STAFF = { id: "s", role: "employee", active: true };
 test("skip names nobody; naming somebody on a skip is refused", () => {
   assert.equal(validateChoice("1.9", "skip", null, null), null);
   assert.match(validateChoice("1.9", "skip", "m", MGR)!, /pays nobody/);
-  assert.equal(validateChoice("1.5", "as_punched", null, null), null);
+});
+
+test("1.4 and 1.5 take no choice at all: the punch is corrected instead (ruling D)", () => {
+  assert.match(validateChoice("1.5", "as_punched", null, null)!, /Correct the punch on the Timesheets page/);
+  assert.match(validateChoice("1.4", "void", null, null)!, /no default and no choice/);
 });
 
 test("a paying choice must name an active person", () => {
@@ -80,7 +84,7 @@ test("approval is blocked by a missing table, a fix, or an unanswered case, and 
   const base = { ready: true, counts, window: WINDOW, approval: null };
   assert.match(approvalBlocker(base, false, AFTER)!, /migration 27/);
   assert.match(approvalBlocker({ ...base, ready: false, counts: { ...counts, needsFix: 2 } }, true, AFTER)!, /2 finding/);
-  assert.match(approvalBlocker({ ...base, ready: false }, true, AFTER)!, /still need a choice/);
+  assert.match(approvalBlocker({ ...base, ready: false }, true, AFTER)!, /still need a choice: their default names nobody/);
   assert.equal(approvalBlocker(base, true, AFTER), null);
 });
 
@@ -106,6 +110,33 @@ test("approval is final: an approved run, or one sharing days with an approved r
     /run ending 2026-09-13 is already approved and shares days/,
   );
   assert.equal(approvalBlocker(base, true, AFTER, [{ window_end: undefined }]), null);
+});
+
+test("a 1.4 or 1.5 punch blocks approval and is named in the reason (ruling D)", () => {
+  const counts = { total: 2, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 2 };
+  const runaway = f({
+    check: "1.4",
+    key: "1.4:punch:7",
+    status: "needs_fix",
+    evidence: { employee_name: "Barrett, Joey", date: "2026-09-10", punch_ids: [7] },
+  });
+  const short = f({
+    check: "1.5",
+    key: "1.5:punch:8",
+    status: "needs_fix",
+    evidence: { employee_name: "Freeman, Carli", date: "2026-09-18", punch_ids: [8] },
+  });
+  const base = { ready: false, counts, window: WINDOW, approval: null };
+  assert.equal(
+    approvalBlocker({ ...base, findings: [runaway, short] }, true, AFTER),
+    "Correct these 2 punches on the Timesheets page first. They have no default (ruled 2026-09-22): " +
+      "1.4 runaway, no shift: Barrett, Joey 2026-09-10 (punch 7); 1.5 short punch: Freeman, Carli 2026-09-18 (punch 8).",
+  );
+  const bare = f({ check: "1.5", key: "1.5:punch:9", status: "needs_fix", evidence: {} });
+  assert.match(
+    approvalBlocker({ ...base, findings: [bare] }, true, AFTER)!,
+    /^Correct this punch on the Timesheets page first\. .*1\.5 short punch: someone\.$/,
+  );
 });
 
 test("approving would pay you: crewless and Olo cases only", () => {

@@ -12,18 +12,25 @@
 -- The cases (lib/payroll/verify.ts builds them; bj-finance
 -- modules/payroll_sheet.py pays them):
 --
---   1.4  a runaway punch with NO scheduled shift → real hours / void (no default)
---   1.5  a punch under 25% of its scheduled shift → as punched / scheduled (no default)
---   1.9  a night nobody's punch closed the store → pay the scheduled closer /
---        pay an unpunched manager / skip. Default SKIP. Chosen on the schedule.
+--   1.9  a solo-close ELIGIBLE night (last in-store clock-out > 2h before
+--        close, or a 4h+ solo tail with the closer out before 22:00) → pay
+--        the scheduled closer / pay an unpunched manager / skip. Default
+--        SKIP. Chosen on the schedule.
 --   3.5  a catering event with no crew → who is paid its tip. Default Sophia.
 --   3.7  a period with no bake shift worked → who is paid stranded Olo tips.
 --        Default Sophia.
 --
+-- NOT CHOICES (ruling D, 2026-09-22): 1.4, a runaway punch with NO scheduled
+-- shift, and 1.5, a punch under 25% of its scheduled shift, have no default
+-- and no picker. The punch is corrected in Withers-time. Until every such
+-- punch in the period is corrected, payroll_punch_blockers() names it and
+-- guard_payroll_run_approval() refuses the approval. payroll_rulings refuses
+-- a row for either check.
+--
 -- TWO TABLES.
 --
 --   payroll_rulings       — one row per case a manager has CHANGED from its
---                           default (or answered, for 1.4/1.5). No row means
+--                           default. No row means
 --                           the default stands: the default is a rule written
 --                           in code, and storing it per case would be a second
 --                           copy that could disagree with the first. What the
@@ -35,7 +42,7 @@
 --
 -- WHY (check_id, finding_key) IS UNIQUE, NOT PER WINDOW. Every case key is
 -- globally unique on its own: `1.9:2026-09-18` names one night, `3.5:deal:25188`
--- one event, `1.5:punch:1281` one punch, `3.7:olo:2026-09-20` one period. The
+-- one event, `3.7:olo:2026-09-20` one period. The
 -- solo-close dropdown lives on the SCHEDULE, which shows calendar weeks rather
 -- than pay periods, so a choice made there cannot know which fortnight the
 -- Finance tab will verify it in. Keying on the case alone means the schedule,
@@ -48,6 +55,8 @@
 --
 --   * ONLY AFTER THE PERIOD ENDS. An approval for a window whose last day is
 --     today or later (New York) is refused by guard_payroll_run_approval().
+--   * ONLY WITH NO 1.4/1.5 PUNCH LEFT. The same trigger refuses an approval
+--     while payroll_punch_blockers() finds any in the window.
 --   * ONCE. One row per window (the primary key refuses a second approval);
 --     an edit or a delete is refused by the same trigger, whoever asks.
 --     Authenticated users have no UPDATE or DELETE policy at all.
@@ -55,7 +64,7 @@
 --     insert, change or delete of a payroll_rulings row whose case falls inside
 --     an approved window. The case's date (payroll_rulings.case_date) is worked
 --     out by the trigger from the key itself (the night, the event date, the
---     punch's New York day, the 3.7 window end), never taken from the browser.
+--     3.7 window end), never taken from the browser.
 --   * NO OVERLAPPING RUNS. A window that shares a day with an approved window
 --     is refused: its days are already locked and would be paid twice.
 --
@@ -90,7 +99,7 @@ create table if not exists public.payroll_rulings (
   -- overwritten.
   case_date   date        not null,
   -- The person a paying choice pays (1.9 scheduled_closer/unpunched_manager,
-  -- 3.5 and 3.7 staff). Null for skip and for every 1.4/1.5 answer.
+  -- 3.5 and 3.7 staff). Null for skip.
   payee_id    uuid        references public.profiles (id) on delete set null,
   note        text,
   decided_by  uuid        references public.profiles (id) on delete set null,
@@ -107,6 +116,14 @@ drop index if exists public.payroll_rulings_finding_key;
 
 create unique index if not exists payroll_rulings_case_key
   on public.payroll_rulings (check_id, finding_key);
+
+-- Only the choice checks (ruling D, 2026-09-22): 1.4 and 1.5 are corrected in
+-- Withers-time, never answered here.
+alter table public.payroll_rulings
+  drop constraint if exists payroll_rulings_check_id_ck;
+alter table public.payroll_rulings
+  add constraint payroll_rulings_check_id_ck
+  check (check_id in ('1.9', '3.5', '3.7'));
 
 create index if not exists payroll_rulings_window_idx
   on public.payroll_rulings (window_end);
@@ -190,11 +207,6 @@ begin
      where d.id = v_tail::bigint
        and d.event_date ~ '^\d{4}-\d{2}-\d{2}';
     return v_date;
-  elsif p_check in ('1.4', '1.5') and p_key ~ ('^' || replace(p_check, '.', '\.') || ':punch:\d+$') then
-    select (t.clock_in_at at time zone 'America/New_York')::date into v_date
-      from public.time_entries t
-     where t.id = v_tail::bigint;
-    return v_date;
   end if;
   return null;
 end;
@@ -251,6 +263,98 @@ create trigger payroll_rulings_lock
   before insert or update or delete on public.payroll_rulings
   for each row execute function public.guard_payroll_ruling();
 
+-- ---------- 1.4 / 1.5: punches that must be corrected first ------------------
+-- Ruling D (2026-09-22). The same rules lib/payroll/verify.ts applies, over
+-- every closed punch whose New York day is inside the window ending
+-- p_window_end:
+--
+--   1.4  a runaway — over 15h (lib/shiftChecks.ts LONG_SHIFT_HOURS), or
+--        closed within 5s of the same person's next clock-in (1.3) — with NO
+--        scheduled shift by the 1.10 ladder.
+--   1.5  not a runaway, matched to a scheduled shift by the 1.10 ladder, and
+--        under 25% of that shift's length.
+--
+-- The 1.10 ladder: the punch's own shift_id; else the person's shift that
+-- day it overlaps most; else somebody else's shift that day, which that
+-- person did not punch for, bracketing the punch within 30 minutes (a cover).
+-- The Finance tab reports the same punches as needs_fix and disables Approve;
+-- this is the database's own copy of that refusal.
+create or replace function public.payroll_punch_blockers(p_window_end date)
+returns table (check_id text, punch_id bigint, employee_id uuid, work_date date)
+language sql
+stable
+security definer set search_path = public
+as $$
+  with p as (
+    select t.id, t.employee_id, t.shift_id, t.clock_in_at, t.clock_out_at,
+           (t.clock_in_at at time zone 'America/New_York')::date as d,
+           extract(epoch from (t.clock_out_at - t.clock_in_at)) / 3600.0 as hours
+      from public.time_entries t
+     where t.clock_out_at is not null
+       and (t.clock_in_at at time zone 'America/New_York')::date
+           between p_window_end - 13 and p_window_end
+  ),
+  classified as (
+    select p.*,
+           (p.hours > 15
+            or abs(extract(epoch from (nx.clock_in_at - p.clock_out_at))) <= 5) as runaway,
+           coalesce(ex.id, own.id, cov.id) as matched_shift,
+           coalesce(ex.len, own.len, cov.len) as scheduled_hours
+      from p
+      left join lateral (
+        select n.clock_in_at
+          from public.time_entries n
+         where n.employee_id = p.employee_id
+           and (n.clock_in_at, n.id) > (p.clock_in_at, p.id)
+         order by n.clock_in_at, n.id
+         limit 1
+      ) nx on true
+      left join lateral (
+        select s.id, extract(epoch from (s.ends_at - s.starts_at)) / 3600.0 as len
+          from public.shifts s
+         where s.id = p.shift_id
+      ) ex on true
+      left join lateral (
+        select s.id, extract(epoch from (s.ends_at - s.starts_at)) / 3600.0 as len
+          from public.shifts s
+         where s.employee_id = p.employee_id
+           and (s.starts_at at time zone 'America/New_York')::date = p.d
+           and least(s.ends_at, p.clock_out_at) >= greatest(s.starts_at, p.clock_in_at)
+         order by least(s.ends_at, p.clock_out_at) - greatest(s.starts_at, p.clock_in_at) desc,
+                  s.starts_at, s.id
+         limit 1
+      ) own on true
+      left join lateral (
+        select s.id, extract(epoch from (s.ends_at - s.starts_at)) / 3600.0 as len
+          from public.shifts s
+         where s.employee_id is not null
+           and s.employee_id <> p.employee_id
+           and (s.starts_at at time zone 'America/New_York')::date = p.d
+           and not exists (
+             select 1 from public.time_entries o
+              where o.employee_id = s.employee_id
+                and (o.clock_in_at at time zone 'America/New_York')::date = p.d)
+           and p.clock_in_at >= s.starts_at - interval '30 minutes'
+           and p.clock_out_at <= s.ends_at + interval '30 minutes'
+           and least(s.ends_at, p.clock_out_at) >= greatest(s.starts_at, p.clock_in_at)
+         order by least(s.ends_at, p.clock_out_at) - greatest(s.starts_at, p.clock_in_at) desc,
+                  s.starts_at, s.id
+         limit 1
+      ) cov on true
+  )
+  select '1.4'::text, c.id, c.employee_id, c.d
+    from classified c
+   where c.runaway and c.matched_shift is null
+  union all
+  select '1.5'::text, c.id, c.employee_id, c.d
+    from classified c
+   where not c.runaway
+     and c.matched_shift is not null
+     and c.scheduled_hours > 0
+     and c.hours < 0.25 * c.scheduled_hours
+   order by 4, 2;
+$$;
+
 -- ---------- the approval: after the period, once, final ----------------------
 create or replace function public.guard_payroll_run_approval()
 returns trigger
@@ -258,8 +362,9 @@ language plpgsql
 security definer set search_path = public
 as $$
 declare
-  v_today   date := (now() at time zone 'America/New_York')::date;
-  v_overlap date;
+  v_today    date := (now() at time zone 'America/New_York')::date;
+  v_overlap  date;
+  v_blockers text;
 begin
   if tg_op = 'DELETE' then
     raise exception 'The pay run ending % is approved. Approval is final and cannot be undone.', old.window_end;
@@ -290,6 +395,13 @@ begin
    limit 1;
   if v_overlap is not null then
     raise exception 'The pay run ending % is already approved and shares days with this one.', v_overlap;
+  end if;
+  -- Ruling D: no approval while a 1.4/1.5 punch is still uncorrected.
+  select string_agg(format('%s punch %s (%s)', b.check_id, b.punch_id, b.work_date), ', ')
+    into v_blockers
+    from public.payroll_punch_blockers(new.window_end) b;
+  if v_blockers is not null then
+    raise exception 'Correct these punches in Withers-time first; they have no default: %.', v_blockers;
   end if;
   new.approved_at := now();
   new.status := 'approved_pending_stage';

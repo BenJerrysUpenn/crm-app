@@ -18,6 +18,8 @@ export type PayeeProfile = { id: string; role: string | null; active: boolean } 
  */
 export function validateChoice(check: string, choice: string, payeeId: string | null, payee: PayeeProfile): string | null {
   const allowed = RULING_CHOICES[check];
+  if (check === "1.4" || check === "1.5")
+    return `${check} has no default and no choice (ruled 2026-09-22). Correct the punch on the Timesheets page instead.`;
   if (!allowed) return `${check || "That check"} is decided by rule, not by a choice.`;
   if (!allowed.includes(choice)) return `${choice || "That choice"} is not one of the options for check ${check}.`;
   if (!choicePays(check, choice)) {
@@ -66,7 +68,7 @@ export function approvalSnapshot(findings: Finding[]): SnapshotEntry[] {
  * refuses the same things in the database.
  */
 export function approvalBlocker(
-  result: Pick<VerifyResult, "ready" | "counts" | "window" | "approval">,
+  result: Pick<VerifyResult, "ready" | "counts" | "window" | "approval"> & { findings?: Finding[] },
   approvalsReady: boolean,
   today: string,
   otherApprovals: Pick<ApprovalRow, "window_end">[] = [],
@@ -77,9 +79,28 @@ export function approvalBlocker(
     return `The pay period ends ${result.window.end}. It can be approved from ${firstApprovalDay(result.window)}.`;
   const overlap = otherApprovals.find((a) => a.window_end);
   if (overlap) return `The pay run ending ${overlap.window_end} is already approved and shares days with this one.`;
+  const punches = punchesToCorrect(result.findings ?? []);
+  if (punches.length > 0)
+    return `Correct ${punches.length === 1 ? "this punch" : `these ${punches.length} punches`} on the Timesheets page first. They have no default (ruled 2026-09-22): ${punches.map(describePunchFix).join("; ")}.`;
   if (result.counts.needsFix > 0) return `${result.counts.needsFix} finding(s) must be fixed in the app first.`;
-  if (!result.ready) return "Some cases have no default and still need a choice.";
+  if (!result.ready) return "Some cases still need a choice: their default names nobody to pay.";
   return null;
+}
+
+/**
+ * §1.4 (a runaway punch with no scheduled shift) and §1.5 (a punch under 25%
+ * of its scheduled shift). Ruling D, 2026-09-22: no default and no picker —
+ * each is corrected upstream, and the run is blocked until every one is.
+ */
+export function punchesToCorrect(findings: Finding[]): Finding[] {
+  return findings.filter((f) => f.status === "needs_fix" && (f.check === "1.4" || f.check === "1.5"));
+}
+
+function describePunchFix(f: Finding): string {
+  const what = f.check === "1.4" ? "runaway, no shift" : "short punch";
+  const punch = f.evidence.punch_ids?.[0];
+  const who = [f.evidence.employee_name ?? "someone", f.evidence.date].filter(Boolean).join(" ");
+  return `${f.check} ${what}: ${who}${punch ? ` (punch ${punch})` : ""}`;
 }
 
 /** "Approving this run would pay you": the §3.5/§3.7 flag, before it happens. */
