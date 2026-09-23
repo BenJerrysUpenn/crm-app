@@ -12,6 +12,10 @@ export type Profile = {
   // between QBO's own endpoints (payroll spec 2.5). Optional because the column
   // arrives in migration 26; undefined means the column is not there yet.
   qbo_employee_id?: string | null;
+  // Salaried or hourly, set by a manager on the Team page; null = not set.
+  // The payroll sheet reads it (bj-finance #519, ruled 2026-09-22). Optional
+  // for the same reason as qbo_employee_id: it arrives in migration 26.
+  pay_type?: "hourly" | "salaried" | null;
   notif_prefs: Record<string, boolean> | null;
   created_at: string;
 };
