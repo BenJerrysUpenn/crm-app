@@ -120,17 +120,21 @@ function matchesAny(haystack: string, markers: string[]): boolean {
 /**
  * Derive the customer profile for a deal.
  *
- * Precedence (first match wins), matching issue #422 item 2:
- *   1. penn_account       — an @upenn.edu (or sub-domain) contact, whatever the event
- *   2. wedding            — wedding / bridal / rehearsal / engagement event types
- *   3. mitzvah            — bar or bat mitzvah
- *   4. office_admin       — a corporate event type AND a business email domain
+ * Precedence (first match wins) follows the LITERAL ORDER the spec lists the
+ * rules in (issue #422 item 2), so the occasion (wedding / mitzvah / office) is
+ * named before the channel (penn_account):
+ *   1. wedding            — wedding / bridal / rehearsal / engagement event types
+ *   2. mitzvah            — bar or bat mitzvah
+ *   3. office_admin       — a corporate event type AND a business email domain
+ *   4. penn_account       — an @upenn.edu (or sub-domain) contact
  *   5. family_celebration — birthday / baby shower / gender reveal / family reunion
  *   6. unclassified       — everything else (incl. corporate-from-a-gmail)
  *
- * penn_account is checked first deliberately: a Penn buyer is a Penn account
- * regardless of what they are celebrating — it is the relationship, not the
- * party, that the profile is naming for the scoreboard.
+ * NOTE (surfaced for the human): occasion and channel are semi-orthogonal, so a
+ * "wedding at an @upenn.edu address" or "corporate order from Penn" is a real
+ * ambiguity this ordering resolves in favour of the occasion. Whether penn_account
+ * should instead win is a #396 Funnel data model / #438 bucket-naming decision;
+ * the SQL mirror in supabase/crm/proposed/007 replicates whatever this file does.
  */
 export function deriveProfile(
   eventType: string | null | undefined,
@@ -139,12 +143,12 @@ export function deriveProfile(
   const et = normalizeEventType(eventType);
   const domain = emailDomain(email);
 
-  if (isPennDomain(domain)) return "penn_account";
   if (matchesAny(et, WEDDING_MARKERS)) return "wedding";
   if (matchesAny(et, MITZVAH_MARKERS)) return "mitzvah";
   if (matchesAny(et, CORPORATE_MARKERS) && isBusinessDomain(domain)) {
     return "office_admin";
   }
+  if (isPennDomain(domain)) return "penn_account";
   if (matchesAny(et, FAMILY_MARKERS)) return "family_celebration";
   return "unclassified";
 }

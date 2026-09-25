@@ -308,7 +308,12 @@ export function computeQuoteLatency(
   const byWeek = new Map<string, number[]>();
   for (const r of clean) {
     const wk = weekStartISO(r.createdMs);
-    (byWeek.get(wk) ?? byWeek.set(wk, []).get(wk)!).push(r.hours);
+    let bucket = byWeek.get(wk);
+    if (!bucket) {
+      bucket = [];
+      byWeek.set(wk, bucket);
+    }
+    bucket.push(r.hours);
   }
 
   const trend: QuoteLatencyTrendPoint[] = [...byWeek.entries()]

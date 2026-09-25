@@ -52,9 +52,13 @@ describe("profile derivation", () => {
     expect(isBusinessDomain("")).toBe(false);
   });
 
-  it("penn_account wins regardless of the event type", () => {
-    expect(deriveProfile("Wedding", "dev@upenn.edu")).toBe("penn_account");
-    expect(deriveProfile("Corporate", "x@seas.upenn.edu")).toBe("penn_account");
+  it("follows the spec's literal precedence: occasion before channel", () => {
+    // A Penn address with no matching occasion -> penn_account.
+    expect(deriveProfile("Study Break", "dev@upenn.edu")).toBe("penn_account");
+    expect(deriveProfile(null, "dev@wharton.upenn.edu")).toBe("penn_account");
+    // Occasion wins over the Penn channel (wedding/mitzvah/office before penn).
+    expect(deriveProfile("Wedding", "dev@upenn.edu")).toBe("wedding");
+    expect(deriveProfile("Corporate", "x@seas.upenn.edu")).toBe("office_admin");
   });
 
   it("maps wedding / mitzvah / family event types", () => {

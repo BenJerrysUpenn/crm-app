@@ -381,6 +381,7 @@ export async function fetchExceptionQueue(
     notes: [
       "Drafts = deals parked at Quote Review; a proxy for Gmail drafts, which have no single DB source of truth.",
       "Replies list clears automatically once the #285 reply→CRM bridge files each reply as a deal.",
+      "Deferred exception types (no data source yet): boomerang drafts (public.deals has no boomerang_reason column — only the guardrail test schemas do), non-form candidates and manual-outbound-without-ref (both surfaced by the catering sweep, whose telemetry is not persisted — the proposed sweep_runs table lands them here).",
     ],
   };
 }

@@ -45,8 +45,9 @@ AS $$
     SELECT regexp_replace(lower(coalesce(p_event_type, '')), '\s+', ' ', 'g') AS et,
            lower(coalesce(split_part(p_email, '@', 2), ''))                    AS domain
   )
+  -- Precedence MUST match lib/funnels/profile.ts::deriveProfile exactly:
+  -- wedding -> mitzvah -> office_admin -> penn_account -> family -> unclassified.
   SELECT CASE
-    WHEN n.domain = 'upenn.edu' OR n.domain LIKE '%.upenn.edu' THEN 'penn_account'
     WHEN n.et LIKE '%wedding%' OR n.et LIKE '%bridal%'
       OR n.et LIKE '%rehearsal%' OR n.et LIKE '%engagement%' THEN 'wedding'
     WHEN n.et LIKE '%mitzvah%' THEN 'mitzvah'
@@ -59,6 +60,7 @@ AS $$
         'outlook.com','live.com','msn.com','aol.com','icloud.com','me.com',
         'mac.com','comcast.net','verizon.net','att.net','sbcglobal.net',
         'protonmail.com','proton.me') THEN 'office_admin'
+    WHEN n.domain = 'upenn.edu' OR n.domain LIKE '%.upenn.edu' THEN 'penn_account'
     WHEN n.et LIKE '%birthday%' OR n.et LIKE '%baby shower%'
       OR n.et LIKE '%gender reveal%' OR n.et LIKE '%family reunion%'
       THEN 'family_celebration'
