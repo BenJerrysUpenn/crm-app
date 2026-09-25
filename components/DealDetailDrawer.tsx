@@ -37,6 +37,7 @@ import {
 } from "./EditableField";
 import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
+import CoiPanel from "./CoiPanel";
 import { missingRequiredFields } from "@/lib/required";
 
 function ReadOnlyRow({
@@ -682,6 +683,11 @@ export default function DealDetailDrawer({
             }`}
           >
             <div className="px-5 py-4 space-y-5">
+              {/* COI panel (bj-finance #343). Renders only on deals whose
+                  coi_required is set; assembles the Hartford certificate
+                  request from the persisted deal and stamps coi_sent_at. */}
+              <CoiPanel deal={deal} onDealUpdate={onDealUpdate} />
+
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
                   Contact
