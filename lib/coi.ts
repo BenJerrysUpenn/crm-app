@@ -30,10 +30,12 @@ import type { Deal } from "@/lib/types";
  *  agree on what "at risk" means. */
 export const COI_URGENT_WINDOW_DAYS = 14;
 
-/** The Named Insured on the policy. The Hartford's Business Service Center
- *  fills the insured and its address in automatically from the policy, so a
- *  requester never types them — they are shown here only as context, and are
- *  deliberately NOT part of the copy-paste field pack. */
+/** The Named Insured on the policy. Its name appears inside the description of
+ *  operations and the whole-request block for the certificate holder's
+ *  reference, but its mailing address is deliberately omitted: The Hartford's
+ *  Business Service Center fills the insured and its address into the ACORD
+ *  "insured" box automatically from the policy, so a requester never retypes
+ *  them. The panel also shows this as standalone context under the field pack. */
 export const NAMED_INSURED = {
   legalName: "Withers Ventures LLC",
   dba: "Ben & Jerry's — University City",
