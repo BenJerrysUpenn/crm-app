@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { displayName } from "@/lib/profileName";
 import { getSettings } from "@/lib/settings";
 import TopBar from "@/components/TopBar";
 import AttendanceView, { type Notice } from "@/components/AttendanceView";
@@ -40,7 +41,7 @@ export default async function AttendancePage() {
 
   const notices: Notice[] = [];
   for (const s of shifts ?? []) {
-    const name = (s as any).profiles?.full_name ?? "Employee";
+    const name = displayName((s as any).profiles?.full_name, "Employee");
     const start = new Date(s.starts_at).getTime();
     const end = new Date(s.ends_at).getTime();
     const entry = entriesByShift.get(s.id as number);

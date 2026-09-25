@@ -11,8 +11,9 @@
 --
 -- From now on the trigger stores the name from the metadata (full_name, else
 -- name), trimmed, or null. It never falls back to the email, and a value that
--- looks like an email counts as no name. The Team page's add form now
--- requires a name.
+-- looks like an email counts as no name. The app requires a name when a
+-- manager adds someone and flags anyone without one on the Team page
+-- ("Name missing").
 --
 -- No RLS changes.
 -- ============================================================================
@@ -50,8 +51,8 @@ update public.profiles
    and full_name = 'doshirdan05@gmail.com';
 
 -- Still holding an email as their name after this migration, all inactive.
--- Their real names aren't on record, so they are NOT guessed here. Tracked as
--- bj-finance #468 Withers-time name display and validation follow-ups:
+-- Their real names aren't on record, so they are NOT guessed here. A manager
+-- sets each one on the Team page, where they show a "Name missing" badge:
 --   56f2823b-66d6-4be0-9c1a-27740df214bc  chavi@withers-ventures.com
 --   2bf58dbb-54d9-4765-b3e4-0a5e2bbb07e4  reylanas@icloud.com
 --   e0474a0f-e2a0-41d6-b6ef-bf1249a05cba  josephpettine@gmail.com

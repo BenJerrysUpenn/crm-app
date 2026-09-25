@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { sendInvite, siteOrigin } from "@/lib/authLinks";
+import { usableName, validateFullName } from "@/lib/profileName";
 import { NextResponse } from "next/server";
 
 // POST /api/profiles
@@ -9,16 +10,20 @@ import { NextResponse } from "next/server";
 // Manager-only. Creates a new team member by inviting them to sign up via
 // their email address. The app emails the invite link itself via Resend and
 // the link lands on /auth/confirm (falls back to a Supabase-sent invite when
-// RESEND_API_KEY is unset). When they set a password and log in for the first
-// time, the `handle_new_user` trigger on the auth.users table creates the
-// corresponding profiles row.
+// RESEND_API_KEY is unset).
+//
+// The auth user is created right here, by generateLink / inviteUserByEmail
+// inside sendInvite, not when they first sign in. Creating it fires the
+// `handle_new_user` trigger on auth.users, which inserts the profiles row with
+// the name from the invite metadata (migration_21: never the email). We then
+// upsert the manager's fields over that row ourselves, so the name is set even
+// for a re-invite, where no new auth user is created and the trigger doesn't
+// fire.
 //
 // Body:
 //   { email: string, full_name: string, role?: 'employee'|'manager',
 //     phone?: string, hourly_rate?: number }
-//
-// If the auth user already exists (someone re-invited), we still upsert
-// their profile fields so the manager's input isn't lost.
+// full_name is required: trimmed, non-empty, and not an email address.
 //
 // Per Alina 2026-08-27: "Add a way to add new employees on the team page."
 export async function POST(request: Request) {
@@ -43,10 +48,10 @@ export async function POST(request: Request) {
   if (!email || !email.includes("@"))
     return NextResponse.json({ error: "Valid email required" }, { status: 400 });
 
-  // Required. Without it the handle_new_user trigger has no name to store.
-  const full_name = (body.full_name || "").trim();
-  if (!full_name || full_name.includes("@"))
-    return NextResponse.json({ error: "Full name required (not an email)" }, { status: 400 });
+  const name = validateFullName(body.full_name);
+  if (!name.ok) return NextResponse.json({ error: name.error }, { status: 400 });
+  const full_name = name.name;
+
   const role: "employee" | "manager" =
     body.role === "manager" ? "manager" : "employee";
   const phone = (body.phone || "").trim() || null;
@@ -57,11 +62,11 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
 
-  // Creates the auth user (which fires handle_new_user) and emails the link.
+  // Create the auth user (new invites) and email the sign-in link.
   const invite = await sendInvite({
     email,
     fullName: full_name,
-    invitedBy: me.full_name,
+    invitedBy: usableName(me.full_name),
     origin: siteOrigin(request),
   });
   if ("error" in invite)
@@ -80,16 +85,18 @@ export async function POST(request: Request) {
   if (!userId)
     return NextResponse.json({ error: "No user id returned" }, { status: 500 });
 
-  // Upsert the profile fields. On brand-new invites the trigger may
-  // race with our update, so use the service-role client (bypasses RLS)
-  // to make the write predictable regardless of trigger timing.
+  // Upsert the profile fields, always including the name. The trigger has
+  // normally inserted the row already; the upsert covers the case where it
+  // hasn't and overwrites whatever name the row had (a re-invited account may
+  // predate migration_21 and still hold its email). Service-role client first
+  // (bypasses RLS) so the write doesn't depend on RLS.
   const supabase = createClient();
   const patch: Record<string, unknown> = {
     id: userId,
+    full_name,
     role,
     active: true,
   };
-  patch.full_name = full_name;
   if (phone !== null) patch.phone = phone;
   if (hourly_rate !== null) patch.hourly_rate = hourly_rate;
 
