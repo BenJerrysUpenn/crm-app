@@ -86,10 +86,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No user id returned" }, { status: 500 });
 
   // Upsert the profile fields, always including the name. The trigger has
-  // normally inserted the row already; the upsert covers the case where it
-  // hasn't and overwrites whatever name the row had (a re-invited account may
-  // predate migration_21 and still hold its email). Service-role client first
-  // (bypasses RLS) so the write doesn't depend on RLS.
+  // normally inserted the row already; this covers the case where it
+  // hasn't, and overwrites whatever name the row had (a re-invited account
+  // may predate migration_21 and still hold its email). Tried on the admin
+  // (service-role) client below first so the write doesn't depend on RLS;
+  // `supabase` here is only the RLS-bound fallback used if that upsert
+  // errors.
   const supabase = createClient();
   const patch: Record<string, unknown> = {
     id: userId,

@@ -22,9 +22,6 @@ export default function TopBar({
   role,
   name,
 }: {
-  // Unused. Every caller passes profile.full_name here too; the corner label
-  // shows the name or "No name set", never an email.
-  email: string;
   role: Role;
   name: string;
 }) {

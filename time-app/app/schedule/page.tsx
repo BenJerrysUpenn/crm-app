@@ -108,7 +108,7 @@ export default async function SchedulePage({
 
   return (
     <div className="min-h-screen flex flex-col">
-      <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
+      <TopBar role={profile.role} name={profile.full_name ?? ""} />
       <main className="flex-1">
         <div className="mx-auto max-w-5xl px-4 py-6">
           <ScheduleBoard
