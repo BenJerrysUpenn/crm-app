@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { usableName } from "@/lib/profileName";
 import SetPasswordForm from "@/components/SetPasswordForm";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function SetPasswordPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950 px-4">
       <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl p-8 w-full max-w-sm border border-slate-200 dark:border-slate-800">
-        <SetPasswordForm name={profile?.full_name ?? null} email={user.email ?? ""} />
+        <SetPasswordForm name={usableName(profile?.full_name)} email={user.email ?? ""} />
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtDate, fmtTime, hoursBetween } from "@/lib/format";
+import { displayName, displayNameOrId } from "@/lib/profileName";
 import type { Profile, TimeEntryWithEmployee } from "@/lib/types";
 
 function toLocalInput(iso: string | null) {
@@ -121,7 +122,7 @@ export default function Timesheets({
     grand += h;
     const id = e.employee_id;
     const cur = byEmp.get(id) ?? {
-      name: e.profiles?.full_name ?? id,
+      name: displayNameOrId(e.profiles?.full_name, id),
       hours: 0,
       rate: e.profiles?.hourly_rate ?? null,
     };
@@ -133,7 +134,7 @@ export default function Timesheets({
     const rows = [
       ["Employee", "Date", "Type", "Clock in", "Clock out", "Hours", "Late (min)", "Status", "In distance (m)"],
       ...entries.map((e) => [
-        e.profiles?.full_name ?? e.employee_id,
+        displayNameOrId(e.profiles?.full_name, e.employee_id),
         fmtDate(e.clock_in_at),
         e.shifts?.position ?? "",
         fmtTime(e.clock_in_at),
@@ -170,7 +171,7 @@ export default function Timesheets({
           <label className="flex flex-col text-xs text-slate-600 dark:text-slate-400">Employee
             <select value={emp} onChange={(e) => apply({ emp: e.target.value })} className="mt-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100">
               <option value="">All</option>
-              {employees.map((x) => <option key={x.id} value={x.id}>{x.full_name ?? x.id}</option>)}
+              {employees.map((x) => <option key={x.id} value={x.id}>{displayNameOrId(x.full_name, x.id)}</option>)}
             </select>
           </label>
         )}
@@ -224,7 +225,7 @@ export default function Timesheets({
               <tr key={e.id} className="border-t border-slate-200 dark:border-slate-800">
                 {isManager && (
                   <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                    {e.profiles?.full_name ?? "—"}
+                    {displayName(e.profiles?.full_name)}
                     {e.manual && <span className="ml-1 text-[10px] text-sky-400">(manual)</span>}
                   </td>
                 )}
@@ -253,7 +254,7 @@ export default function Timesheets({
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit time entry" : "Add time entry"}</h2>
             <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
               <select value={draft.employee_id} onChange={(ev) => setDraft({ ...draft, employee_id: ev.target.value })} disabled={!!draft.id} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100 disabled:opacity-60">
-                {employees.map((x) => <option key={x.id} value={x.id}>{x.full_name ?? x.id}</option>)}
+                {employees.map((x) => <option key={x.id} value={x.id}>{displayNameOrId(x.full_name, x.id)}</option>)}
               </select>
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
