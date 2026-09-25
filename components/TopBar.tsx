@@ -12,6 +12,7 @@ export default function TopBar({ email }: { email: string }) {
     { href: "/historical", label: "Historical" },
     { href: "/price-book", label: "Price book" },
     { href: "/call-desk", label: "Call desk" },
+    { href: "/funnels", label: "Funnels" },
   ];
 
   return (
