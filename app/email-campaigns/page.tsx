@@ -8,14 +8,10 @@ import { compute, type RawData } from "@/lib/emailCampaignsPrototype/model";
 export const dynamic = "force-dynamic";
 
 // /email-campaigns — PROTOTYPE (branch prototype/email-campaigns, never main).
-// Two variants on one route, switched by ?variant=A|B. Read-only: the page
+// One layout (v2; the v1 ?variant=B ledger was dropped). Read-only: the page
 // reads as the signed-in manager (RLS `(select is_manager())`) and computes
 // every tier/category/bucket in lib/emailCampaignsPrototype/model.ts.
-export default async function EmailCampaignsPage({
-  searchParams,
-}: {
-  searchParams: { variant?: string };
-}) {
+export default async function EmailCampaignsPage() {
   const supabase = createClient();
   const {
     data: { user },
@@ -47,11 +43,7 @@ export default async function EmailCampaignsPage({
             Could not load outreach data: {error}
           </div>
         ) : null}
-        <EmailCampaignsPrototype
-          payload={payload}
-          variant={searchParams.variant === "B" ? "B" : "A"}
-          showSwitcher={process.env.VERCEL_ENV !== "production"}
-        />
+        <EmailCampaignsPrototype payload={payload} />
       </main>
     </div>
   );

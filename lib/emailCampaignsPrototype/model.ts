@@ -7,8 +7,19 @@
 // Pure functions only: rows in, payload out. Nothing here writes anywhere.
 // There are no tier/segment columns yet (bj-finance #438), so every tier and
 // warm/offer category below is DERIVED here from existing columns. Anything
-// the database cannot tell us is a named constant tagged "static" or
-// "assumed" and rendered with that tag in the UI.
+// the database cannot tell us is a named constant tagged "static" or "mock".
+//
+// v2 (owner review 2026-09-27):
+// - Suppressed / opted-out people are dropped BEFORE counting, so every number
+//   on screen is simply "people in it". The accounting invariant is still
+//   checked here (`TierPayload.check`); the UI shows nothing unless it breaks.
+// - States are plain language: Up next / Just emailed / Resting (+ Held).
+//   "Up next" includes people who are due again, and "due again" depends on
+//   the cadence the owner picks in the UI, so the model ships the age (days
+//   since last email) of everyone who can come due, and the client splits
+//   them between Up next and Resting.
+// - Volume is "reach everyone in the tier once per cadence"; the model ships
+//   the capacity inputs and the client does the arithmetic per cadence.
 
 export type Tag = "live" | "derived" | "static" | "mock";
 
@@ -52,7 +63,15 @@ export type RawData = {
 };
 
 export type TierKey = "cold" | "warm" | "offer";
-export type Bucket = "queue" | "in_sequence" | "resting" | "suppressed" | "unaccounted";
+
+// Internal buckets. The UI folds them into the owner's states:
+//   Up next      = fresh + (dueable whose age >= cadence period)
+//   Just emailed = just_emailed
+//   Resting      = resting + held + (dueable whose age < cadence period)
+//   Held         = held (shown under Resting)
+//   unaccounted  = never shown unless > 0 (then one red line)
+export type Bucket = "fresh" | "just_emailed" | "dueable" | "resting" | "held" | "unaccounted";
+const BUCKETS: Bucket[] = ["fresh", "just_emailed", "dueable", "resting", "held", "unaccounted"];
 
 export type Person = {
   id: number;
@@ -60,18 +79,29 @@ export type Person = {
   email: string | null;
   status: string;
   last_touch: string | null;
-  why: string; // sub-reason inside the bucket, e.g. "finished sequence"
+  age_days: number | null; // whole days since last email
+  why: string; // sub-reason, e.g. "never emailed", "held: blocked provider"
 };
 
 export type CategoryStat = {
   key: string;
   label: string;
   tag: Tag;
-  total: number;
-  counts: Record<Bucket, number>;
-  sample: Record<Bucket, Person[]>; // capped, newest touch first
-  queueSplit?: { label: string; n: number }[];
+  total: number; // people in it; suppressed already excluded
+  n: Record<Bucket, number>;
+  // Days since last email for every "dueable" person, ascending. The client
+  // counts how many are >= the cadence period to split Up next / Resting.
+  dueAges: number[];
+  sample: Record<Exclude<Bucket, "dueable">, Person[]> & {
+    dueOldest: Person[];
+    dueNewest: Person[];
+  };
+  heldReasons: { why: string; label: string; n: number }[];
+  upNextSplit?: { label: string; n: number }[];
+  sources?: { label: string; n: number; tag: Tag }[];
 };
+
+export type Cadence = "daily" | "weekly" | "biweekly" | "monthly" | "quarterly";
 
 export type TierPayload = {
   key: TierKey;
@@ -87,29 +117,23 @@ export type TierPayload = {
     tag: Tag;
     note: string;
   };
-  restingReasons: { why: string; n: number; due: number }[];
-  restingDue: number;
-  volume: {
-    period: "day" | "month";
-    tag: Tag;
-    firstTouches: number;
-    followUps: number;
-    retouches: number;
-    demand: number;
-    capacity: number;
-    capacityNote: string;
-    perMailbox: number;
+  defaultCadence: Cadence;
+  capacity: {
+    unit: "weekday" | "month";
     mailboxes: number;
-    mailboxesNeeded: number;
-    assumptions: string[];
+    perMailboxDay: number;
+    capDay: number | null; // a global daily cap that binds before mailboxes
+    tag: Tag;
+    source: string;
   };
+  // Invariant, computed here, rendered only when broken.
+  check: { suppressed: number; unaccounted: number; ok: boolean };
 };
 
 export type Payload = {
   generated_at: string;
   tiers: TierPayload[];
-  outsideTiers: number;
-  totals: { prospects: number; suppressionList: number };
+  totals: { prospects: number };
   notes: string[];
 };
 
@@ -130,20 +154,32 @@ export const COLD_PER_MAILBOX_DAY = 30;
 // warm_sender's OUTREACH_DAILY_CAP default; the droplet env is not readable
 // from Vercel.
 export const WARM_GLOBAL_CAP_DAY = 20;
+export const WEEKDAYS_PER_WEEK = 5;
 export const WEEKDAYS_PER_MONTH = 21;
 export const WARM_TEMPLATE_URL =
   "https://github.com/BenJerrysUpenn/Catering-Manager/blob/main/outreach/warm_sender.py";
 
-// A person counts as "in sequence" for this many days after their last send;
-// after that a single-step sequence is finished and they are resting. Assumed:
-// the database has no "sequence finished" state.
-export const IN_SEQUENCE_DAYS: Record<TierKey, number> = { cold: 14, warm: 7, offer: 7 };
-// Re-touch cadence for resting people ("due"). Assumed: warm_sender is
-// single-touch and has no re-contact clock. 60 days matches the existing
-// outreach_recontact_queue view.
-export const RETOUCH_DAYS: Record<TierKey, number> = { cold: 90, warm: 60, offer: 30 };
-// Horizon over which the queue should drain (first touches). Assumed.
-export const QUEUE_HORIZON: Record<TierKey, number> = { cold: 90, warm: 3, offer: 3 };
+// "Just emailed" = emailed within this many days: the window for replies and
+// a follow-up call. Owner definition, same for every tier.
+export const JUST_EMAILED_DAYS = 7;
+
+export const CADENCES: {
+  key: Cadence;
+  label: string;
+  periodDays: number; // calendar days before someone is due again
+  weekdays: number; // sending weekdays in one period
+}[] = [
+  { key: "daily", label: "daily (capped)", periodDays: 1, weekdays: 1 },
+  { key: "weekly", label: "once a week", periodDays: 7, weekdays: 5 },
+  { key: "biweekly", label: "every 2 weeks", periodDays: 14, weekdays: 10 },
+  { key: "monthly", label: "once a month", periodDays: 30, weekdays: 21 },
+  { key: "quarterly", label: "once a quarter", periodDays: 91, weekdays: 63 },
+];
+export const DEFAULT_CADENCE: Record<TierKey, Cadence> = {
+  cold: "weekly",
+  warm: "monthly",
+  offer: "monthly",
+};
 
 const SAMPLE_CAP = 60;
 
@@ -179,18 +215,92 @@ const COLD_LABELS: Record<string, string> = {
   coworking: "Coworking",
 };
 
+const HELD_LABELS: Record<string, string> = {
+  "held: blocked provider": "Yahoo/Microsoft blocked until warm mailboxes are ready",
+  "held: talked since May": "talked to since May, kept out of the blast",
+  "held: bad email": "email address failed verification",
+};
+
 const BOOKED_STAGES = new Set(["Event Complete", "Booked Paid", "Booked Unpaid"]);
+
+// --- helpers used by the client too -----------------------------------------
+
+export function cadenceOf(key: Cadence) {
+  return CADENCES.find((c) => c.key === key) ?? CADENCES[1];
+}
+
+/** Count of ascending `ages` that are >= `min`. */
+export function countAtLeast(ages: number[], min: number): number {
+  let lo = 0;
+  let hi = ages.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ages[mid] < min) lo = mid + 1;
+    else hi = mid;
+  }
+  return ages.length - lo;
+}
+
+/** The owner's states for one card at one cadence. */
+export function statesAt(c: CategoryStat, cadence: Cadence) {
+  const due = countAtLeast(c.dueAges, cadenceOf(cadence).periodDays);
+  const notDue = c.n.dueable - due;
+  return {
+    upNext: c.n.fresh + due,
+    dueAgain: due,
+    justEmailed: c.n.just_emailed,
+    resting: c.n.resting + c.n.held + notDue,
+    held: c.n.held,
+    unaccounted: c.n.unaccounted,
+  };
+}
+
+/** Needed vs capacity for a tier at a cadence, in the tier's unit. */
+export function volumeAt(t: TierPayload, cadence: Cadence) {
+  const cad = cadenceOf(cadence);
+  const cap = t.capacity;
+  const people = t.everyone.total;
+  const perDay = cap.mailboxes * cap.perMailboxDay;
+  const capDay = cap.capDay === null ? perDay : Math.min(perDay, cap.capDay);
+  const perUnit = cap.unit === "weekday" ? 1 : WEEKDAYS_PER_MONTH;
+  const capacity = capDay * perUnit;
+  // Sends a day to reach everyone once per period.
+  const neededDay = cadence === "daily" ? capDay : people / cad.weekdays;
+  const needed = Math.ceil(neededDay * perUnit);
+  const mailboxesNeeded = cap.perMailboxDay > 0 ? Math.ceil(neededDay / cap.perMailboxDay) : 0;
+  const buildMore = Math.max(mailboxesNeeded - cap.mailboxes, 0);
+  const capBinds = cap.capDay !== null && neededDay > cap.capDay && perDay > cap.capDay;
+  // daily (capped): send at capacity; report how long a full pass takes.
+  const cycleWeekdays = capDay > 0 ? Math.ceil(people / capDay) : Infinity;
+  return {
+    needed,
+    capacity,
+    short: cadence !== "daily" && needed > capacity,
+    buildMore,
+    mailboxesNeeded,
+    capBinds,
+    capDay,
+    perDay,
+    cycleWeekdays,
+  };
+}
 
 // --- compute -----------------------------------------------------------------
 
-function emptyCounts(): Record<Bucket, number> {
-  return { queue: 0, in_sequence: 0, resting: 0, suppressed: 0, unaccounted: 0 };
-}
-function emptySample(): Record<Bucket, Person[]> {
-  return { queue: [], in_sequence: [], resting: [], suppressed: [], unaccounted: [] };
+function emptyN(): Record<Bucket, number> {
+  return { fresh: 0, just_emailed: 0, dueable: 0, resting: 0, held: 0, unaccounted: 0 };
 }
 function newCat(key: string, label: string, tag: Tag): CategoryStat {
-  return { key, label, tag, total: 0, counts: emptyCounts(), sample: emptySample() };
+  return {
+    key,
+    label,
+    tag,
+    total: 0,
+    n: emptyN(),
+    dueAges: [],
+    sample: { fresh: [], just_emailed: [], resting: [], held: [], unaccounted: [], dueOldest: [], dueNewest: [] },
+    heldReasons: [],
+  };
 }
 
 const lc = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
@@ -207,7 +317,6 @@ export function compute(data: RawData, now: Date): Payload {
 
   // outreach_talked_recently, replicated (the view is not granted to the app).
   const talkedRecently = new Set<string>();
-  // Latest deal per email, and latest BOOKED deal per email.
   const latestDeal = new Map<string, DealRow>();
   const latestBooked = new Map<string, DealRow>();
   for (const d of data.deals) {
@@ -230,34 +339,43 @@ export function compute(data: RawData, now: Date): Payload {
   type Acc = {
     everyone: CategoryStat;
     cats: Map<string, CategoryStat>;
-    resting: Map<string, { n: number; due: number }>;
-    restingDue: number;
-    queueReady: number;
-    queueReveal: number;
+    routed: number; // everyone who landed in this tier, suppressed included
+    suppressed: number;
+    upNextReady: number;
+    upNextReveal: number;
+    dueAll: Person[]; // every dueable person, for the Everyone samples
+    catDue: Map<string, Person[]>;
   };
-  const tiers: Record<TierKey, Acc> = {
-    cold: { everyone: newCat("everyone", "Everyone", "live"), cats: new Map(), resting: new Map(), restingDue: 0, queueReady: 0, queueReveal: 0 },
-    warm: { everyone: newCat("everyone", "Everyone", "derived"), cats: new Map(), resting: new Map(), restingDue: 0, queueReady: 0, queueReveal: 0 },
-    offer: { everyone: newCat("everyone", "Everyone", "derived"), cats: new Map(), resting: new Map(), restingDue: 0, queueReady: 0, queueReveal: 0 },
-  };
+  const mk = (tag: Tag): Acc => ({
+    everyone: newCat("everyone", "Everyone", tag),
+    cats: new Map(),
+    routed: 0,
+    suppressed: 0,
+    upNextReady: 0,
+    upNextReveal: 0,
+    dueAll: [],
+    catDue: new Map(),
+  });
+  const tiers: Record<TierKey, Acc> = { cold: mk("live"), warm: mk("derived"), offer: mk("derived") };
   // Seed cold categories so empty segments still show.
   for (const [k, l] of Object.entries(COLD_LABELS)) tiers.cold.cats.set(k, newCat(k, l, "live"));
 
-  let outside = 0;
-
   for (const p of data.prospects) {
     const email = lc(p.email);
-    // Tier
     let tier: TierKey;
     if (p.engine === "cold") tier = "cold";
     else if (p.engine === "warm") {
       const recentBooker = p.ever_booked && (p.last_event_date ?? "") >= twelveMonthsAgoISO;
       tier = p.marketing_opt_in || recentBooker ? "offer" : "warm";
-    } else {
-      outside++;
+    } else continue; // no engine: manual contacts, outside every tier
+    const acc = tiers[tier];
+    acc.routed++;
+
+    // Suppressed people leave the system before anything is counted.
+    if (p.status === "suppressed" || p.status === "dead" || (email && suppressed.has(email))) {
+      acc.suppressed++;
       continue;
     }
-    const acc = tiers[tier];
 
     // Category
     let catKey: string;
@@ -292,69 +410,55 @@ export function compute(data: RawData, now: Date): Payload {
       acc.cats.set(catKey, cat);
     }
 
-    // Bucket (the state machine the owners described)
+    // State
     const touchedMs = p.last_outreach_at ? Date.parse(p.last_outreach_at) : NaN;
-    const ageDays = Number.isNaN(touchedMs) ? Infinity : (nowMs - touchedMs) / DAY;
-    let bucket: Bucket;
-    let why: string;
+    const ageDays = Number.isNaN(touchedMs) ? null : Math.floor((nowMs - touchedMs) / DAY);
     const domain = email.split("@")[1] ?? "";
-    if (p.status === "suppressed" || p.status === "dead" || (email && suppressed.has(email))) {
-      bucket = "suppressed";
-      why = p.status === "suppressed" ? "status suppressed" : email && suppressed.has(email) ? "on suppression list" : "dead";
-    } else if (p.status === "sequenced" && ageDays <= IN_SEQUENCE_DAYS[tier]) {
-      bucket = "in_sequence";
-      why = `sent ${Math.floor(ageDays)}d ago`;
-    } else if (tier === "cold" && ["raw", "enriched", "queued"].includes(p.status) && !p.last_outreach_at) {
-      bucket = "queue";
-      why = p.email ? "email revealed, ready" : "needs email reveal";
-      if (p.email) acc.queueReady++;
-      else acc.queueReveal++;
-    } else if (
+    const warmEligible =
       tier !== "cold" &&
       p.status === "raw" &&
       !p.last_outreach_at &&
-      email &&
+      !!email &&
       !["invalid", "disposable"].includes(p.verify_status ?? "") &&
       !talkedRecently.has(email) &&
-      !blocked.has(domain)
-    ) {
-      bucket = "queue";
-      why = "warm_sender eligible";
-    } else if (p.status === "sequenced" && p.last_outreach_at) {
-      bucket = "resting";
-      why = "finished sequence";
+      !blocked.has(domain);
+    let bucket: Bucket;
+    let why: string;
+    if (p.status === "sequenced" && ageDays !== null && ageDays <= JUST_EMAILED_DAYS) {
+      bucket = "just_emailed";
+      why = `emailed ${ageDays}d ago`;
+    } else if (tier === "cold" && ["raw", "enriched", "queued"].includes(p.status) && !p.last_outreach_at) {
+      bucket = "fresh";
+      why = p.email ? "never emailed, email ready" : "never emailed, needs Apollo email reveal";
+      if (p.email) acc.upNextReady++;
+      else acc.upNextReveal++;
+    } else if (warmEligible) {
+      bucket = "fresh";
+      why = "never emailed";
     } else if (p.status === "replied" || p.status === "handed_off") {
       bucket = "resting";
-      why = "replied / handed off";
+      why = "replied / handed to sales";
+    } else if (p.status === "sequenced" && p.last_outreach_at) {
+      bucket = "dueable";
+      why = "emailed";
     } else if (p.status === "called_lost") {
-      bucket = "resting";
+      bucket = "dueable";
       why = "called, lost";
     } else if (p.status === "raw" && p.last_outreach_at) {
-      bucket = "resting";
-      why = "touched, back to raw";
+      bucket = "dueable";
+      why = "emailed, back to raw";
     } else if (tier !== "cold" && p.status === "raw" && !p.last_outreach_at && email && blocked.has(domain)) {
-      bucket = "resting";
+      bucket = "held";
       why = "held: blocked provider";
     } else if (tier !== "cold" && p.status === "raw" && !p.last_outreach_at && email && talkedRecently.has(email)) {
-      bucket = "resting";
+      bucket = "held";
       why = "held: talked since May";
     } else if (tier !== "cold" && p.status === "raw" && !p.last_outreach_at && ["invalid", "disposable"].includes(p.verify_status ?? "")) {
-      bucket = "resting";
+      bucket = "held";
       why = "held: bad email";
     } else {
       bucket = "unaccounted";
-      why = `status=${p.status}${p.last_outreach_at ? ", touched" : ", never touched"}${email ? "" : ", no email"}`;
-    }
-
-    if (bucket === "resting") {
-      const r = acc.resting.get(why) ?? { n: 0, due: 0 };
-      r.n++;
-      const isDue = !why.startsWith("held") && ageDays >= RETOUCH_DAYS[tier];
-      if (isDue) {
-        r.due++;
-        acc.restingDue++;
-      }
-      acc.resting.set(why, r);
+      why = `status=${p.status}${p.last_outreach_at ? ", emailed" : ", never emailed"}${email ? "" : ", no email"}`;
     }
 
     const person: Person = {
@@ -363,94 +467,122 @@ export function compute(data: RawData, now: Date): Payload {
       email: p.email,
       status: p.status,
       last_touch: p.last_outreach_at,
+      age_days: ageDays,
       why,
     };
     for (const c of [acc.everyone, cat]) {
       c.total++;
-      c.counts[bucket]++;
-      c.sample[bucket].push(person);
+      c.n[bucket]++;
+      if (bucket === "dueable") {
+        c.dueAges.push(ageDays ?? 0);
+      } else {
+        c.sample[bucket].push(person);
+      }
+      if (bucket === "held") {
+        const h = c.heldReasons.find((r) => r.why === why);
+        if (h) h.n++;
+        else c.heldReasons.push({ why, label: HELD_LABELS[why] ?? why, n: 1 });
+      }
+    }
+    if (bucket === "dueable") {
+      acc.dueAll.push(person);
+      const list = acc.catDue.get(catKey) ?? [];
+      list.push(person);
+      acc.catDue.set(catKey, list);
     }
   }
 
-  // Sort samples newest touch first, cap.
-  const finish = (c: CategoryStat) => {
-    for (const b of Object.keys(c.sample) as Bucket[]) {
+  const finish = (c: CategoryStat, due: Person[]) => {
+    for (const b of ["fresh", "just_emailed", "resting", "held", "unaccounted"] as const) {
       c.sample[b].sort((a, b2) => (b2.last_touch ?? "").localeCompare(a.last_touch ?? ""));
       c.sample[b] = c.sample[b].slice(0, SAMPLE_CAP);
     }
+    c.dueAges.sort((a, b) => a - b);
+    const byAge = [...due].sort((a, b) => (b.age_days ?? 0) - (a.age_days ?? 0));
+    c.sample.dueOldest = byAge.slice(0, SAMPLE_CAP);
+    c.sample.dueNewest = byAge.slice(-SAMPLE_CAP).reverse();
+    c.heldReasons.sort((a, b) => b.n - a.n);
     return c;
   };
 
   const warmMailboxes = data.mailboxes.filter((m) => !m.frozen);
   const warmPerMailbox = warmMailboxes[0]?.daily_allowance ?? 33;
-  const warmCapDay = Math.min(
-    warmMailboxes.reduce((s, m) => s + m.daily_allowance, 0),
-    WARM_GLOBAL_CAP_DAY,
-  );
+
+  const meta: Record<TierKey, { label: string; blurb: string; definition: string }> = {
+    cold: {
+      label: "Cold",
+      blurb: "Top of funnel",
+      definition: "Apollo prospects who never contacted us.",
+    },
+    warm: {
+      label: "Warm",
+      blurb: "Middle of funnel",
+      definition: "Enquired before, or booked more than 12 months ago and not opted in.",
+    },
+    offer: {
+      label: "Offer",
+      blurb: "Bottom of funnel",
+      definition: "Booked in the last 12 months, or opted in to marketing.",
+    },
+  };
 
   const build = (key: TierKey): TierPayload => {
     const acc = tiers[key];
     const categories = Array.from(acc.cats.values())
-      .map(finish)
+      .map((c) => finish(c, acc.catDue.get(c.key) ?? []))
       .sort((a, b) => b.total - a.total);
-    const everyone = finish(acc.everyone);
-    if (key === "cold")
-      everyone.queueSplit = [
-        { label: "ready (email revealed)", n: acc.queueReady },
-        { label: "need reveal (Apollo credits)", n: acc.queueReveal },
-      ];
-
-    const steps = key === "offer" ? 0 : 1;
-    const inSeq = everyone.counts.in_sequence;
-    const queue = everyone.counts.queue;
-    const period: "day" | "month" = key === "cold" ? "day" : "month";
-    const firstTouches = Math.ceil(queue / QUEUE_HORIZON[key]);
-    const followUps = Math.ceil(inSeq * Math.max(steps - 1, 0));
-    const retouches = acc.restingDue;
-    const demand = firstTouches + followUps + retouches;
-
-    let capacity: number;
-    let capacityNote: string;
-    let perMailbox: number;
-    let mailboxes: number;
+    const everyone = finish(acc.everyone, acc.dueAll);
     if (key === "cold") {
-      mailboxes = COLD_MAILBOXES;
-      perMailbox = COLD_PER_MAILBOX_DAY;
-      capacity = mailboxes * perMailbox;
-      capacityNote = `${mailboxes} Apollo mailboxes × ${perMailbox}/day (static). Sequence inactive, so actual sends today = 0.`;
-    } else if (key === "warm") {
-      mailboxes = warmMailboxes.length;
-      perMailbox = warmPerMailbox * WEEKDAYS_PER_MONTH;
-      capacity = warmCapDay * WEEKDAYS_PER_MONTH;
-      capacityNote = `${mailboxes} news.* mailboxes × ${warmPerMailbox}/day (live) = ${mailboxes * warmPerMailbox}/day, but OUTREACH_DAILY_CAP ${WARM_GLOBAL_CAP_DAY}/day (static) is the ceiling × ${WEEKDAYS_PER_MONTH} weekdays.`;
-    } else {
-      mailboxes = 0;
-      perMailbox = warmPerMailbox * WEEKDAYS_PER_MONTH;
-      capacity = 0;
-      capacityNote =
-        "No offer lane exists. Today warm_sender mails offer-tier people from the warm mailboxes with the warm template (mock: 0 dedicated capacity).";
+      everyone.upNextSplit = [
+        { label: "have an email", n: acc.upNextReady },
+        { label: "need an Apollo email reveal", n: acc.upNextReveal },
+      ];
+      everyone.sources = [
+        { label: "Apollo", n: everyone.total, tag: "derived" },
+        { label: "LinkedIn", n: 0, tag: "mock" },
+        { label: "Other lists", n: 0, tag: "mock" },
+      ];
     }
-    const mailboxesNeeded = perMailbox > 0 ? Math.ceil(demand / perMailbox) : 0;
 
-    const meta: Record<TierKey, { label: string; blurb: string; definition: string }> = {
-      cold: {
-        label: "Cold",
-        blurb: "Top of funnel",
-        definition: "Apollo prospects who never contacted us (engine = cold).",
-      },
-      warm: {
-        label: "Warm",
-        blurb: "Middle of funnel",
-        definition:
-          "Enquired before, or booked more than 12 months ago and not opted in (engine = warm, not in Offer).",
-      },
-      offer: {
-        label: "Offer",
-        blurb: "Bottom of funnel",
-        definition:
-          "Booked in the last 12 months (last_event_date) or marketing_opt_in = true.",
-      },
-    };
+    // Invariant: routed = everyone + suppressed; everyone = sum of its states;
+    // everyone = sum of the categories. Anything else is "unaccounted".
+    const catSum = categories.reduce((s, c) => s + c.total, 0);
+    const stateSum = BUCKETS.filter((b) => b !== "unaccounted").reduce((s, b) => s + everyone.n[b], 0);
+    const unaccounted =
+      everyone.n.unaccounted +
+      Math.abs(everyone.total - stateSum - everyone.n.unaccounted) +
+      Math.abs(everyone.total - catSum) +
+      Math.abs(acc.routed - acc.suppressed - everyone.total);
+
+    let capacity: TierPayload["capacity"];
+    if (key === "cold") {
+      capacity = {
+        unit: "weekday",
+        mailboxes: COLD_MAILBOXES,
+        perMailboxDay: COLD_PER_MAILBOX_DAY,
+        capDay: null,
+        tag: "static",
+        source: `${COLD_MAILBOXES} Apollo mailboxes × ${COLD_PER_MAILBOX_DAY}/day (static). Cold Pilot A is inactive, so real sends today are 0.`,
+      };
+    } else if (key === "warm") {
+      capacity = {
+        unit: "month",
+        mailboxes: warmMailboxes.length,
+        perMailboxDay: warmPerMailbox,
+        capDay: WARM_GLOBAL_CAP_DAY,
+        tag: "live",
+        source: `${warmMailboxes.length} news.* mailboxes × ${warmPerMailbox}/day (live), capped at ${WARM_GLOBAL_CAP_DAY}/day by OUTREACH_DAILY_CAP (static), × ${WEEKDAYS_PER_MONTH} weekdays.`,
+      };
+    } else {
+      capacity = {
+        unit: "month",
+        mailboxes: 0,
+        perMailboxDay: warmPerMailbox,
+        capDay: null,
+        tag: "mock",
+        source: `No offer lane exists (mock: 0 mailboxes). A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
+      };
+    }
 
     return {
       key,
@@ -464,7 +596,7 @@ export function compute(data: RawData, now: Date): Payload {
               steps: COLD_SEQUENCE.steps,
               url: COLD_SEQUENCE.url,
               tag: "static",
-              note: `${COLD_SEQUENCE.steps} step, ${COLD_SEQUENCE.contacts} contacts, ${COLD_SEQUENCE.active ? "active" : "inactive"} (Apollo, 2026-09-27). Same sequence for every segment.`,
+              note: `${COLD_SEQUENCE.steps} step, ${COLD_SEQUENCE.contacts} contacts, ${COLD_SEQUENCE.active ? "active" : "inactive"} (Apollo, 2026-09-27).`,
             }
           : key === "warm"
             ? {
@@ -472,7 +604,7 @@ export function compute(data: RawData, now: Date): Payload {
                 steps: 1,
                 url: WARM_TEMPLATE_URL,
                 tag: "static",
-                note: 'Single touch, subject "Ice cream catering for holiday events". No follow-up step and no re-contact clock.',
+                note: 'Single email, subject "Ice cream catering for holiday events". No follow-up step.',
               }
             : {
                 name: "No offer sequence yet",
@@ -481,40 +613,21 @@ export function compute(data: RawData, now: Date): Payload {
                 tag: "mock",
                 note: "Placeholder. Offers may go through Kit; nothing is wired.",
               },
-      restingReasons: Array.from(acc.resting.entries())
-        .map(([why, v]) => ({ why, n: v.n, due: v.due }))
-        .sort((a, b) => b.n - a.n),
-      restingDue: acc.restingDue,
-      volume: {
-        period,
-        tag: "derived",
-        firstTouches,
-        followUps,
-        retouches,
-        demand,
-        capacity,
-        capacityNote,
-        perMailbox,
-        mailboxes,
-        mailboxesNeeded,
-        assumptions: [
-          `First touches: queue drained over ${QUEUE_HORIZON[key]} ${period}s (assumed).`,
-          `In sequence = sent within ${IN_SEQUENCE_DAYS[key]} days (assumed); follow-ups = remaining steps.`,
-          `Re-touches: resting people whose last touch is ${RETOUCH_DAYS[key]}+ days old (assumed cadence), all due now.`,
-        ],
-      },
+      defaultCadence: DEFAULT_CADENCE[key],
+      capacity,
+      check: { suppressed: acc.suppressed, unaccounted, ok: unaccounted === 0 },
     };
   };
 
   return {
     generated_at: now.toISOString(),
     tiers: [build("cold"), build("warm"), build("offer")],
-    outsideTiers: outside,
-    totals: { prospects: data.prospects.length, suppressionList: suppressed.size },
+    totals: { prospects: data.prospects.length },
     notes: [
-      "Tiers and warm/offer categories are derived in this page's code; there are no tier or segment columns yet (bj-finance #438).",
-      "Cold categories are the live outreach_prospects.category values (Apollo segments).",
-      "The Offer tier is carved out of engine = warm, so warm_sender treats offer people as warm today.",
+      "Tiers and warm/offer categories are worked out by this page; there are no tier or category columns yet (bj-finance #438).",
+      "Cold categories are the Apollo segments stored on each prospect.",
+      "People who opted out, bounced or are on the suppression list are left out of every number.",
+      "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",
     ],
   };
 }
