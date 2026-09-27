@@ -299,6 +299,40 @@ export function shouldSuggestCakes(guestCount: number | null): boolean {
 
 export type DealFormErrors = Partial<Record<keyof DealFormPayload, string>>;
 
+/** The fields a blank value is refused for, per mode — what the form puts a
+ *  red asterisk on. `validateDealPayload` below is the enforcement and
+ *  tests/dealFormRequired.test.ts holds the two together, so an asterisk can
+ *  never again promise a rule the validator does not have (the manual form
+ *  once starred Venue address, and staff read it as mandatory).
+ *
+ *  Manual mode's email-or-phone rule is deliberately absent: neither field is
+ *  required on its own, and the form says "one of the two" in their hints. */
+export const REQUIRED_FIELDS: Record<
+  DealFormMode,
+  readonly (keyof DealFormPayload)[]
+> = {
+  call_desk: [
+    "contact_first_name",
+    "contact_email",
+    "contact_phone",
+    "event_type",
+    "event_date",
+    "event_start_time",
+    "event_end_time",
+    "venue_address",
+    "guest_count",
+    "package_name",
+  ],
+  manual: ["contact_first_name", "source"],
+};
+
+export function isRequiredField(
+  key: keyof DealFormPayload,
+  mode: DealFormMode,
+): boolean {
+  return REQUIRED_FIELDS[mode].includes(key);
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 // Deliberately loose: enough to catch a typo, not a deliverability check.
