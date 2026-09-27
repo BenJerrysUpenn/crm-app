@@ -102,3 +102,29 @@ Open http://localhost:3000.
 ## Deploy
 Push to GitHub, import the repo into Vercel, set the two env vars, deploy.
 Custom domain via Vercel, Project Settings, Domains.
+
+## Catering-shift reconciler (local command)
+Creates the manager-only draft shifts for booked catering deals that have a
+`departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
+(`reconcileShifts` in `lib/cateringShifts.ts`: cart events start 120 min
+before departure, 15h+ shifts are flagged CHECK HOURS), run straight against
+Postgres instead of over HTTP.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project. Never read from the Google Drive |
+
+```
+npm ci                                   # installs tsx and postgres (both runtime dependencies)
+npm run reconcile-shifts -- --dry-run    # read-only: reports what it would create
+npm run reconcile-shifts                 # creates the shifts
+```
+Prints one summary line. Exit 0 = ok, 1 = the sweep or a deal failed,
+2 = bad argument or `DATABASE_URL` missing. The dry run runs in a read-only
+transaction and EXPLAINs each insert it would make.
+
+Where it runs: on Alina's Mac, from a clean checkout of `main` at
+`~/systems/crm-app` (the same `~/systems/` convention as the catering
+automations), never from a dev clone or the Google Drive. This is the only
+thing that runs from that checkout. It is separate from Vercel, which serves
+the web app, and from the droplet's checkout of this repo, which runs nothing.

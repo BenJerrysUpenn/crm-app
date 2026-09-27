@@ -1,5 +1,7 @@
 # Set up the catering-shift reconciler on this Mac
 
+> **Superseded (2026-09-27).** On production the auth middleware redirects `/api/cron/catering-shifts` to `/login`, so pinging the URL does nothing. Run the local command instead: `npm run reconcile-shifts` from a checkout of `main` with `DATABASE_URL` set (see README, "Catering-shift reconciler"). Kept for reference until the route is reachable again.
+
 Hand this whole file to **Claude Code** in the Terminal on the Mac that already runs the missed-clock-in checker, and let it do the work. Goal: every 15 minutes, ping one web URL so that any booked catering deal whose picklist has been generated gets its crew draft-shifts created in the schedule app.
 
 This is the twin of the existing `com.withers.clockin-cron` job. Same machine, same launchd + secret-file pattern, different URL and interval.
