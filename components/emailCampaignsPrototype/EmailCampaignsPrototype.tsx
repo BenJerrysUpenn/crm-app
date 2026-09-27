@@ -7,13 +7,17 @@
 // bottom). The v1 "Ledger" table variant was dropped: it existed to show the
 // accounting, which the owners asked to hide.
 //
+// v3 after the owners' review of v2: three states defined by the tier's
+// period (its "Reach everyone" cadence): Up next / Emailed this period / Held.
+// One sequence control per card. Category cards show only the three numbers,
+// the note icon and the sequence control.
+//
 // Client-only prototype state: the per-tier cadence (useState) and card notes
 // (localStorage, this browser only). Nothing is written to the database.
 
 import { useCallback, useEffect, useState } from "react";
 import {
   CADENCES,
-  JUST_EMAILED_DAYS,
   WEEKDAYS_PER_MONTH,
   cadenceOf,
   statesAt,
@@ -22,6 +26,7 @@ import {
   type CategoryStat,
   type Payload,
   type Person,
+  type Sequence,
   type Tag,
   type TierPayload,
 } from "@/lib/emailCampaignsPrototype/model";
@@ -82,12 +87,23 @@ function Tip({
   );
 }
 
-const STATE_HELP = {
-  upNext: "Never emailed in this tier, or due again (last emailed longer ago than the tier's cadence).",
-  justEmailed: `Emailed in the last ${JUST_EMAILED_DAYS} days: the window for replies and a follow-up call.`,
-  resting: "Emailed and not due again yet at this tier's cadence.",
-  held: "Part of Resting. Can't be emailed yet, for the reason shown.",
-};
+function periodPhrase(cadence: Cadence): string {
+  const c = cadenceOf(cadence);
+  return c.periodDays === 1 ? "today" : `in the last ${c.periodDays} days (${c.label})`;
+}
+
+function stateHelp(state: StateKey, cadence: Cadence): string {
+  switch (state) {
+    case "upNext":
+      return `Not emailed ${periodPhrase(cadence)}. The period is the tier's "Reach everyone" cadence. People talked to since May are listed last: lowest priority, still emailed.`;
+    case "emailed":
+      return `Emailed ${periodPhrase(cadence)}. They move back to Up next when the period ends.`;
+    case "held":
+      return "Deliberately not sent to: Yahoo/Microsoft addresses, blocked until warm mailboxes are ready.";
+    case "unaccounted":
+      return "People in no state. This should never happen.";
+  }
+}
 
 function Unaccounted({ n }: { n: number }) {
   if (n <= 0) return null;
@@ -219,34 +235,51 @@ function NoteArea({
 
 // --- drill-downs --------------------------------------------------------------
 
-type StateKey = "upNext" | "justEmailed" | "resting" | "held" | "unaccounted";
+type StateKey = "upNext" | "emailed" | "held" | "unaccounted";
 const STATE_LABEL: Record<StateKey, string> = {
   upNext: "Up next",
-  justEmailed: "Just emailed",
-  resting: "Resting",
+  emailed: "Emailed this period",
   held: "Held",
   unaccounted: "Unaccounted",
 };
 
 type Drill =
   | { kind: "people"; tier: TierPayload; cat: CategoryStat; state: StateKey; cadence: Cadence }
-  | { kind: "sequence"; tier: TierPayload };
+  | { kind: "sequence"; title: string; sequence: Sequence; openLabel: string };
 
-function peopleIn(cat: CategoryStat, state: StateKey, cadence: Cadence): Person[] {
+const LIST_CAP = 100;
+
+/** People in a state, in list order. Up next = due again (oldest first), never
+ * emailed, then talked to since May last (`bottom`). */
+function peopleIn(cat: CategoryStat, state: StateKey, cadence: Cadence): { top: Person[]; bottom: Person[] } {
   const period = cadenceOf(cadence).periodDays;
   const s = cat.sample;
+  const due = (p: Person) => p.age_days === null || p.age_days >= period;
   switch (state) {
     case "upNext":
-      return [...s.dueOldest.filter((p) => (p.age_days ?? 0) >= period), ...s.fresh];
-    case "justEmailed":
-      return s.just_emailed;
-    case "resting":
-      return [...s.dueNewest.filter((p) => (p.age_days ?? 0) < period), ...s.resting, ...s.held];
+      return { top: [...s.dueOldest.filter(due), ...s.never], bottom: s.talked.filter(due) };
+    case "emailed":
+      return { top: s.emailedNewest.filter((p) => !due(p)), bottom: [] };
     case "held":
-      return s.held;
+      return { top: s.held.filter(due), bottom: [] };
     case "unaccounted":
-      return s.unaccounted;
+      return { top: [], bottom: [] };
   }
+}
+
+function PersonRow({ p }: { p: Person }) {
+  return (
+    <tr className={`border-t border-slate-800 ${p.talked ? "text-slate-400" : "text-slate-300"}`}>
+      <td className="whitespace-nowrap py-1 pr-3">{p.name}</td>
+      <td className="py-1 pr-3">{p.email ?? <span className="text-slate-600">none yet</span>}</td>
+      <td className="whitespace-nowrap py-1 pr-3">
+        {p.last_touch
+          ? new Date(p.last_touch).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+          : "never"}
+      </td>
+      <td className="py-1 pr-3 text-slate-400">{p.why}</td>
+    </tr>
+  );
 }
 
 function PeopleModal({
@@ -262,12 +295,20 @@ function PeopleModal({
   const st = statesAt(cat, cadence);
   const counts: Record<StateKey, number> = {
     upNext: st.upNext,
-    justEmailed: st.justEmailed,
-    resting: st.resting,
+    emailed: st.emailed,
     held: st.held,
     unaccounted: st.unaccounted,
   };
-  const rows = peopleIn(cat, state, cadence).slice(0, 120);
+  const { top, bottom } = peopleIn(cat, state, cadence);
+  // The bottom group (talked to since May) is always shown at the end of the
+  // list, after a row counting the people skipped in between.
+  const bottomTotal = state === "upNext" ? st.lowPriority : 0;
+  const topTotal = counts[state] - bottomTotal;
+  const topRows = top.slice(0, LIST_CAP);
+  const bottomRows = bottom.slice(0, 40);
+  const skippedTop = topTotal - topRows.length;
+  const skippedBottom = bottomTotal - bottomRows.length;
+  const shown = topRows.length + bottomRows.length;
   const tabs = (Object.keys(STATE_LABEL) as StateKey[]).filter((k) => k !== "unaccounted" || counts[k] > 0);
   return (
     <Modal onClose={onClose} title={`${tier.label} · ${cat.label}`}>
@@ -288,7 +329,7 @@ function PeopleModal({
         ))}
       </div>
       <p className="mb-2 text-[11px] text-slate-500">
-        {k2help(state)} Showing {fmt(rows.length)} of {fmt(counts[state])}.
+        {stateHelp(state, cadence)} Showing {fmt(shown)} of {fmt(counts[state])}.
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -301,19 +342,27 @@ function PeopleModal({
             </tr>
           </thead>
           <tbody>
-            {rows.map((p) => (
-              <tr key={p.id} className="border-t border-slate-800 text-slate-300">
-                <td className="whitespace-nowrap py-1 pr-3">{p.name}</td>
-                <td className="py-1 pr-3">{p.email ?? <span className="text-slate-600">none yet</span>}</td>
-                <td className="whitespace-nowrap py-1 pr-3">
-                  {p.last_touch
-                    ? new Date(p.last_touch).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                    : "never"}
-                </td>
-                <td className="py-1 pr-3 text-slate-400">{p.why}</td>
-              </tr>
+            {topRows.map((p) => (
+              <PersonRow key={p.id} p={p} />
             ))}
-            {rows.length === 0 ? (
+            {skippedTop > 0 ? (
+              <tr className="border-t border-slate-800">
+                <td colSpan={4} className="py-1.5 text-center text-[11px] text-slate-500">
+                  … {fmt(skippedTop)} more …
+                </td>
+              </tr>
+            ) : null}
+            {bottomRows.map((p) => (
+              <PersonRow key={p.id} p={p} />
+            ))}
+            {skippedBottom > 0 ? (
+              <tr className="border-t border-slate-800">
+                <td colSpan={4} className="py-1.5 text-center text-[11px] text-slate-500">
+                  … {fmt(skippedBottom)} more …
+                </td>
+              </tr>
+            ) : null}
+            {shown === 0 ? (
               <tr>
                 <td colSpan={4} className="py-4 text-center text-slate-500">
                   Nobody here.
@@ -327,18 +376,16 @@ function PeopleModal({
   );
 }
 
-function k2help(s: StateKey): string {
-  if (s === "upNext") return STATE_HELP.upNext;
-  if (s === "justEmailed") return STATE_HELP.justEmailed;
-  if (s === "resting") return STATE_HELP.resting;
-  if (s === "held") return STATE_HELP.held;
-  return "People in a state this page does not know about.";
-}
-
-function SequenceModal({ tier, onClose }: { tier: TierPayload; onClose: () => void }) {
-  const s = tier.sequence;
+function SequenceModal({
+  drill,
+  onClose,
+}: {
+  drill: Extract<Drill, { kind: "sequence" }>;
+  onClose: () => void;
+}) {
+  const s = drill.sequence;
   return (
-    <Modal onClose={onClose} title={`${tier.label} · Everyone · sequence`}>
+    <Modal onClose={onClose} title={drill.title}>
       <div className="space-y-3 text-sm">
         <div className="flex items-center gap-2">
           <span className="font-medium text-slate-100">{s.name}</span>
@@ -358,7 +405,7 @@ function SequenceModal({ tier, onClose }: { tier: TierPayload; onClose: () => vo
         <p className="text-xs text-slate-400">{s.note}</p>
         {s.url ? (
           <a href={s.url} target="_blank" rel="noreferrer" className="inline-block text-xs text-sky-400 hover:underline">
-            Open {tier.key === "cold" ? "in Apollo" : "the template"} ↗
+            {drill.openLabel} ↗
           </a>
         ) : null}
       </div>
@@ -392,8 +439,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 
 // --- sequences ----------------------------------------------------------------
 
-function SequenceDots({ tier, onClick }: { tier: TierPayload; onClick: () => void }) {
-  const s = tier.sequence;
+function SequenceDots({ sequence: s, onClick }: { sequence: Sequence; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -416,21 +462,27 @@ function SequenceDots({ tier, onClick }: { tier: TierPayload; onClick: () => voi
   );
 }
 
-function NoSequence() {
+/** One sequence control per card: the clickable dots when the card has a
+ * sequence, otherwise a single "+ Add sequence" button (its presence says
+ * there is none). */
+function SequenceControl({
+  sequence,
+  onOpen,
+}: {
+  sequence: Sequence | null;
+  onOpen: () => void;
+}) {
+  if (sequence) return <SequenceDots sequence={sequence} onClick={onOpen} />;
   return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-slate-500">
-      <span className="h-2.5 w-2.5 rounded-full border border-dashed border-slate-600" />
-      <span className="whitespace-nowrap">No sequence yet</span>
-      <Tip text="Not built yet: per-category sequences are a future step." align="right" className="ml-auto">
-        <span
-          role="button"
-          aria-disabled="true"
-          className="cursor-not-allowed whitespace-nowrap rounded border border-dashed border-slate-700 px-1.5 py-px text-slate-600"
-        >
-          + add sequence
-        </span>
-      </Tip>
-    </div>
+    <Tip text="Not built yet: per-category sequences are a future step.">
+      <span
+        role="button"
+        aria-disabled="true"
+        className="cursor-not-allowed whitespace-nowrap rounded border border-dashed border-slate-700 px-1.5 py-0.5 text-[11px] text-slate-500"
+      >
+        + Add sequence
+      </span>
+    </Tip>
   );
 }
 
@@ -479,36 +531,20 @@ function EveryoneCard({
     <div className="flex flex-col gap-2 rounded-md border border-slate-700 bg-slate-900/80 p-2.5">
       <div className="flex items-start justify-between gap-2">
         <div className="font-semibold leading-tight text-slate-100">
-          Everyone <span className="text-sm font-normal text-slate-400">· {fmt(e.total)} people</span>{" "}
-          <TagPill tag={e.tag} />
+          Everyone <span className="text-sm font-normal text-slate-400">· {fmt(e.total)} people</span>
         </div>
         <NoteButton has={!!note} onClick={() => setEditing(true)} />
       </div>
 
       <div className="grid grid-cols-3 gap-1">
-        <StateStat label="Up next" help={STATE_HELP.upNext} n={st.upNext} onClick={people("upNext")} big />
-        <StateStat label="Just emailed" help={STATE_HELP.justEmailed} n={st.justEmailed} onClick={people("justEmailed")} big />
-        <StateStat label="Resting" help={STATE_HELP.resting} n={st.resting} onClick={people("resting")} big align="right" />
+        <StateStat label={STATE_LABEL.upNext} help={stateHelp("upNext", cadence)} n={st.upNext} onClick={people("upNext")} big />
+        <StateStat label={STATE_LABEL.emailed} help={stateHelp("emailed", cadence)} n={st.emailed} onClick={people("emailed")} big />
+        <StateStat label={STATE_LABEL.held} help={stateHelp("held", cadence)} n={st.held} onClick={people("held")} big align="right" />
       </div>
 
-      {e.heldReasons.length ? (
-        <div className="space-y-0.5 border-l border-slate-700 pl-2">
-          {e.heldReasons.map((r) => (
-            <button
-              key={r.why}
-              type="button"
-              onClick={people("held")}
-              className="block text-left text-[11px] leading-snug text-slate-400 hover:text-slate-200"
-            >
-              <span className="font-medium tabular-nums text-slate-200">{fmt(r.n)} held</span>: {r.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {e.upNextSplit ? (
+      {tier.key === "cold" && st.upNext > 0 ? (
         <div className="text-[11px] text-slate-500">
-          Up next: {e.upNextSplit.map((q) => `${fmt(q.n)} ${q.label}`).join(" · ")}
+          Up next: {fmt(st.upNext - e.n.needsReveal)} have an email · {fmt(e.n.needsReveal)} need an Apollo email reveal
         </div>
       ) : null}
 
@@ -540,10 +576,47 @@ function EveryoneCard({
 
       <Unaccounted n={st.unaccounted} />
       <div className="flex items-center justify-between gap-2 border-t border-slate-800 pt-1.5">
-        <SequenceDots tier={tier} onClick={() => open({ kind: "sequence", tier })} />
+        <SequenceControl
+          sequence={tier.sequence}
+          onOpen={() =>
+            open({
+              kind: "sequence",
+              title: `${tier.label} · Everyone · sequence`,
+              sequence: tier.sequence,
+              openLabel: tier.key === "cold" ? "Open in Apollo" : "Open the template",
+            })
+          }
+        />
       </div>
       <NoteArea note={note} editing={editing} setEditing={setEditing} save={saveNote} />
     </div>
+  );
+}
+
+function MiniStat({
+  n,
+  label,
+  help,
+  onClick,
+  align,
+}: {
+  n: number;
+  label: string;
+  help: string;
+  onClick: () => void;
+  align?: "left" | "right";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-w-0 flex-col items-start justify-start rounded px-1 py-0.5 text-left hover:bg-slate-800"
+    >
+      <div className="text-base font-semibold tabular-nums leading-tight text-slate-100">{fmt(n)}</div>
+      <Tip text={help} align={align}>
+        <span className="border-b border-dotted border-slate-600 text-[10px] leading-tight text-slate-400">{label}</span>
+      </Tip>
+    </button>
   );
 }
 
@@ -572,29 +645,25 @@ function CategoryCard({
         <div className="min-w-0 text-sm font-medium leading-tight text-slate-100">{cat.label}</div>
         <NoteButton has={!!note} onClick={() => setEditing(true)} />
       </div>
-      <div className="flex flex-wrap items-baseline gap-x-1.5">
-        <button type="button" onClick={people("upNext")} className="rounded px-0.5 text-left hover:bg-slate-800">
-          <span className="text-xl font-semibold tabular-nums text-slate-100">{fmt(st.upNext)}</span>
-        </button>
-        <Tip text={STATE_HELP.upNext}>
-          <span className="whitespace-nowrap border-b border-dotted border-slate-600 text-[11px] text-slate-400">up next</span>
-        </Tip>
-        <span className="ml-auto whitespace-nowrap text-[11px] tabular-nums text-slate-500">
-          of {fmt(cat.total)} <TagPill tag={cat.tag} />
-        </span>
-      </div>
-      <div className="flex flex-wrap gap-x-2 text-[11px] text-slate-400">
-        <button type="button" onClick={people("justEmailed")} className="hover:text-slate-200">
-          <span className="tabular-nums text-slate-300">{fmt(st.justEmailed)}</span> just emailed
-        </button>
-        <button type="button" onClick={people("resting")} className="hover:text-slate-200">
-          <span className="tabular-nums text-slate-300">{fmt(st.resting)}</span> resting
-          {st.held ? <span className="text-slate-500"> ({fmt(st.held)} held)</span> : null}
-        </button>
+      <div className="grid grid-cols-3 gap-0.5">
+        <MiniStat n={st.upNext} label="up next" help={stateHelp("upNext", cadence)} onClick={people("upNext")} />
+        <MiniStat n={st.emailed} label="emailed this period" help={stateHelp("emailed", cadence)} onClick={people("emailed")} />
+        <MiniStat n={st.held} label="held" help={stateHelp("held", cadence)} onClick={people("held")} align="right" />
       </div>
       <Unaccounted n={st.unaccounted} />
       <div className="mt-auto pt-0.5">
-        <NoSequence />
+        <SequenceControl
+          sequence={cat.sequence}
+          onOpen={() =>
+            cat.sequence &&
+            open({
+              kind: "sequence",
+              title: `${tier.label} · ${cat.label} · sequence`,
+              sequence: cat.sequence,
+              openLabel: "Open the sequence",
+            })
+          }
+        />
       </div>
       <NoteArea note={note} editing={editing} setEditing={setEditing} save={saveNote} />
     </div>
@@ -779,11 +848,14 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
             <li key={n}>{n}</li>
           ))}
           <li>
-            Up next: never emailed in this tier, or due again at the tier&apos;s cadence. Just emailed: emailed in the
-            last {JUST_EMAILED_DAYS} days. Resting: emailed and not due yet. Held people are part of Resting.
-            Everything is a single email today.
+            A tier&apos;s period is its &ldquo;Reach everyone&rdquo; cadence. Up next: not emailed this period. Emailed
+            this period: last emailed inside it. Held: Yahoo/Microsoft addresses, deliberately not sent to until warm
+            mailboxes are ready. Everyone else is in exactly one of the three. Everything is a single email today.
           </li>
-          <li>Changing a tier&apos;s cadence moves people between Up next and Resting and changes what is needed.</li>
+          <li>
+            People talked to since May are in Up next, at the bottom of the list: lowest priority, still emailed.
+          </li>
+          <li>Changing a tier&apos;s cadence moves people between Up next and Emailed and changes what is needed.</li>
         </ul>
       </details>
 
@@ -796,7 +868,7 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
       {drill?.kind === "people" ? (
         <PeopleModal drill={drill} onClose={close} setState={(s) => setDrill({ ...drill, state: s })} />
       ) : null}
-      {drill?.kind === "sequence" ? <SequenceModal tier={drill.tier} onClose={close} /> : null}
+      {drill?.kind === "sequence" ? <SequenceModal drill={drill} onClose={close} /> : null}
     </div>
   );
 }
