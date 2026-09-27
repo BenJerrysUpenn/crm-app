@@ -91,3 +91,56 @@ export async function findDuplicates(
     skipped: false,
   };
 }
+
+type DealDetailRow = {
+  id: number;
+  contact_first_name: string | null;
+  contact_last_name: string | null;
+  venue_name: string | null;
+  venue_address: string | null;
+  updated_at: string | null;
+  created_at: string | null;
+};
+
+/** The deal columns autofill needs that the RPC does not return. */
+export const DEAL_DETAIL_COLUMNS =
+  "id, contact_first_name, contact_last_name, venue_name, venue_address, updated_at, created_at";
+
+/** Attach what the New deal form can autofill from to each matched deal:
+ *  first and last name separately, venue name and address, and how recent
+ *  the row is.
+ *
+ *  A second read by id rather than a wider RPC, so no migration is needed.
+ *  It runs as the signed-in user, so the manager RLS policy on `deals` guards
+ *  it exactly as it guards the RPC (SECURITY INVOKER): nobody sees a column
+ *  here they could not already read. Best effort — if the read fails the
+ *  matches go back as they came, and autofill falls back to the joined name. */
+export async function attachDealDetails(
+  supabase: SupabaseClient,
+  matches: DedupeMatch[],
+): Promise<DedupeMatch[]> {
+  const ids = matches.filter((m) => m.kind === "deal").map((m) => m.id);
+  if (ids.length === 0) return matches;
+
+  const { data, error } = await supabase
+    .from("deals")
+    .select(DEAL_DETAIL_COLUMNS)
+    .in("id", ids);
+  if (error || !data) return matches;
+
+  const byId = new Map(
+    (data as unknown as DealDetailRow[]).map((row) => [Number(row.id), row]),
+  );
+  return matches.map((m) => {
+    const row = m.kind === "deal" ? byId.get(m.id) : undefined;
+    if (!row) return m;
+    return {
+      ...m,
+      first_name: row.contact_first_name,
+      last_name: row.contact_last_name,
+      venue_name: row.venue_name,
+      venue_address: row.venue_address,
+      touched_at: row.updated_at ?? row.created_at,
+    };
+  });
+}
