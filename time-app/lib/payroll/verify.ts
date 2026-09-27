@@ -383,7 +383,7 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "1.12": {
     title: "Catering event under-punched",
-    rule: "deals.staff_count vs punched Catering shifts",
+    rule: "deals.staff_count vs punched Catering shifts. Crew requires a punch: a person scheduled on the event who did not punch for it is not crew, and is listed by name; never a block (ruled 2026-09-27).",
   },
   "1.13": {
     title: "Deleted rows",
@@ -400,7 +400,7 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "3.5": {
     title: "Crewless catering event",
-    rule: "deal shift unassigned + nobody punched → a staff picker on the event, default Sophia (ruled 2026-09-22). Flag a crewless tip paid to the person who submits the run. Upstream: the event needs its Catering shift added.",
+    rule: "deal shift unassigned + nobody punched → a staff picker on the event, default Sophia (ruled 2026-09-22). Flag a crewless tip paid to the person who submits the run. Upstream: the event needs its Catering shift added. Crew = a punch on the event's Catering shift by shift_id, or a manual punch (no shift_id) by the scheduled person on the same date overlapping it; scheduled with no punch is not crew (ruled 2026-09-27).",
   },
   "3.7": {
     title: "No bake shift worked",
@@ -1179,53 +1179,157 @@ function defaultTipPayee(input: VerifyInput, profiles: Map<string, ProfileRow>):
   return p ? { id: p.id, name: nameOf(profiles, p.id) } : null;
 }
 
+// ---------------------------------------------------------------------------
+// Catering crew = a punch (Alina, 2026-09-27)
+// ---------------------------------------------------------------------------
+
+/** Who was on one catering event, and who was scheduled but never punched. */
+export type EventCrew = {
+  /** The event's Catering shifts that have a person on them. */
+  shifts: ShiftRow[];
+  /** Employee id → the punch ids that put them on the crew. */
+  crew: Map<string, number[]>;
+  /** Scheduled on the event with no punch for it. Not crew. */
+  unpunched: { employeeId: string; shiftIds: number[] }[];
+};
+
 /**
- * §3.5 — a catering event nobody is on.
+ * The event's Catering shifts: the ones linked to the deal by shifts.deal_id,
+ * or, when there are none, the Catering shifts on the event date. Only shifts
+ * with somebody on them. The same order of evidence the payroll sheet uses
+ * (bj-finance modules/tips.py event_crew), so the two agree on which shifts
+ * an event has.
+ */
+export function eventShifts(deal: DealRow, shifts: ShiftRow[]): ShiftRow[] {
+  const catering = shifts.filter((s) => (s.position ?? "").trim() === CATERING_POSITION && !!s.employee_id);
+  const linked = catering.filter((s) => s.deal_id === deal.id);
+  if (linked.length > 0) return linked;
+  const date = deal.event_date?.slice(0, 10) ?? "";
+  return date ? catering.filter((s) => nyWallClock(s.starts_at).date === date) : [];
+}
+
+/**
+ * Does a punch overlap a shift? A closed punch must share some time with it.
+ * An open punch has no end yet, so it counts when it clocked in during the
+ * shift.
+ */
+function punchOverlapsShift(p: PunchRow, s: ShiftRow): boolean {
+  const start = new Date(p.clock_in_at).getTime();
+  const from = new Date(s.starts_at).getTime();
+  const to = new Date(s.ends_at).getTime();
+  if (!p.clock_out_at) return start >= from && start < to;
+  return start < to && new Date(p.clock_out_at).getTime() > from;
+}
+
+/**
+ * An event's crew (ruled 2026-09-27, bj-finance #519): "if Sophia doesn't
+ * clock in when she's also helping on that catering event, that's on her. It
+ * needs to require a punch."
  *
- * A booked event in the window with no Catering shift that has a person on it,
- * either linked to the deal or on the event's date. Any catering tip on it
- * would otherwise go to nobody, so the event gets a staff picker, default
- * Sophia (ruled 2026-09-22). The same finding is the upstream warning: the
- * event should have its shift added so the next run pays it the normal way.
+ * A person is on the crew ONLY if they have a time_entries punch for it:
+ *   (a) a punch linked to one of the event's Catering shifts by shift_id, or
+ *   (b) a manual punch (blank position, no shift_id) by the person scheduled
+ *       on that shift, on the same date, that overlaps the shift.
+ * Scheduled with no punch is not crew. The payroll sheet in bj-finance applies
+ * this identical definition to the tip split; keep the two the same.
+ *
+ * Deliberately NOT the §1.10 cover ladder: a punch with no shift_id by
+ * somebody else is paid as a cover for its hours, but it was not a punch for
+ * the event.
+ */
+export function eventCrew(deal: DealRow, shifts: ShiftRow[], punches: PunchRow[]): EventCrew {
+  const own = eventShifts(deal, shifts);
+  const crew = new Map<string, number[]>();
+  const add = (employeeId: string, punchId: number) => {
+    const ids = crew.get(employeeId);
+    if (!ids) crew.set(employeeId, [punchId]);
+    else if (!ids.includes(punchId)) ids.push(punchId);
+  };
+  for (const p of [...punches].sort((a, b) => a.id - b.id)) {
+    for (const s of own) {
+      if (p.shift_id === s.id) {
+        add(p.employee_id, p.id);
+      } else if (
+        p.shift_id === null &&
+        p.employee_id === s.employee_id &&
+        nyWallClock(p.clock_in_at).date === nyWallClock(s.starts_at).date &&
+        punchOverlapsShift(p, s)
+      ) {
+        add(p.employee_id, p.id);
+      }
+    }
+  }
+  const unpunched: EventCrew["unpunched"] = [];
+  for (const s of own) {
+    const employeeId = s.employee_id!;
+    if (crew.has(employeeId)) continue;
+    const row = unpunched.find((u) => u.employeeId === employeeId);
+    if (row) row.shiftIds.push(s.id);
+    else unpunched.push({ employeeId, shiftIds: [s.id] });
+  }
+  return { shifts: own, crew, unpunched };
+}
+
+/**
+ * §3.5 — a catering event nobody punched for.
+ *
+ * A booked event in the window with no crew, where crew means a punch for the
+ * event (eventCrew, ruled 2026-09-27): somebody scheduled who never clocked in
+ * is not crew. Any catering tip on it would otherwise go to nobody, so the
+ * event gets a staff picker, default Sophia (ruled 2026-09-22). The same
+ * finding is the upstream warning: the event needs its Catering shift, or the
+ * people who worked it need their punches, so the next run pays it the normal
+ * way. Each scheduled person with no punch is also named on their own, as a
+ * 1.12 finding that never blocks (checkUnpunchedCrew).
  *
  * This app cannot see the tip itself (it arrives on a Square invoice), so it
  * asks about every crewless event; the payroll sheet applies the pick only to
  * an event that actually carries a tip.
  */
 function checkCrewlessEvents(input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
-  const { window } = input;
   const out: Finding[] = [];
   const candidates = staffCandidates(input, profiles);
   const defaultPayee = defaultTipPayee(input, profiles);
-  for (const deal of input.windowDeals ?? []) {
-    const date = deal.event_date?.slice(0, 10) ?? "";
-    if (!inWindow(date, window)) continue;
-    if (deal.stage && !(EVENT_DEAL_STAGES as readonly string[]).includes(deal.stage)) continue;
-    const crewed = input.shifts.some(
-      (s) =>
-        s.position === CATERING_POSITION &&
-        !!s.employee_id &&
-        (s.deal_id === deal.id || nyWallClock(s.starts_at).date === date),
-    );
-    if (crewed) continue;
+  for (const deal of eventDealsInWindow(input)) {
+    const date = deal.event_date!.slice(0, 10);
+    const crew = eventCrew(deal, input.shifts, input.punches);
+    if (crew.crew.size > 0) continue;
     const label = deal.company?.trim() || `deal ${deal.id}`;
+    const scheduled = crew.unpunched.map((u) => nameOf(profiles, u.employeeId)).sort((a, b) => a.localeCompare(b));
+    const summary =
+      crew.shifts.length === 0
+        ? `${formatDayLabel(date)} ${label}: no crew on the schedule. Add the event's Catering shift so it is paid the normal way; until then any catering tip on it goes to the person picked here.`
+        : `${formatDayLabel(date)} ${label}: nobody punched for it (scheduled: ${scheduled.join(", ")}). Scheduled without a punch is not crew; if they worked it, fix the punch and verify again. Until then any catering tip on it goes to the person picked here.`;
     out.push(
       finding("3.5", {
         key: `3.5:deal:${deal.id}`,
         status: "needs_ruling",
         severity: "warn",
-        summary: `${formatDayLabel(date)} ${label}: no crew on the schedule. Add the event's Catering shift so it is paid the normal way; until then any catering tip on it goes to the person picked here.`,
+        summary,
         defaultChoice: "staff",
         options: [
           { choice: "staff", label: "Pay this person", effect: "The event's catering tip, if it has one, is paid to them." },
         ],
         candidates,
         defaultPayee,
-        evidence: { date, deal_id: deal.id },
+        evidence: {
+          date,
+          deal_id: deal.id,
+          shift_ids: crew.shifts.length > 0 ? crew.shifts.map((sh) => sh.id) : undefined,
+        },
       }),
     );
   }
   return out;
+}
+
+/** §3.5 — booked events (by stage) whose event date falls in the window. */
+function eventDealsInWindow(input: VerifyInput): DealRow[] {
+  return (input.windowDeals ?? []).filter((deal) => {
+    const date = deal.event_date?.slice(0, 10) ?? "";
+    if (!inWindow(date, input.window)) return false;
+    return !deal.stage || (EVENT_DEAL_STAGES as readonly string[]).includes(deal.stage);
+  });
 }
 
 /**
@@ -1398,33 +1502,31 @@ function checkCateringWithoutDeal(shifts: ShiftRow[], window: PayWindow, profile
   return out;
 }
 
-/** §1.12 — deals.staff_count against who actually punched the event. */
-function checkCateringUnderPunched(views: PunchView[], shifts: ShiftRow[], window: PayWindow, deals: DealRow[]): Finding[] {
-  if (deals.length === 0) return [];
-  const dealById = new Map(deals.map((d) => [d.id, d]));
-
-  // Who punched against each deal, via the shift each punch was matched to.
-  const punchedByDeal = new Map<number, Set<string>>();
-  for (const v of views) {
-    const dealId = v.shift?.deal_id;
-    if (dealId == null) continue;
-    const set = punchedByDeal.get(dealId);
-    if (set) set.add(v.employeeId);
-    else punchedByDeal.set(dealId, new Set([v.employeeId]));
-  }
-
-  const dealsInWindow = new Set<number>();
+/** The deals the window's shifts point at (§1.12), in id order. */
+function linkedDealIdsInWindow(shifts: ShiftRow[], window: PayWindow): number[] {
+  const ids = new Set<number>();
   for (const shift of shifts) {
     if (shift.deal_id == null) continue;
     if (!inWindow(nyWallClock(shift.starts_at).date, window)) continue;
-    dealsInWindow.add(shift.deal_id);
+    ids.add(shift.deal_id);
   }
+  return [...ids].sort((a, b) => a - b);
+}
 
+/**
+ * §1.12 — deals.staff_count against who actually punched the event. "Punched"
+ * is the crew definition (eventCrew, ruled 2026-09-27), so a scheduled person
+ * with no punch for the event does not count, and neither does a cover punch
+ * that merely overlapped it.
+ */
+function checkCateringUnderPunched(input: VerifyInput, deals: DealRow[]): Finding[] {
+  if (deals.length === 0) return [];
+  const dealById = new Map(deals.map((d) => [d.id, d]));
   const out: Finding[] = [];
-  for (const dealId of [...dealsInWindow].sort((a, b) => a - b)) {
+  for (const dealId of linkedDealIdsInWindow(input.shifts, input.window)) {
     const deal = dealById.get(dealId);
     if (!deal || !deal.staff_count || deal.staff_count <= 0) continue;
-    const punched = punchedByDeal.get(dealId)?.size ?? 0;
+    const punched = eventCrew(deal, input.shifts, input.punches).crew.size;
     if (punched >= deal.staff_count) continue;
     out.push(
       finding("1.12", {
@@ -1437,6 +1539,52 @@ function checkCateringUnderPunched(views: PunchView[], shifts: ShiftRow[], windo
         evidence: { deal_id: dealId, date: deal.event_date ?? undefined },
       }),
     );
+  }
+  return out;
+}
+
+/**
+ * §1.12 — each person scheduled on a catering event who did not punch for it
+ * (ruled 2026-09-27). Not crew, so no share of the event's tip; reported by
+ * name and never blocking. Covers every event this run looks at: the booked
+ * events dated in the window (§3.5) and the deals the window's shifts point at.
+ */
+function checkUnpunchedCrew(input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
+  const events = new Map<number, DealRow>();
+  for (const deal of eventDealsInWindow(input)) events.set(deal.id, deal);
+  const linked = new Set(linkedDealIdsInWindow(input.shifts, input.window));
+  for (const deal of input.deals ?? []) {
+    if (linked.has(deal.id) && !events.has(deal.id)) events.set(deal.id, deal);
+  }
+
+  const out: Finding[] = [];
+  for (const deal of [...events.values()].sort((a, b) => a.id - b.id)) {
+    const crew = eventCrew(deal, input.shifts, input.punches);
+    const label = deal.company?.trim() || `deal ${deal.id}`;
+    const people = crew.unpunched
+      .map((u) => ({ ...u, name: nameOf(profiles, u.employeeId) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const u of people) {
+      const first = crew.shifts.find((sh) => sh.id === u.shiftIds[0])!;
+      const date = deal.event_date?.slice(0, 10) || nyWallClock(first.starts_at).date;
+      out.push(
+        finding("1.12", {
+          key: `1.12:unpunched:deal:${deal.id}:${u.employeeId}`,
+          status: "auto_resolved",
+          severity: "warn",
+          summary: `${u.name} was scheduled on ${label} ${formatDayLabel(date)} and did not punch for it, so is not on its crew.`,
+          resolution:
+            "Reported, not blocking (ruled 2026-09-27: crew requires a punch). No hours and no share of the event's tip. If they worked it, add or fix their punch on the Timesheets page and verify again.",
+          evidence: {
+            employee_id: u.employeeId,
+            employee_name: u.name,
+            date,
+            deal_id: deal.id,
+            shift_ids: u.shiftIds,
+          },
+        }),
+      );
+    }
   }
   return out;
 }
@@ -1705,7 +1853,8 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
     ...checkClosingPunch(views, input, profiles),
     ...checkCoverPunches(views, window),
     ...checkCateringWithoutDeal(input.shifts, window, profiles),
-    ...checkCateringUnderPunched(views, input.shifts, window, input.deals ?? []),
+    ...checkCateringUnderPunched(input, input.deals ?? []),
+    ...checkUnpunchedCrew(input, profiles),
     ...checkDeletedRows(input, profiles),
     ...checkNameHygiene(input.profiles),
     ...checkChangesAfterSubmittal(input, profiles),

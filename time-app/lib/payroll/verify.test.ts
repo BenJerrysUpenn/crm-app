@@ -19,6 +19,7 @@ import {
   RULING_CHOICES,
   caseDate,
   choicePays,
+  eventCrew,
   lockingWindow,
   sameNameWords,
   verifyTimesheets,
@@ -959,6 +960,42 @@ test("1.12: a fully punched event says nothing", () => {
   assert.deepEqual(only(result.findings, "1.12"), []);
 });
 
+test("1.12: crew punched counts punches, not the schedule; a manual overlapping punch counts (ruled 2026-09-27)", () => {
+  const deal: DealRow = { id: 25390, event_date: "2026-09-19", staff_count: 2, company: "NAKASEC" };
+  const carliShift = shift({ employee_id: CARLI, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
+  const coleShift = shift({ employee_id: COLE, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
+  const result = run({
+    deals: [deal],
+    shifts: [carliShift, coleShift],
+    punches: [
+      // Carli forgot to pick the shift and punched by hand, during it.
+      punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-19", "16:05"), clock_out_at: at("2026-09-19", "21:00") }),
+    ],
+  });
+  const found = only(result.findings, "1.12");
+  assert.deepEqual(found.map((f) => f.key), ["1.12:deal:25390", `1.12:unpunched:deal:25390:${COLE}`]);
+  assert.match(found[0].summary, /1 of 2 crew punched/);
+  assert.match(found[1].summary, /McCullough, Cole/);
+  assert.match(found[1].summary, /NAKASEC/);
+  assert.ok(found.every((f) => f.status === "auto_resolved"));
+});
+
+test("1.12: a cover punch with no shift_id is not crew for the event it happened to overlap", () => {
+  // Joey was scheduled and did not come; Carli punched by hand during his
+  // hours. The cover ladder (1.10) pays her hours, but she did not punch FOR
+  // the event, so she is not its crew.
+  const deal: DealRow = { id: 25391, event_date: "2026-09-19", staff_count: 1, company: "Wharton" };
+  const joeyShift = shift({ employee_id: JOEY, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
+  const result = run({
+    deals: [deal],
+    shifts: [joeyShift],
+    punches: [punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-19", "16:00"), clock_out_at: at("2026-09-19", "21:00") })],
+  });
+  const found = only(result.findings, "1.12");
+  assert.match(found[0].summary, /0 of 1 crew punched/);
+  assert.equal(found[1].key, `1.12:unpunched:deal:25391:${JOEY}`);
+});
+
 // --- §1.13 deleted rows -----------------------------------------------------
 
 test("1.13: no audit table blocks the button — 'nothing deleted' and 'we cannot see' are not the same answer", () => {
@@ -1300,23 +1337,126 @@ test("3.5: a booked event with nobody on it gets a picker, default Sophia, and t
   assert.equal(result.ready, true, "the default stands on its own");
 });
 
-test("3.5: a Catering shift linked to the deal, or on the event date, is a crew", () => {
-  const linked = shift({
-    employee_id: CARLI,
-    starts_at: at("2026-09-08", "15:00"),
-    ends_at: at("2026-09-08", "18:00"),
-    position: "Catering",
-    deal_id: 25100,
-  });
-  const sameDay = shift({
+// --- §3.5 crew = a punch (Alina, 2026-09-27) --------------------------------
+//
+// "if Sophia doesn't clock in when she's also helping on that catering event,
+// that's on her. It needs to require a punch." A person is on an event's crew
+// only if they punched for it: a punch on the event's Catering shift by
+// shift_id, or a manual punch (no shift_id) by the scheduled person on the same
+// date that overlaps the shift. Scheduled without a punch is not crew.
+
+/** PwC's Catering shift, 2026-09-09 15:00-18:00, Carli scheduled. */
+function pwcShift(over: Partial<ShiftRow> = {}): ShiftRow {
+  return shift({
     employee_id: CARLI,
     starts_at: at("2026-09-09", "15:00"),
     ends_at: at("2026-09-09", "18:00"),
     position: "Catering",
-    deal_id: 99999,
+    deal_id: 25100,
+    ...over,
   });
-  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [linked] }).findings, "3.5"), []);
-  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [sameDay] }).findings, "3.5"), []);
+}
+
+test("3.5: a punch on the event's Catering shift by shift_id makes a crew", () => {
+  const s = pwcShift();
+  const p = punch({ employee_id: CARLI, shift_id: s.id, clock_in_at: at("2026-09-09", "15:02"), clock_out_at: at("2026-09-09", "18:00") });
+  const result = run({ windowDeals: [PWC], shifts: [s], punches: [p] });
+  assert.deepEqual(only(result.findings, "3.5"), []);
+  assert.deepEqual(only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched")), []);
+  const crew = eventCrew(PWC, [s], [p]);
+  assert.deepEqual([...crew.crew.keys()], [CARLI]);
+  assert.deepEqual(crew.crew.get(CARLI), [p.id]);
+});
+
+test("3.5: a manual punch (no shift_id) by the scheduled person, same date, overlapping the shift, makes a crew", () => {
+  const s = pwcShift();
+  const manual = punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-09", "16:30"), clock_out_at: at("2026-09-09", "19:00") });
+  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [s], punches: [manual] }).findings, "3.5"), []);
+});
+
+test("3.5: an open manual punch that clocked in during the shift makes a crew", () => {
+  const s = pwcShift();
+  const open = punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-09", "15:10"), clock_out_at: null });
+  assert.deepEqual([...eventCrew(PWC, [s], [open]).crew.keys()], [CARLI]);
+});
+
+test("3.5: scheduled on the event with no punch is not crew: crewless, and the person is named (ruled 2026-09-27)", () => {
+  // Sophia is scheduled on the event and never clocks in.
+  const s = pwcShift({ employee_id: SOPHIA });
+  const result = run({ windowDeals: [PWC], shifts: [s] });
+  const f = only(result.findings, "3.5")[0];
+  assert.equal(f.key, "3.5:deal:25100");
+  assert.equal(f.status, "needs_ruling");
+  assert.equal(f.defaultChoice, "staff");
+  assert.deepEqual(f.defaultPayee, { id: SOPHIA, name: "Malmgren, Sophia" });
+  assert.match(f.summary, /nobody punched/);
+  assert.match(f.summary, /Malmgren, Sophia/);
+
+  const unpunched = only(result.findings, "1.12").filter((x) => x.key.startsWith("1.12:unpunched"));
+  assert.equal(unpunched.length, 1);
+  assert.equal(unpunched[0].key, `1.12:unpunched:deal:25100:${SOPHIA}`);
+  assert.equal(unpunched[0].status, "auto_resolved", "never blocks");
+  assert.match(unpunched[0].summary, /Malmgren, Sophia/);
+  assert.match(unpunched[0].summary, /PwC/);
+  assert.equal(unpunched[0].evidence.employee_id, SOPHIA);
+  assert.equal(unpunched[0].evidence.deal_id, 25100);
+  assert.deepEqual(unpunched[0].evidence.shift_ids, [s.id]);
+  assert.equal(result.ready, true, "the default stands and the finding does not block");
+});
+
+test("3.5: a manual punch by the scheduled person that does not overlap the shift is not crew", () => {
+  // Carli worked the counter that morning; the event was the afternoon.
+  const s = pwcShift();
+  const morning = punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-09", "09:00"), clock_out_at: at("2026-09-09", "15:00") });
+  const result = run({ windowDeals: [PWC], shifts: [s], punches: [morning] });
+  assert.equal(only(result.findings, "3.5").length, 1);
+  assert.equal(only(result.findings, "1.12").filter((f) => f.key === `1.12:unpunched:deal:25100:${CARLI}`).length, 1);
+});
+
+test("3.5: a manual punch on another date, or by somebody not scheduled, is not crew", () => {
+  const s = pwcShift();
+  const dayBefore = punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-08", "15:00"), clock_out_at: at("2026-09-08", "18:00") });
+  const stranger = punch({ employee_id: COLE, shift_id: null, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
+  assert.equal(eventCrew(PWC, [s], [dayBefore, stranger]).crew.size, 0);
+});
+
+test("3.5: a punch with a shift_id for some other shift is not a manual punch", () => {
+  const s = pwcShift();
+  const counter = shift({ employee_id: CARLI, starts_at: at("2026-09-09", "14:00"), ends_at: at("2026-09-09", "17:00"), position: "PENN Opener" });
+  const p = punch({ employee_id: CARLI, shift_id: counter.id, clock_in_at: at("2026-09-09", "14:00"), clock_out_at: at("2026-09-09", "17:00") });
+  assert.equal(eventCrew(PWC, [s, counter], [p]).crew.size, 0);
+});
+
+test("3.5: somebody who punched the event's shift by shift_id is crew; the scheduled person who did not is named", () => {
+  const s = pwcShift({ employee_id: SOPHIA });
+  const cover = punch({ employee_id: CARLI, shift_id: s.id, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
+  const result = run({ windowDeals: [PWC], shifts: [s], punches: [cover] });
+  assert.deepEqual(only(result.findings, "3.5"), []);
+  assert.deepEqual(
+    only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched")).map((f) => f.key),
+    [`1.12:unpunched:deal:25100:${SOPHIA}`],
+  );
+});
+
+test("3.5: the event's shifts are the ones linked to the deal; failing that, Catering shifts on the event date", () => {
+  // Linked, on a different day from the event: still the event's shift.
+  const linked = pwcShift({ starts_at: at("2026-09-08", "15:00"), ends_at: at("2026-09-08", "18:00") });
+  const linkedPunch = punch({ employee_id: CARLI, shift_id: linked.id, clock_in_at: at("2026-09-08", "15:00"), clock_out_at: at("2026-09-08", "18:00") });
+  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [linked], punches: [linkedPunch] }).findings, "3.5"), []);
+
+  // No linked shift: a Catering shift on the event date stands in (as the
+  // payroll sheet's tips.event_crew does), but only once somebody punches it.
+  const sameDay = pwcShift({ deal_id: null });
+  const sameDayPunch = punch({ employee_id: CARLI, shift_id: sameDay.id, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
+  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [sameDay], punches: [sameDayPunch] }).findings, "3.5"), []);
+  assert.equal(only(run({ windowDeals: [PWC], shifts: [sameDay] }).findings, "3.5").length, 1);
+
+  // A linked shift exists: a same-day shift for something else is not this event's.
+  const other = pwcShift({ employee_id: COLE, deal_id: null });
+  const otherPunch = punch({ employee_id: COLE, shift_id: other.id, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
+  const crew = eventCrew(PWC, [pwcShift(), other], [otherPunch]);
+  assert.equal(crew.crew.size, 0);
+  assert.deepEqual(crew.unpunched.map((u) => u.employeeId), [CARLI]);
 });
 
 test("3.5: an unassigned Catering shift is not a crew", () => {
