@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 import {
   currentPayWindow,
-  firstApprovalDay,
+  firstSubmittalDay,
   mostRecentSunday,
   periodEnded,
   payWeeks,
@@ -80,11 +80,11 @@ test("2.3: the fortnight splits into two Monday-to-Sunday weeks, never summed fo
   ]);
 });
 
-test("a period has ended only after its Sunday, so a run is approvable from the Monday", () => {
+test("a period has ended only after its Sunday, so a run is submittable from the Monday", () => {
   const w = currentPayWindow("2026-09-21");
   assert.equal(w.end, "2026-09-20");
   assert.equal(periodEnded(w, "2026-09-19"), false);
   assert.equal(periodEnded(w, "2026-09-20"), false);
   assert.equal(periodEnded(w, "2026-09-21"), true);
-  assert.equal(firstApprovalDay(w), "2026-09-21");
+  assert.equal(firstSubmittalDay(w), "2026-09-21");
 });

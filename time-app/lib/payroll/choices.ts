@@ -1,9 +1,9 @@
-// Per-case payroll choices and the one run approval (bj-finance #519, ruled
+// Per-case payroll choices and the one run submittal (bj-finance #519, ruled
 // 2026-09-22). Pure and dependency-free so `node --test` runs it, and the
-// rulings route, the approve route and the UI all apply the same rules.
+// rulings route, the submit route and the UI all apply the same rules.
 
-import { RULING_CHOICES, choicePays, type ApprovalRow, type Finding, type VerifyResult } from "./verify.ts";
-import { firstApprovalDay, periodEnded } from "./window.ts";
+import { RULING_CHOICES, choicePays, type SubmittalRow, type Finding, type VerifyResult } from "./verify.ts";
+import { firstSubmittalDay, periodEnded } from "./window.ts";
 
 /** A payee as the route found it in `profiles`, or null if the id is unknown. */
 export type PayeeProfile = { id: string; role: string | null; active: boolean } | null;
@@ -31,7 +31,7 @@ export function validateChoice(check: string, choice: string, payeeId: string | 
   return null;
 }
 
-/** One case as it stood when the run was approved. Stored on the approval. */
+/** One case as it stood when the run was submitted. Stored on the submittal. */
 export type SnapshotEntry = {
   key: string;
   check: string;
@@ -41,8 +41,8 @@ export type SnapshotEntry = {
   source: "recorded" | "default";
 };
 
-/** Every case with an effective choice, for the approval's record. */
-export function approvalSnapshot(findings: Finding[]): SnapshotEntry[] {
+/** Every case with an effective choice, for the submittal's record. */
+export function submittalSnapshot(findings: Finding[]): SnapshotEntry[] {
   return findings
     .filter((f) => f.status === "needs_ruling")
     .map((f) => {
@@ -59,26 +59,26 @@ export function approvalSnapshot(findings: Finding[]): SnapshotEntry[] {
 }
 
 /**
- * Why this run cannot be approved, or null when it can.
+ * Why this run cannot be submitted, or null when it can.
  *
- * "Any manager can approve" (ruled 2026-09-22): the only conditions are the
- * data's and the calendar's, never who is asking. Approval is FINAL — it
- * starts payroll — so a run is approved once, only after its period has
+ * "Any manager can submit" (ruled 2026-09-22): the only conditions are the
+ * data's and the calendar's, never who is asking. Submittal is FINAL and
+ * cannot be undone, so a run is submitted once, only after its period has
  * ended, and never over a run that shares its days. Migration 27's trigger
  * refuses the same things in the database.
  */
-export function approvalBlocker(
-  result: Pick<VerifyResult, "ready" | "counts" | "window" | "approval"> & { findings?: Finding[] },
-  approvalsReady: boolean,
+export function submittalBlocker(
+  result: Pick<VerifyResult, "ready" | "counts" | "window" | "submittal"> & { findings?: Finding[] },
+  submittalsReady: boolean,
   today: string,
-  otherApprovals: Pick<ApprovalRow, "window_end">[] = [],
+  otherSubmittals: Pick<SubmittalRow, "window_end">[] = [],
 ): string | null {
-  if (!approvalsReady) return "Approvals need migration 27. Run it in Supabase first.";
-  if (result.approval) return "This pay run is already approved. Approval is final.";
+  if (!submittalsReady) return "Submittals need migration 27. Run it in Supabase first.";
+  if (result.submittal) return "This pay run is already submitted. Submittal is final.";
   if (!periodEnded(result.window, today))
-    return `The pay period ends ${result.window.end}. It can be approved from ${firstApprovalDay(result.window)}.`;
-  const overlap = otherApprovals.find((a) => a.window_end);
-  if (overlap) return `The pay run ending ${overlap.window_end} is already approved and shares days with this one.`;
+    return `The pay period ends ${result.window.end}. It can be submitted from ${firstSubmittalDay(result.window)}.`;
+  const overlap = otherSubmittals.find((a) => a.window_end);
+  if (overlap) return `The pay run ending ${overlap.window_end} is already submitted and shares days with this one.`;
   const punches = punchesToCorrect(result.findings ?? []);
   if (punches.length > 0)
     return `Correct ${punches.length === 1 ? "this punch" : `these ${punches.length} punches`} on the Timesheets page first. They have no default (ruled 2026-09-22): ${punches.map(describePunchFix).join("; ")}.`;
@@ -103,9 +103,9 @@ function describePunchFix(f: Finding): string {
   return `${f.check} ${what}: ${who}${punch ? ` (punch ${punch})` : ""}`;
 }
 
-/** "Approving this run would pay you": the §3.5/§3.7 flag, before it happens. */
-export function paysApprover(findings: Finding[], approverId: string): Finding[] {
+/** "Submitting this run would pay you": the §3.5/§3.7 flag, before it happens. */
+export function paysSubmitter(findings: Finding[], submitterId: string): Finding[] {
   return findings.filter(
-    (f) => (f.check === "3.5" || f.check === "3.7") && f.effective?.payee?.id === approverId,
+    (f) => (f.check === "3.5" || f.check === "3.7") && f.effective?.payee?.id === submitterId,
   );
 }

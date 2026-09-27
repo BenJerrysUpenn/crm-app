@@ -1,7 +1,7 @@
 // Loads everything the §1 rulebook needs for one pay window and runs it.
 //
 // Shared by GET /api/payroll/verify (the Finance tab and the schedule's
-// solo-close dropdowns) and POST /api/payroll/approve, so the approval is
+// solo-close dropdowns) and POST /api/payroll/submit, so the submittal is
 // checked against exactly the result a manager was looking at. Server-only:
 // it takes the request's Supabase client, so every read runs under the
 // manager's own RLS. Read-only.
@@ -11,7 +11,7 @@ import { isMissingTable, isMissingInStoreColumn } from "@/lib/storeHours";
 import {
   EVENT_DEAL_STAGES,
   verifyTimesheets,
-  type ApprovalRow,
+  type SubmittalRow,
   type AuditRow,
   type DealRow,
   type ProfileRow,
@@ -33,11 +33,11 @@ const DELETE_LOOKBACK_DAYS = 120;
 type Supabase = ReturnType<typeof createClient>;
 
 export type LoadedVerify = VerifyResult & {
-  migrations: { storeHours: boolean; rulings: boolean; approvals: boolean };
-  /** Today in New York, as the server saw it: the approval gate's calendar. */
+  migrations: { storeHours: boolean; rulings: boolean; submittals: boolean };
+  /** Today in New York, as the server saw it: the submittal gate's calendar. */
   today: string;
-  /** Approved runs of OTHER windows that share days with this one. */
-  otherApprovals: ApprovalRow[];
+  /** Submitted runs of OTHER windows that share days with this one. */
+  otherSubmittals: SubmittalRow[];
 };
 
 export async function loadVerify(
@@ -72,13 +72,13 @@ export async function loadVerify(
   }
 
   const shifts = (shiftsRes.data ?? []) as ShiftRow[];
-  const [shiftTypes, storeHours, deals, windowDeals, auditDeletes, approval, unmatchedTips] = await Promise.all([
+  const [shiftTypes, storeHours, deals, windowDeals, auditDeletes, submittal, unmatchedTips] = await Promise.all([
     loadShiftTypes(supabase),
     loadStoreHours(supabase, window),
     loadDeals(supabase, shifts),
     loadWindowDeals(supabase, window),
     loadAuditDeletes(supabase, window),
-    loadApprovals(supabase, window),
+    loadSubmittals(supabase, window),
     loadUnmatchedTips(supabase),
   ]);
 
@@ -96,8 +96,8 @@ export async function loadVerify(
     deals,
     windowDeals,
     auditDeletes,
-    approval: approval.row,
-    otherApprovals: approval.others,
+    submittal: submittal.row,
+    otherSubmittals: submittal.others,
     unmatchedTips,
   };
 
@@ -118,9 +118,9 @@ export async function loadVerify(
       // What the page needs to explain itself when a migration is behind the
       // deploy. The audit case is not reported here: it is a finding (1.13),
       // because an unverifiable window is a result, not a UI state.
-      migrations: { storeHours: storeHours.ready, rulings: rulings.ready, approvals: approval.ready },
+      migrations: { storeHours: storeHours.ready, rulings: rulings.ready, submittals: submittal.ready },
       today,
-      otherApprovals: approval.others,
+      otherSubmittals: submittal.others,
     },
   };
 }
@@ -295,24 +295,24 @@ async function loadWindowDeals(supabase: Supabase, window: PayWindow): Promise<D
 }
 
 /**
- * The run's approval, if any, and the approvals of other windows that share
- * any of its fourteen days (window_end within 13 days either side). Approval is
+ * The run's submittal, if any, and the submittals of other windows that share
+ * any of its fourteen days (window_end within 13 days either side). Submittal is
  * final and locks every choice dated in its window, so a case here can be
  * locked by a neighbouring run as well as its own. Missing table (migration
- * 27) → not approvable.
+ * 27) → not submittable.
  */
-async function loadApprovals(
+async function loadSubmittals(
   supabase: Supabase,
   window: PayWindow,
-): Promise<{ row: ApprovalRow | null; others: ApprovalRow[]; ready: boolean }> {
+): Promise<{ row: SubmittalRow | null; others: SubmittalRow[]; ready: boolean }> {
   try {
     const { data, error } = await supabase
-      .from("payroll_run_approvals")
-      .select("window_end, approved_by, approved_at, status")
+      .from("payroll_run_submittals")
+      .select("window_end, submitted_by, submitted_at, status")
       .gte("window_end", window.start)
       .lte("window_end", addDays(window.end, PERIOD_DAYS - 1));
     if (error) return { row: null, others: [], ready: false };
-    const rows = (data ?? []) as ApprovalRow[];
+    const rows = (data ?? []) as SubmittalRow[];
     return {
       row: rows.find((r) => r.window_end === window.end) ?? null,
       others: rows.filter((r) => r.window_end !== window.end),

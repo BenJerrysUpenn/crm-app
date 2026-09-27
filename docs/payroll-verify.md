@@ -15,11 +15,11 @@ the person, with both options costed before they are shown.
 | --- | --- |
 | The rulebook (pure, tested) | `time-app/lib/payroll/verify.ts` |
 | The pay window (§0.1) | `time-app/lib/payroll/window.ts` |
-| Choice rules, approval snapshot (pure, tested) | `time-app/lib/payroll/choices.ts` |
+| Choice rules, submittal snapshot (pure, tested) | `time-app/lib/payroll/choices.ts` |
 | Loader shared by the routes | `time-app/lib/payroll/loadVerify.ts` |
 | Findings endpoint | `GET /api/payroll/verify?window_end=YYYY-MM-DD` |
 | Choices endpoint | `POST` / `DELETE /api/payroll/rulings` |
-| Approval endpoint | `POST /api/payroll/approve` |
+| Submittal endpoint | `POST /api/payroll/submit` |
 | The page | `/finance?tab=payroll`, manager-only |
 | Solo-close dropdowns | the **Schedule** view, manager-only (`components/SoloCloseNights.tsx`) |
 | Tests | `time-app/lib/payroll/*.test.ts` — `npm test` |
@@ -58,48 +58,50 @@ Every finding is one of:
 **The button is green when there is nothing to fix and every case is answered
 by a recorded choice or its default.**
 
-## One approval per run
+## One submittal per run
 
-There is **one approval for the whole pay run**, not one per case, and **any
-manager** can give it (`POST /api/payroll/approve`, the button on the Finance
+There is **one submittal for the whole pay run**, not one per case, and **any
+manager** can give it (`POST /api/payroll/submit`, the button on the Finance
 tab). It is refused until the button above is green. While any 1.4 or 1.5
-punch is uncorrected, Approve is disabled and the reason names each punch; the
-approve route refuses it (409), and migration 27's trigger refuses it in the
+punch is uncorrected, Submit is disabled and the reason names each punch; the
+submit route refuses it (409), and migration 27's trigger refuses it in the
 database (`payroll_punch_blockers()`). It stores a snapshot of
-every case's effective choice, defaults included, in `payroll_run_approvals`.
+every case's effective choice, defaults included, in `payroll_run_submittals`.
 The payroll sheet (bj-finance `modules/payroll_sheet.py`) will not produce a
-keyable sheet until the run is approved.
+keyable sheet until the run is submitted.
 
-**Approval is final** (ruled 2026-09-22). It starts the payroll script that
-stages the run in QBO, so it cannot be cancelled or undone:
+**Submittal is final** (ruled 2026-09-22, reworded 2026-09-27). It sends
+money, and it cannot be cancelled or undone. The QBO staging script (§6) is
+not built, so what submitting does today is submit and lock the run; the pay
+run is then keyed in QBO by hand:
 
 - **Only after the period ends.** Before the Monday after the period's last
-  Sunday the button is disabled and says when it can be approved. The approve
+  Sunday the button is disabled and says when it can be submitted. The submit
   route refuses it too (409), and so does migration 27's trigger.
 - **A plain confirmation first.** The button opens a confirmation saying that
-  this starts payroll and cannot be cancelled; nothing is sent until the
-  manager confirms.
-- **Once.** There is no re-approval and no "stale" state. A second approval,
-  an edit or a delete of an approval is refused by the database.
+  submitting is final and cannot be undone; nothing is sent until the manager
+  confirms.
+- **Once.** There is no re-submittal and no "stale" state. A second submittal,
+  an edit or a delete of a submittal is refused by the database.
 - **It locks every choice in the period.** A locked case is read-only on the
   Finance tab and on the schedule, and migration 27's trigger refuses any
-  insert, change or delete of a choice dated inside an approved run. The
+  insert, change or delete of a choice dated inside a submitted run. The
   trigger dates the case from its key: the night (1.9), the event (3.5), the
   window's last day (3.7).
-- **No overlapping runs.** A window sharing a day with an approved run cannot
-  be approved.
+- **No overlapping runs.** A window sharing a day with a submitted run cannot
+  be submitted.
 
-**The seam to §6.** The approval row is written with
-`status = 'approved_pending_stage'`. That row is what the QBO staging script
+**The seam to §6.** The submittal row is written with
+`status = 'submitted_pending_stage'`. That row is what the QBO staging script
 (spec §6) will consume. It is not built: nothing in this app starts it or
-touches QBO (`TODO(bj-finance #519, spec §6)` in the approve route and
+touches QBO (`TODO(bj-finance #519, spec §6)` in the submit route and
 migration 27).
 
-**Flags** never block; they are shown to the approver and on the sheet:
+**Flags** never block; they are shown to the submitter and on the sheet:
 
 - 1.9 — a night paid to the manager who changed its dropdown.
 - 3.5 / 3.7 — a crewless catering tip or stranded Olo tip paid to the manager
-  who approved the run, whether by default or by a change.
+  who submitted the run, whether by default or by a change.
 - 3.4 — an invoice tip that joins to no deal, **from any point in history**
   (ruled 2026-09-22, ruling A). The Finance tab reads these from `held_tips`
   rows with no `deal_id` (migration 26); the payroll sheet lists every one it
@@ -166,15 +168,15 @@ Notes on the ones that surprise people:
 | --- | --- |
 | `time-app/supabase/migration_25.sql` | `row_audit` + triggers — 1.13 |
 | `time-app/supabase/migration_26.sql` | `profiles.qbo_employee_id`, `profiles.pay_type`, `held_tips` — spec 2.5, 3.6 |
-| `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is approved) and `payroll_run_approvals` (final; `status` is the §6 seam) |
+| `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is submitted) and `payroll_run_submittals` (final; `status` is the §6 seam) |
 
 All three are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Until 25 is applied, Verify reports 1.13 as a blocker; until 27
-is applied, choices cannot be recorded and the run cannot be approved.
+is applied, choices cannot be recorded and the run cannot be submitted.
 
 ## Not built yet
 
 Build items 9.5–9.6 of the spec: the QBO staging automation behind a
 Preview-only boundary (§6), and the run emails, paystub PDF and HP ePrint
 receipt (§7). Item 9.4, the staged sheet, is bj-finance `modules/payroll_sheet.py`
-(bj-finance PR #541), which reads the choices and the approval recorded here.
+(bj-finance PR #541), which reads the choices and the submittal recorded here.

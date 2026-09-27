@@ -32,7 +32,7 @@
 //                   scheduled shift (§1.5). Those two have NO default and no
 //                   picker: the punch is corrected in Withers-time. All of
 //                   these clear by fixing the data and running Verify again,
-//                   and until then the run cannot be approved.
+//                   and until then the run cannot be submitted.
 //
 // Times. Punches are instants; opening hours are wall clock. Everything that
 // compares the two goes through lib/coverage.ts, which owns that conversion and
@@ -162,16 +162,17 @@ export type RulingRow = {
 };
 
 /**
- * The one approval a pay run gets (migration 27, payroll_run_approvals).
- * FINAL (ruled 2026-09-22): it starts payroll, cannot be undone, and locks
- * every choice in its fourteen days.
+ * The one submittal a pay run gets (migration 27, payroll_run_submittals).
+ * FINAL (ruled 2026-09-22): it cannot be undone, and it locks every choice
+ * in its fourteen days. The pay run is then keyed in QBO by hand; the §6
+ * staging script is not built.
  */
-export type ApprovalRow = {
-  approved_by: string | null;
-  approved_at: string;
+export type SubmittalRow = {
+  submitted_by: string | null;
+  submitted_at: string;
   /** The period's last day. Always set for rows read from the database. */
   window_end?: string;
-  /** 'approved_pending_stage' until the §6 staging script (not built) takes it. */
+  /** 'submitted_pending_stage' until the §6 staging script (not built) takes it. */
   status?: string;
 };
 
@@ -204,13 +205,13 @@ export type VerifyInput = {
    * block the run (ruling A, 2026-09-22).
    */
   unmatchedTips?: HeldTipRow[];
-  approval?: ApprovalRow | null;
+  submittal?: SubmittalRow | null;
   /**
-   * Approvals of OTHER windows that share days with this one. A case dated
+   * Submittals of OTHER windows that share days with this one. A case dated
    * inside any of them is locked too: a solo-close night chosen on the
-   * schedule belongs to whichever approved run covers it.
+   * schedule belongs to whichever submitted run covers it.
    */
-  otherApprovals?: ApprovalRow[];
+  otherSubmittals?: SubmittalRow[];
 };
 
 // ---------------------------------------------------------------------------
@@ -268,12 +269,12 @@ export type Finding = {
   scheduledCloser?: Person | null;
   /** What stands: the recorded choice, else the default. Choice checks only. */
   effective?: EffectiveChoice | null;
-  /** Things the approver must see about this case. They never block. */
+  /** Things the submitter must see about this case. They never block. */
   flags?: string[];
   /**
-   * The last day of the approved run this case falls in, if any. An approved
+   * The last day of the submitted run this case falls in, if any. A submitted
    * run's choices are locked (read-only here, refused by migration 27's
-   * trigger): approval is final.
+   * trigger): submittal is final.
    */
   lockedBy?: string | null;
 };
@@ -286,8 +287,8 @@ export type EffectiveChoice = {
   source: "recorded" | "default";
 };
 
-/** Approval is final: there is no "stale" and no approving again. */
-export type ApprovalState = "approved" | "not_approved";
+/** Submittal is final: there is no "stale" and no submitting again. */
+export type SubmittalState = "submitted" | "not_submitted";
 
 export type CheckGroup = {
   check: string;
@@ -311,9 +312,9 @@ export type VerifyResult = {
   };
   /** Nothing to fix, and every case answered by a recording or a default. */
   ready: boolean;
-  approval: ApprovalRow | null;
-  approvalState: ApprovalState;
-  /** Every flag on every finding, for the approve panel. */
+  submittal: SubmittalRow | null;
+  submittalState: SubmittalState;
+  /** Every flag on every finding, for the submit panel. */
   flags: { key: string; message: string }[];
 };
 
@@ -336,11 +337,11 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "1.4": {
     title: "Truncation",
-    rule: "1.2/1.3 with a scheduled shift → use scheduled end, note it. With NO scheduled shift → no default: correct the punch in Withers-time. The run cannot be approved until it is fixed (ruled 2026-09-22).",
+    rule: "1.2/1.3 with a scheduled shift → use scheduled end, note it. With NO scheduled shift → no default: correct the punch in Withers-time. The run cannot be submitted until it is fixed (ruled 2026-09-22).",
   },
   "1.5": {
     title: "Short punch on a scheduled shift",
-    rule: "punch < 25% of scheduled length → no default: correct the punch in Withers-time. The run cannot be approved until it is fixed (ruled 2026-09-22).",
+    rule: "punch < 25% of scheduled length → no default: correct the punch in Withers-time. The run cannot be submitted until it is fixed (ruled 2026-09-22).",
   },
   "1.6": { title: "Test punch", rule: "< 5 min AND no scheduled shift → 0h, listed" },
   "1.7": { title: "Overlaps", rule: "same person, overlapping intervals" },
@@ -371,15 +372,15 @@ const RULES: Record<string, { title: string; rule: string }> = {
   "1.14": { title: "Name hygiene", rule: "profiles.full_name containing '@' (invite-flow bug)" },
   "3.4": {
     title: "Invoice tip with no deal",
-    rule: "an invoice tip that joins to no deal, from any point in history, is listed, never summed. A flag, not a block (ruled 2026-09-22): the approver sees it and the deal is fixed so a later run pays it.",
+    rule: "an invoice tip that joins to no deal, from any point in history, is listed, never summed. A flag, not a block (ruled 2026-09-22): the submitter sees it and the deal is fixed so a later run pays it.",
   },
   "3.5": {
     title: "Crewless catering event",
-    rule: "deal shift unassigned + nobody punched → a staff picker on the event, default Sophia (ruled 2026-09-22). Flag a crewless tip paid to the person who approves the run. Upstream: the event needs its Catering shift added.",
+    rule: "deal shift unassigned + nobody punched → a staff picker on the event, default Sophia (ruled 2026-09-22). Flag a crewless tip paid to the person who submits the run. Upstream: the event needs its Catering shift added.",
   },
   "3.7": {
     title: "No bake shift worked",
-    rule: "a window with zero Pastry Opener shifts is a schedule anomaly (norm ≥ 2/week, ≥ 4/period); any stranded Olo tips go to a staff picker, default Sophia, flagged when paid to the approver (ruled 2026-09-22).",
+    rule: "a window with zero Pastry Opener shifts is a schedule anomaly (norm ≥ 2/week, ≥ 4/period); any stranded Olo tips go to a staff picker, default Sophia, flagged when paid to the submitter (ruled 2026-09-22).",
   },
 };
 
@@ -729,7 +730,7 @@ function checkAutoClosed(views: PunchView[], window: PayWindow): PunchView[] {
  * the punch is cut back to the shift's end and the change is noted. With no
  * shift to cut back to there is nothing to compute from, and there is NO
  * default (ruling D, 2026-09-22): the punch is corrected in Withers-time, and
- * until it is the run cannot be approved.
+ * until it is the run cannot be submitted.
  */
 function checkTruncation(runaways: PunchView[], reasons: Map<number, string[]>): Finding[] {
   const seen = new Set<number>();
@@ -790,7 +791,7 @@ function checkTruncation(runaways: PunchView[], reasons: Map<number, string[]>):
  * against a 7h shift because Sophia closed for her. There is deliberately no
  * default — the two answers differ by nearly a full shift's pay — and no
  * picker either (ruling D, 2026-09-22): the punch is corrected in
- * Withers-time, and until it is the run cannot be approved.
+ * Withers-time, and until it is the run cannot be submitted.
  */
 function checkShortPunches(views: PunchView[], window: PayWindow, runawayIds: Set<number>): Finding[] {
   const out: Finding[] = [];
@@ -1216,11 +1217,11 @@ function checkBakeShifts(views: PunchView[], input: VerifyInput, profiles: Map<s
 /**
  * What stands for one choice-with-default case, and the flags it raises.
  *
- * Flags (ruled 2026-09-22) never block; the approver sees them:
+ * Flags (ruled 2026-09-22) never block; the submitter sees them:
  *   §1.9       a night paid to the manager who changed its dropdown
- *   §3.5/§3.7  money paid to the manager who approved the run, default or not
+ *   §3.5/§3.7  money paid to the manager who submitted the run, default or not
  */
-function settleChoice(f: Finding, approval: ApprovalRow | null, profiles: Map<string, ProfileRow>): void {
+function settleChoice(f: Finding, submittal: SubmittalRow | null, profiles: Map<string, ProfileRow>): void {
   if (!f.defaultChoice) return;
   const r = f.ruling;
   const payeeOf = (id: string | null | undefined): Person | null =>
@@ -1233,8 +1234,8 @@ function settleChoice(f: Finding, approval: ApprovalRow | null, profiles: Map<st
   if (f.check === "1.9" && r && payee && r.decided_by === payee.id) {
     flags.push(`${payee.name} set this night's dropdown to pay themselves the solo-close bonus.`);
   }
-  if ((f.check === "3.5" || f.check === "3.7") && payee && approval?.approved_by === payee.id) {
-    flags.push(`Paid to ${payee.name}, who approved this run.`);
+  if ((f.check === "3.5" || f.check === "3.7") && payee && submittal?.submitted_by === payee.id) {
+    flags.push(`Paid to ${payee.name}, who submitted this run.`);
   }
   f.flags = flags;
 }
@@ -1249,7 +1250,7 @@ function isAnswered(f: Finding): boolean {
 /**
  * §3.4 — an invoice tip that joins to no deal. From any point in history, it
  * is a FLAG and never a block (ruling A, 2026-09-22): it is listed here and on
- * the payroll sheet, carried to the approve panel, and resolved by fixing the
+ * the payroll sheet, carried to the submit panel, and resolved by fixing the
  * deal so a later run pays it.
  */
 function checkUnmatchedTips(rows: HeldTipRow[]): Finding[] {
@@ -1532,16 +1533,16 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
   // Attach any recorded ruling. Keyed on (check, finding key), so a ruling
   // survives re-running Verify and disappears if the finding it answered does.
   const rulings = new Map((input.rulings ?? []).map((r) => [`${r.check_id}|${r.finding_key}`, r]));
-  const approval = input.approval ?? null;
-  const approvedWindows = [
-    ...(approval ? [window.end] : []),
-    ...(input.otherApprovals ?? []).map((a) => a.window_end).filter((end): end is string => !!end),
+  const submittal = input.submittal ?? null;
+  const submittedWindows = [
+    ...(submittal ? [window.end] : []),
+    ...(input.otherSubmittals ?? []).map((a) => a.window_end).filter((end): end is string => !!end),
   ];
   for (const f of findings) {
     if (f.status !== "needs_ruling") continue;
     f.ruling = rulings.get(`${f.check}|${f.key}`) ?? null;
-    settleChoice(f, approval, profiles);
-    f.lockedBy = lockingWindow(caseDate(f, window), approvedWindows);
+    settleChoice(f, submittal, profiles);
+    f.lockedBy = lockingWindow(caseDate(f, window), submittedWindows);
   }
 
   const needsRuling = findings.filter((f) => f.status === "needs_ruling");
@@ -1569,14 +1570,14 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
       needsFix: needsFix.length,
     },
     ready: needsFix.length === 0 && needsRuling.every(isAnswered),
-    approval,
-    approvalState: approval ? "approved" : "not_approved",
+    submittal,
+    submittalState: submittal ? "submitted" : "not_submitted",
     flags: findings.flatMap((f) => (f.flags ?? []).map((message) => ({ key: f.key, message }))),
   };
 }
 
 /**
- * The day a case falls on, which decides the approved run that locks it.
+ * The day a case falls on, which decides the submitted run that locks it.
  * Migration 27's payroll_case_date() dates the same keys the same way: the
  * night (1.9), the event (3.5), and the window's own last day for the
  * one-per-window 3.7 case.
@@ -1586,10 +1587,10 @@ export function caseDate(f: Finding, window: PayWindow): string | null {
   return f.evidence.date ?? null;
 }
 
-/** The approved window (by its last day) whose fourteen days hold `date`. */
-export function lockingWindow(date: string | null, approvedWindowEnds: string[]): string | null {
+/** The submitted window (by its last day) whose fourteen days hold `date`. */
+export function lockingWindow(date: string | null, submittedWindowEnds: string[]): string | null {
   if (!date) return null;
-  for (const end of [...approvedWindowEnds].sort()) {
+  for (const end of [...submittedWindowEnds].sort()) {
     if (date >= addDays(end, -(PERIOD_DAYS - 1)) && date <= end) return end;
   }
   return null;

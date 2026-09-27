@@ -22,7 +22,7 @@ import {
   lockingWindow,
   sameNameWords,
   verifyTimesheets,
-  type ApprovalRow,
+  type SubmittalRow,
   type AuditRow,
   type DealRow,
   type Finding,
@@ -642,14 +642,14 @@ test("1.9: the scheduled closer is the in-store shift ending last; the manager l
   assert.deepEqual(f.evidence.shift_ids, [close.id]);
 });
 
-function earlyCloseNight(rulings: RulingRow[] = [], approval: ApprovalRow | null = null) {
+function earlyCloseNight(rulings: RulingRow[] = [], submittal: SubmittalRow | null = null) {
   return run({
     ...WED_ONLY,
     punches: [
       punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
     rulings,
-    approval,
+    submittal,
   });
 }
 
@@ -682,67 +682,67 @@ test("1.9: another manager paying her is not a flag", () => {
   assert.deepEqual(result.flags, []);
 });
 
-// --- one approval per run ---------------------------------------------------
+// --- one submittal per run ---------------------------------------------------
 
-test("approval: none recorded is not approved", () => {
-  assert.equal(earlyCloseNight().approvalState, "not_approved");
+test("submittal: none recorded is not submitted", () => {
+  assert.equal(earlyCloseNight().submittalState, "not_submitted");
 });
 
-test("approval: once given it stands, and it is final", () => {
+test("submittal: once given it stands, and it is final", () => {
   const result = earlyCloseNight(
     [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: COLE, decided_at: at("2026-09-21", "10:00") }],
-    { approved_by: COLE, approved_at: at("2026-09-21", "12:00") },
+    { submitted_by: COLE, submitted_at: at("2026-09-21", "12:00") },
   );
-  assert.equal(result.approvalState, "approved");
-  assert.deepEqual(result.approval, { approved_by: COLE, approved_at: at("2026-09-21", "12:00") });
+  assert.equal(result.submittalState, "submitted");
+  assert.deepEqual(result.submittal, { submitted_by: COLE, submitted_at: at("2026-09-21", "12:00") });
 });
 
-test("approval: there is no stale state — a later timestamp on a choice does not reopen the run", () => {
+test("submittal: there is no stale state — a later timestamp on a choice does not reopen the run", () => {
   // The database refuses such a change (migration 27); even if one got through,
-  // the approval is final and the app does not invite approving again.
+  // the submittal is final and the app does not invite submitting again.
   const result = earlyCloseNight(
     [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: COLE, decided_at: at("2026-09-21", "13:00") }],
-    { approved_by: COLE, approved_at: at("2026-09-21", "12:00") },
+    { submitted_by: COLE, submitted_at: at("2026-09-21", "12:00") },
   );
-  assert.equal(result.approvalState, "approved");
+  assert.equal(result.submittalState, "submitted");
 });
 
-test("approval: every choice in the approved run is locked", () => {
-  const result = earlyCloseNight([], { approved_by: COLE, approved_at: at("2026-09-21", "12:00") });
+test("submittal: every choice in the submitted run is locked", () => {
+  const result = earlyCloseNight([], { submitted_by: COLE, submitted_at: at("2026-09-21", "12:00") });
   const cases = result.findings.filter((f) => f.status === "needs_ruling");
   assert.ok(cases.length > 0);
   for (const f of cases) assert.equal(f.lockedBy, WINDOW.end, f.key);
 });
 
-test("approval: nothing is locked before the run is approved", () => {
+test("submittal: nothing is locked before the run is submitted", () => {
   for (const f of earlyCloseNight().findings.filter((x) => x.status === "needs_ruling")) assert.equal(f.lockedBy, null);
 });
 
-test("approval: a night inside a neighbouring approved run is locked by that run", () => {
-  // The schedule asks about the window ending a week later than the approved
+test("submittal: a night inside a neighbouring submitted run is locked by that run", () => {
+  // The schedule asks about the window ending a week later than the submitted
   // one; the 09-09 night still belongs to the run ending 09-20.
   const result = run({
     ...WED_ONLY,
     punches: [
       punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
-    otherApprovals: [
-      { window_end: "2026-09-13", approved_by: COLE, approved_at: at("2026-09-14", "12:00") },
-      { window_end: undefined, approved_by: COLE, approved_at: at("2026-09-14", "12:00") },
+    otherSubmittals: [
+      { window_end: "2026-09-13", submitted_by: COLE, submitted_at: at("2026-09-14", "12:00") },
+      { window_end: undefined, submitted_by: COLE, submitted_at: at("2026-09-14", "12:00") },
     ],
   });
   assert.equal(only(result.findings, "1.9")[0].lockedBy, "2026-09-13");
-  assert.equal(result.approvalState, "not_approved");
+  assert.equal(result.submittalState, "not_submitted");
 });
 
-test("approval: the 3.7 case is dated by its window's last day", () => {
+test("submittal: the 3.7 case is dated by its window's last day", () => {
   const f = { check: "3.7", evidence: {} } as unknown as Finding;
   assert.equal(caseDate(f, WINDOW), WINDOW.end);
   assert.equal(caseDate({ check: "3.5", evidence: {} } as unknown as Finding, WINDOW), null);
   assert.equal(caseDate({ check: "1.9", evidence: { date: "2026-09-09" } } as unknown as Finding, WINDOW), "2026-09-09");
 });
 
-test("approval: a run's lock covers exactly its fourteen days", () => {
+test("submittal: a run's lock covers exactly its fourteen days", () => {
   assert.equal(lockingWindow("2026-09-07", ["2026-09-20"]), "2026-09-20");
   assert.equal(lockingWindow("2026-09-20", ["2026-09-20"]), "2026-09-20");
   assert.equal(lockingWindow("2026-09-06", ["2026-09-20"]), null);
@@ -1095,14 +1095,14 @@ test("3.5: a lost deal, or one outside the window, is not asked about", () => {
   assert.match(only(run({ windowDeals: [unnamed] }).findings, "3.5")[0].summary, /deal 25101/);
 });
 
-test("3.5: a crewless tip paid to the person who approves the run is flagged, default or not", () => {
-  const approval = { approved_by: SOPHIA, approved_at: at("2026-09-21", "12:00") };
-  const byDefault = run({ windowDeals: [PWC], approval });
-  assert.match(byDefault.flags[0].message, /Paid to Malmgren, Sophia, who approved this run/);
+test("3.5: a crewless tip paid to the person who submits the run is flagged, default or not", () => {
+  const submittal = { submitted_by: SOPHIA, submitted_at: at("2026-09-21", "12:00") };
+  const byDefault = run({ windowDeals: [PWC], submittal });
+  assert.match(byDefault.flags[0].message, /Paid to Malmgren, Sophia, who submitted this run/);
 
   const picked = run({
     windowDeals: [PWC],
-    approval,
+    submittal,
     rulings: [{ check_id: "3.5", finding_key: "3.5:deal:25100", choice: "staff", payee_id: CARLI, decided_by: SOPHIA }],
   });
   assert.deepEqual(picked.flags, []);

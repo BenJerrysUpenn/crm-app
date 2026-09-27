@@ -13,8 +13,8 @@ import { recordChoice } from "./choiceApi";
 // One <select> carries both the choice and, for "unpunched manager", which
 // manager: `unpunched_manager:<profile id>`.
 //
-// Once the pay run the night falls in is approved, the dropdown is read-only:
-// approval is final (ruled 2026-09-22), and migration 27 refuses the write.
+// Once the pay run the night falls in is submitted, the dropdown is read-only:
+// submittal is final (ruled 2026-09-22), and migration 27 refuses the write.
 
 export default function SoloCloseSelect({
   finding,
@@ -56,7 +56,7 @@ export default function SoloCloseSelect({
         className="text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 disabled:opacity-50"
         title={
           locked
-            ? `Locked: the pay run ending ${finding.lockedBy} is approved`
+            ? `Locked: the pay run ending ${finding.lockedBy} is submitted`
             : "Solo-close bonus for this night (payroll spec 1.9 / 2.4)"
         }
       >
@@ -72,7 +72,7 @@ export default function SoloCloseSelect({
       </select>
       {locked && (
         <span className="text-[11px] text-slate-500">
-          Locked: the pay run ending {finding.lockedBy} is approved, and approval is final.
+          Locked: the pay run ending {finding.lockedBy} is submitted, and submittal is final.
         </span>
       )}
       {effective?.source === "recorded" && (

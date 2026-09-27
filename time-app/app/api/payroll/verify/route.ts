@@ -18,7 +18,7 @@ export const fetchCache = "force-no-store";
  * GET /api/payroll/verify?window_end=YYYY-MM-DD
  *
  * The §1 timesheet checks for one pay window (bj-finance #519), with every
- * per-case choice attached and the run's approval state. Manager-only: these
+ * per-case choice attached and the run's submittal state. Manager-only: these
  * findings name people, hours and money. The Finance tab and the schedule's
  * solo-close dropdowns both read it.
  *
@@ -26,8 +26,8 @@ export const fetchCache = "force-no-store";
  * has most recently finished — never to a period QBO suggests, whose dates are
  * misaligned with the ones this business runs.
  *
- * Read-only. Choices are recorded through /api/payroll/rulings, the approval
- * through /api/payroll/approve, each by the person who made it.
+ * Read-only. Choices are recorded through /api/payroll/rulings, the submittal
+ * through /api/payroll/submit, each by the person who made it.
  */
 export async function GET(request: Request) {
   const profile = await getProfile();

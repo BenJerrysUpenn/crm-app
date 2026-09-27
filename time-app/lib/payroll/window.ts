@@ -81,16 +81,16 @@ export function currentPayWindow(today: string): PayWindow {
 
 /**
  * Has the period ended, as of `today` (YYYY-MM-DD, New York)? Only then can
- * its run be approved (ruled 2026-09-22): the period ends at the end of its
- * Sunday, so on that Sunday it has not. Migration 27's approval trigger holds
+ * its run be submitted (ruled 2026-09-22): the period ends at the end of its
+ * Sunday, so on that Sunday it has not. Migration 27's submittal trigger holds
  * the database to the same rule.
  */
 export function periodEnded(window: PayWindow, today: string): boolean {
   return today > window.end;
 }
 
-/** The first day a run can be approved: the Monday after the period. */
-export function firstApprovalDay(window: PayWindow): string {
+/** The first day a run can be submitted: the Monday after the period. */
+export function firstSubmittalDay(window: PayWindow): string {
   return addDays(window.end, 1);
 }
 

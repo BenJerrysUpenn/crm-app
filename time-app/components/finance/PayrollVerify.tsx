@@ -4,26 +4,28 @@ import { useState } from "react";
 import Link from "next/link";
 import type { CheckGroup, Finding } from "@/lib/payroll/verify";
 import type { LoadedVerify } from "@/lib/payroll/loadVerify";
-import { approvalBlocker, paysApprover } from "@/lib/payroll/choices";
+import { submittalBlocker, paysSubmitter } from "@/lib/payroll/choices";
 import { recordChoice, resetChoice } from "./choiceApi";
 
 // The Verify timesheets screen (bj-finance #519, payroll spec §1).
 //
 // The whole rulebook lives in lib/payroll/verify.ts and runs on the server.
 // This component does four things and nothing else: press the button, render
-// what came back grouped by check, record a per-case choice, and approve the
+// what came back grouped by check, record a per-case choice, and submit the
 // run. It computes no findings and decides nothing — if it did, the rules would
 // have two homes and the tests would only cover one of them.
 //
 // Ruled 2026-09-22: every judgement call is a per-case choice with a
-// PRESELECTED DEFAULT, and there is ONE approval for the whole run, which any
+// PRESELECTED DEFAULT, and there is ONE submittal for the whole run, which any
 // manager may give. The §1.9 solo-close dropdown lives on the schedule view;
 // this tab shows what was chosen and links there.
 //
-// Follow-up ruling, same day: the approval is FINAL. It is only offered once
-// the pay period has ended, it starts payroll (the script that stages the run
-// in QBO), and it locks every choice in the period. The button asks for a
-// plain confirmation first, and a locked case is shown read-only.
+// Follow-up ruling, same day: the submittal is FINAL. It is only offered once
+// the pay period has ended, it cannot be undone, and it locks every choice in
+// the period. The button asks for a plain confirmation first, and a locked
+// case is shown read-only. The QBO staging script (§6) is not built, so the
+// screen says what does happen: the run is submitted and locked, and the pay
+// run is then keyed in QBO by hand (ruled 2026-09-27).
 
 type ApiResult = LoadedVerify;
 
@@ -83,11 +85,11 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
     await verify(end);
   }
 
-  async function approve() {
+  async function submit() {
     const end = result?.window.end ?? windowEnd;
     setBusy(true);
     setError(null);
-    const res = await fetch("/api/payroll/approve", {
+    const res = await fetch("/api/payroll/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ window_end: end }),
@@ -95,7 +97,7 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       setBusy(false);
-      setError(body.error ?? `Could not approve (${res.status}).`);
+      setError(body.error ?? `Could not submit (${res.status}).`);
       return;
     }
     await verify(end);
@@ -138,7 +140,7 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
       {result && (
         <>
           <Summary result={result} />
-          <ApprovePanel result={result} meId={meId} busy={busy} onApprove={approve} />
+          <SubmitPanel result={result} meId={meId} busy={busy} onSubmit={submit} />
           {result.groups.map((group) => (
             <GroupCard key={group.check} group={group} busy={busy} onRule={rule} onClear={unrule} />
           ))}
@@ -184,9 +186,9 @@ function Summary({ result }: { result: ApiResult }) {
           Store hours are unavailable, so the mid-day gap check (1.8) judged nothing. Run migration 24.
         </div>
       )}
-      {(!result.migrations.rulings || !result.migrations.approvals) && (
+      {(!result.migrations.rulings || !result.migrations.submittals) && (
         <div className="text-amber-600 dark:text-amber-500 mt-2">
-          Choices and the run approval cannot be read or recorded. Run migration 27.
+          Choices and the run submittal cannot be read or recorded. Run migration 27.
         </div>
       )}
     </section>
@@ -194,65 +196,63 @@ function Summary({ result }: { result: ApiResult }) {
 }
 
 /**
- * The one approval for the whole run. Any manager may give it; the only
+ * The one submittal for the whole run. Any manager may give it; the only
  * conditions are the data's and the calendar's. Flags never block — they are
- * here so the person approving sees, before they click, anything that pays a
+ * here so the person submitting sees, before they click, anything that pays a
  * manager by a choice.
  *
- * Approval is final: it starts payroll and cannot be cancelled or undone. So
- * the button is disabled, with the reason shown, until the period has ended,
- * and a click opens a confirmation that says exactly that before anything is
- * sent.
+ * Submittal is final and cannot be undone. So the button is disabled, with
+ * the reason shown, until the period has ended, and a click opens a
+ * confirmation that says exactly that before anything is sent.
  */
-function ApprovePanel({
+function SubmitPanel({
   result,
   meId,
   busy,
-  onApprove,
+  onSubmit,
 }: {
   result: ApiResult;
   meId: string;
   busy: boolean;
-  onApprove: () => void;
+  onSubmit: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const blocker = approvalBlocker(result, result.migrations.approvals, result.today, result.otherApprovals);
-  const wouldPayMe = paysApprover(result.findings, meId);
-  const approved = result.approvalState === "approved";
+  const blocker = submittalBlocker(result, result.migrations.submittals, result.today, result.otherSubmittals);
+  const wouldPayMe = paysSubmitter(result.findings, meId);
+  const submitted = result.submittalState === "submitted";
   return (
     <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 text-sm">
       <div className="flex flex-wrap items-center gap-3">
         <div className="font-medium text-slate-900 dark:text-slate-100">
-          {approved ? "Pay run approved — payroll has started" : "Pay run not approved"}
+          {submitted ? "Pay run submitted and locked. Key the pay run in QBO." : "Pay run not submitted"}
         </div>
-        {result.approval && (
+        {result.submittal && (
           <div className="text-xs text-slate-500">
-            approved {new Date(result.approval.approved_at).toLocaleString("en-US", { timeZone: "America/New_York" })}
-            {result.approval.status === "approved_pending_stage" && " · waiting to be staged in QuickBooks"}
+            submitted {new Date(result.submittal.submitted_at).toLocaleString("en-US", { timeZone: "America/New_York" })}
           </div>
         )}
-        {!approved && !confirming && (
+        {!submitted && !confirming && (
           <button
             type="button"
             onClick={() => setConfirming(true)}
             disabled={busy || !!blocker}
-            title={blocker ?? "Approve every case as it stands, defaults included, and start payroll"}
+            title={blocker ?? "Submit every case as it stands, defaults included. Submitting is final and cannot be undone."}
             className="ml-auto rounded-md bg-emerald-600 text-white text-sm font-medium px-4 py-2 disabled:opacity-40"
           >
-            Approve pay run
+            Submit pay run
           </button>
         )}
       </div>
-      {!approved && blocker && <div className="text-xs text-slate-500 mt-2">{blocker}</div>}
-      {!approved && confirming && !blocker && (
-        <div role="alertdialog" aria-labelledby="approve-confirm-title" className="mt-3 rounded-md border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 p-3">
-          <div id="approve-confirm-title" className="font-semibold text-rose-800 dark:text-rose-300">
-            This starts payroll. It cannot be cancelled.
+      {!submitted && blocker && <div className="text-xs text-slate-500 mt-2">{blocker}</div>}
+      {!submitted && confirming && !blocker && (
+        <div role="alertdialog" aria-labelledby="submit-confirm-title" className="mt-3 rounded-md border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 p-3">
+          <div id="submit-confirm-title" className="font-semibold text-rose-800 dark:text-rose-300">
+            Submitting is final and cannot be undone.
           </div>
           <p className="text-xs text-rose-800 dark:text-rose-300 mt-1 max-w-prose">
-            Approving the run for {result.window.start} → {result.window.end} starts the payroll script, which stages this
-            pay run in QuickBooks. It cannot be cancelled or undone, and every choice for this period is locked from
-            now on.
+            Submitting the run for {result.window.start} → {result.window.end} (pay date {result.window.payDate}) locks
+            it: every choice for this period is fixed from now on. Nothing is sent to QuickBooks from here. After
+            submitting, key the pay run in QBO.
           </p>
           <div className="flex flex-wrap gap-2 mt-3">
             <button
@@ -260,11 +260,11 @@ function ApprovePanel({
               disabled={busy}
               onClick={() => {
                 setConfirming(false);
-                onApprove();
+                onSubmit();
               }}
               className="rounded-md bg-rose-600 text-white text-sm font-medium px-4 py-2 disabled:opacity-40"
             >
-              Approve and start payroll
+              Submit pay run
             </button>
             <button
               type="button"
@@ -286,15 +286,15 @@ function ApprovePanel({
           ))}
         </ul>
       )}
-      {wouldPayMe.length > 0 && !approved && (
+      {wouldPayMe.length > 0 && !submitted && (
         <div className="text-xs text-amber-600 dark:text-amber-500 mt-2">
-          ⚑ Approving pays you {wouldPayMe.length === 1 ? "one tip" : `${wouldPayMe.length} tips`} chosen here (
+          ⚑ Submitting pays you {wouldPayMe.length === 1 ? "one tip" : `${wouldPayMe.length} tips`} chosen here (
           {wouldPayMe.map((f) => f.key).join(", ")}). That is allowed, and it is flagged on the payroll sheet.
         </div>
       )}
       <p className="text-xs text-slate-500 mt-2 max-w-prose">
-        One approval covers the whole run, and it is final. It can be given once the pay period has ended. Every case
-        stands on its default unless a manager changed it; once the run is approved, every choice for the period is
+        One submittal covers the whole run, and it is final. It can be given once the pay period has ended. Every case
+        stands on its default unless a manager changed it; once the run is submitted, every choice for the period is
         locked.
       </p>
     </section>
@@ -366,13 +366,13 @@ function FindingRow({
         {finding.status === "needs_fix" && (
           <div className="mt-1 text-xs text-rose-500">
             {finding.check === "1.4" || finding.check === "1.5"
-              ? "Correct this punch on the Timesheets page, then verify again. There is no default, and the run cannot be approved until it is fixed."
+              ? "Correct this punch on the Timesheets page, then verify again. There is no default, and the run cannot be submitted until it is fixed."
               : "Fix this in the app, then verify again. No ruling can stand in for it."}
           </div>
         )}
 
         {finding.check === "3.4" && (
-          <div className="mt-1 text-xs text-amber-600 dark:text-amber-500">⚑ A flag for the approver. It does not block the run.</div>
+          <div className="mt-1 text-xs text-amber-600 dark:text-amber-500">⚑ A flag for the submitter. It does not block the run.</div>
         )}
       </div>
     </div>
@@ -452,11 +452,11 @@ function ChoiceRow({
   );
 }
 
-/** A case in an approved run: read-only, because approval is final. */
+/** A case in a submitted run: read-only, because submittal is final. */
 function Locked({ windowEnd }: { windowEnd: string }) {
   return (
     <div className="mt-1 text-[11px] text-slate-500">
-      Locked: the pay run ending {windowEnd} is approved, and approval is final.
+      Locked: the pay run ending {windowEnd} is submitted, and submittal is final.
     </div>
   );
 }

@@ -1,9 +1,9 @@
-// Unit tests for per-case choices and the run approval (bj-finance #519,
+// Unit tests for per-case choices and the run submittal (bj-finance #519,
 // ruled 2026-09-22).   npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { approvalBlocker, approvalSnapshot, paysApprover, validateChoice } from "./choices.ts";
+import { submittalBlocker, submittalSnapshot, paysSubmitter, validateChoice } from "./choices.ts";
 import type { Finding } from "./verify.ts";
 import { payWindowEnding, type PayWindow } from "./window.ts";
 
@@ -63,7 +63,7 @@ function f(over: Partial<Finding>): Finding {
 }
 
 test("the snapshot records every case's effective choice, defaults included", () => {
-  const snap = approvalSnapshot([
+  const snap = submittalSnapshot([
     f({ effective: { choice: "staff", payee: { id: "s", name: "Sophia" }, source: "default" } }),
     f({ check: "1.5", key: "1.5:punch:9", ruling: { check_id: "1.5", finding_key: "1.5:punch:9", choice: "as_punched" } }),
     f({ check: "1.1", key: "1.1:punch:3", status: "needs_fix" }),
@@ -75,44 +75,44 @@ test("the snapshot records every case's effective choice, defaults included", ()
 });
 
 test("an unanswered no-default case snapshots as empty rather than guessed", () => {
-  const [entry] = approvalSnapshot([f({ check: "1.4", key: "1.4:punch:2" })]);
+  const [entry] = submittalSnapshot([f({ check: "1.4", key: "1.4:punch:2" })]);
   assert.equal(entry.choice, "");
 });
 
-test("approval is blocked by a missing table, a fix, or an unanswered case, and nothing else", () => {
+test("submittal is blocked by a missing table, a fix, or an unanswered case, and nothing else", () => {
   const counts = { total: 0, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 0 };
-  const base = { ready: true, counts, window: WINDOW, approval: null };
-  assert.match(approvalBlocker(base, false, AFTER)!, /migration 27/);
-  assert.match(approvalBlocker({ ...base, ready: false, counts: { ...counts, needsFix: 2 } }, true, AFTER)!, /2 finding/);
-  assert.match(approvalBlocker({ ...base, ready: false }, true, AFTER)!, /still need a choice: their default names nobody/);
-  assert.equal(approvalBlocker(base, true, AFTER), null);
+  const base = { ready: true, counts, window: WINDOW, submittal: null };
+  assert.match(submittalBlocker(base, false, AFTER)!, /migration 27/);
+  assert.match(submittalBlocker({ ...base, ready: false, counts: { ...counts, needsFix: 2 } }, true, AFTER)!, /2 finding/);
+  assert.match(submittalBlocker({ ...base, ready: false }, true, AFTER)!, /still need a choice: their default names nobody/);
+  assert.equal(submittalBlocker(base, true, AFTER), null);
 });
 
-test("approval is only available after the pay period has ended", () => {
+test("submittal is only available after the pay period has ended", () => {
   const counts = { total: 0, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 0 };
-  const base = { ready: true, counts, window: WINDOW, approval: null };
+  const base = { ready: true, counts, window: WINDOW, submittal: null };
   // On the period's own Sunday it has not ended.
   assert.equal(
-    approvalBlocker(base, true, "2026-09-20"),
-    "The pay period ends 2026-09-20. It can be approved from 2026-09-21.",
+    submittalBlocker(base, true, "2026-09-20"),
+    "The pay period ends 2026-09-20. It can be submitted from 2026-09-21.",
   );
-  assert.match(approvalBlocker(base, true, "2026-09-14")!, /can be approved from 2026-09-21/);
-  assert.equal(approvalBlocker(base, true, "2026-09-21"), null);
+  assert.match(submittalBlocker(base, true, "2026-09-14")!, /can be submitted from 2026-09-21/);
+  assert.equal(submittalBlocker(base, true, "2026-09-21"), null);
 });
 
-test("approval is final: an approved run, or one sharing days with an approved run, cannot be approved", () => {
+test("submittal is final: a submitted run, or one sharing days with a submitted run, cannot be submitted", () => {
   const counts = { total: 0, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 0 };
-  const base = { ready: true, counts, window: WINDOW, approval: null };
-  const given = { approved_by: "m", approved_at: "2026-09-21T16:00:00Z" };
-  assert.equal(approvalBlocker({ ...base, approval: given }, true, AFTER), "This pay run is already approved. Approval is final.");
+  const base = { ready: true, counts, window: WINDOW, submittal: null };
+  const given = { submitted_by: "m", submitted_at: "2026-09-21T16:00:00Z" };
+  assert.equal(submittalBlocker({ ...base, submittal: given }, true, AFTER), "This pay run is already submitted. Submittal is final.");
   assert.match(
-    approvalBlocker(base, true, AFTER, [{ window_end: "2026-09-13" }])!,
-    /run ending 2026-09-13 is already approved and shares days/,
+    submittalBlocker(base, true, AFTER, [{ window_end: "2026-09-13" }])!,
+    /run ending 2026-09-13 is already submitted and shares days/,
   );
-  assert.equal(approvalBlocker(base, true, AFTER, [{ window_end: undefined }]), null);
+  assert.equal(submittalBlocker(base, true, AFTER, [{ window_end: undefined }]), null);
 });
 
-test("a 1.4 or 1.5 punch blocks approval and is named in the reason (ruling D)", () => {
+test("a 1.4 or 1.5 punch blocks submittal and is named in the reason (ruling D)", () => {
   const counts = { total: 2, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 2 };
   const runaway = f({
     check: "1.4",
@@ -126,23 +126,23 @@ test("a 1.4 or 1.5 punch blocks approval and is named in the reason (ruling D)",
     status: "needs_fix",
     evidence: { employee_name: "Freeman, Carli", date: "2026-09-18", punch_ids: [8] },
   });
-  const base = { ready: false, counts, window: WINDOW, approval: null };
+  const base = { ready: false, counts, window: WINDOW, submittal: null };
   assert.equal(
-    approvalBlocker({ ...base, findings: [runaway, short] }, true, AFTER),
+    submittalBlocker({ ...base, findings: [runaway, short] }, true, AFTER),
     "Correct these 2 punches on the Timesheets page first. They have no default (ruled 2026-09-22): " +
       "1.4 runaway, no shift: Barrett, Joey 2026-09-10 (punch 7); 1.5 short punch: Freeman, Carli 2026-09-18 (punch 8).",
   );
   const bare = f({ check: "1.5", key: "1.5:punch:9", status: "needs_fix", evidence: {} });
   assert.match(
-    approvalBlocker({ ...base, findings: [bare] }, true, AFTER)!,
+    submittalBlocker({ ...base, findings: [bare] }, true, AFTER)!,
     /^Correct this punch on the Timesheets page first\. .*1\.5 short punch: someone\.$/,
   );
 });
 
-test("approving would pay you: crewless and Olo cases only", () => {
+test("submitting would pay you: crewless and Olo cases only", () => {
   const mine = f({ effective: { choice: "staff", payee: { id: "me", name: "Me" }, source: "default" } });
   const olo = f({ check: "3.7", key: "3.7:olo:x", effective: { choice: "staff", payee: { id: "me", name: "Me" }, source: "recorded" } });
   const night = f({ check: "1.9", key: "1.9:d", effective: { choice: "unpunched_manager", payee: { id: "me", name: "Me" }, source: "recorded" } });
   const theirs = f({ effective: { choice: "staff", payee: { id: "them", name: "Them" }, source: "default" } });
-  assert.deepEqual(paysApprover([mine, olo, night, theirs], "me"), [mine, olo]);
+  assert.deepEqual(paysSubmitter([mine, olo, night, theirs], "me"), [mine, olo]);
 });

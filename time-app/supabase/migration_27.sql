@@ -1,13 +1,13 @@
 -- ============================================================================
--- Withers Time — migration 27: per-case payroll choices, and one approval per run
+-- Withers Time — migration 27: per-case payroll choices, and one submittal per run
 -- Run once in the Supabase SQL editor, after migration_26.sql. Safe to re-run.
 --
 -- Payroll spec §1 (bj-finance #519), as ruled by Alina on 2026-09-22:
 --
 --   "These are judgement calls per case, made in the app, not fixed rules in
 --    the sheet." Each qualifying case gets a choice with a PRESELECTED DEFAULT.
---    Nothing runs until a human hits ONE approve for the whole pay run. ANY
---    manager can change a choice and approve the run.
+--    Nothing runs until a human hits ONE submit for the whole pay run. ANY
+--    manager can change a choice and submit the run.
 --
 -- The cases (lib/payroll/verify.ts builds them; bj-finance
 -- modules/payroll_sheet.py pays them):
@@ -24,7 +24,7 @@
 -- shift, and 1.5, a punch under 25% of its scheduled shift, have no default
 -- and no picker. The punch is corrected in Withers-time. Until every such
 -- punch in the period is corrected, payroll_punch_blockers() names it and
--- guard_payroll_run_approval() refuses the approval. payroll_rulings refuses
+-- guard_payroll_run_submittal() refuses the submittal. payroll_rulings refuses
 -- a row for either check.
 --
 -- TWO TABLES.
@@ -34,9 +34,9 @@
 --                           the default stands: the default is a rule written
 --                           in code, and storing it per case would be a second
 --                           copy that could disagree with the first. What the
---                           defaults WERE at approval is kept in the approval's
+--                           defaults WERE at submittal is kept in the submittal's
 --                           snapshot below, so the record is complete.
---   payroll_run_approvals — one row per pay run: who approved, when, and the
+--   payroll_run_submittals — one row per pay run: who submitted, when, and the
 --                           snapshot of every case's effective choice at that
 --                           moment, defaults included.
 --
@@ -49,38 +49,39 @@
 -- the Finance tab and the payroll sheet all find the same row. window_end is
 -- kept as the period the choice was made from, for the record.
 --
--- APPROVAL IS FINAL (ruled 2026-09-22, follow-up). Approving a run starts the
--- payroll script that stages it in QuickBooks, so it cannot be cancelled or
--- undone, and it can only be given once the period has ended:
+-- SUBMITTAL IS FINAL (ruled 2026-09-22, follow-up). Submitting a run is what
+-- sends the money, so it cannot be cancelled or undone, and it can only be
+-- given once the period has ended. The QBO staging script (§6) is not built:
+-- today a submittal locks the run, and the pay run is keyed in QBO by hand.
 --
---   * ONLY AFTER THE PERIOD ENDS. An approval for a window whose last day is
---     today or later (New York) is refused by guard_payroll_run_approval().
---   * ONLY WITH NO 1.4/1.5 PUNCH LEFT. The same trigger refuses an approval
+--   * ONLY AFTER THE PERIOD ENDS. A submittal for a window whose last day is
+--     today or later (New York) is refused by guard_payroll_run_submittal().
+--   * ONLY WITH NO 1.4/1.5 PUNCH LEFT. The same trigger refuses a submittal
 --     while payroll_punch_blockers() finds any in the window.
---   * ONCE. One row per window (the primary key refuses a second approval);
+--   * ONCE. One row per window (the primary key refuses a second submittal);
 --     an edit or a delete is refused by the same trigger, whoever asks.
 --     Authenticated users have no UPDATE or DELETE policy at all.
 --   * IT LOCKS EVERY CHOICE IN THE PERIOD. guard_payroll_ruling() refuses any
 --     insert, change or delete of a payroll_rulings row whose case falls inside
---     an approved window. The case's date (payroll_rulings.case_date) is worked
+--     a submitted window. The case's date (payroll_rulings.case_date) is worked
 --     out by the trigger from the key itself (the night, the event date, the
 --     3.7 window end), never taken from the browser.
---   * NO OVERLAPPING RUNS. A window that shares a day with an approved window
+--   * NO OVERLAPPING RUNS. A window that shares a day with a submitted window
 --     is refused: its days are already locked and would be paid twice.
 --
--- THE SEAM TO §6 (not built). An approval is written with
--- status = 'approved_pending_stage'. That row is what the future QBO staging
+-- THE SEAM TO §6 (not built). A submittal is written with
+-- status = 'submitted_pending_stage'. That row is what the future QBO staging
 -- script (payroll spec §6) will consume. Nothing in this migration or the app
 -- starts it or touches QBO.
 -- TODO(bj-finance #519, spec §6): the staging script picks up
--- 'approved_pending_stage' rows. Its own migration widens
--- payroll_run_approvals_status_check with the states it moves a row through,
--- and guard_payroll_run_approval() already lets `status` alone change.
+-- 'submitted_pending_stage' rows. Its own migration widens
+-- payroll_run_submittals_status_check with the states it moves a row through,
+-- and guard_payroll_run_submittal() already lets `status` alone change.
 --
--- WHY NOTHING CASCADES FROM profiles. decided_by, payee_id and approved_by are
+-- WHY NOTHING CASCADES FROM profiles. decided_by, payee_id and submitted_by are
 -- ON DELETE SET NULL: a call made by a manager who later leaves still stands.
--- (For an approved period the lock refuses that SET NULL on payroll_rulings,
--- so a profile paid in an approved run cannot be hard-deleted. Archive it:
+-- (For a submitted period the lock refuses that SET NULL on payroll_rulings,
+-- so a profile paid in a submitted run cannot be hard-deleted. Archive it:
 -- profiles.active = false.)
 -- ============================================================================
 
@@ -137,50 +138,50 @@ drop policy if exists payroll_rulings_manager_all on public.payroll_rulings;
 create policy payroll_rulings_manager_all on public.payroll_rulings for all to authenticated
   using ((select public.is_manager())) with check ((select public.is_manager()));
 
--- ---------- payroll_run_approvals -------------------------------------------
-create table if not exists public.payroll_run_approvals (
-  -- One approval per pay run, identified by the period's last day.
+-- ---------- payroll_run_submittals -------------------------------------------
+create table if not exists public.payroll_run_submittals (
+  -- One submittal per pay run, identified by the period's last day.
   window_end   date        primary key,
-  approved_by  uuid        references public.profiles (id) on delete set null,
-  approved_at  timestamptz not null default now(),
-  -- Every case's effective choice at the moment of approval:
+  submitted_by  uuid        references public.profiles (id) on delete set null,
+  submitted_at  timestamptz not null default now(),
+  -- Every case's effective choice at the moment of submittal:
   -- [{ key, check, choice, payee_id, payee_name, source: 'recorded'|'default' }]
   snapshot     jsonb       not null default '[]'::jsonb,
   note         text,
   -- The seam to §6. See the header: the staging script consumes
-  -- 'approved_pending_stage'.
-  status       text        not null default 'approved_pending_stage'
+  -- 'submitted_pending_stage'.
+  status       text        not null default 'submitted_pending_stage'
 );
 
 -- An earlier draft had no status.
-alter table public.payroll_run_approvals
-  add column if not exists status text not null default 'approved_pending_stage';
+alter table public.payroll_run_submittals
+  add column if not exists status text not null default 'submitted_pending_stage';
 
 -- TODO(bj-finance #519, spec §6): the staging script's migration adds its states here.
-alter table public.payroll_run_approvals
-  drop constraint if exists payroll_run_approvals_status_check;
-alter table public.payroll_run_approvals
-  add constraint payroll_run_approvals_status_check
-  check (status in ('approved_pending_stage'));
+alter table public.payroll_run_submittals
+  drop constraint if exists payroll_run_submittals_status_check;
+alter table public.payroll_run_submittals
+  add constraint payroll_run_submittals_status_check
+  check (status in ('submitted_pending_stage'));
 
 -- Pay periods end on a Sunday (§0.1). ISO day of week 7 is Sunday.
-alter table public.payroll_run_approvals
-  drop constraint if exists payroll_run_approvals_window_end_sunday;
-alter table public.payroll_run_approvals
-  add constraint payroll_run_approvals_window_end_sunday
+alter table public.payroll_run_submittals
+  drop constraint if exists payroll_run_submittals_window_end_sunday;
+alter table public.payroll_run_submittals
+  add constraint payroll_run_submittals_window_end_sunday
   check (extract(isodow from window_end) = 7);
 
-alter table public.payroll_run_approvals enable row level security;
+alter table public.payroll_run_submittals enable row level security;
 
--- Managers read every approval and may give one, as themselves. There is no
--- UPDATE or DELETE policy: an approval is final.
-drop policy if exists payroll_run_approvals_manager_all on public.payroll_run_approvals;
-drop policy if exists payroll_run_approvals_manager_select on public.payroll_run_approvals;
-drop policy if exists payroll_run_approvals_manager_insert on public.payroll_run_approvals;
-create policy payroll_run_approvals_manager_select on public.payroll_run_approvals for select to authenticated
+-- Managers read every submittal and may give one, as themselves. There is no
+-- UPDATE or DELETE policy: a submittal is final.
+drop policy if exists payroll_run_submittals_manager_all on public.payroll_run_submittals;
+drop policy if exists payroll_run_submittals_manager_select on public.payroll_run_submittals;
+drop policy if exists payroll_run_submittals_manager_insert on public.payroll_run_submittals;
+create policy payroll_run_submittals_manager_select on public.payroll_run_submittals for select to authenticated
   using ((select public.is_manager()));
-create policy payroll_run_approvals_manager_insert on public.payroll_run_approvals for insert to authenticated
-  with check ((select public.is_manager()) and approved_by = (select auth.uid()));
+create policy payroll_run_submittals_manager_insert on public.payroll_run_submittals for insert to authenticated
+  with check ((select public.is_manager()) and submitted_by = (select auth.uid()));
 
 -- ---------- the pay period a case belongs to ---------------------------------
 -- The day a case falls on, from its key, the same way lib/payroll/verify.ts
@@ -212,15 +213,15 @@ begin
 end;
 $$;
 
--- The approved window whose 14 days contain p_date, if any.
-create or replace function public.payroll_approved_window_for(p_date date)
+-- The submitted window whose 14 days contain p_date, if any.
+create or replace function public.payroll_submitted_window_for(p_date date)
 returns date
 language sql
 stable
 security definer set search_path = public
 as $$
   select a.window_end
-    from public.payroll_run_approvals a
+    from public.payroll_run_submittals a
    where p_date between a.window_end - 13 and a.window_end
    order by a.window_end
    limit 1;
@@ -236,9 +237,9 @@ declare
   v_locked date;
 begin
   if tg_op in ('UPDATE', 'DELETE') then
-    v_locked := public.payroll_approved_window_for(old.case_date);
+    v_locked := public.payroll_submitted_window_for(old.case_date);
     if v_locked is not null then
-      raise exception 'The pay run ending % is approved. Its choices are locked: approval is final.', v_locked;
+      raise exception 'The pay run ending % is submitted. Its choices are locked: submittal is final.', v_locked;
     end if;
   end if;
 
@@ -250,9 +251,9 @@ begin
   if new.case_date is null then
     raise exception 'Cannot tell which pay period % belongs to, so it cannot be recorded.', new.finding_key;
   end if;
-  v_locked := public.payroll_approved_window_for(new.case_date);
+  v_locked := public.payroll_submitted_window_for(new.case_date);
   if v_locked is not null then
-    raise exception 'The pay run ending % is approved. Its choices are locked: approval is final.', v_locked;
+    raise exception 'The pay run ending % is submitted. Its choices are locked: submittal is final.', v_locked;
   end if;
   return new;
 end;
@@ -277,7 +278,7 @@ create trigger payroll_rulings_lock
 -- The 1.10 ladder: the punch's own shift_id; else the person's shift that
 -- day it overlaps most; else somebody else's shift that day, which that
 -- person did not punch for, bracketing the punch within 30 minutes (a cover).
--- The Finance tab reports the same punches as needs_fix and disables Approve;
+-- The Finance tab reports the same punches as needs_fix and disables Submit;
 -- this is the database's own copy of that refusal.
 create or replace function public.payroll_punch_blockers(p_window_end date)
 returns table (check_id text, punch_id bigint, employee_id uuid, work_date date)
@@ -355,8 +356,8 @@ as $$
    order by 4, 2;
 $$;
 
--- ---------- the approval: after the period, once, final ----------------------
-create or replace function public.guard_payroll_run_approval()
+-- ---------- the submittal: after the period, once, final ----------------------
+create or replace function public.guard_payroll_run_submittal()
 returns trigger
 language plpgsql
 security definer set search_path = public
@@ -367,49 +368,49 @@ declare
   v_blockers text;
 begin
   if tg_op = 'DELETE' then
-    raise exception 'The pay run ending % is approved. Approval is final and cannot be undone.', old.window_end;
+    raise exception 'The pay run ending % is submitted. Submittal is final and cannot be undone.', old.window_end;
   end if;
 
   if tg_op = 'UPDATE' then
-    -- Only status may move (§6, not built), and approved_by may only be
-    -- cleared by ON DELETE SET NULL. Everything that says what was approved,
+    -- Only status may move (§6, not built), and submitted_by may only be
+    -- cleared by ON DELETE SET NULL. Everything that says what was submitted,
     -- by whom and when stays as it was given.
     if new.window_end is distinct from old.window_end
-       or new.approved_at is distinct from old.approved_at
+       or new.submitted_at is distinct from old.submitted_at
        or new.snapshot is distinct from old.snapshot
        or new.note is distinct from old.note
-       or (new.approved_by is distinct from old.approved_by and new.approved_by is not null) then
-      raise exception 'The pay run ending % is approved. Approval is final and cannot be changed.', old.window_end;
+       or (new.submitted_by is distinct from old.submitted_by and new.submitted_by is not null) then
+      raise exception 'The pay run ending % is submitted. Submittal is final and cannot be changed.', old.window_end;
     end if;
     return new;
   end if;
 
   -- INSERT
   if new.window_end >= v_today then
-    raise exception 'The pay period ending % has not ended yet. It can be approved from %.', new.window_end, new.window_end + 1;
+    raise exception 'The pay period ending % has not ended yet. It can be submitted from %.', new.window_end, new.window_end + 1;
   end if;
   select a.window_end into v_overlap
-    from public.payroll_run_approvals a
+    from public.payroll_run_submittals a
    where a.window_end <> new.window_end
      and a.window_end between new.window_end - 13 and new.window_end + 13
    limit 1;
   if v_overlap is not null then
-    raise exception 'The pay run ending % is already approved and shares days with this one.', v_overlap;
+    raise exception 'The pay run ending % is already submitted and shares days with this one.', v_overlap;
   end if;
-  -- Ruling D: no approval while a 1.4/1.5 punch is still uncorrected.
+  -- Ruling D: no submittal while a 1.4/1.5 punch is still uncorrected.
   select string_agg(format('%s punch %s (%s)', b.check_id, b.punch_id, b.work_date), ', ')
     into v_blockers
     from public.payroll_punch_blockers(new.window_end) b;
   if v_blockers is not null then
     raise exception 'Correct these punches in Withers-time first; they have no default: %.', v_blockers;
   end if;
-  new.approved_at := now();
-  new.status := 'approved_pending_stage';
+  new.submitted_at := now();
+  new.status := 'submitted_pending_stage';
   return new;
 end;
 $$;
 
-drop trigger if exists payroll_run_approvals_guard on public.payroll_run_approvals;
-create trigger payroll_run_approvals_guard
-  before insert or update or delete on public.payroll_run_approvals
-  for each row execute function public.guard_payroll_run_approval();
+drop trigger if exists payroll_run_submittals_guard on public.payroll_run_submittals;
+create trigger payroll_run_submittals_guard
+  before insert or update or delete on public.payroll_run_submittals
+  for each row execute function public.guard_payroll_run_submittal();
