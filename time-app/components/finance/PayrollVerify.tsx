@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import type { CheckGroup, Finding } from "@/lib/payroll/verify";
 import type { LoadedVerify } from "@/lib/payroll/loadVerify";
 import { submittalBlocker, paysSubmitter } from "@/lib/payroll/choices";
@@ -412,10 +411,12 @@ function ChoiceRow({
         <div className="text-slate-700 dark:text-slate-300">
           {labelFor(finding, effective?.choice ?? "skip").replace(/ \(default\)$/, "")}
           {payeeName ? ` — ${payeeName}` : ""} {recorded ? "(changed from default)" : "(default)"}{" "}
+          {/* A plain link, not next/link: on finance.withers-ventures.com the schedule
+              is on the time host, and middleware redirects there (lib/hosts.ts). */}
           {finding.evidence.date && (
-            <Link href={`/schedule?week=${finding.evidence.date}`} className="underline text-slate-500 hover:text-emerald-600 ml-1">
+            <a href={`/schedule?week=${finding.evidence.date}`} className="underline text-slate-500 hover:text-emerald-600 ml-1">
               change on the schedule
-            </Link>
+            </a>
           )}
         </div>
       ) : (

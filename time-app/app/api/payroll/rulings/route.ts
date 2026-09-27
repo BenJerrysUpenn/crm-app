@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { financeAccess } from "@/lib/financeAccess";
 import { isMissingTable } from "@/lib/storeHours";
 import { RULING_CHOICES } from "@/lib/payroll/verify";
 import { validateChoice, type PayeeProfile } from "@/lib/payroll/choices";
@@ -68,7 +69,7 @@ function parseTarget(source: { window_end?: unknown; check_id?: unknown; finding
 // (and works out the case's date itself); this route turns that into a 409.
 export async function POST(request: Request) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || financeAccess(me) !== "allowed")
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = (await request.json().catch(() => null)) as Body | null;
@@ -129,7 +130,7 @@ export async function POST(request: Request) {
 // way to hold it.
 export async function DELETE(request: Request) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || financeAccess(me) !== "allowed")
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const params = new URL(request.url).searchParams;
