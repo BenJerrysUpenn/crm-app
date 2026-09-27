@@ -30,9 +30,13 @@ export default async function EmailCampaignsPage() {
     }
   } catch (e: unknown) {
     error = e instanceof Error ? e.message : String(e);
-    raw = { prospects: [], deals: [], suppressedEmails: [], blockedDomains: [], mailboxes: [] };
+    raw = { prospects: [], deals: [], sent: [], suppressedEmails: [], blockedDomains: [], mailboxes: [] };
   }
   const payload = compute(raw, new Date());
+
+  // v5: "Sourced by" on the + Add contacts form (prototype, nothing saved).
+  const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+  const sourcedBy = (profile as { full_name: string | null } | null)?.full_name || user.email || "you";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -43,7 +47,7 @@ export default async function EmailCampaignsPage() {
             Could not load outreach data: {error}
           </div>
         ) : null}
-        <EmailCampaignsPrototype payload={payload} />
+        <EmailCampaignsPrototype payload={payload} sourcedBy={sourcedBy} />
       </main>
     </div>
   );

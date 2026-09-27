@@ -1,6 +1,10 @@
 "use client";
 
-// PROTOTYPE — Email campaigns tab (v4): the in-CRM sequence editor.
+// PROTOTYPE — Email campaigns tab (v4, v5): the in-CRM sequence editor.
+//
+// v5: the lane's signature and footer are editable blocks at the end of the
+// timeline (one pair per lane: cold = Apollo's, warm = warm_sender's, offer =
+// empty), and the supported merge tags are shown as chips.
 //
 // Opened from a tile's sequence dots (loaded with that sequence) or from
 // "+ Add sequence" (empty, for that tier and category). One step = one email
@@ -11,10 +15,11 @@ import { useEffect, useRef, useState } from "react";
 import { CADENCES, type Cadence, type TierPayload } from "@/lib/emailCampaignsPrototype/model";
 import {
   LANES,
+  MERGE_TAGS,
   dayOffsets,
   splitMerge,
-  type FooterLine,
   type Lane,
+  type LaneBlocks,
   type SeqStep,
   type SequenceDoc,
 } from "@/lib/emailCampaignsPrototype/sequences";
@@ -51,20 +56,27 @@ function WithChips({ text }: { text: string }) {
   );
 }
 
-/** Text with {{merge_fields}} filled from the sample recipient (preview). */
-function Filled({ text, lane }: { text: string; lane: Lane }) {
+/** Text with {{merge_tags}} filled with sample values (preview). Link tags
+ * render as links. */
+function Filled({ text }: { text: string }) {
   return (
     <>
       {splitMerge(text).map((part, i) => {
         if (!part.field) return <span key={i}>{part.text}</span>;
-        const v = lane.sample.fields[part.field];
-        return v ? (
-          <span key={i} title={`{{${part.field}}}`} className="rounded-sm bg-sky-100 decoration-sky-400">
-            {v}
-          </span>
-        ) : (
-          <span key={i} title="This lane does not fill this field" className="rounded-sm bg-rose-100 text-rose-700">
-            [{part.field}?]
+        const t = MERGE_TAGS.find((m) => m.tag === part.field);
+        if (!t)
+          return (
+            <span key={i} title="Not a supported merge tag" className="rounded-sm bg-rose-100 text-rose-700">
+              [{part.field}?]
+            </span>
+          );
+        return (
+          <span
+            key={i}
+            title={`{{${t.tag}}}`}
+            className={t.link ? "text-blue-700 underline" : "rounded-sm bg-sky-100"}
+          >
+            {t.sample}
           </span>
         );
       })}
@@ -72,14 +84,51 @@ function Filled({ text, lane }: { text: string; lane: Lane }) {
   );
 }
 
-function LinkTail({ line }: { line: FooterLine }) {
-  if (!line.link || !line.text.endsWith(line.link)) return <>{line.text}</>;
+/** The supported merge tags as chips; clicking one inserts it when `onPick`. */
+function TagChips({ onPick }: { onPick?: (tag: string) => void }) {
   return (
     <>
-      {line.text.slice(0, line.text.length - line.link.length)}
-      <span className="text-blue-700 underline">{line.link}</span>
+      {MERGE_TAGS.map((t) =>
+        onPick ? (
+          <button
+            key={t.tag}
+            type="button"
+            title={t.help}
+            onClick={() => onPick(t.tag)}
+            className="rounded bg-sky-500/15 px-1.5 font-mono text-[11px] leading-5 text-sky-300 ring-1 ring-inset ring-sky-500/30 hover:bg-sky-500/25"
+          >
+            {`{{${t.tag}}}`}
+          </button>
+        ) : (
+          <span
+            key={t.tag}
+            title={t.help}
+            className="rounded bg-sky-500/15 px-1.5 font-mono text-[11px] leading-5 text-sky-300 ring-1 ring-inset ring-sky-500/30"
+          >
+            {`{{${t.tag}}}`}
+          </span>
+        ),
+      )}
     </>
   );
+}
+
+/** Insert `{{tag}}` at the cursor of a textarea bound to `value`. */
+function useInsertTag(value: string, set: (v: string) => void) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const insert = (tag: string) => {
+    const el = ref.current;
+    const token = `{{${tag}}}`;
+    const at = el ? el.selectionStart : value.length;
+    const end = el ? el.selectionEnd : value.length;
+    set(value.slice(0, at) + token + value.slice(end));
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(at + token.length, at + token.length);
+    });
+  };
+  return { ref, insert };
 }
 
 function BlockLabel({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "amber" }) {
@@ -94,8 +143,10 @@ function BlockLabel({ children, tone = "slate" }: { children: React.ReactNode; t
   );
 }
 
-/** The whole email as the prospect sees it: headers, body, signature, footer. */
-function RecipientPreview({ step, lane }: { step: SeqStep; lane: Lane }) {
+/** The whole email as the prospect sees it: headers, body, then this lane's
+ * own signature and footer. */
+function RecipientPreview({ step, lane, blocks }: { step: SeqStep; lane: Lane; blocks: LaneBlocks }) {
+  const footerLines = blocks.footer.split("\n").filter((l) => l.trim() !== "");
   return (
     <div className="overflow-hidden rounded-md border border-slate-300 bg-white text-slate-900 shadow-sm">
       <div className="space-y-0.5 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-600">
@@ -106,7 +157,7 @@ function RecipientPreview({ step, lane }: { step: SeqStep; lane: Lane }) {
         </div>
         <div>
           <span className="inline-block w-14 text-slate-400">To</span>
-          {lane.sample.fields.first_name} {lane.sample.fields.last_name} &lt;{lane.sample.to}&gt;
+          {lane.sample.name} &lt;{lane.sample.to}&gt;
         </div>
         {lane.replyTo ? (
           <div>
@@ -115,20 +166,20 @@ function RecipientPreview({ step, lane }: { step: SeqStep; lane: Lane }) {
           </div>
         ) : null}
         <div className="pt-0.5 text-[14px] font-semibold text-slate-900">
-          {step.subject ? <Filled text={step.subject} lane={lane} /> : <span className="text-slate-400">(no subject)</span>}
+          {step.subject ? <Filled text={step.subject} /> : <span className="text-slate-400">(no subject)</span>}
         </div>
       </div>
       <div className="space-y-3 px-4 py-3 text-[13px] leading-relaxed">
         <div className="whitespace-pre-wrap">
-          {step.body ? <Filled text={step.body} lane={lane} /> : <span className="text-slate-400">(empty body)</span>}
+          {step.body ? <Filled text={step.body} /> : <span className="text-slate-400">(empty body)</span>}
         </div>
         <div className="border-l-2 border-dashed border-slate-300 pl-2">
           <BlockLabel>signature · {lane.signatureNote}</BlockLabel>
-          {lane.signature ? (
-            <div className="whitespace-pre-wrap">
-              {lane.signature.split("\n").map((l, i) => (
+          {blocks.signature.trim() ? (
+            <div>
+              {blocks.signature.split("\n").map((l, i) => (
                 <div key={i} className={/^https?:\/\//.test(l) ? "text-blue-700 underline" : ""}>
-                  {l}
+                  {l ? <Filled text={l} /> : "\u00a0"}
                 </div>
               ))}
             </div>
@@ -138,20 +189,19 @@ function RecipientPreview({ step, lane }: { step: SeqStep; lane: Lane }) {
         </div>
         <div className="border-l-2 border-dashed border-slate-300 pl-2">
           <BlockLabel>footer · {lane.footerNote}</BlockLabel>
-          {lane.footer.length === 0 ? <div className="text-[12px] italic text-slate-400">none</div> : null}
+          {footerLines.length === 0 ? <div className="text-[12px] italic text-slate-400">none</div> : null}
           <div className="space-y-1.5">
-            {lane.footer.map((line) =>
-              line.proposed ? (
-                <div key={line.text} className="rounded border border-dashed border-amber-400 bg-amber-50 px-2 py-1">
-                  <BlockLabel tone="amber">proposed footer line · {line.note}</BlockLabel>
+            {footerLines.map((line, i) =>
+              lane.proposedTags.some((t) => line.includes(`{{${t}}}`)) ? (
+                <div key={i} className="rounded border border-dashed border-amber-400 bg-amber-50 px-2 py-1">
+                  <BlockLabel tone="amber">proposed footer line · not live yet</BlockLabel>
                   <div className="text-[12px] text-slate-600">
-                    <LinkTail line={line} />
+                    <Filled text={line} />
                   </div>
                 </div>
               ) : (
-                <div key={line.text} className="text-[12px] text-slate-500">
-                  <LinkTail line={line} />
-                  {line.note ? <div className="text-[10px] italic text-slate-400">{line.note}</div> : null}
+                <div key={i} className="text-[12px] text-slate-500">
+                  <Filled text={line} />
                 </div>
               ),
             )}
@@ -162,36 +212,97 @@ function RecipientPreview({ step, lane }: { step: SeqStep; lane: Lane }) {
   );
 }
 
+/** One of the lane's editable blocks (signature or footer). */
+function LaneBlockEditor({
+  label,
+  note,
+  value,
+  onSave,
+  disabled,
+}: {
+  label: string;
+  note: string;
+  value: string;
+  onSave: (v: string) => void;
+  disabled: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const { ref, insert } = useInsertTag(draft, setDraft);
+  return (
+    <div className="rounded-md border border-dashed border-slate-700 bg-slate-950/30 px-3 py-2">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>
+        <span className="truncate text-[11px] text-slate-500">{note}</span>
+        {!editing ? (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(value);
+              setEditing(true);
+            }}
+            disabled={disabled}
+            className="ml-auto rounded px-1.5 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+          >
+            Edit
+          </button>
+        ) : null}
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-1 text-[11px] text-slate-500">
+            <span>Insert:</span>
+            <TagChips onPick={insert} />
+          </div>
+          <textarea
+            ref={ref}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={Math.max(3, draft.split("\n").length + 1)}
+            className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm leading-relaxed text-slate-100 focus:border-slate-500 focus:outline-none"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onSave(draft);
+                setEditing(false);
+              }}
+              className="rounded bg-sky-600 px-3 py-1 text-xs font-medium text-white hover:bg-sky-500"
+            >
+              Save {label.toLowerCase()}
+            </button>
+            <button type="button" onClick={() => setEditing(false)} className="text-xs text-slate-400 hover:text-slate-200">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : value.trim() ? (
+        <div className="whitespace-pre-wrap text-[13px] leading-relaxed text-slate-300">
+          <WithChips text={value} />
+        </div>
+      ) : (
+        <div className="text-[12px] italic text-slate-500">Empty. Edit to add one.</div>
+      )}
+    </div>
+  );
+}
+
 // --- step editing ---------------------------------------------------------------
 
 function StepForm({
   step,
   index,
-  lane,
   onSave,
   onCancel,
 }: {
   step: SeqStep;
   index: number;
-  lane: Lane;
   onSave: (s: SeqStep) => void;
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState(step);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const insert = (field: string) => {
-    const el = bodyRef.current;
-    const token = `{{${field}}}`;
-    const at = el ? el.selectionStart : draft.body.length;
-    const end = el ? el.selectionEnd : draft.body.length;
-    const body = draft.body.slice(0, at) + token + draft.body.slice(end);
-    setDraft({ ...draft, body });
-    requestAnimationFrame(() => {
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(at + token.length, at + token.length);
-    });
-  };
+  const { ref: bodyRef, insert } = useInsertTag(draft.body, (body) => setDraft({ ...draft, body }));
   const input =
     "w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-slate-500 focus:outline-none";
   return (
@@ -215,18 +326,8 @@ function StepForm({
         className={input}
       />
       <div className="flex flex-wrap items-center gap-1 text-[11px] text-slate-500">
-        <span>Insert merge field:</span>
-        {lane.mergeFields.map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => insert(f)}
-            className="rounded bg-sky-500/15 px-1.5 font-mono text-[11px] leading-5 text-sky-300 ring-1 ring-inset ring-sky-500/30 hover:bg-sky-500/25"
-          >
-            {f}
-          </button>
-        ))}
-        <span className="ml-1">{lane.mergeNote}</span>
+        <span>Insert merge tag:</span>
+        <TagChips onPick={insert} />
       </div>
       <textarea
         ref={bodyRef}
@@ -238,7 +339,7 @@ function StepForm({
       />
       {draft.body ? (
         <div className="rounded border border-slate-800 px-2 py-1.5 text-xs leading-relaxed text-slate-400">
-          <div className="mb-0.5 text-[10px] uppercase tracking-wide text-slate-600">merge fields</div>
+          <div className="mb-0.5 text-[10px] uppercase tracking-wide text-slate-600">merge tags</div>
           <div className="line-clamp-3 whitespace-pre-wrap">
             <WithChips text={draft.body} />
           </div>
@@ -269,6 +370,10 @@ export default function SequenceEditor({
   edited,
   onChange,
   onReset,
+  blocks,
+  blocksEdited,
+  onBlocksChange,
+  onBlocksReset,
   onClose,
 }: {
   target: EditorTarget;
@@ -277,6 +382,11 @@ export default function SequenceEditor({
   edited: boolean;
   onChange: (d: SequenceDoc) => void;
   onReset: () => void;
+  /** This lane's signature and footer (shared by every sequence in the tier). */
+  blocks: LaneBlocks;
+  blocksEdited: boolean;
+  onBlocksChange: (b: LaneBlocks) => void;
+  onBlocksReset: () => void;
   onClose: () => void;
 }) {
   const { tier, catKey, catLabel, cadence } = target;
@@ -383,6 +493,10 @@ export default function SequenceEditor({
                 <dd className="text-slate-400">{tier.sequence.note}</dd>
               </>
             ) : null}
+            <dt className="text-slate-500">Merge tags</dt>
+            <dd className="flex flex-wrap items-center gap-1">
+              <TagChips />
+            </dd>
           </dl>
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-slate-300">
@@ -427,7 +541,8 @@ export default function SequenceEditor({
         </div>
 
         <div className="border-b border-amber-700/50 bg-amber-500/10 px-5 py-2 text-xs text-amber-200">
-          Prototype: edits are saved in this browser only and are NOT sent to Apollo or the warm sender.
+          Prototype: edits (steps, signature and footer) are saved in this browser only and are NOT sent to
+          Apollo or the warm sender.
         </div>
 
         {/* timeline */}
@@ -501,7 +616,6 @@ export default function SequenceEditor({
                   <StepForm
                     step={s}
                     index={i}
-                    lane={lane}
                     onCancel={() => cancelEdit(s.id)}
                     onSave={(d) => {
                       setSteps(steps.map((x) => (x.id === s.id ? d : x)));
@@ -510,7 +624,7 @@ export default function SequenceEditor({
                     }}
                   />
                 ) : preview ? (
-                  <RecipientPreview step={s} lane={lane} />
+                  <RecipientPreview step={s} lane={lane} blocks={blocks} />
                 ) : (
                   <div className="rounded-md border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <div className="mb-1 text-sm font-medium text-slate-100">
@@ -520,7 +634,8 @@ export default function SequenceEditor({
                       {s.body ? <WithChips text={s.body} /> : <span className="text-slate-500">(empty body)</span>}
                     </div>
                     <div className="mt-2 border-t border-slate-800 pt-1.5 text-[11px] text-slate-500">
-                      + signature and footer ({lane.footerNote}). Turn on Preview as recipient to see them.
+                      + this lane&apos;s signature and footer (edit them below). Turn on Preview as recipient to see
+                      the whole email.
                     </div>
                   </div>
                 )}
@@ -537,6 +652,41 @@ export default function SequenceEditor({
               + Add step
             </button>
           ) : null}
+
+          <div className="mt-6 space-y-2 border-t border-slate-800 pt-4">
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span className="font-medium text-slate-300">{tier.label} lane signature and footer</span>
+              <span className="text-slate-500">· added to every email this lane sends</span>
+              {blocksEdited ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("Put back the original signature and footer? Your edits in this browser are discarded."))
+                      onBlocksReset();
+                  }}
+                  className="ml-auto text-[11px] text-slate-500 hover:text-slate-200"
+                >
+                  Reset to original
+                </button>
+              ) : null}
+            </div>
+            <LaneBlockEditor
+              key={`sig-${blocks.signature}`}
+              label="Signature"
+              note={lane.signatureNote}
+              value={blocks.signature}
+              disabled={!!editingId}
+              onSave={(v) => onBlocksChange({ ...blocks, signature: v })}
+            />
+            <LaneBlockEditor
+              key={`foot-${blocks.footer}`}
+              label="Footer"
+              note={lane.footerNote}
+              value={blocks.footer}
+              disabled={!!editingId}
+              onSave={(v) => onBlocksChange({ ...blocks, footer: v })}
+            />
+          </div>
         </div>
       </aside>
     </div>

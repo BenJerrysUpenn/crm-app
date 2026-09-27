@@ -16,24 +16,47 @@
 // sequence dots and every "+ Add sequence" open one in-CRM sequence editor
 // (SequenceEditor.tsx); no links to GitHub source remain.
 //
+// v5: never resend the same email. Held = blocked provider OR finished the
+// sequence (or no sequence yet, or emailed with no history of what). States
+// are worked out per group with the CURRENT sequence (edits included), so
+// adding a step moves finished people back to Up next. Plus: lane signature
+// and footer editing, a tier connections panel, a "Seasonal menu list" warm
+// category (mock, 0) and a prototype "+ Add contacts" form (nothing saved).
+//
 // Client-only prototype state: the per-tier cadence (useState), card notes and
 // sequence edits (localStorage, this browser only). Nothing is written to the
 // database, Apollo or warm_sender.
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import SequenceEditor, { type EditorTarget } from "./SequenceEditor";
-import { SEED_SEQUENCES, sequenceKey, type SequenceDoc } from "@/lib/emailCampaignsPrototype/sequences";
+import AddContactForm from "./AddContactForm";
+import TierConnections from "./TierConnections";
+import {
+  SEED_LANE_BLOCKS,
+  SEED_SEQUENCES,
+  sequenceKey,
+  stepKeys,
+  type LaneBlocks,
+  type SequenceDoc,
+} from "@/lib/emailCampaignsPrototype/sequences";
 import {
   CADENCES,
+  HELD_REASON_LABEL,
+  HELD_REASON_SHORT,
   WEEKDAYS_PER_MONTH,
   cadenceOf,
+  everyoneOf,
+  groupStanding,
   statesAt,
   volumeAt,
   type Cadence,
   type CategoryStat,
+  type HeldReason,
   type Payload,
   type Person,
+  type StepsFor,
   type Tag,
+  type TierKey,
   type TierPayload,
 } from "@/lib/emailCampaignsPrototype/model";
 
@@ -101,14 +124,33 @@ function periodPhrase(cadence: Cadence): string {
 function stateHelp(state: StateKey, cadence: Cadence): string {
   switch (state) {
     case "upNext":
-      return `Not emailed ${periodPhrase(cadence)}. The period is the tier's "Reach everyone" cadence. People talked to since May are listed last: lowest priority, still emailed.`;
+      return `Still have a step of their sequence they have not had, and not emailed ${periodPhrase(cadence)}. People talked to since May are listed last: lowest priority, still emailed.`;
     case "emailed":
-      return `Emailed ${periodPhrase(cadence)}. They move back to Up next when the period ends.`;
+      return `Got a step ${periodPhrase(cadence)} and still have steps left. They move back to Up next when the period ends.`;
     case "held":
-      return "Deliberately not sent to: Yahoo/Microsoft addresses, blocked until warm mailboxes are ready.";
+      return "Not sent to: Yahoo/Microsoft addresses (blocked until warm mailboxes are ready), or they already had every step of their sequence and there is nothing new to send. Nobody gets the same email twice; adding a step they have not had moves them back to Up next.";
     case "unaccounted":
       return "People in no state. This should never happen.";
   }
+}
+
+const HELD_ORDER: HeldReason[] = ["blocked", "finished", "noSequence", "moved"];
+
+/** "1,904 blocked provider · 216 finished sequence" (non-zero reasons only). */
+function HeldReasons({ heldBy }: { heldBy: Record<HeldReason, number> }) {
+  const parts = HELD_ORDER.filter((r) => heldBy[r] > 0);
+  if (!parts.length) return null;
+  return (
+    <div className="text-[11px] text-slate-500">
+      <span className="text-slate-400">Held:</span>{" "}
+      {parts.map((r, i) => (
+        <span key={r} title={HELD_REASON_LABEL[r]}>
+          {i ? " · " : ""}
+          <span className="tabular-nums text-slate-300">{fmt(heldBy[r])}</span> {HELD_REASON_SHORT[r]}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function Unaccounted({ n }: { n: number }) {
@@ -250,30 +292,69 @@ const STATE_LABEL: Record<StateKey, string> = {
 };
 
 type Drill = { kind: "people"; tier: TierPayload; cat: CategoryStat; state: StateKey; cadence: Cadence };
+type Row = Person & { reason: string; low: boolean };
 
 const LIST_CAP = 100;
 
-/** People in a state, in list order. Up next = due again (oldest first), never
- * emailed, then talked to since May last (`bottom`). */
-function peopleIn(cat: CategoryStat, state: StateKey, cadence: Cadence): { top: Person[]; bottom: Person[] } {
+/** People in a state, in list order, from each group's sample. Up next = due
+ * again (oldest first), then never emailed, then talked to since May last
+ * (`bottom`). Held = by reason. */
+function peopleIn(
+  cat: CategoryStat,
+  state: StateKey,
+  cadence: Cadence,
+  stepsFor: StepsFor,
+): { top: Row[]; bottom: Row[] } {
   const period = cadenceOf(cadence).periodDays;
-  const s = cat.sample;
   const due = (p: Person) => p.age_days === null || p.age_days >= period;
-  switch (state) {
-    case "upNext":
-      return { top: [...s.dueOldest.filter(due), ...s.never], bottom: s.talked.filter(due) };
-    case "emailed":
-      return { top: s.emailedNewest.filter((p) => !due(p)), bottom: [] };
-    case "held":
-      return { top: s.held.filter(due), bottom: [] };
-    case "unaccounted":
-      return { top: [], bottom: [] };
+  const top: Row[] = [];
+  const bottom: Row[] = [];
+  const dueOld: Row[] = [];
+  const never: Row[] = [];
+  const held: Record<HeldReason, Row[]> = { blocked: [], finished: [], noSequence: [], moved: [] };
+  for (const g of cat.groups) {
+    const steps = stepsFor(g.cat);
+    const standing = groupStanding(g, steps);
+    if (standing !== "open") {
+      if (state !== "held") continue;
+      const seen = new Set<number>();
+      for (const p of [...g.sample.never, ...g.sample.oldest])
+        if (!seen.has(p.id)) {
+          seen.add(p.id);
+          held[standing].push({ ...p, reason: HELD_REASON_LABEL[standing], low: false });
+        }
+      continue;
+    }
+    const left = steps.filter((keys) => !keys.some((k) => g.received.includes(k))).length;
+    const stepsLeft = `${left} ${plural(left, "step")} left`;
+    if (state === "upNext") {
+      const rows = [
+        ...g.sample.oldest.filter(due).map((p) => ({ ...p, reason: `due again, ${stepsLeft}`, low: g.talked })),
+        ...g.sample.never.map((p) => ({ ...p, reason: stepsLeft, low: g.talked })),
+      ];
+      if (g.talked) bottom.push(...rows);
+      else
+        for (const r of rows) (r.age_days === null ? never : dueOld).push(r);
+    } else if (state === "emailed") {
+      top.push(...g.sample.newest.filter((p) => !due(p)).map((p) => ({ ...p, reason: stepsLeft, low: false })));
+    }
   }
+  if (state === "upNext") {
+    dueOld.sort((a, b) => (b.age_days ?? 0) - (a.age_days ?? 0));
+    bottom.sort(
+      (a, b) =>
+        (a.age_days === null ? -1 : 0) - (b.age_days === null ? -1 : 0) || (b.age_days ?? 0) - (a.age_days ?? 0),
+    );
+    return { top: [...dueOld, ...never], bottom };
+  }
+  if (state === "emailed") return { top: top.sort((a, b) => (a.age_days ?? 0) - (b.age_days ?? 0)), bottom };
+  if (state === "held") return { top: HELD_ORDER.flatMap((r) => held[r]), bottom };
+  return { top: [], bottom: [] };
 }
 
-function PersonRow({ p }: { p: Person }) {
+function PersonRow({ p }: { p: Row }) {
   return (
-    <tr className={`border-t border-slate-800 ${p.talked ? "text-slate-400" : "text-slate-300"}`}>
+    <tr className={`border-t border-slate-800 ${p.low ? "text-slate-400" : "text-slate-300"}`}>
       <td className="whitespace-nowrap py-1 pr-3">{p.name}</td>
       <td className="py-1 pr-3">{p.email ?? <span className="text-slate-600">none yet</span>}</td>
       <td className="whitespace-nowrap py-1 pr-3">
@@ -281,7 +362,10 @@ function PersonRow({ p }: { p: Person }) {
           ? new Date(p.last_touch).toLocaleDateString("en-US", { month: "short", day: "numeric" })
           : "never"}
       </td>
-      <td className="py-1 pr-3 text-slate-400">{p.why}</td>
+      <td className="py-1 pr-3 text-slate-400">
+        <span className="text-slate-300">{p.reason}</span>
+        <span className="text-slate-500"> · {p.why}</span>
+      </td>
     </tr>
   );
 }
@@ -296,14 +380,15 @@ function PeopleModal({
   setState: (s: StateKey) => void;
 }) {
   const { tier, cat, state, cadence } = drill;
-  const st = statesAt(cat, cadence);
+  const stepsFor = useContext(SeqCtx).stepsFor(tier.key);
+  const st = statesAt(cat, cadence, stepsFor);
   const counts: Record<StateKey, number> = {
     upNext: st.upNext,
     emailed: st.emailed,
     held: st.held,
     unaccounted: st.unaccounted,
   };
-  const { top, bottom } = peopleIn(cat, state, cadence);
+  const { top, bottom } = peopleIn(cat, state, cadence, stepsFor);
   // The bottom group (talked to since May) is always shown at the end of the
   // list, after a row counting the people skipped in between.
   const bottomTotal = state === "upNext" ? st.lowPriority : 0;
@@ -335,6 +420,11 @@ function PeopleModal({
       <p className="mb-2 text-[11px] text-slate-500">
         {stateHelp(state, cadence)} Showing {fmt(shown)} of {fmt(counts[state])}.
       </p>
+      {state === "held" ? (
+        <div className="mb-2">
+          <HeldReasons heldBy={st.heldBy} />
+        </div>
+      ) : null}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="text-left text-slate-500">
@@ -412,8 +502,16 @@ type SeqStore = {
   get: (key: string) => SequenceDoc | null;
   edited: (key: string) => boolean;
   open: (t: EditorTarget) => void;
+  /** The steps that apply to a tier's category: its own sequence if it has
+   * steps, otherwise the tier's Everyone sequence. */
+  stepsFor: (tier: TierKey) => StepsFor;
 };
-const SeqCtx = createContext<SeqStore>({ get: () => null, edited: () => false, open: () => {} });
+const SeqCtx = createContext<SeqStore>({
+  get: () => null,
+  edited: () => false,
+  open: () => {},
+  stepsFor: () => () => [],
+});
 
 /** Local edits override the seeds. A key present in `local` has been edited in
  * this browser (an emptied seed is stored as zero steps, so it stays empty). */
@@ -455,6 +553,51 @@ function useSequenceStore() {
       /* ignore */
     }
   }, []);
+  return { get, edited, save, reset };
+}
+
+/** The signed-in user's name, for "Sourced by" on the add-contacts form. */
+const UserCtx = createContext<string>("you");
+
+const LANE_PREFIX = "email-campaigns-proto:lane:v1:";
+
+/** Each lane's signature and footer: seed, overridden by edits in this browser. */
+function useLaneBlocks() {
+  const [local, setLocal] = useState<Partial<Record<TierKey, LaneBlocks>>>({});
+  useEffect(() => {
+    try {
+      const found: Partial<Record<TierKey, LaneBlocks>> = {};
+      for (const t of ["cold", "warm", "offer"] as TierKey[]) {
+        const raw = window.localStorage.getItem(LANE_PREFIX + t);
+        if (raw) found[t] = JSON.parse(raw) as LaneBlocks;
+      }
+      setLocal(found);
+    } catch {
+      /* storage blocked: seeds only */
+    }
+  }, []);
+  const get = (t: TierKey) => local[t] ?? SEED_LANE_BLOCKS[t];
+  const edited = (t: TierKey) => t in local;
+  const save = (t: TierKey, b: LaneBlocks) => {
+    setLocal((l) => ({ ...l, [t]: b }));
+    try {
+      window.localStorage.setItem(LANE_PREFIX + t, JSON.stringify(b));
+    } catch {
+      /* storage blocked: the edit lives until reload */
+    }
+  };
+  const reset = (t: TierKey) => {
+    setLocal((l) => {
+      const next = { ...l };
+      delete next[t];
+      return next;
+    });
+    try {
+      window.localStorage.removeItem(LANE_PREFIX + t);
+    } catch {
+      /* ignore */
+    }
+  };
   return { get, edited, save, reset };
 }
 
@@ -552,10 +695,12 @@ function EveryoneCard({
   cadence: Cadence;
   open: (d: Drill) => void;
 }) {
-  const e = tier.everyone;
-  const st = statesAt(e, cadence);
+  const e = everyoneOf(tier);
+  const st = statesAt(e, cadence, useContext(SeqCtx).stepsFor(tier.key));
   const [note, saveNote] = useNote(`${tier.key}:everyone`);
   const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const sourcedBy = useContext(UserCtx);
   const people = (state: StateKey) => () => open({ kind: "people", tier, cat: e, state, cadence });
   return (
     <div className="flex flex-col gap-2 rounded-md border border-slate-700 bg-slate-900/80 p-2.5">
@@ -572,9 +717,12 @@ function EveryoneCard({
         <StateStat label={STATE_LABEL.held} help={stateHelp("held", cadence)} n={st.held} onClick={people("held")} big align="right" />
       </div>
 
+      <HeldReasons heldBy={st.heldBy} />
+
       {tier.key === "cold" && st.upNext > 0 ? (
         <div className="text-[11px] text-slate-500">
-          Up next: {fmt(st.upNext - e.n.needsReveal)} have an email · {fmt(e.n.needsReveal)} need an Apollo email reveal
+          Up next: {fmt(st.upNext - st.upNextNeedsReveal)} have an email · {fmt(st.upNextNeedsReveal)} need an Apollo
+          email reveal
         </div>
       ) : null}
 
@@ -588,20 +736,23 @@ function EveryoneCard({
               {s.tag === "mock" ? <TagPill tag="mock" /> : null}
             </span>
           ))}
-          <Tip
-            text="Future: a teammate adds LinkedIn contacts; Apollo can find the email from the LinkedIn URL."
-            align="right"
-            className="ml-auto"
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            title="Prototype form: shows what would happen, saves nothing"
+            className="ml-auto whitespace-nowrap rounded border border-dashed border-slate-600 px-1.5 py-px text-slate-300 hover:border-slate-400 hover:text-slate-100"
           >
-            <span
-              role="button"
-              aria-disabled="true"
-              className="cursor-not-allowed whitespace-nowrap rounded border border-dashed border-slate-700 px-1.5 py-px text-slate-500"
-            >
-              + Add contacts (LinkedIn, lists)
-            </span>
-          </Tip>
+            + Add contacts
+          </button>
         </div>
+      ) : null}
+      {adding ? (
+        <Modal title="Add a cold contact" onClose={() => setAdding(false)}>
+          <AddContactForm
+            categories={tier.categories.map((c) => ({ key: c.key, label: c.label }))}
+            sourcedBy={sourcedBy}
+          />
+        </Modal>
       ) : null}
 
       <Unaccounted n={st.unaccounted} />
@@ -651,7 +802,7 @@ function CategoryCard({
   cadence: Cadence;
   open: (d: Drill) => void;
 }) {
-  const st = statesAt(cat, cadence);
+  const st = statesAt(cat, cadence, useContext(SeqCtx).stepsFor(tier.key));
   const [note, saveNote] = useNote(`${tier.key}:${cat.key}`);
   const [editing, setEditing] = useState(false);
   const people = (state: StateKey) => () => open({ kind: "people", tier, cat, state, cadence });
@@ -662,7 +813,16 @@ function CategoryCard({
       } bg-slate-900/60 p-2.5`}
     >
       <div className="flex items-start justify-between gap-1">
-        <div className="min-w-0 text-sm font-medium leading-tight text-slate-100">{cat.label}</div>
+        <div className="min-w-0 text-sm font-medium leading-tight text-slate-100">
+          {cat.hint ? (
+            <Tip text={cat.hint}>
+              <span className="border-b border-dotted border-slate-600">{cat.label}</span>
+            </Tip>
+          ) : (
+            cat.label
+          )}{" "}
+          {cat.tag ? <TagPill tag={cat.tag} /> : null}
+        </div>
         <NoteButton has={!!note} onClick={() => setEditing(true)} />
       </div>
       <div className="grid grid-cols-3 gap-0.5">
@@ -690,25 +850,28 @@ function Volume({
   cadence: Cadence;
   setCadence: (c: Cadence) => void;
 }) {
-  const v = volumeAt(tier, cadence);
+  const st = statesAt(everyoneOf(tier), cadence, useContext(SeqCtx).stepsFor(tier.key));
+  const v = volumeAt(tier, cadence, st.withStepsLeft);
   const cap = tier.capacity;
   const cad = cadenceOf(cadence);
   const unit = cap.unit === "weekday" ? "weekday" : "month";
-  const people = tier.everyone.total;
+  const people = v.people;
   const max = Math.max(v.needed, v.capacity, 1);
 
   const neededFormula =
     cadence === "daily"
       ? `Daily (capped): send at capacity every weekday, so needed = capacity.`
       : cap.unit === "weekday"
-        ? `Needed = ${fmt(people)} people ÷ ${cad.weekdays} sending ${plural(cad.weekdays, "weekday")} per period = ${fmt(v.needed)} a weekday.`
-        : `Needed = ${fmt(people)} people ÷ ${cad.weekdays} sending ${plural(cad.weekdays, "weekday")} per period × ${WEEKDAYS_PER_MONTH} weekdays a month = ${fmt(v.needed)} a month.`;
+        ? `Needed = ${fmt(people)} people with a step left to send ÷ ${cad.weekdays} sending ${plural(cad.weekdays, "weekday")} per period = ${fmt(v.needed)} a weekday. Held people are not counted.`
+        : `Needed = ${fmt(people)} people with a step left to send ÷ ${cad.weekdays} sending ${plural(cad.weekdays, "weekday")} per period × ${WEEKDAYS_PER_MONTH} weekdays a month = ${fmt(v.needed)} a month. Held people are not counted.`;
   const capFormula = `Capacity = ${cap.mailboxes} ${plural(cap.mailboxes, "mailbox", "mailboxes")} × ${cap.perMailboxDay}/day${
     cap.capDay !== null ? `, capped at ${cap.capDay}/day` : ""
   }${cap.unit === "month" ? ` × ${WEEKDAYS_PER_MONTH} weekdays` : ""} = ${fmt(v.capacity)}. ${cap.source}`;
 
   let verdict: React.ReactNode = null;
-  if (cadence === "daily") {
+  if (people === 0) {
+    verdict = <span className="text-slate-400">Nothing to send: nobody has a step left.</span>;
+  } else if (cadence === "daily") {
     verdict =
       v.capDay > 0 ? (
         <span className="text-slate-300">
@@ -817,16 +980,25 @@ function TierColumn({ tier, open }: { tier: TierPayload; open: (d: Drill) => voi
 
 // --- shell --------------------------------------------------------------------
 
-export default function EmailCampaignsPrototype({ payload }: { payload: Payload }) {
+export default function EmailCampaignsPrototype({ payload, sourcedBy }: { payload: Payload; sourcedBy: string }) {
   const [drill, setDrill] = useState<Drill | null>(null);
   const close = useCallback(() => setDrill(null), []);
   const seqs = useSequenceStore();
+  const lanes = useLaneBlocks();
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   const closeEditor = useCallback(() => setEditor(null), []);
-  const store: SeqStore = { get: seqs.get, edited: seqs.edited, open: setEditor };
+  const stepsFor = (tier: TierKey): StepsFor => {
+    const everyone = (seqs.get(sequenceKey(tier, "everyone"))?.steps ?? []).map(stepKeys);
+    return (catKey: string) => {
+      const own = seqs.get(sequenceKey(tier, catKey));
+      return own && own.steps.length ? own.steps.map(stepKeys) : everyone;
+    };
+  };
+  const store: SeqStore = { get: seqs.get, edited: seqs.edited, open: setEditor, stepsFor };
   const editorKey = editor ? sequenceKey(editor.tier.key, editor.catKey) : null;
 
   return (
+    <UserCtx.Provider value={sourcedBy}>
     <SeqCtx.Provider value={store}>
     <div className="space-y-3 px-3 py-4 pb-12 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -863,9 +1035,11 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
             <li key={n}>{n}</li>
           ))}
           <li>
-            A tier&apos;s period is its &ldquo;Reach everyone&rdquo; cadence. Up next: not emailed this period. Emailed:
-            last emailed inside it. Held: Yahoo/Microsoft addresses, deliberately not sent to until warm
-            mailboxes are ready. Everyone else is in exactly one of the three. Everything is a single email today.
+            A tier&apos;s period is its &ldquo;Reach everyone&rdquo; cadence. Up next: still has a step they have not
+            had, and not emailed this period. Emailed: got a step inside the period and still has steps left. Held:
+            Yahoo/Microsoft addresses (until warm mailboxes are ready), or finished the sequence with nothing new to
+            send. Everyone is in exactly one of the three. Every sequence is a single email today, so anyone who got
+            it is Held until a new step is added.
           </li>
           <li>
             People talked to since May are in Up next, at the bottom of the list: lowest priority, still emailed.
@@ -873,6 +1047,8 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
           <li>Changing a tier&apos;s cadence moves people between Up next and Emailed and changes what is needed.</li>
         </ul>
       </details>
+
+      <TierConnections flows={payload.flows} tiers={payload.tiers} />
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {payload.tiers.map((t) => (
@@ -892,10 +1068,15 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
           edited={seqs.edited(editorKey)}
           onChange={(d) => seqs.save(editorKey, d)}
           onReset={() => seqs.reset(editorKey)}
+          blocks={lanes.get(editor.tier.key)}
+          blocksEdited={lanes.edited(editor.tier.key)}
+          onBlocksChange={(b) => lanes.save(editor.tier.key, b)}
+          onBlocksReset={() => lanes.reset(editor.tier.key)}
           onClose={closeEditor}
         />
       ) : null}
     </div>
     </SeqCtx.Provider>
+    </UserCtx.Provider>
   );
 }

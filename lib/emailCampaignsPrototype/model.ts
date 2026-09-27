@@ -26,6 +26,21 @@
 // sorted to the bottom of the list (lowest priority, still emailed). The period
 // is picked in the UI, so the model ships the age (days since last email) of
 // everyone who has been emailed and the client splits them per cadence.
+//
+// v5 (owner review of v4): never resend the same email.
+//   Up next = still has a step of their sequence they have not had, and was
+//             not emailed this period
+//   Emailed = got a step this period and still has steps left
+//   Held    = blocked provider, OR finished the sequence (nothing new to
+//             send), OR no sequence yet, OR emailed but the send history
+//             cannot say what they got ("moved tiers, no new step")
+// "Already had step X" comes from the per-person send history
+// (outreach_events 'sequenced' rows, detail->>'template'), read across every
+// lane and every prospect row with the same email, so moving Offer -> Warm or
+// CRM -> Warm never restarts a sequence. Sequences are edited in the browser,
+// so the model ships people in GROUPS (same category, same history, same
+// flags) and the client decides per group, with the current steps, which
+// state it is in (statesAt).
 
 export type Tag = "live" | "derived" | "static" | "mock";
 
@@ -60,9 +75,13 @@ export type MailboxRow = {
   frozen: boolean;
 };
 
+/** One 'sequenced' outreach_events row: who got which template. */
+export type SentRow = { prospect_id: number; template: string | null };
+
 export type RawData = {
   prospects: ProspectRow[];
   deals: DealRow[];
+  sent: SentRow[];
   suppressedEmails: string[];
   blockedDomains: string[];
   mailboxes: MailboxRow[];
@@ -77,35 +96,30 @@ export type Person = {
   status: string;
   last_touch: string | null;
   age_days: number | null; // whole days since last email; null = never emailed
-  why: string; // e.g. "never emailed", "emailed", "blocked provider"
+  why: string; // the facts, e.g. "got warm_holiday_2026", "blocked provider"
+};
+
+/** People who behave the same for every sequence: same category, same send
+ * history, same flags. The client puts a whole group in one state. */
+export type Group = {
+  cat: string; // category key
+  received: string[]; // send-history keys (templates) they have had, sorted
+  blocked: boolean; // Yahoo/Microsoft, until warm mailboxes are ready
+  unknown: boolean; // emailed, but the history cannot say what they got
   talked: boolean; // talked to since May: bottom of Up next
+  never: number; // never emailed on this prospect row
+  needsReveal: number; // never emailed and no email yet (cold)
+  ages: number[]; // days since last email of the emailed, ascending
+  sample: { never: Person[]; oldest: Person[]; newest: Person[] };
 };
 
 export type CategoryStat = {
   key: string;
   label: string;
   total: number; // people in it; suppressed already excluded
-  n: {
-    never: number; // never emailed, not held, not talked since May
-    talkedNever: number; // never emailed, talked to since May
-    heldNever: number; // never emailed, blocked provider
-    needsReveal: number; // never emailed and no email yet (cold)
-  };
-  // Days since last email, ascending. `ages` = emailed, not on a blocked
-  // provider (talked people included); `talkedAges` = the talked subset;
-  // `blockedAges` = emailed people on a blocked provider (Emailed while inside
-  // the period, Held after it).
-  ages: number[];
-  talkedAges: number[];
-  blockedAges: number[];
-  sample: {
-    dueOldest: Person[]; // emailed, not talked, not blocked; oldest first
-    never: Person[]; // never emailed, not talked, not held
-    talked: Person[]; // talked since May; never emailed first, then oldest
-    emailedNewest: Person[]; // everyone emailed; newest first
-    held: Person[]; // blocked provider; never emailed first, then oldest
-  };
-  sequence: Sequence | null; // per-category sequence; none exist yet
+  groups: Group[];
+  tag?: Tag; // shown when a category is static/mock (e.g. Seasonal menu list)
+  hint?: string;
   sources?: { label: string; n: number; tag: Tag }[];
 };
 
@@ -124,7 +138,8 @@ export type TierPayload = {
   label: string;
   blurb: string;
   definition: string;
-  everyone: CategoryStat;
+  total: number; // Everyone: people in the tier, suppressed excluded
+  sources?: { label: string; n: number; tag: Tag }[];
   categories: CategoryStat[];
   sequence: Sequence | null; // the tier's Everyone sequence (Offer: none)
   defaultCadence: Cadence;
@@ -140,9 +155,23 @@ export type TierPayload = {
   check: { suppressed: number; unaccounted: number; ok: boolean };
 };
 
+/** Tier connections (v5): how people move between tiers, counted where the
+ * data says so. */
+export type Flows = {
+  coldReplied: number; // cold prospects who replied / were handed to sales
+  coldToDeal: number; // cold prospects whose email is on a CRM deal
+  coldSuppressed: number;
+  offerBookedRecent: number; // in Offer because they booked in the last 12 months
+  offerOptedIn: number; // in Offer because they opted in (and did not book recently)
+  dealToWarm: number; // Warm: enquired (deal on file), never booked
+  offerToWarm: number; // Warm: booked, but more than 12 months ago
+  suppressed: number; // every tier: opted out / bounced / suppressed
+};
+
 export type Payload = {
   generated_at: string;
   tiers: TierPayload[];
+  flows: Flows;
   totals: { prospects: number };
   notes: string[];
 };
@@ -244,34 +273,98 @@ export function countBelow(ages: number[], max: number): number {
   return ages.length - countAtLeast(ages, max);
 }
 
+/** The steps that apply to a category: each step as the history keys that
+ * mean "already had it". Supplied by the client (sequences are edited there). */
+export type StepsFor = (catKey: string) => string[][];
+
+export type HeldReason = "blocked" | "finished" | "noSequence" | "moved";
+export const HELD_REASON_LABEL: Record<HeldReason, string> = {
+  blocked: "blocked provider",
+  finished: "finished sequence, nothing new to send",
+  noSequence: "no sequence yet, nothing to send",
+  moved: "moved tiers, no new step",
+};
+export const HELD_REASON_SHORT: Record<HeldReason, string> = {
+  blocked: "blocked provider",
+  finished: "finished sequence",
+  noSequence: "no sequence yet",
+  moved: "moved tiers, no new step",
+};
+
+/** Steps of `steps` this group has not had yet. */
+export function unsentSteps(g: Group, steps: string[][]): number {
+  return steps.filter((keys) => !keys.some((k) => g.received.includes(k))).length;
+}
+
+/** A group's standing, independent of the period: held (and why) or open. */
+export function groupStanding(g: Group, steps: string[][]): HeldReason | "open" {
+  if (g.blocked) return "blocked";
+  if (g.unknown) return "moved";
+  if (steps.length === 0) return "noSequence";
+  return unsentSteps(g, steps) > 0 ? "open" : "finished";
+}
+
+export const groupSize = (g: Group) => g.never + g.ages.length;
+
 /** The owner's three states for one card at one cadence (period). */
-export function statesAt(c: CategoryStat, cadence: Cadence) {
+export function statesAt(c: CategoryStat, cadence: Cadence, stepsFor: StepsFor) {
   const period = cadenceOf(cadence).periodDays;
-  const upNext = c.n.never + c.n.talkedNever + countAtLeast(c.ages, period);
-  const emailed = countBelow(c.ages, period) + countBelow(c.blockedAges, period);
-  const held = c.n.heldNever + countAtLeast(c.blockedAges, period);
+  let upNext = 0;
+  let emailed = 0;
+  let lowPriority = 0;
+  let upNextNeedsReveal = 0;
+  const heldBy: Record<HeldReason, number> = { blocked: 0, finished: 0, noSequence: 0, moved: 0 };
+  for (const g of c.groups) {
+    const standing = groupStanding(g, stepsFor(g.cat));
+    if (standing !== "open") {
+      heldBy[standing] += groupSize(g);
+      continue;
+    }
+    const due = g.never + countAtLeast(g.ages, period);
+    upNext += due;
+    emailed += countBelow(g.ages, period);
+    if (g.talked) lowPriority += due;
+    upNextNeedsReveal += g.needsReveal;
+  }
+  const held = heldBy.blocked + heldBy.finished + heldBy.noSequence + heldBy.moved;
   return {
     upNext,
     emailed,
     held,
+    heldBy,
     // Talked to since May: part of Up next, listed last.
-    lowPriority: c.n.talkedNever + countAtLeast(c.talkedAges, period),
+    lowPriority,
+    upNextNeedsReveal,
+    // Everyone who still has something to send (Needed counts these).
+    withStepsLeft: upNext + emailed,
     // Invariant: every person is in exactly one state. Shown only if > 0.
     unaccounted: Math.abs(c.total - upNext - emailed - held),
   };
 }
 
-/** Needed vs capacity for a tier at a cadence, in the tier's unit. */
-export function volumeAt(t: TierPayload, cadence: Cadence) {
+/** The Everyone card: every category's groups together. */
+export function everyoneOf(t: TierPayload): CategoryStat {
+  return {
+    key: "everyone",
+    label: "Everyone",
+    total: t.total,
+    groups: t.categories.flatMap((c) => c.groups),
+    sources: t.sources,
+  };
+}
+
+/** Needed vs capacity for a tier at a cadence, in the tier's unit. Needed
+ * counts only people who still have a step to send, once per cadence. */
+export function volumeAt(t: TierPayload, cadence: Cadence, withStepsLeft: number) {
   const cad = cadenceOf(cadence);
   const cap = t.capacity;
-  const people = t.everyone.total;
+  const people = withStepsLeft;
   const perDay = cap.mailboxes * cap.perMailboxDay;
   const capDay = cap.capDay === null ? perDay : Math.min(perDay, cap.capDay);
   const perUnit = cap.unit === "weekday" ? 1 : WEEKDAYS_PER_MONTH;
   const capacity = capDay * perUnit;
   // Sends a day to reach everyone once per period.
-  const neededDay = cadence === "daily" ? capDay : people / cad.weekdays;
+  const neededDay = cadence === "daily" ? Math.min(capDay, people) : people / cad.weekdays;
   const needed = Math.ceil(neededDay * perUnit);
   const mailboxesNeeded = cap.perMailboxDay > 0 ? Math.ceil(neededDay / cap.perMailboxDay) : 0;
   const buildMore = Math.max(mailboxesNeeded - cap.mailboxes, 0);
@@ -279,6 +372,7 @@ export function volumeAt(t: TierPayload, cadence: Cadence) {
   // daily (capped): send at capacity; report how long a full pass takes.
   const cycleWeekdays = capDay > 0 ? Math.ceil(people / capDay) : Infinity;
   return {
+    people,
     needed,
     capacity,
     short: cadence !== "daily" && needed > capacity,
@@ -293,23 +387,11 @@ export function volumeAt(t: TierPayload, cadence: Cadence) {
 
 // --- compute -----------------------------------------------------------------
 
-type Acc = { stat: CategoryStat; people: Person[] };
+type GroupAcc = { group: Group; people: Person[] };
+type CatAcc = { stat: CategoryStat; groups: Map<string, GroupAcc> };
 
-function newCat(key: string, label: string): Acc {
-  return {
-    stat: {
-      key,
-      label,
-      total: 0,
-      n: { never: 0, talkedNever: 0, heldNever: 0, needsReveal: 0 },
-      ages: [],
-      talkedAges: [],
-      blockedAges: [],
-      sample: { dueOldest: [], never: [], talked: [], emailedNewest: [], held: [] },
-      sequence: null,
-    },
-    people: [],
-  };
+function newCat(key: string, label: string): CatAcc {
+  return { stat: { key, label, total: 0, groups: [] }, groups: new Map() };
 }
 
 const lc = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
@@ -324,13 +406,34 @@ export function compute(data: RawData, now: Date): Payload {
   const suppressed = new Set(data.suppressedEmails.map(lc));
   const blocked = new Set(data.blockedDomains.map(lc));
 
+  // Send history, per prospect row, then shared by every row with that email
+  // (a person can have a cold row and a warm row).
+  const histById = new Map<number, Set<string>>();
+  for (const r of data.sent ?? []) {
+    if (!r.template) continue;
+    let h = histById.get(r.prospect_id);
+    if (!h) histById.set(r.prospect_id, (h = new Set()));
+    h.add(r.template);
+  }
+  const histByEmail = new Map<string, Set<string>>();
+  for (const p of data.prospects) {
+    const h = histById.get(p.id);
+    const e = lc(p.email);
+    if (!h || !e) continue;
+    const s = histByEmail.get(e) ?? new Set<string>();
+    h.forEach((k) => s.add(k));
+    histByEmail.set(e, s);
+  }
+
   // outreach_talked_recently, replicated (the view is not granted to the app).
   const talkedRecently = new Set<string>();
+  const dealEmails = new Set<string>();
   const latestDeal = new Map<string, DealRow>();
   const latestBooked = new Map<string, DealRow>();
   for (const d of data.deals) {
     const e = lc(d.contact_email);
     if (!e) continue;
+    dealEmails.add(e);
     if (
       (d.source !== "migrated" && (d.created_at ?? "") >= "2026-05-01") ||
       (d.last_outbound_at ?? "") >= "2026-05-01"
@@ -346,32 +449,51 @@ export function compute(data: RawData, now: Date): Payload {
   }
 
   type TierAcc = {
-    everyone: Acc;
-    cats: Map<string, Acc>;
+    total: number;
+    needsReveal: number;
+    cats: Map<string, CatAcc>;
     routed: number; // everyone who landed in this tier, suppressed included
     suppressed: number;
   };
-  const mk = (): TierAcc => ({ everyone: newCat("everyone", "Everyone"), cats: new Map(), routed: 0, suppressed: 0 });
+  const mk = (): TierAcc => ({ total: 0, needsReveal: 0, cats: new Map(), routed: 0, suppressed: 0 });
   const tiers: Record<TierKey, TierAcc> = { cold: mk(), warm: mk(), offer: mk() };
   // Seed cold categories so empty segments still show.
   for (const [k, l] of Object.entries(COLD_LABELS)) tiers.cold.cats.set(k, newCat(k, l));
 
+  const flows: Flows = {
+    coldReplied: 0,
+    coldToDeal: 0,
+    coldSuppressed: 0,
+    offerBookedRecent: 0,
+    offerOptedIn: 0,
+    dealToWarm: 0,
+    offerToWarm: 0,
+    suppressed: 0,
+  };
+
   for (const p of data.prospects) {
     const email = lc(p.email);
     let tier: TierKey;
+    let recentBooker = false;
     if (p.engine === "cold") tier = "cold";
     else if (p.engine === "warm") {
-      const recentBooker = p.ever_booked && (p.last_event_date ?? "") >= twelveMonthsAgoISO;
+      recentBooker = p.ever_booked && (p.last_event_date ?? "") >= twelveMonthsAgoISO;
       tier = p.marketing_opt_in || recentBooker ? "offer" : "warm";
     } else continue; // no engine: manual contacts, outside every tier
     const acc = tiers[tier];
     acc.routed++;
+
+    if (tier === "cold") {
+      if (["replied", "handed_off", "interested"].includes(p.status)) flows.coldReplied++;
+      if (email && dealEmails.has(email)) flows.coldToDeal++;
+    }
 
     // Suppressed people leave the system before anything is counted.
     if (p.status === "suppressed" || p.status === "dead" || (email && suppressed.has(email))) {
       acc.suppressed++;
       continue;
     }
+    acc.total++;
 
     // Category
     let catKey: string;
@@ -383,6 +505,7 @@ export function compute(data: RawData, now: Date): Payload {
       if (p.ever_booked) {
         catKey = "past_booker";
         catLabel = "Past bookers (12 mo+)";
+        flows.offerToWarm++;
       } else {
         const d = latestDeal.get(email);
         if (!d) {
@@ -392,9 +515,12 @@ export function compute(data: RawData, now: Date): Payload {
           const b = eventBucket(d.event_type);
           catKey = b.key;
           catLabel = `Enquired: ${b.label}`;
+          flows.dealToWarm++;
         }
       }
     } else {
+      if (recentBooker) flows.offerBookedRecent++;
+      else flows.offerOptedIn++;
       const d = latestBooked.get(email) ?? latestDeal.get(email);
       const b = eventBucket(d?.event_type);
       catKey = b.key;
@@ -406,24 +532,29 @@ export function compute(data: RawData, now: Date): Payload {
       acc.cats.set(catKey, cat);
     }
 
-    // State inputs. The period split happens in statesAt (cadence is client
-    // state); here each person is only: blocked or not, talked or not, and
-    // how long ago they were last emailed (null = never).
+    // Group inputs. The period split and the sequence check happen in
+    // statesAt (cadence and sequences are client state).
     const touchedMs = p.last_outreach_at ? Date.parse(p.last_outreach_at) : NaN;
     const ageDays = Number.isNaN(touchedMs) ? null : Math.max(0, Math.floor((nowMs - touchedMs) / DAY));
     const domain = email.split("@")[1] ?? "";
     const isBlocked = tier !== "cold" && !!email && blocked.has(domain);
     const talked = tier !== "cold" && !!email && !isBlocked && talkedRecently.has(email);
+    const hist = new Set<string>([...(histById.get(p.id) ?? []), ...((email && histByEmail.get(email)) || [])]);
+    const received = Array.from(hist).sort();
+    // Emailed, yet no send in the history says what: cannot tell which step
+    // they had, so nothing is sent to them (owner's rule, v5).
+    const unknown = ageDays !== null && received.length === 0;
 
-    let why: string;
-    if (isBlocked) why = "blocked provider (Yahoo/Microsoft)";
-    else if (talked) why = "talked to since May: lowest priority";
-    else if (p.status === "replied" || p.status === "handed_off") why = "replied / handed to sales";
-    else if (p.status === "called_lost") why = "called, lost";
-    else if (ageDays !== null) why = "emailed";
-    else if (tier === "cold") why = p.email ? "never emailed, email ready" : "never emailed, needs Apollo email reveal";
-    else if (["invalid", "disposable"].includes(p.verify_status ?? "")) why = "never emailed, email failed verification";
-    else why = "never emailed";
+    const facts: string[] = [];
+    if (isBlocked) facts.push("blocked provider (Yahoo/Microsoft)");
+    if (received.length) facts.push(`got ${received.join(", ")}`);
+    else if (ageDays !== null) facts.push("emailed, send not in history");
+    else if (tier === "cold") facts.push(p.email ? "never emailed, email ready" : "never emailed, needs Apollo email reveal");
+    else if (["invalid", "disposable"].includes(p.verify_status ?? "")) facts.push("never emailed, email failed verification");
+    else facts.push("never emailed");
+    if (talked) facts.push("talked to since May: lowest priority");
+    if (p.status === "replied" || p.status === "handed_off") facts.push("replied / handed to sales");
+    else if (p.status === "called_lost") facts.push("called, lost");
 
     const person: Person = {
       id: p.id,
@@ -432,50 +563,52 @@ export function compute(data: RawData, now: Date): Payload {
       status: p.status,
       last_touch: p.last_outreach_at,
       age_days: ageDays,
-      why,
-      talked,
+      why: facts.join(" · "),
     };
-    for (const c of [acc.everyone, cat]) {
-      const st = c.stat;
-      st.total++;
-      c.people.push(person);
-      if (ageDays === null) {
-        if (isBlocked) st.n.heldNever++;
-        else if (talked) st.n.talkedNever++;
-        else st.n.never++;
-        if (!p.email) st.n.needsReveal++;
-      } else if (isBlocked) {
-        st.blockedAges.push(ageDays);
-      } else {
-        st.ages.push(ageDays);
-        if (talked) st.talkedAges.push(ageDays);
-      }
+
+    const gKey = `${received.join("|")}/${+isBlocked}${+unknown}${+talked}`;
+    let g = cat.groups.get(gKey);
+    if (!g) {
+      g = {
+        group: {
+          cat: catKey,
+          received,
+          blocked: isBlocked,
+          unknown,
+          talked,
+          never: 0,
+          needsReveal: 0,
+          ages: [],
+          sample: { never: [], oldest: [], newest: [] },
+        },
+        people: [],
+      };
+      cat.groups.set(gKey, g);
     }
+    cat.stat.total++;
+    g.people.push(person);
+    if (ageDays === null) {
+      g.group.never++;
+      if (!p.email) {
+        g.group.needsReveal++;
+        acc.needsReveal++;
+      }
+    } else g.group.ages.push(ageDays);
   }
 
   const asc = (a: number, b: number) => a - b;
-  // Never emailed first, then oldest email first.
-  const neverThenOldest = (a: Person, b: Person) =>
-    (a.age_days === null ? -1 : 0) - (b.age_days === null ? -1 : 0) || (b.age_days ?? 0) - (a.age_days ?? 0);
-  const finish = (c: Acc): CategoryStat => {
-    const st = c.stat;
-    st.ages.sort(asc);
-    st.talkedAges.sort(asc);
-    st.blockedAges.sort(asc);
-    const held = c.people.filter((p) => p.why.startsWith("blocked"));
-    const open = c.people.filter((p) => !p.why.startsWith("blocked"));
-    const emailed = c.people.filter((p) => p.age_days !== null);
-    st.sample = {
-      dueOldest: open
-        .filter((p) => !p.talked && p.age_days !== null)
-        .sort((a, b) => (b.age_days ?? 0) - (a.age_days ?? 0))
-        .slice(0, SAMPLE_CAP),
-      never: open.filter((p) => !p.talked && p.age_days === null).slice(0, SAMPLE_CAP),
-      talked: open.filter((p) => p.talked).sort(neverThenOldest).slice(0, SAMPLE_CAP),
-      emailedNewest: emailed.sort((a, b) => (a.age_days ?? 0) - (b.age_days ?? 0)).slice(0, SAMPLE_CAP),
-      held: held.sort(neverThenOldest).slice(0, SAMPLE_CAP),
-    };
-    return st;
+  const finish = (c: CatAcc): CategoryStat => {
+    c.stat.groups = Array.from(c.groups.values()).map(({ group, people }) => {
+      group.ages.sort(asc);
+      const emailed = people.filter((p) => p.age_days !== null);
+      group.sample = {
+        never: people.filter((p) => p.age_days === null).slice(0, SAMPLE_CAP),
+        oldest: [...emailed].sort((a, b) => (b.age_days ?? 0) - (a.age_days ?? 0)).slice(0, SAMPLE_CAP),
+        newest: [...emailed].sort((a, b) => (a.age_days ?? 0) - (b.age_days ?? 0)).slice(0, SAMPLE_CAP),
+      };
+      return group;
+    });
+    return c.stat;
   };
 
   const warmMailboxes = data.mailboxes.filter((m) => !m.frozen);
@@ -504,25 +637,34 @@ export function compute(data: RawData, now: Date): Payload {
     const categories = Array.from(acc.cats.values())
       .map(finish)
       .sort((a, b) => b.total - a.total);
-    const everyone = finish(acc.everyone);
-    if (key === "cold") {
-      everyone.sources = [
-        { label: "Apollo", n: everyone.total, tag: "derived" },
-        { label: "LinkedIn", n: 0, tag: "mock" },
-        { label: "Other lists", n: 0, tag: "mock" },
-      ];
+    if (key === "warm") {
+      // v5: people who opted in to the monthly seasonal menu / offers. There
+      // is no tag or column for it yet, so it is a mock category of 0.
+      categories.push({
+        key: "seasonal_menu",
+        label: "Seasonal menu list",
+        total: 0,
+        groups: [],
+        tag: "mock",
+        hint: "Opted in to the monthly seasonal menu / offers. No tag for this yet, so 0 (mock).",
+      });
     }
+    const sources: TierPayload["sources"] =
+      key === "cold"
+        ? [
+            { label: "Apollo", n: acc.total, tag: "derived" },
+            { label: "LinkedIn", n: 0, tag: "mock" },
+            { label: "Other lists", n: 0, tag: "mock" },
+          ]
+        : undefined;
 
     // Invariant: routed = everyone + suppressed; everyone = sum of the
-    // categories; and (checked per card and cadence in statesAt) everyone =
-    // Up next + Emailed + Held. Anything else is "unaccounted".
+    // categories = sum of the groups; and (checked per card, cadence and
+    // sequence in statesAt) everyone = Up next + Emailed + Held.
     const catSum = categories.reduce((s, c) => s + c.total, 0);
-    const stateSum =
-      everyone.n.never + everyone.n.talkedNever + everyone.n.heldNever + everyone.ages.length + everyone.blockedAges.length;
+    const groupSum = categories.reduce((s, c) => s + c.groups.reduce((t, g) => t + groupSize(g), 0), 0);
     const unaccounted =
-      Math.abs(everyone.total - stateSum) +
-      Math.abs(everyone.total - catSum) +
-      Math.abs(acc.routed - acc.suppressed - everyone.total);
+      Math.abs(acc.total - groupSum) + Math.abs(acc.total - catSum) + Math.abs(acc.routed - acc.suppressed - acc.total);
 
     let capacity: TierPayload["capacity"];
     if (key === "cold") {
@@ -557,7 +699,8 @@ export function compute(data: RawData, now: Date): Payload {
     return {
       key,
       ...meta[key],
-      everyone,
+      total: acc.total,
+      sources,
       categories,
       sequence:
         key === "cold"
@@ -574,7 +717,7 @@ export function compute(data: RawData, now: Date): Payload {
                 steps: 1,
                 url: null,
                 tag: "static",
-                note: 'Single email, subject "Ice cream catering for holiday events". No follow-up step.',
+                note: 'Single email, subject "Ice cream catering for holiday events", logged as template warm_holiday_2026. No follow-up step.',
               }
             : null,
       defaultCadence: DEFAULT_CADENCE[key],
@@ -583,15 +726,21 @@ export function compute(data: RawData, now: Date): Payload {
     };
   };
 
+  flows.coldSuppressed = tiers.cold.suppressed;
+  const built = [build("cold"), build("warm"), build("offer")];
+  flows.suppressed = built.reduce((s, t) => s + t.check.suppressed, 0);
+
   return {
     generated_at: now.toISOString(),
-    tiers: [build("cold"), build("warm"), build("offer")],
+    tiers: built,
+    flows,
     totals: { prospects: data.prospects.length },
     notes: [
       "Tiers and warm/offer categories are worked out by this page; there are no tier or category columns yet (bj-finance #438).",
       "Cold categories are the Apollo segments stored on each prospect.",
       "People who opted out, bounced or are on the suppression list are left out of every number.",
       "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",
+      "Who got which email comes from the send history (outreach_events, template per send), across every tier and every prospect row with the same email. Nobody is sent an email they already had.",
     ],
   };
 }

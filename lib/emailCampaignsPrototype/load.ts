@@ -7,7 +7,7 @@
 // so model.ts replicates their WHERE clauses over these raw rows.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DealRow, MailboxRow, ProspectRow, RawData } from "./model";
+import type { DealRow, MailboxRow, ProspectRow, RawData, SentRow } from "./model";
 
 const PAGE = 1000; // PostgREST max-rows
 
@@ -16,21 +16,20 @@ async function all<T>(
   table: string,
   columns: string,
   orderBy: string,
+  eq?: [string, string],
 ): Promise<T[]> {
-  const { count, error } = await supabase
-    .from(table)
-    .select("*", { count: "exact", head: true });
+  let head = supabase.from(table).select("*", { count: "exact", head: true });
+  if (eq) head = head.eq(eq[0], eq[1]);
+  const { count, error } = await head;
   if (error) throw error;
   const n = count ?? 0;
   const pages = Math.ceil(n / PAGE);
   const results = await Promise.all(
-    Array.from({ length: pages }, (_, i) =>
-      supabase
-        .from(table)
-        .select(columns)
-        .order(orderBy, { ascending: true })
-        .range(i * PAGE, i * PAGE + PAGE - 1),
-    ),
+    Array.from({ length: pages }, (_, i) => {
+      let q = supabase.from(table).select(columns);
+      if (eq) q = q.eq(eq[0], eq[1]);
+      return q.order(orderBy, { ascending: true }).range(i * PAGE, i * PAGE + PAGE - 1);
+    }),
   );
   const rows: T[] = [];
   for (const r of results) {
@@ -41,7 +40,7 @@ async function all<T>(
 }
 
 export async function loadRawData(supabase: SupabaseClient): Promise<RawData> {
-  const [prospects, deals, suppression, blocked, mailboxes] = await Promise.all([
+  const [prospects, deals, sent, suppression, blocked, mailboxes] = await Promise.all([
     all<ProspectRow>(
       supabase,
       "outreach_prospects",
@@ -54,6 +53,14 @@ export async function loadRawData(supabase: SupabaseClient): Promise<RawData> {
       "id,contact_email,event_type,stage,event_date,created_at,last_outbound_at,source",
       "id",
     ),
+    // v5: the send history. One row per email sent; `template` says which.
+    all<SentRow & { id: number }>(
+      supabase,
+      "outreach_events",
+      "id,prospect_id,template:detail->>template",
+      "id",
+      ["event", "sequenced"],
+    ),
     all<{ email: string | null }>(supabase, "outreach_suppression", "id,email", "id"),
     supabase.from("outreach_blocked_providers").select("domain"),
     supabase.from("outreach_mailboxes").select("address,daily_allowance,frozen"),
@@ -63,6 +70,7 @@ export async function loadRawData(supabase: SupabaseClient): Promise<RawData> {
   return {
     prospects,
     deals,
+    sent: sent.map(({ prospect_id, template }) => ({ prospect_id, template })),
     suppressedEmails: suppression.map((s) => s.email).filter((e): e is string => !!e),
     blockedDomains: (blocked.data ?? []).map((b: { domain: string }) => b.domain),
     mailboxes: (mailboxes.data ?? []) as MailboxRow[],
