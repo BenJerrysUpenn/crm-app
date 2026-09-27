@@ -37,8 +37,8 @@ Wednesday). The default window is the most recent period that has ended, so on
 a period's own last Sunday the one before it is shown. `window_end` must be a
 period end: any other day, including the Sunday in the middle of a period, is
 refused rather than rounded, by `lib/payroll/window.ts`, by the verify, rulings
-and submit routes, and by migration 27's CHECK constraint on
-`payroll_run_submittals.window_end`.
+and submit routes, and by migration 27's CHECK constraints on `window_end` in
+`payroll_run_submittals` and `payroll_rulings`.
 
 QuickBooks' own upcoming-period list is **not** read: its dates are misaligned
 with the periods this business runs, and the 2026-09-23 run had to correct both

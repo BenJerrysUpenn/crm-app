@@ -25,7 +25,29 @@
 -- and no picker. The punch is corrected in Withers-time. Until every such
 -- punch in the period is corrected, payroll_punch_blockers() names it and
 -- guard_payroll_run_submittal() refuses the submittal. payroll_rulings refuses
--- a row for either check.
+-- a row for either check. An open punch (no clock-out) blocks the same way:
+-- as 1.4 with no scheduled shift (ruled 2026-09-27), as 1.1 with one.
+--
+-- PAY PERIODS END EVERY OTHER SUNDAY (ruled 2026-09-27), on the cycle through
+-- 2026-09-20: 10-04, 10-18, 11-01 and so on. window_end on both tables must be
+-- on that cycle, checked by a CHECK constraint, and the submittal trigger says
+-- so in words first. lib/payroll/window.ts PERIOD_ANCHOR_END is the same date.
+--
+-- WRITES TO time_entries AND shifts ARE NEVER REFUSED, not even for a
+-- submitted period (ruled 2026-09-27): the clock-in path must not fail, and
+-- Withers-time closes a forgotten clock-out at the next clock-in, which can
+-- edit a punch in a submitted run. The next run's verifier reports every such
+-- change from row_audit (migration 25) instead (lib/payroll/verify.ts, 1.15).
+--
+-- NOTHING HERE IS ON /rest/v1/rpc. Every function below is SECURITY DEFINER,
+-- and Postgres grants EXECUTE on a new function to PUBLIC while Supabase's
+-- default privileges grant it to anon, authenticated and service_role. Each
+-- is revoked from all four. The triggers need no grant (a trigger does not
+-- check EXECUTE when it fires); the helpers are called only from the triggers,
+-- which run as the owner; the app calls none of them through .rpc(); and the
+-- bj-finance payroll sheet reads the tables over its own database connection.
+--
+-- VERIFY. supabase/migration_27_verify.sql. ROLLBACK. supabase/migration_27_down.sql.
 --
 -- TWO TABLES.
 --
@@ -126,6 +148,14 @@ alter table public.payroll_rulings
   add constraint payroll_rulings_check_id_ck
   check (check_id in ('1.9', '3.5', '3.7'));
 
+-- The period the choice was made from is a real period end (ruled 2026-09-27):
+-- every other Sunday, on the cycle through 2026-09-20.
+alter table public.payroll_rulings
+  drop constraint if exists payroll_rulings_window_end_cycle;
+alter table public.payroll_rulings
+  add constraint payroll_rulings_window_end_cycle
+  check ((window_end - date '2026-09-20') % 14 = 0);
+
 create index if not exists payroll_rulings_window_idx
   on public.payroll_rulings (window_end);
 
@@ -164,12 +194,17 @@ alter table public.payroll_run_submittals
   add constraint payroll_run_submittals_status_check
   check (status in ('submitted_pending_stage'));
 
--- Pay periods end on a Sunday (§0.1). ISO day of week 7 is Sunday.
+-- Pay periods end every other Sunday, on the cycle through 2026-09-20 (§0.1,
+-- ruled 2026-09-27). 2026-09-20 is a Sunday, so a whole number of fortnights
+-- from it is too. Postgres' % keeps the sign, so a date before the anchor on
+-- the cycle gives 0 and one off it gives a non-zero remainder either way.
 alter table public.payroll_run_submittals
   drop constraint if exists payroll_run_submittals_window_end_sunday;
 alter table public.payroll_run_submittals
-  add constraint payroll_run_submittals_window_end_sunday
-  check (extract(isodow from window_end) = 7);
+  drop constraint if exists payroll_run_submittals_window_end_cycle;
+alter table public.payroll_run_submittals
+  add constraint payroll_run_submittals_window_end_cycle
+  check ((window_end - date '2026-09-20') % 14 = 0);
 
 alter table public.payroll_run_submittals enable row level security;
 
@@ -213,6 +248,8 @@ begin
 end;
 $$;
 
+revoke execute on function public.payroll_case_date(text, text) from public, anon, authenticated, service_role;
+
 -- The submitted window whose 14 days contain p_date, if any.
 create or replace function public.payroll_submitted_window_for(p_date date)
 returns date
@@ -226,6 +263,8 @@ as $$
    order by a.window_end
    limit 1;
 $$;
+
+revoke execute on function public.payroll_submitted_window_for(date) from public, anon, authenticated, service_role;
 
 -- ---------- the lock on choices ----------------------------------------------
 create or replace function public.guard_payroll_ruling()
@@ -259,25 +298,32 @@ begin
 end;
 $$;
 
+revoke execute on function public.guard_payroll_ruling() from public, anon, authenticated, service_role;
+
 drop trigger if exists payroll_rulings_lock on public.payroll_rulings;
 create trigger payroll_rulings_lock
   before insert or update or delete on public.payroll_rulings
   for each row execute function public.guard_payroll_ruling();
 
--- ---------- 1.4 / 1.5: punches that must be corrected first ------------------
--- Ruling D (2026-09-22). The same rules lib/payroll/verify.ts applies, over
--- every closed punch whose New York day is inside the window ending
--- p_window_end:
+-- ---------- 1.1 / 1.4 / 1.5: punches that must be corrected first ------------
+-- Ruling D (2026-09-22) and the open-punch ruling (2026-09-27). The same rules
+-- lib/payroll/verify.ts applies, over every punch whose New York day is inside
+-- the window ending p_window_end:
 --
 --   1.4  a runaway — over 15h (lib/shiftChecks.ts LONG_SHIFT_HOURS), or
 --        closed within 5s of the same person's next clock-in (1.3) — with NO
---        scheduled shift by the 1.10 ladder.
---   1.5  not a runaway, matched to a scheduled shift by the 1.10 ladder, and
---        under 25% of that shift's length.
+--        scheduled shift by the 1.10 ladder; or an OPEN punch (no clock-out)
+--        with no scheduled shift.
+--   1.1  an open punch that does have a scheduled shift.
+--   1.5  closed, not a runaway, matched to a scheduled shift by the 1.10
+--        ladder, and under 25% of that shift's length.
 --
 -- The 1.10 ladder: the punch's own shift_id; else the person's shift that
 -- day it overlaps most; else somebody else's shift that day, which that
 -- person did not punch for, bracketing the punch within 30 minutes (a cover).
+-- An open punch is an instant at its clock-in for the overlap, as in
+-- verify.ts, and is never a cover. (LEAST and GREATEST skip nulls, so the end
+-- is spelled out as punch_end rather than left to clock_out_at.)
 -- The Finance tab reports the same punches as needs_fix and disables Submit;
 -- this is the database's own copy of that refusal.
 create or replace function public.payroll_punch_blockers(p_window_end date)
@@ -288,11 +334,11 @@ security definer set search_path = public
 as $$
   with p as (
     select t.id, t.employee_id, t.shift_id, t.clock_in_at, t.clock_out_at,
+           coalesce(t.clock_out_at, t.clock_in_at) as punch_end,
            (t.clock_in_at at time zone 'America/New_York')::date as d,
            extract(epoch from (t.clock_out_at - t.clock_in_at)) / 3600.0 as hours
       from public.time_entries t
-     where t.clock_out_at is not null
-       and (t.clock_in_at at time zone 'America/New_York')::date
+     where (t.clock_in_at at time zone 'America/New_York')::date
            between p_window_end - 13 and p_window_end
   ),
   classified as (
@@ -320,15 +366,16 @@ as $$
           from public.shifts s
          where s.employee_id = p.employee_id
            and (s.starts_at at time zone 'America/New_York')::date = p.d
-           and least(s.ends_at, p.clock_out_at) >= greatest(s.starts_at, p.clock_in_at)
-         order by least(s.ends_at, p.clock_out_at) - greatest(s.starts_at, p.clock_in_at) desc,
+           and least(s.ends_at, p.punch_end) >= greatest(s.starts_at, p.clock_in_at)
+         order by least(s.ends_at, p.punch_end) - greatest(s.starts_at, p.clock_in_at) desc,
                   s.starts_at, s.id
          limit 1
       ) own on true
       left join lateral (
         select s.id, extract(epoch from (s.ends_at - s.starts_at)) / 3600.0 as len
           from public.shifts s
-         where s.employee_id is not null
+         where p.clock_out_at is not null
+           and s.employee_id is not null
            and s.employee_id <> p.employee_id
            and (s.starts_at at time zone 'America/New_York')::date = p.d
            and not exists (
@@ -345,16 +392,27 @@ as $$
   )
   select '1.4'::text, c.id, c.employee_id, c.d
     from classified c
-   where c.runaway and c.matched_shift is null
+   where c.clock_out_at is not null and c.runaway and c.matched_shift is null
+  union all
+  select '1.4'::text, c.id, c.employee_id, c.d
+    from classified c
+   where c.clock_out_at is null and c.matched_shift is null
+  union all
+  select '1.1'::text, c.id, c.employee_id, c.d
+    from classified c
+   where c.clock_out_at is null and c.matched_shift is not null
   union all
   select '1.5'::text, c.id, c.employee_id, c.d
     from classified c
-   where not c.runaway
+   where c.clock_out_at is not null
+     and not c.runaway
      and c.matched_shift is not null
      and c.scheduled_hours > 0
      and c.hours < 0.25 * c.scheduled_hours
    order by 4, 2;
 $$;
+
+revoke execute on function public.payroll_punch_blockers(date) from public, anon, authenticated, service_role;
 
 -- ---------- the submittal: after the period, once, final ----------------------
 create or replace function public.guard_payroll_run_submittal()
@@ -386,6 +444,10 @@ begin
   end if;
 
   -- INSERT
+  -- The CHECK constraint refuses this too; saying it in words is kinder.
+  if (new.window_end - date '2026-09-20') % 14 <> 0 then
+    raise exception 'Pay periods end every other Sunday (2026-09-20, 2026-10-04 and so on); % is not one.', new.window_end;
+  end if;
   if new.window_end >= v_today then
     raise exception 'The pay period ending % has not ended yet. It can be submitted from %.', new.window_end, new.window_end + 1;
   end if;
@@ -397,7 +459,8 @@ begin
   if v_overlap is not null then
     raise exception 'The pay run ending % is already submitted and shares days with this one.', v_overlap;
   end if;
-  -- Ruling D: no submittal while a 1.4/1.5 punch is still uncorrected.
+  -- Ruling D: no submittal while a 1.4/1.5 punch, or an open punch (1.1/1.4),
+  -- is still uncorrected.
   select string_agg(format('%s punch %s (%s)', b.check_id, b.punch_id, b.work_date), ', ')
     into v_blockers
     from public.payroll_punch_blockers(new.window_end) b;
@@ -414,3 +477,5 @@ drop trigger if exists payroll_run_submittals_guard on public.payroll_run_submit
 create trigger payroll_run_submittals_guard
   before insert or update or delete on public.payroll_run_submittals
   for each row execute function public.guard_payroll_run_submittal();
+
+revoke execute on function public.guard_payroll_run_submittal() from public, anon, authenticated, service_role;
