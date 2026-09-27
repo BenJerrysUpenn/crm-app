@@ -8,8 +8,11 @@
 --   1. profiles.qbo_employee_id — the roster join to QuickBooks Payroll.
 --   2. profiles.pay_type        — salaried or hourly, set by a manager on the
 --                                 Team page (ruled 2026-09-22 on #519).
---   3. held_tips                — the ledger of catering tips paid but not yet
+--   3. A guard so only a manager changes those two columns or anybody's role.
+--   4. held_tips                — the ledger of catering tips paid but not yet
 --                                 released into a pay run.
+--
+-- VERIFY. supabase/migration_26_verify.sql. ROLLBACK. supabase/migration_26_down.sql.
 --
 -- WHY NOT JOIN ON NAMES (§2.5). The run matched Withers-time people to QBO
 -- people by name and it does not work: "piper" in one system is Kieran Flint in
@@ -67,18 +70,20 @@ alter table public.profiles add constraint profiles_pay_type_ck
 comment on column public.profiles.pay_type is
   'salaried | hourly | null (not set). Set by a manager on the Team page; the payroll sheet reads it (bj-finance #519, ruled 2026-09-22).';
 
--- Only a manager may set or change either payroll column.
+-- Only a manager may set or change either payroll column, or anybody's role.
 --
 -- This needs its own guard because of the policy stack it lands in:
 -- profiles_update_self lets any signed-in person update their OWN row, and it
 -- does not restrict which columns. Without this trigger an employee could point
--- their profile at somebody else's QBO employee id and redirect a paycheque, or
--- mark themselves salaried.
+-- their profile at somebody else's QBO employee id and redirect a paycheque,
+-- mark themselves salaried, or set their own role to 'manager' and with it
+-- every manager policy in the app, payroll included (ruled 2026-09-27, #519).
 --
 -- auth.uid() is null for the service-role client and in the SQL editor; those
--- are trusted server contexts (the invite flow upserts profiles that way) and
--- are left alone. The check is on a CHANGE, so an update that leaves both
--- columns as they were — which is every ordinary profile edit — never trips it.
+-- are trusted server contexts and are left alone: the invite flow upserts the
+-- profile with its role that way, and offboarding sets role back to 'employee'
+-- that way. The check is on a CHANGE, so an update that leaves all three
+-- columns as they were, which is every ordinary profile edit, never trips it.
 create or replace function public.guard_payroll_profile_columns()
 returns trigger
 language plpgsql
@@ -86,15 +91,22 @@ security definer set search_path = public
 as $$
 begin
   if (new.qbo_employee_id is distinct from old.qbo_employee_id
-      or new.pay_type is distinct from old.pay_type)
+      or new.pay_type is distinct from old.pay_type
+      or new.role is distinct from old.role)
      and auth.uid() is not null
      and not (select public.is_manager()) then
-    raise exception 'Only a manager may change qbo_employee_id or pay_type'
+    raise exception 'Only a manager may change role, qbo_employee_id or pay_type'
       using errcode = 'insufficient_privilege';
   end if;
   return new;
 end;
 $$;
+
+-- Trigger-only. Postgres grants EXECUTE to PUBLIC, and Supabase's default
+-- privileges grant it to anon, authenticated and service_role, which would put
+-- this SECURITY DEFINER function on /rest/v1/rpc. A trigger does not check
+-- EXECUTE when it fires, so nothing needs the grant.
+revoke execute on function public.guard_payroll_profile_columns() from public, anon, authenticated, service_role;
 
 -- An earlier draft of this migration named the trigger for the QBO id alone.
 -- Dropping both names keeps a re-run from leaving two guards in place.
@@ -184,6 +196,9 @@ begin
   return new;
 end;
 $$;
+
+-- Trigger-only, like the guard above.
+revoke execute on function public.touch_held_tips_updated_at() from public, anon, authenticated, service_role;
 
 drop trigger if exists held_tips_touch on public.held_tips;
 create trigger held_tips_touch
