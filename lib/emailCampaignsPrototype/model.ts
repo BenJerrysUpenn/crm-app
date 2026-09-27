@@ -18,8 +18,8 @@
 //
 // v3 (owner review of v2, 2026-09-27): three states only, defined by the
 // tier's period (its "Reach everyone" cadence):
-//   Up next             = not emailed this period
-//   Emailed this period = last emailed within the period
+//   Up next = not emailed this period
+//   Emailed = last emailed within the period
 //   Held                = deliberately not sent to: Yahoo/Microsoft (blocked
 //                         providers) until warm mailboxes are ready
 // "Resting" is gone. People talked to since May are NOT held: they are Up next,
@@ -126,7 +126,7 @@ export type TierPayload = {
   definition: string;
   everyone: CategoryStat;
   categories: CategoryStat[];
-  sequence: Sequence; // the tier's Everyone sequence
+  sequence: Sequence | null; // the tier's Everyone sequence (Offer: none)
   defaultCadence: Cadence;
   capacity: {
     unit: "weekday" | "month";
@@ -166,8 +166,6 @@ export const COLD_PER_MAILBOX_DAY = 30;
 export const WARM_GLOBAL_CAP_DAY = 20;
 export const WEEKDAYS_PER_WEEK = 5;
 export const WEEKDAYS_PER_MONTH = 21;
-export const WARM_TEMPLATE_URL =
-  "https://github.com/BenJerrysUpenn/Catering-Manager/blob/main/outreach/warm_sender.py";
 
 export const CADENCES: {
   key: Cadence;
@@ -574,17 +572,11 @@ export function compute(data: RawData, now: Date): Payload {
             ? {
                 name: "warm_sender template",
                 steps: 1,
-                url: WARM_TEMPLATE_URL,
+                url: null,
                 tag: "static",
                 note: 'Single email, subject "Ice cream catering for holiday events". No follow-up step.',
               }
-            : {
-                name: "No offer sequence yet",
-                steps: 0,
-                url: null,
-                tag: "mock",
-                note: "Placeholder. Offers may go through Kit; nothing is wired.",
-              },
+            : null,
       defaultCadence: DEFAULT_CADENCE[key],
       capacity,
       check: { suppressed: acc.suppressed, unaccounted, ok: unaccounted === 0 },

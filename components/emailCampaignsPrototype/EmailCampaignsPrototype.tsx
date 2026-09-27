@@ -8,14 +8,21 @@
 // accounting, which the owners asked to hide.
 //
 // v3 after the owners' review of v2: three states defined by the tier's
-// period (its "Reach everyone" cadence): Up next / Emailed this period / Held.
+// period (its "Reach everyone" cadence): Up next / Emailed / Held.
 // One sequence control per card. Category cards show only the three numbers,
 // the note icon and the sequence control.
 //
-// Client-only prototype state: the per-tier cadence (useState) and card notes
-// (localStorage, this browser only). Nothing is written to the database.
+// v4: "Emailed this period" is now just "Emailed" (same definition). The
+// sequence dots and every "+ Add sequence" open one in-CRM sequence editor
+// (SequenceEditor.tsx); no links to GitHub source remain.
+//
+// Client-only prototype state: the per-tier cadence (useState), card notes and
+// sequence edits (localStorage, this browser only). Nothing is written to the
+// database, Apollo or warm_sender.
 
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import SequenceEditor, { type EditorTarget } from "./SequenceEditor";
+import { SEED_SEQUENCES, sequenceKey, type SequenceDoc } from "@/lib/emailCampaignsPrototype/sequences";
 import {
   CADENCES,
   WEEKDAYS_PER_MONTH,
@@ -26,7 +33,6 @@ import {
   type CategoryStat,
   type Payload,
   type Person,
-  type Sequence,
   type Tag,
   type TierPayload,
 } from "@/lib/emailCampaignsPrototype/model";
@@ -238,14 +244,12 @@ function NoteArea({
 type StateKey = "upNext" | "emailed" | "held" | "unaccounted";
 const STATE_LABEL: Record<StateKey, string> = {
   upNext: "Up next",
-  emailed: "Emailed this period",
+  emailed: "Emailed",
   held: "Held",
   unaccounted: "Unaccounted",
 };
 
-type Drill =
-  | { kind: "people"; tier: TierPayload; cat: CategoryStat; state: StateKey; cadence: Cadence }
-  | { kind: "sequence"; title: string; sequence: Sequence; openLabel: string };
+type Drill = { kind: "people"; tier: TierPayload; cat: CategoryStat; state: StateKey; cadence: Cadence };
 
 const LIST_CAP = 100;
 
@@ -287,7 +291,7 @@ function PeopleModal({
   onClose,
   setState,
 }: {
-  drill: Extract<Drill, { kind: "people" }>;
+  drill: Drill;
   onClose: () => void;
   setState: (s: StateKey) => void;
 }) {
@@ -376,43 +380,6 @@ function PeopleModal({
   );
 }
 
-function SequenceModal({
-  drill,
-  onClose,
-}: {
-  drill: Extract<Drill, { kind: "sequence" }>;
-  onClose: () => void;
-}) {
-  const s = drill.sequence;
-  return (
-    <Modal onClose={onClose} title={drill.title}>
-      <div className="space-y-3 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-slate-100">{s.name}</span>
-          <TagPill tag={s.tag} />
-        </div>
-        <ol className="flex flex-wrap items-center gap-2">
-          {s.steps === 0 ? (
-            <li className="rounded-md border border-dashed border-slate-600 px-3 py-2 text-xs text-slate-400">No steps yet</li>
-          ) : (
-            Array.from({ length: s.steps }, (_, i) => (
-              <li key={i} className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300">
-                Step {i + 1}: email
-              </li>
-            ))
-          )}
-        </ol>
-        <p className="text-xs text-slate-400">{s.note}</p>
-        {s.url ? (
-          <a href={s.url} target="_blank" rel="noreferrer" className="inline-block text-xs text-sky-400 hover:underline">
-            {drill.openLabel} ↗
-          </a>
-        ) : null}
-      </div>
-    </Modal>
-  );
-}
-
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -437,52 +404,115 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-// --- sequences ----------------------------------------------------------------
+// --- sequences (prototype: localStorage, this browser only) ------------------
 
-function SequenceDots({ sequence: s, onClick }: { sequence: Sequence; onClick: () => void }) {
+const SEQ_PREFIX = "email-campaigns-proto:sequence:v1:";
+
+type SeqStore = {
+  get: (key: string) => SequenceDoc | null;
+  edited: (key: string) => boolean;
+  open: (t: EditorTarget) => void;
+};
+const SeqCtx = createContext<SeqStore>({ get: () => null, edited: () => false, open: () => {} });
+
+/** Local edits override the seeds. A key present in `local` has been edited in
+ * this browser (an emptied seed is stored as zero steps, so it stays empty). */
+function useSequenceStore() {
+  const [local, setLocal] = useState<Record<string, SequenceDoc>>({});
+  useEffect(() => {
+    try {
+      const found: Record<string, SequenceDoc> = {};
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (!k || !k.startsWith(SEQ_PREFIX)) continue;
+        const raw = window.localStorage.getItem(k);
+        if (raw) found[k.slice(SEQ_PREFIX.length)] = JSON.parse(raw) as SequenceDoc;
+      }
+      setLocal(found);
+    } catch {
+      /* storage blocked: seeds only */
+    }
+  }, []);
+  const get = useCallback((key: string) => local[key] ?? SEED_SEQUENCES[key] ?? null, [local]);
+  const edited = useCallback((key: string) => key in local, [local]);
+  const save = useCallback((key: string, doc: SequenceDoc) => {
+    setLocal((l) => ({ ...l, [key]: doc }));
+    try {
+      window.localStorage.setItem(SEQ_PREFIX + key, JSON.stringify(doc));
+    } catch {
+      /* storage blocked: the edit lives until reload */
+    }
+  }, []);
+  const reset = useCallback((key: string) => {
+    setLocal((l) => {
+      const next = { ...l };
+      delete next[key];
+      return next;
+    });
+    try {
+      window.localStorage.removeItem(SEQ_PREFIX + key);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  return { get, edited, save, reset };
+}
+
+function SequenceDots({ doc, edited, onClick }: { doc: SequenceDoc; edited: boolean; onClick: () => void }) {
+  const n = doc.steps.length;
   return (
     <button
       type="button"
       onClick={onClick}
-      title="Open the sequence"
-      className="flex items-center gap-1 rounded px-1.5 py-1 hover:bg-slate-800"
+      title="Open the sequence editor"
+      className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 hover:bg-slate-800"
     >
-      {s.steps === 0 ? (
-        <span className="h-2.5 w-2.5 rounded-full border border-dashed border-slate-500" />
-      ) : (
-        Array.from({ length: s.steps }, (_, i) => <span key={i} className="h-2.5 w-2.5 rounded-full bg-sky-400" />)
-      )}
-      <span className="ml-1 whitespace-nowrap text-[11px] text-slate-400">
-        {s.steps === 0 ? s.name : `${s.steps} ${plural(s.steps, "email")} · ${s.name}`}
+      {doc.steps.map((s) => (
+        <span key={s.id} className="h-2.5 w-2.5 shrink-0 rounded-full bg-sky-400" />
+      ))}
+      <span className="ml-1 truncate text-[11px] text-slate-400">
+        {n} {plural(n, "email")}
+        {doc.name ? ` · ${doc.name}` : ""}
       </span>
-      <span className="ml-1">
-        <TagPill tag={s.tag} />
+      <span className="ml-1 shrink-0">
+        {edited ? (
+          <span title="Edited in this browser (prototype)" className="text-[9px] lowercase text-amber-400/80">
+            edited here
+          </span>
+        ) : (
+          <TagPill tag="static" />
+        )}
       </span>
     </button>
   );
 }
 
 /** One sequence control per card: the clickable dots when the card has a
- * sequence, otherwise a single "+ Add sequence" button (its presence says
- * there is none). */
+ * sequence, otherwise a single "+ Add sequence" button. Both open the editor. */
 function SequenceControl({
-  sequence,
-  onOpen,
+  tier,
+  catKey,
+  catLabel,
+  cadence,
 }: {
-  sequence: Sequence | null;
-  onOpen: () => void;
+  tier: TierPayload;
+  catKey: string;
+  catLabel: string;
+  cadence: Cadence;
 }) {
-  if (sequence) return <SequenceDots sequence={sequence} onClick={onOpen} />;
+  const store = useContext(SeqCtx);
+  const key = sequenceKey(tier.key, catKey);
+  const doc = store.get(key);
+  const open = () => store.open({ tier, catKey, catLabel, cadence });
+  if (doc && doc.steps.length > 0) return <SequenceDots doc={doc} edited={store.edited(key)} onClick={open} />;
   return (
-    <Tip text="Not built yet: per-category sequences are a future step.">
-      <span
-        role="button"
-        aria-disabled="true"
-        className="cursor-not-allowed whitespace-nowrap rounded border border-dashed border-slate-700 px-1.5 py-0.5 text-[11px] text-slate-500"
-      >
-        + Add sequence
-      </span>
-    </Tip>
+    <button
+      type="button"
+      onClick={open}
+      className="whitespace-nowrap rounded border border-dashed border-slate-600 px-1.5 py-0.5 text-[11px] text-slate-400 hover:border-slate-400 hover:text-slate-200"
+    >
+      + Add sequence
+    </button>
   );
 }
 
@@ -576,17 +606,7 @@ function EveryoneCard({
 
       <Unaccounted n={st.unaccounted} />
       <div className="flex items-center justify-between gap-2 border-t border-slate-800 pt-1.5">
-        <SequenceControl
-          sequence={tier.sequence}
-          onOpen={() =>
-            open({
-              kind: "sequence",
-              title: `${tier.label} · Everyone · sequence`,
-              sequence: tier.sequence,
-              openLabel: tier.key === "cold" ? "Open in Apollo" : "Open the template",
-            })
-          }
-        />
+        <SequenceControl tier={tier} catKey="everyone" catLabel="Everyone" cadence={cadence} />
       </div>
       <NoteArea note={note} editing={editing} setEditing={setEditing} save={saveNote} />
     </div>
@@ -647,23 +667,12 @@ function CategoryCard({
       </div>
       <div className="grid grid-cols-3 gap-0.5">
         <MiniStat n={st.upNext} label="up next" help={stateHelp("upNext", cadence)} onClick={people("upNext")} />
-        <MiniStat n={st.emailed} label="emailed this period" help={stateHelp("emailed", cadence)} onClick={people("emailed")} />
+        <MiniStat n={st.emailed} label="emailed" help={stateHelp("emailed", cadence)} onClick={people("emailed")} />
         <MiniStat n={st.held} label="held" help={stateHelp("held", cadence)} onClick={people("held")} align="right" />
       </div>
       <Unaccounted n={st.unaccounted} />
       <div className="mt-auto pt-0.5">
-        <SequenceControl
-          sequence={cat.sequence}
-          onOpen={() =>
-            cat.sequence &&
-            open({
-              kind: "sequence",
-              title: `${tier.label} · ${cat.label} · sequence`,
-              sequence: cat.sequence,
-              openLabel: "Open the sequence",
-            })
-          }
-        />
+        <SequenceControl tier={tier} catKey={cat.key} catLabel={cat.label} cadence={cadence} />
       </div>
       <NoteArea note={note} editing={editing} setEditing={setEditing} save={saveNote} />
     </div>
@@ -811,8 +820,14 @@ function TierColumn({ tier, open }: { tier: TierPayload; open: (d: Drill) => voi
 export default function EmailCampaignsPrototype({ payload }: { payload: Payload }) {
   const [drill, setDrill] = useState<Drill | null>(null);
   const close = useCallback(() => setDrill(null), []);
+  const seqs = useSequenceStore();
+  const [editor, setEditor] = useState<EditorTarget | null>(null);
+  const closeEditor = useCallback(() => setEditor(null), []);
+  const store: SeqStore = { get: seqs.get, edited: seqs.edited, open: setEditor };
+  const editorKey = editor ? sequenceKey(editor.tier.key, editor.catKey) : null;
 
   return (
+    <SeqCtx.Provider value={store}>
     <div className="space-y-3 px-3 py-4 pb-12 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -827,7 +842,7 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
               <TagPill tag={t} />
             </span>
           ))}
-          <span>✎ notes are saved in this browser only (prototype)</span>
+          <span>✎ notes and sequence edits are saved in this browser only (prototype)</span>
           <span>
             as of{" "}
             {new Date(payload.generated_at).toLocaleString("en-US", {
@@ -848,8 +863,8 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
             <li key={n}>{n}</li>
           ))}
           <li>
-            A tier&apos;s period is its &ldquo;Reach everyone&rdquo; cadence. Up next: not emailed this period. Emailed
-            this period: last emailed inside it. Held: Yahoo/Microsoft addresses, deliberately not sent to until warm
+            A tier&apos;s period is its &ldquo;Reach everyone&rdquo; cadence. Up next: not emailed this period. Emailed:
+            last emailed inside it. Held: Yahoo/Microsoft addresses, deliberately not sent to until warm
             mailboxes are ready. Everyone else is in exactly one of the three. Everything is a single email today.
           </li>
           <li>
@@ -865,10 +880,22 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
         ))}
       </div>
 
-      {drill?.kind === "people" ? (
+      {drill ? (
         <PeopleModal drill={drill} onClose={close} setState={(s) => setDrill({ ...drill, state: s })} />
       ) : null}
-      {drill?.kind === "sequence" ? <SequenceModal drill={drill} onClose={close} /> : null}
+      {editor && editorKey ? (
+        <SequenceEditor
+          key={editorKey}
+          target={editor}
+          doc={seqs.get(editorKey)}
+          seed={SEED_SEQUENCES[editorKey] ?? null}
+          edited={seqs.edited(editorKey)}
+          onChange={(d) => seqs.save(editorKey, d)}
+          onReset={() => seqs.reset(editorKey)}
+          onClose={closeEditor}
+        />
+      ) : null}
     </div>
+    </SeqCtx.Provider>
   );
 }
