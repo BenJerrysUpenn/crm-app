@@ -346,6 +346,9 @@ async function loadRulings(
 /**
  * §3.5 — the window's event deals, by event date. `deals.event_date` is text
  * holding an ISO date (the CRM's column), so a text range is the right rows.
+ * Who crewed each one is decided in the rulebook from the punches loaded above
+ * (eventCrew: a punch is required, ruled 2026-09-27), never from the schedule
+ * alone.
  * Any error reads as "no deals" rather than failing Verify: 3.5 then simply
  * asks nothing, and the payroll sheet still applies its default to any
  * crewless tip it finds.
