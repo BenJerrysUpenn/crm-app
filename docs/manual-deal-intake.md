@@ -46,9 +46,8 @@ form changed.
 
 The red asterisks come from `REQUIRED_FIELDS` / `isRequiredField` in
 `lib/callDesk/dealForm.ts`, and `tests/dealFormRequired.test.ts` checks them
-against the validator. On the manual form only Source and First name carry
-one. (Venue address used to carry a hard-coded asterisk the validator never
-enforced, and staff read it as mandatory. Fixed 2026-09-27.)
+against the validator, so an asterisk never promises a rule the validator
+does not enforce. On the manual form only Source and First name carry one.
 
 ### What a thin deal costs
 

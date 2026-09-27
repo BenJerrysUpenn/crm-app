@@ -301,9 +301,9 @@ export type DealFormErrors = Partial<Record<keyof DealFormPayload, string>>;
 
 /** The fields a blank value is refused for, per mode — what the form puts a
  *  red asterisk on. `validateDealPayload` below is the enforcement and
- *  tests/dealFormRequired.test.ts holds the two together, so an asterisk can
- *  never again promise a rule the validator does not have (the manual form
- *  once starred Venue address, and staff read it as mandatory).
+ *  tests/dealFormRequired.test.ts holds the two together, so an asterisk
+ *  never promises a rule the validator does not have: staff read an asterisk
+ *  as mandatory.
  *
  *  Manual mode's email-or-phone rule is deliberately absent: neither field is
  *  required on its own, and the form says "one of the two" in their hints. */

@@ -1,11 +1,9 @@
 // Which fields the guided deal form marks as required, per mode.
 //
-// The bug this pins (Alina, 2026-09-27): "Manual deal creation requires an
-// address." The validator never asked for one in manual mode, but the Venue
-// address field in GenerateDealForm carried a hard-coded `required`, so the
-// New deal form showed a red asterisk on it and staff read it as mandatory.
-// The asterisks are the form's promise about what the validator will refuse,
-// so they are checked against each other here.
+// Staff read a red asterisk as mandatory, so the asterisks are the form's
+// promise about what the validator will refuse, and they are checked against
+// each other here. On the manual New deal form that means only Source and
+// First name: a venue address in particular is optional there.
 //
 // There is no DOM in this test environment, so the component source is read
 // as text: every `<Field ...>` opening tag is found, its label read, and its
