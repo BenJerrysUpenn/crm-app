@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --test lib/*.test.ts",
+    "test": "node --test lib/*.test.ts lib/payroll/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

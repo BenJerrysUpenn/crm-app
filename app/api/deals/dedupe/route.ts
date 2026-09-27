@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { findDuplicates } from "@/lib/dealDedupe";
+import { attachDealDetails, findDuplicates } from "@/lib/dealDedupe";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +18,11 @@ export const dynamic = "force-dynamic";
 // response is `{ matches: [], skipped: true }` rather than an error, because
 // the form calls this the moment a contact field settles and an empty field
 // is the normal starting state.
+//
+// Matched deals come back with their first and last name, venue name and
+// address, and how recent they are, because the form autofills its empty
+// contact and venue fields from the best match (lib/dealAutofill.ts). The
+// POST /api/deals 409 path does not need them and does not pay for the read.
 export async function POST(request: Request) {
   const supabase = createClient();
   const {
@@ -38,6 +43,10 @@ export async function POST(request: Request) {
     email: asText(body.email),
     phone: asText(body.phone),
   });
+
+  if (result.matches.length > 0) {
+    result.matches = await attachDealDetails(supabase, result.matches);
+  }
 
   return NextResponse.json(result);
 }
