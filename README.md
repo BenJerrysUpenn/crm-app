@@ -121,5 +121,10 @@ npm run reconcile-shifts                 # creates the shifts
 ```
 Prints one summary line. Exit 0 = ok, 1 = the sweep or a deal failed,
 2 = bad argument or `DATABASE_URL` missing. The dry run runs in a read-only
-transaction and EXPLAINs each insert it would make. Production runs from a
-checkout of `main` at `~/systems/crm-app`, never from a dev clone.
+transaction and EXPLAINs each insert it would make.
+
+Where it runs: on Alina's Mac, from a clean checkout of `main` at
+`~/systems/crm-app` (the same `~/systems/` convention as the catering
+automations), never from a dev clone or the Google Drive. This is the only
+thing that runs from that checkout. It is separate from Vercel, which serves
+the web app, and from the droplet's checkout of this repo, which runs nothing.
