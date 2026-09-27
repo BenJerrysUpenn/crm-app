@@ -32,6 +32,9 @@
 --      simulated PostgREST JWT lands in actor_uid / actor_role.
 --   6. row_audit is append-only through RLS: the authenticated role can read it
 --      (as a manager) but cannot insert, update or delete.
+--   7. audit_row_change() cannot be called through /rest/v1/rpc: no API role
+--      (anon, authenticated, service_role) holds EXECUTE on it. The triggers
+--      still fire, because a trigger does not check EXECUTE when it fires.
 -- ============================================================================
 
 begin;
@@ -185,6 +188,19 @@ begin
 
   reset role;
   raise notice 'row_audit is append-only through RLS';
+end $$;
+
+-- ---- 7. the trigger function is not callable through the API ----------------
+do $$
+declare
+  r text;
+begin
+  foreach r in array array['anon', 'authenticated', 'service_role'] loop
+    if has_function_privilege(r, 'public.audit_row_change()', 'execute') then
+      raise exception '% can execute audit_row_change(); it must be trigger-only', r;
+    end if;
+  end loop;
+  raise notice 'audit_row_change() is trigger-only';
 end $$;
 
 rollback;
