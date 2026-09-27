@@ -22,8 +22,9 @@ export const fetchCache = "force-no-store";
  * findings name people, hours and money. The Finance tab and the schedule's
  * solo-close dropdowns both read it.
  *
- * `window_end` must be a Sunday (§0.1). Omitted, it defaults to the period that
- * has most recently finished — never to a period QBO suggests, whose dates are
+ * `window_end` must be a period end: every other Sunday, on the cycle through
+ * 2026-09-20 (§0.1, ruled 2026-09-27). Omitted, it defaults to the period that
+ * has most recently ended — never to a period QBO suggests, whose dates are
  * misaligned with the ones this business runs.
  *
  * Read-only. Choices are recorded through /api/payroll/rulings, the submittal

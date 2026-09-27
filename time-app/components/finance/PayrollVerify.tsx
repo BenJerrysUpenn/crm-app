@@ -128,8 +128,10 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
         </div>
 
         <p className="text-xs text-slate-500 mt-3 max-w-prose">
-          The period is the 14 days ending the most recent Sunday, and the pay
-          date is three days after it (spec 0.1). Nothing here reads
+          A period is 14 days ending on a period-end Sunday. Periods end every
+          other Sunday (2026-09-20, 10-04, 10-18 and so on), the default is the
+          last one that has ended, and the pay date is the Wednesday three days
+          after it (spec 0.1). Nothing here reads
           QuickBooks&rsquo; own period list, which is misaligned with the periods
           this business runs.
         </p>

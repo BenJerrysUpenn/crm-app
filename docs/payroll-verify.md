@@ -30,9 +30,15 @@ loads rows and hands them in, and everything it decides is decided in a module
 
 ## The pay window
 
-The period is the 14 days ending the most recent Sunday, and the pay date is
-three days after it (a Wednesday). `window_end` must be a Sunday — a window
-ending on any other day is refused rather than rounded.
+Pay periods end every other Sunday, on the cycle through 2026-09-20 (ruled
+2026-09-27): 2026-09-20, 10-04, 10-18, 11-01 and so on. A period is the 14 days
+ending on one of those Sundays, and the pay date is three days after it (a
+Wednesday). The default window is the most recent period that has ended, so on
+a period's own last Sunday the one before it is shown. `window_end` must be a
+period end: any other day, including the Sunday in the middle of a period, is
+refused rather than rounded, by `lib/payroll/window.ts`, by the verify, rulings
+and submit routes, and by migration 27's CHECK constraint on
+`payroll_run_submittals.window_end`.
 
 QuickBooks' own upcoming-period list is **not** read: its dates are misaligned
 with the periods this business runs, and the 2026-09-23 run had to correct both

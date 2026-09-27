@@ -323,7 +323,7 @@ export type VerifyResult = {
 const RULES: Record<string, { title: string; rule: string }> = {
   "0.1": {
     title: "Pay window",
-    rule: "period = the 14 days ending the most recent Sunday; pay date = end + 3 (Wed). Never read upcoming_pay_periods[].pay_date (misaligned).",
+    rule: "period = the 14 days ending the most recent period-end Sunday (every other Sunday, on the cycle through 2026-09-20, ruled 2026-09-27); pay date = end + 3 (Wed). Never read upcoming_pay_periods[].pay_date (misaligned).",
   },
   "0.6": {
     title: "store_hours age",
@@ -650,7 +650,7 @@ function checkPreconditions(input: VerifyInput): Finding[] {
         status: "auto_resolved",
         severity: "info",
         summary,
-        resolution: "14 days ending the most recent Sunday; pay date = end + 3. Computed here, never read from QBO.",
+        resolution: "14 days ending on a period-end Sunday (every other Sunday from 2026-09-20); pay date = end + 3. Computed here, never read from QBO.",
         evidence: { date: window.end },
       }),
     );

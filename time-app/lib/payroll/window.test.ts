@@ -6,9 +6,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  PERIOD_ANCHOR_END,
   currentPayWindow,
   firstSubmittalDay,
-  mostRecentSunday,
+  isPeriodEnd,
+  mostRecentPeriodEnd,
+  periodEndFor,
+  periodEndsCovering,
   periodEnded,
   payWeeks,
   payWindowEnding,
@@ -49,12 +53,52 @@ test("0.1: a date that is not a date at all is refused", () => {
   assert.equal(payWindowEnding("").ok, false);
 });
 
-test("0.1: the most recent Sunday from mid-week, and from a Sunday itself", () => {
-  assert.equal(mostRecentSunday("2026-09-23"), "2026-09-20"); // Wednesday
-  assert.equal(mostRecentSunday("2026-09-21"), "2026-09-20"); // Monday
-  // Run ON the Sunday it returns that Sunday: the period ends at the end of
-  // that day, and the run happens after it.
-  assert.equal(mostRecentSunday("2026-09-20"), "2026-09-20");
+test("0.1: periods end every other Sunday, on the cycle through 2026-09-20 (ruled 2026-09-27)", () => {
+  assert.equal(PERIOD_ANCHOR_END, "2026-09-20");
+  for (const end of ["2026-09-06", "2026-09-20", "2026-10-04", "2026-10-18", "2026-11-01", "2027-01-10"]) {
+    assert.equal(isPeriodEnd(end), true, `${end} is a period end`);
+    assert.equal(payWindowEnding(end).ok, true, `${end} is accepted`);
+  }
+  for (const off of ["2026-09-13", "2026-09-27", "2026-10-11", "2027-01-03"]) {
+    assert.equal(weekdayOf(off), 0, `${off} must be a Sunday for this fixture to mean anything`);
+    assert.equal(isPeriodEnd(off), false, `${off} is the middle Sunday of a period`);
+  }
+});
+
+test("0.1: an off-cycle Sunday is refused, and the error names the period it falls in", () => {
+  const result = payWindowEnding("2026-09-27");
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.error, /every other Sunday/);
+  assert.match(result.error, /2026-10-04/);
+});
+
+test("0.1: the default is the most recent period that has ENDED, never one still running", () => {
+  // Monday 10-05 is the first day the 09-21 to 10-04 run can be worked.
+  assert.equal(mostRecentPeriodEnd("2026-10-05"), "2026-10-04");
+  // On the period's own last Sunday it has not ended: the previous one stands.
+  assert.equal(mostRecentPeriodEnd("2026-10-04"), "2026-09-20");
+  // The middle Sunday and the days around it belong to the running period.
+  assert.equal(mostRecentPeriodEnd("2026-09-27"), "2026-09-20");
+  assert.equal(mostRecentPeriodEnd("2026-09-21"), "2026-09-20");
+  assert.equal(mostRecentPeriodEnd("2026-09-20"), "2026-09-06");
+  assert.equal(mostRecentPeriodEnd("2026-10-18"), "2026-10-04");
+});
+
+test("0.1: the period a day belongs to ends on the next on-cycle Sunday", () => {
+  assert.equal(periodEndFor("2026-09-20"), "2026-09-20");
+  assert.equal(periodEndFor("2026-09-21"), "2026-10-04");
+  assert.equal(periodEndFor("2026-09-27"), "2026-10-04");
+  assert.equal(periodEndFor("2026-10-04"), "2026-10-04");
+  assert.equal(periodEndFor("2026-09-07"), "2026-09-20");
+  assert.equal(periodEndFor("2026-09-06"), "2026-09-06");
+});
+
+test("a schedule week (Sunday to Saturday) spans one period, or two when its Sunday ends one", () => {
+  // 09-27 is a middle Sunday: the whole week is in the period ending 10-04.
+  assert.deepEqual(periodEndsCovering("2026-09-27", "2026-10-03"), ["2026-10-04"]);
+  // 10-04 ends a period: that Sunday is paid in it, Monday on in the next.
+  assert.deepEqual(periodEndsCovering("2026-10-04", "2026-10-10"), ["2026-10-04", "2026-10-18"]);
 });
 
 test("0.1: the default window on the 2026-09-23 pay day is the run that actually happened", () => {
@@ -62,12 +106,18 @@ test("0.1: the default window on the 2026-09-23 pay day is the run that actually
   assert.deepEqual(w, { start: "2026-09-07", end: "2026-09-20", payDate: "2026-09-23" });
 });
 
+test("0.1: the first live run, worked Monday 2026-10-05, is 09-21 to 10-04 and pays Wednesday 10-07", () => {
+  const w = currentPayWindow("2026-10-05");
+  assert.deepEqual(w, { start: "2026-09-21", end: "2026-10-04", payDate: "2026-10-07" });
+  assert.equal(weekdayOf(w.payDate), 3);
+});
+
 test("0.1 crossing a year: the arithmetic is calendar days, not month maths", () => {
-  const result = payWindowEnding("2027-01-03");
+  const result = payWindowEnding("2027-01-10");
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.window.start, "2026-12-21");
-  assert.equal(result.window.payDate, "2027-01-06");
+  assert.equal(result.window.start, "2026-12-28");
+  assert.equal(result.window.payDate, "2027-01-13");
 });
 
 test("2.3: the fortnight splits into two Monday-to-Sunday weeks, never summed for overtime", () => {

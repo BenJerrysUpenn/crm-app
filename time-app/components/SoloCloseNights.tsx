@@ -3,45 +3,46 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Finding, VerifyResult } from "@/lib/payroll/verify";
 import SoloCloseSelect from "@/components/finance/SoloCloseSelect";
+import { addDays, periodEndsCovering } from "@/lib/payroll/window";
 
 // The schedule view's solo-close dropdowns (bj-finance #519, ruled
 // 2026-09-22): one per night in the visible week that nobody's punch closed.
 // Manager-only, like everything that decides pay.
 //
 // The nights come from the same rulebook the Finance tab runs
-// (GET /api/payroll/verify). The pay window ending the Sunday AFTER this
-// week's Sunday spans the 14 days back to the Monday before it, so it covers
-// every night on screen in one call. Choices are keyed by night, not by pay
+// (GET /api/payroll/verify). Pay periods end every other Sunday (ruled
+// 2026-09-27), so the visible Sunday-to-Saturday week sits inside one period,
+// or across two when its Sunday is the last day of one; each period it touches
+// is verified and its nights shown. Choices are keyed by night, not by pay
 // window, so what is chosen here is what the Finance tab and the payroll sheet
 // read.
 
-function addDays(d: string, n: number) {
-  const x = new Date(d + "T00:00:00Z");
-  x.setUTCDate(x.getUTCDate() + n);
-  return x.toISOString().slice(0, 10);
-}
+type Night = { finding: Finding; windowEnd: string };
 
 export default function SoloCloseNights({ weekStart }: { weekStart: string }) {
-  const windowEnd = addDays(weekStart, 7);
   const weekEnd = addDays(weekStart, 6);
-  const [nights, setNights] = useState<Finding[] | null>(null);
+  const [nights, setNights] = useState<Night[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/payroll/verify?window_end=${windowEnd}`);
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(body.error ?? `Could not load solo-close nights (${res.status}).`);
-      setNights([]);
-      return;
+    const found: Night[] = [];
+    const errors: string[] = [];
+    for (const windowEnd of periodEndsCovering(weekStart, weekEnd)) {
+      const res = await fetch(`/api/payroll/verify?window_end=${windowEnd}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        errors.push(body.error ?? `Could not load solo-close nights (${res.status}).`);
+        continue;
+      }
+      for (const finding of (body as VerifyResult).findings) {
+        const date = finding.evidence.date;
+        if (finding.check === "1.9" && !!date && date >= weekStart && date <= weekEnd)
+          found.push({ finding, windowEnd });
+      }
     }
-    setError(null);
-    setNights(
-      (body as VerifyResult).findings.filter(
-        (f) => f.check === "1.9" && !!f.evidence.date && f.evidence.date >= weekStart && f.evidence.date <= weekEnd,
-      ),
-    );
-  }, [windowEnd, weekStart, weekEnd]);
+    setError(errors.length ? errors.join(" ") : null);
+    setNights(found);
+  }, [weekStart, weekEnd]);
 
   useEffect(() => {
     load();
@@ -59,7 +60,7 @@ export default function SoloCloseNights({ weekStart }: { weekStart: string }) {
       </p>
       {error && <div className="text-xs text-rose-500 mt-2">{error}</div>}
       <ul className="mt-2 divide-y divide-slate-200 dark:divide-slate-800">
-        {nights.map((f) => (
+        {nights.map(({ finding: f, windowEnd }) => (
           <li key={f.key} className="py-2">
             <div className="text-xs text-slate-700 dark:text-slate-300 mb-1">{f.summary}</div>
             <SoloCloseSelect finding={f} windowEnd={windowEnd} onSaved={load} />

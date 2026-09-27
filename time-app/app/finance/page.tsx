@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getProfile } from "@/lib/auth";
 import { dayKey } from "@/lib/format";
-import { mostRecentSunday } from "@/lib/payroll/window";
+import { mostRecentPeriodEnd } from "@/lib/payroll/window";
 import TopBar from "@/components/TopBar";
 import PayrollVerify from "@/components/finance/PayrollVerify";
 
@@ -34,7 +34,7 @@ export default async function FinancePage({
   if (profile.role !== "manager") redirect("/");
 
   const tab: TabId = searchParams?.tab === "metrics" ? "metrics" : "payroll";
-  const defaultWindowEnd = mostRecentSunday(dayKey(new Date().toISOString()));
+  const defaultWindowEnd = mostRecentPeriodEnd(dayKey(new Date().toISOString()));
 
   return (
     <div className="min-h-screen flex flex-col">
