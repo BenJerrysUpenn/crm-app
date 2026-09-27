@@ -1,6 +1,6 @@
 "use client";
 
-// PROTOTYPE — Email campaigns tab (v5): the tier connections panel.
+// PROTOTYPE — Email campaigns tab (v5, v6): the tier connections panel.
 //
 // Read-only. How people move between tiers, as text and arrows, with the
 // counts the data can give today (lib/emailCampaignsPrototype/model.ts,
@@ -94,15 +94,14 @@ export default function TierConnections({ flows, tiers }: { flows: Flows; tiers:
       note: "Suppressed people are left out of every number on this page.",
     },
   ];
+  // v6: a plain disclosure row like "How the numbers are made", directly under
+  // it, collapsed by default (no box around it).
   return (
-    <details open className="rounded-md border border-slate-800 bg-slate-900/40 px-3 py-2 text-xs text-slate-400">
-      <summary className="cursor-pointer select-none text-[11px] font-medium uppercase tracking-wide text-slate-400 hover:text-slate-200">
-        Tier connections{" "}
-        <span className="font-normal normal-case tracking-normal text-slate-500">
-          · people as of now (derived); no tier history yet
-        </span>
+    <details className="text-[11px] text-slate-500">
+      <summary className="cursor-pointer hover:text-slate-300">
+        Tier connections <span className="text-slate-600">· people as of now (derived); no tier history yet</span>
       </summary>
-      <ul className="mt-1.5 space-y-1">
+      <ul className="mt-1 space-y-1 pl-4 text-xs text-slate-400">
         {rows.map((r, i) => (
           <li key={i} className="flex flex-wrap items-baseline gap-y-0.5">
             <span className="flex flex-wrap items-baseline">{r.flow}</span>

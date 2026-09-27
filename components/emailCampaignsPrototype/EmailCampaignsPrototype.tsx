@@ -23,6 +23,13 @@
 // and footer editing, a tier connections panel, a "Seasonal menu list" warm
 // category (mock, 0) and a prototype "+ Add contacts" form (nothing saved).
 //
+// v6: the tier connections panel is a plain disclosure row under "How the
+// numbers are made", collapsed by default. A "Recipient pages" row in the
+// header opens previews of the warm opt-out page (the real markup) and the
+// proposed offers opt-in page. "+ Add contacts" gains an "Upload a list" mode:
+// the file would become a PR for the AFK Manager to clean and load (nothing
+// is uploaded).
+//
 // Client-only prototype state: the per-tier cadence (useState), card notes and
 // sequence edits (localStorage, this browser only). Nothing is written to the
 // database, Apollo or warm_sender.
@@ -747,7 +754,7 @@ function EveryoneCard({
         </div>
       ) : null}
       {adding ? (
-        <Modal title="Add a cold contact" onClose={() => setAdding(false)}>
+        <Modal title="Add cold contacts" onClose={() => setAdding(false)}>
           <AddContactForm
             categories={tier.categories.map((c) => ({ key: c.key, label: c.label }))}
             sourcedBy={sourcedBy}
@@ -1028,6 +1035,28 @@ export default function EmailCampaignsPrototype({ payload, sourcedBy }: { payloa
           </span>
         </div>
       </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
+        <span>Recipient pages</span>
+        <a
+          href="/email-campaigns/preview/unsubscribe"
+          target="_blank"
+          rel="noreferrer"
+          className="text-slate-300 underline decoration-slate-600 hover:text-slate-100"
+        >
+          Opt-out (warm) ↗
+        </a>
+        <span className="text-slate-600">·</span>
+        <a
+          href="/email-campaigns/preview/offers-signup"
+          target="_blank"
+          rel="noreferrer"
+          className="text-slate-300 underline decoration-slate-600 hover:text-slate-100"
+        >
+          Opt-in: seasonal menu with offers (proposed) ↗
+        </a>
+        <span className="text-slate-600">· previews, nothing is written</span>
+      </div>
+      <div className="space-y-1">
       <details className="text-[11px] text-slate-500">
         <summary className="cursor-pointer hover:text-slate-300">How the numbers are made</summary>
         <ul className="mt-1 list-disc space-y-0.5 pl-4">
@@ -1049,6 +1078,7 @@ export default function EmailCampaignsPrototype({ payload, sourcedBy }: { payloa
       </details>
 
       <TierConnections flows={payload.flows} tiers={payload.tiers} />
+      </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {payload.tiers.map((t) => (
