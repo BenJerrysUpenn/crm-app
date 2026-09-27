@@ -97,7 +97,7 @@ export function punchesToCorrect(findings: Finding[]): Finding[] {
 }
 
 function describePunchFix(f: Finding): string {
-  const what = f.check === "1.4" ? "runaway, no shift" : "short punch";
+  const what = f.check === "1.4" ? (f.evidence.open ? "open punch, no shift" : "runaway, no shift") : "short punch";
   const punch = f.evidence.punch_ids?.[0];
   const who = [f.evidence.employee_name ?? "someone", f.evidence.date].filter(Boolean).join(" ");
   return `${f.check} ${what}: ${who}${punch ? ` (punch ${punch})` : ""}`;

@@ -72,15 +72,18 @@ export async function loadVerify(
   }
 
   const shifts = (shiftsRes.data ?? []) as ShiftRow[];
-  const [shiftTypes, storeHours, deals, windowDeals, auditDeletes, submittal, unmatchedTips] = await Promise.all([
-    loadShiftTypes(supabase),
-    loadStoreHours(supabase, window),
-    loadDeals(supabase, shifts),
-    loadWindowDeals(supabase, window),
-    loadAuditDeletes(supabase, window),
-    loadSubmittals(supabase, window),
-    loadUnmatchedTips(supabase),
-  ]);
+  const [shiftTypes, storeHours, deals, windowDeals, auditDeletes, auditStartedAt, submittal, unmatchedTips] =
+    await Promise.all([
+      loadShiftTypes(supabase),
+      loadStoreHours(supabase, window),
+      loadDeals(supabase, shifts),
+      loadWindowDeals(supabase, window),
+      loadAuditDeletes(supabase, window),
+      loadAuditStart(supabase),
+      loadSubmittals(supabase, window),
+      loadUnmatchedTips(supabase),
+    ]);
+  const afterSubmittal = await loadChangesAfterSubmittal(supabase, window, submittal.row);
 
   const input = {
     window,
@@ -96,6 +99,9 @@ export async function loadVerify(
     deals,
     windowDeals,
     auditDeletes,
+    auditStartedAt,
+    priorSubmittals: afterSubmittal.prior,
+    auditChanges: afterSubmittal.changes,
     submittal: submittal.row,
     otherSubmittals: submittal.others,
     unmatchedTips,
@@ -248,6 +254,71 @@ async function loadAuditDeletes(supabase: Supabase, window: PayWindow): Promise<
     return (data ?? []) as AuditRow[];
   } catch {
     return null;
+  }
+}
+
+/**
+ * When auditing started (§1.13): the earliest row_audit row. Null when the
+ * table is empty, or unreadable; a missing table is loadAuditDeletes' null.
+ */
+async function loadAuditStart(supabase: Supabase): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.from("row_audit").select("at").order("at").limit(1);
+    if (error) return null;
+    return ((data ?? [])[0] as { at: string } | undefined)?.at ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Rows per page when reading row_audit, PostgREST's default cap. */
+const AUDIT_PAGE = 1000;
+/** A fortnight is a few hundred writes; this is only a stop for a runaway loop. */
+const AUDIT_MAX_PAGES = 20;
+
+/**
+ * §1.15 — submitted runs that ended before this window, and every write to
+ * time_entries or shifts since the latest of them was submitted (bounded by
+ * this run's own submittal once there is one). The rulebook keeps the writes
+ * whose row is dated inside a submitted run. Read in pages, so a busy
+ * fortnight is never silently cut at PostgREST's row cap. Missing tables mean
+ * nothing to report: before migration 27 no run can be submitted.
+ */
+async function loadChangesAfterSubmittal(
+  supabase: Supabase,
+  window: PayWindow,
+  own: SubmittalRow | null,
+): Promise<{ prior: SubmittalRow[]; changes: AuditRow[] }> {
+  const none = { prior: [], changes: [] };
+  try {
+    const priorRes = await supabase
+      .from("payroll_run_submittals")
+      .select("window_end, submitted_by, submitted_at, status")
+      .lt("window_end", window.start)
+      .order("window_end", { ascending: false });
+    if (priorRes.error) return none;
+    const prior = (priorRes.data ?? []) as SubmittalRow[];
+    if (prior.length === 0) return none;
+    // The latest run before this window, as the rulebook reads it: ordered above.
+    const since = prior[0].submitted_at;
+
+    const changes: AuditRow[] = [];
+    for (let page = 0; page < AUDIT_MAX_PAGES; page++) {
+      let query = supabase
+        .from("row_audit")
+        .select("id, table_name, row_id, op, at, actor_uid, actor_role, db_role, before_image, after_image")
+        .in("table_name", ["time_entries", "shifts"])
+        .gt("at", since);
+      if (own) query = query.lte("at", own.submitted_at);
+      const { data, error } = await query.order("id").range(page * AUDIT_PAGE, (page + 1) * AUDIT_PAGE - 1);
+      if (error) return { prior, changes };
+      const rows = (data ?? []) as AuditRow[];
+      changes.push(...rows);
+      if (rows.length < AUDIT_PAGE) break;
+    }
+    return { prior, changes };
+  } catch {
+    return none;
   }
 }
 

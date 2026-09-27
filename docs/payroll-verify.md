@@ -57,7 +57,8 @@ Every finding is one of:
   in `payroll_rulings`.
 - **Needs a fix** — the data is wrong and no choice can make it right. Fix it in
   the app and press Verify again. This includes **1.4** (a runaway punch with no
-  scheduled shift) and **1.5** (a punch under 25% of its scheduled shift): they
+  scheduled shift, or an open punch with no scheduled shift, ruled 2026-09-27)
+  and **1.5** (a punch under 25% of its scheduled shift): they
   have **no default and no picker** (ruled 2026-09-22, ruling D). The punch is
   corrected on the Timesheets page.
 
@@ -123,11 +124,12 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 | --- | --- | --- |
 | 0.1 | Pay window | rule (blocks if the period has not finished) |
 | 0.6 | `store_hours` edited inside the window | rule, warning |
-| 1.1 | Open punch (`clock_out IS NULL`) | **fix** |
+| 1.1 | Open punch (`clock_out IS NULL`) with a scheduled shift | **fix** |
+| 1.1 | Open punch with **no** scheduled shift | rule → 1.4 |
 | 1.2 | Punch over 15h | rule → 1.4 |
 | 1.3 | Clock-out within 5s of the same person's next clock-in | rule → 1.4 |
 | 1.4 | Truncation — with a shift, cut to the scheduled end | rule |
-| 1.4 | Truncation — with **no** shift | **fix**: correct the punch (no default) |
+| 1.4 | Truncation — with **no** shift, or an open punch with no shift | **fix**: correct the punch (no default) |
 | 1.5 | Punch under 25% of its scheduled shift | **fix**: correct the punch (no default) |
 | 1.6 | Under 5 min with nothing scheduled | rule: 0 hours, listed |
 | 1.7 | Same person, overlapping punches | **fix** |
@@ -138,6 +140,7 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 | 1.12 | Fewer crew punched than `deals.staff_count` | rule, warning |
 | 1.13 | Rows deleted from inside the window | rule; **fix** when there is no audit table |
 | 1.14 | `full_name` containing `@` | rule, warning |
+| 1.15 | A punch or shift in a submitted run changed after its submittal | rule, warning (never blocks) |
 | 3.4 | Invoice tip with no deal, any date | rule, **flag** (never blocks) |
 | 3.5 | Booked event in the window with no Catering shift crewed | **choice**: who is paid its tip (**default: Sophia**); also the upstream warning to add the shift |
 | 3.7 | No Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: Sophia**); a schedule anomaly (norm ≥ 4 a period) |
@@ -161,7 +164,15 @@ Notes on the ones that surprise people:
   applies the pick only where there is a tip.
 - **1.13 blocks when the audit table is missing.** "Nothing was deleted" and "a
   deletion would have left no trace" are different answers, and the second is
-  what the 2026-09-23 run had.
+  what the 2026-09-23 run had. Auditing starts with the first `row_audit` row;
+  a window that begins before it gets a warning that deletions from before then
+  cannot be seen (not a block: the first live run starts before auditing).
+- **1.15 reports, it never refuses.** Writes to `time_entries` and `shifts` are
+  never blocked, even for a submitted period: the clock-in path must not fail,
+  and Withers-time closes a forgotten clock-out at the next clock-in. Every
+  change to a submitted run's punches or shifts made after its submittal is
+  reported to the next run instead, naming the punch or shift, the person and
+  who changed it (ruled 2026-09-27).
 - **1.8 and 1.9 read `store_hours`.** For 1.8 a day whose hours nobody has set is
   reported, never judged — hours-not-set is deliberately different from closed,
   the same distinction `lib/coverage.ts` draws for the publish check.
@@ -177,7 +188,10 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is submitted) and `payroll_run_submittals` (final; `status` is the §6 seam) |
 
 All three are applied by hand in the Supabase SQL editor, in order, and all are
-safe to re-run. Until 25 is applied, Verify reports 1.13 as a blocker; until 27
+safe to re-run. Each has a `migration_2N_verify.sql` to run afterwards (in a
+transaction that rolls back) and a `migration_2N_down.sql` that reverses it;
+the header of each down script says what data it loses. Roll back in reverse
+order: 27, then 26, then 25. Until 25 is applied, Verify reports 1.13 as a blocker; until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 
 ## Not built yet

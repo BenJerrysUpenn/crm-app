@@ -113,6 +113,8 @@ function run(over: Partial<VerifyInput> = {}) {
     // An empty list means "the log is there and nothing was deleted"; null
     // means there is no log at all, which 1.13 treats very differently.
     auditDeletes: [],
+    // The first audit row: long before this window, so 1.13 can see all of it.
+    auditStartedAt: "2026-01-05T09:00:00-05:00",
     ...over,
   });
 }
@@ -154,12 +156,41 @@ test("0.6: store hours edited before the window are not mentioned", () => {
 // --- §1.1 open punch --------------------------------------------------------
 
 test("1.1: a punch with clock_out IS NULL inside the window blocks the button", () => {
-  const result = run({ punches: [punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:00") })] });
+  const scheduled = shift({ employee_id: COLE, starts_at: at("2026-09-15", "11:00"), ends_at: at("2026-09-15", "17:00") });
+  const result = run({
+    shifts: [scheduled],
+    punches: [punch({ employee_id: COLE, shift_id: scheduled.id, clock_in_at: at("2026-09-15", "11:00") })],
+  });
   const f = only(result.findings, "1.1")[0];
   assert.equal(f.status, "needs_fix");
   assert.equal(f.severity, "error");
   assert.match(f.summary, /McCullough, Cole/);
   assert.equal(result.ready, false, "no ruling can stand in for a punch with no end");
+  assert.deepEqual(only(result.findings, "1.4"), [], "with a shift it is 1.1's, not 1.4's");
+});
+
+test("1.4: an open punch with NO scheduled shift is a blocker with no default, fixed upstream (ruled 2026-09-27)", () => {
+  const open = punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:00") });
+  const result = run({ punches: [open] });
+  const f = only(result.findings, "1.4")[0];
+  assert.equal(f.key, `1.4:punch:${open.id}`);
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.severity, "error");
+  assert.equal(f.options, undefined, "no picker");
+  assert.equal(f.defaultChoice, undefined, "no default");
+  assert.equal(f.evidence.open, true);
+  assert.deepEqual(f.evidence.punch_ids, [open.id]);
+  assert.match(f.summary, /McCullough, Cole/);
+  assert.match(f.summary, /no clock-out/);
+  assert.match(f.summary, /no scheduled shift/);
+  assert.match(f.resolution!, /Correct the punch on the Timesheets page/);
+  // 1.1 still detects it, and hands it to 1.4 like 1.2 and 1.3 do: one
+  // blocker per punch, not two.
+  const detected = only(result.findings, "1.1")[0];
+  assert.equal(detected.status, "auto_resolved");
+  assert.match(detected.resolution!, new RegExp(`1\\.4:punch:${open.id}`));
+  assert.equal(result.counts.needsFix, 1);
+  assert.equal(result.ready, false);
 });
 
 test("1.1: an open punch outside the window is not this window's problem", () => {
@@ -996,6 +1027,218 @@ test("1.13: a deletion of a row dated outside the window is not this window's bu
   assert.deepEqual(only(run({ auditDeletes: [deletion] }).findings, "1.13"), []);
 });
 
+test("1.13: a window that starts before auditing did says deletions before then cannot be seen", () => {
+  // Migration 25 goes live during the 09-21 to 10-04 period: its first days
+  // were never logged.
+  const result = run({ auditStartedAt: at("2026-09-28", "14:05") });
+  const f = only(result.findings, "1.13").find((x) => x.key === "1.13:coverage");
+  assert.ok(f, "the coverage limit is reported");
+  assert.equal(f.status, "auto_resolved", "a limit to report, not a blocker: the first live run starts before auditing");
+  assert.equal(f.severity, "warn");
+  assert.match(f.summary, /Auditing started Mon Sep 28/);
+  assert.match(f.summary, /deleted before then cannot be seen/);
+  assert.equal(result.ready, true);
+});
+
+test("1.13: auditing that started on the window's first day, after midnight, still leaves a gap", () => {
+  const f = only(run({ auditStartedAt: at("2026-09-07", "08:00") }).findings, "1.13");
+  assert.equal(f.length, 1);
+  assert.equal(f[0].key, "1.13:coverage");
+});
+
+test("1.13: a window that starts after auditing did has full coverage and says nothing about it", () => {
+  assert.deepEqual(only(run({ auditStartedAt: at("2026-09-06", "23:59") }).findings, "1.13"), []);
+});
+
+test("1.13: an audit table with no rows at all has recorded nothing yet, and says so", () => {
+  const f = only(run({ auditStartedAt: null }).findings, "1.13");
+  assert.equal(f.length, 1);
+  assert.equal(f[0].key, "1.13:coverage");
+  assert.match(f[0].summary, /no rows yet/);
+  assert.equal(f[0].status, "auto_resolved");
+});
+
+// --- §1.15 changes to a submitted run ---------------------------------------
+//
+// Ruled 2026-09-27: writes to time_entries and shifts are NEVER blocked (the
+// clock-in path must not fail, and Withers-time closes a forgotten clock-out
+// at the next clock-in, which can edit a punch in a submitted period). The
+// next period's verifier reports every such change instead.
+
+const NEXT: PayWindow = (() => {
+  const r = payWindowEnding("2026-10-04");
+  if (!r.ok) throw new Error(r.error);
+  return r.window;
+})();
+
+const SUBMITTED_0920 = { window_end: "2026-09-20", submitted_by: SOPHIA, submitted_at: at("2026-09-21", "12:00") };
+
+function audit(over: Partial<AuditRow> & Pick<AuditRow, "id" | "table_name" | "op" | "at">): AuditRow {
+  return { row_id: null, actor_uid: null, actor_role: null, db_role: "authenticated", before_image: null, after_image: null, ...over };
+}
+
+test("1.15: the auto-close of a forgotten clock-out in a submitted run is reported to the next run", () => {
+  const autoClose = audit({
+    id: 70,
+    table_name: "time_entries",
+    row_id: 1290,
+    op: "UPDATE",
+    at: at("2026-09-22", "10:02"),
+    actor_uid: CARLI,
+    actor_role: "authenticated",
+    before_image: { id: 1290, employee_id: CARLI, clock_in_at: at("2026-09-20", "17:00"), clock_out_at: null },
+    after_image: { id: 1290, employee_id: CARLI, clock_in_at: at("2026-09-20", "17:00"), clock_out_at: at("2026-09-22", "10:02") },
+  });
+  const result = run({ window: NEXT, today: "2026-10-05", priorSubmittals: [SUBMITTED_0920], auditChanges: [autoClose] });
+  const f = only(result.findings, "1.15")[0];
+  assert.ok(f, "reported");
+  assert.equal(f.key, "1.15:audit:70");
+  assert.equal(f.status, "auto_resolved", "never blocks");
+  assert.equal(f.severity, "warn");
+  assert.match(f.summary, /punch 1290/);
+  assert.match(f.summary, /Freeman, Carli/, "the person");
+  assert.match(f.summary, /was changed \(clock_out_at\) by Freeman, Carli on Tue Sep 22/, "what changed, who changed it, when");
+  assert.match(f.summary, /run ending 2026-09-20/);
+  assert.deepEqual(f.evidence.punch_ids, [1290]);
+  assert.equal(f.evidence.date, "2026-09-20");
+  assert.equal(result.ready, true);
+});
+
+test("1.15: a shift added to, or deleted from, a submitted run is reported, naming who", () => {
+  const added = audit({
+    id: 71,
+    table_name: "shifts",
+    row_id: 400,
+    op: "INSERT",
+    at: at("2026-09-23", "09:00"),
+    actor_role: "service_role",
+    db_role: "service_role",
+    after_image: { id: 400, employee_id: COLE, starts_at: at("2026-09-19", "12:00"), ends_at: at("2026-09-19", "18:00") },
+  });
+  const deleted = audit({
+    id: 72,
+    table_name: "time_entries",
+    row_id: 1280,
+    op: "DELETE",
+    at: at("2026-09-24", "15:00"),
+    actor_uid: SOPHIA,
+    actor_role: "authenticated",
+    before_image: { id: 1280, employee_id: JOEY, clock_in_at: at("2026-09-10", "10:00"), clock_out_at: at("2026-09-10", "16:00") },
+  });
+  const result = run({ window: NEXT, today: "2026-10-05", priorSubmittals: [SUBMITTED_0920], auditChanges: [added, deleted] });
+  const [first, second] = only(result.findings, "1.15");
+  assert.match(first.summary, /shift 400 for McCullough, Cole/);
+  assert.match(first.summary, /added by the service_role key/);
+  assert.deepEqual(first.evidence.shift_ids, [400]);
+  assert.match(second.summary, /punch 1280 for Barrett, Joey/);
+  assert.match(second.summary, /deleted by Malmgren, Sophia/);
+});
+
+test("1.15: a change made before the run was submitted, or to a row outside it, is not reported", () => {
+  const beforeSubmittal = audit({
+    id: 73,
+    table_name: "time_entries",
+    row_id: 1291,
+    op: "UPDATE",
+    at: at("2026-09-21", "11:59"),
+    actor_uid: SOPHIA,
+    before_image: { id: 1291, employee_id: CARLI, clock_in_at: at("2026-09-18", "11:00") },
+    after_image: { id: 1291, employee_id: CARLI, clock_in_at: at("2026-09-18", "11:30") },
+  });
+  const thisPeriod = audit({
+    id: 74,
+    table_name: "time_entries",
+    row_id: 1300,
+    op: "INSERT",
+    at: at("2026-09-22", "11:00"),
+    actor_uid: CARLI,
+    after_image: { id: 1300, employee_id: CARLI, clock_in_at: at("2026-09-22", "11:00") },
+  });
+  const result = run({
+    window: NEXT,
+    today: "2026-10-05",
+    priorSubmittals: [SUBMITTED_0920],
+    auditChanges: [beforeSubmittal, thisPeriod],
+  });
+  assert.deepEqual(only(result.findings, "1.15"), []);
+});
+
+test("1.15: a punch moved out of a submitted run is reported by the day it left", () => {
+  const moved = audit({
+    id: 75,
+    table_name: "time_entries",
+    row_id: 1292,
+    op: "UPDATE",
+    at: at("2026-09-25", "09:00"),
+    actor_uid: COLE,
+    before_image: { id: 1292, employee_id: CARLI, clock_in_at: at("2026-09-20", "11:00") },
+    after_image: { id: 1292, employee_id: CARLI, clock_in_at: at("2026-09-21", "11:00") },
+  });
+  const f = only(run({ window: NEXT, today: "2026-10-05", priorSubmittals: [SUBMITTED_0920], auditChanges: [moved] }).findings, "1.15");
+  assert.equal(f.length, 1);
+  assert.equal(f[0].evidence.date, "2026-09-20");
+});
+
+test("1.15: with no submitted run before the window there is nothing to report", () => {
+  const change = audit({
+    id: 76,
+    table_name: "time_entries",
+    row_id: 1293,
+    op: "DELETE",
+    at: at("2026-09-25", "09:00"),
+    before_image: { id: 1293, employee_id: CARLI, clock_in_at: at("2026-09-20", "11:00") },
+  });
+  assert.deepEqual(only(run({ window: NEXT, today: "2026-10-05", auditChanges: [change] }).findings, "1.15"), []);
+});
+
+test("1.15: a change already reported to the run before this one is not reported again", () => {
+  // Runs ending 09-06 and 09-20 are both submitted. A change to the 09-06 run
+  // made before the 09-20 run was submitted belonged to that run's report.
+  const older = { window_end: "2026-09-06", submitted_by: SOPHIA, submitted_at: at("2026-09-07", "12:00") };
+  const early = audit({
+    id: 77,
+    table_name: "time_entries",
+    row_id: 1100,
+    op: "DELETE",
+    at: at("2026-09-15", "09:00"),
+    before_image: { id: 1100, employee_id: CARLI, clock_in_at: at("2026-09-01", "11:00") },
+  });
+  const late = audit({
+    id: 78,
+    table_name: "time_entries",
+    row_id: 1101,
+    op: "DELETE",
+    at: at("2026-09-22", "09:00"),
+    before_image: { id: 1101, employee_id: CARLI, clock_in_at: at("2026-09-01", "11:00") },
+  });
+  const result = run({
+    window: NEXT,
+    today: "2026-10-05",
+    priorSubmittals: [older, SUBMITTED_0920],
+    auditChanges: [early, late],
+  });
+  assert.deepEqual(only(result.findings, "1.15").map((f) => f.key), ["1.15:audit:78"]);
+});
+
+test("1.15: once this run is submitted, later changes belong to the run after it", () => {
+  const change = audit({
+    id: 79,
+    table_name: "time_entries",
+    row_id: 1294,
+    op: "DELETE",
+    at: at("2026-10-06", "09:00"),
+    before_image: { id: 1294, employee_id: CARLI, clock_in_at: at("2026-09-20", "11:00") },
+  });
+  const result = run({
+    window: NEXT,
+    today: "2026-10-06",
+    priorSubmittals: [SUBMITTED_0920],
+    submittal: { window_end: "2026-10-04", submitted_by: SOPHIA, submitted_at: at("2026-10-05", "12:00") },
+    auditChanges: [change],
+  });
+  assert.deepEqual(only(result.findings, "1.15"), []);
+});
+
 // --- §1.14 name hygiene -----------------------------------------------------
 
 test("1.14: a full_name containing '@' is the invite-flow bug, reported and not blocking", () => {
@@ -1217,7 +1460,8 @@ test("§1: findings are grouped by check, in spec order, and only non-empty grou
   const result = run({
     punches: [punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:00") })],
   });
-  assert.deepEqual(result.groups.map((g) => g.check), ["0.1", "1.1", "1.10"]);
+  // An open punch with no shift: 1.1 detects it, 1.4 blocks it (ruled 2026-09-27).
+  assert.deepEqual(result.groups.map((g) => g.check), ["0.1", "1.1", "1.4", "1.10"]);
   assert.equal(result.groups[1].rule, "clock_out IS NULL inside window");
 });
 

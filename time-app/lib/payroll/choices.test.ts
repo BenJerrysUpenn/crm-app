@@ -139,6 +139,21 @@ test("a 1.4 or 1.5 punch blocks submittal and is named in the reason (ruling D)"
   );
 });
 
+test("an open punch with no shift blocks submittal and says it is open (ruled 2026-09-27)", () => {
+  const counts = { total: 1, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 1 };
+  const open = f({
+    check: "1.4",
+    key: "1.4:punch:12",
+    status: "needs_fix",
+    evidence: { employee_name: "McCullough, Cole", date: "2026-09-15", punch_ids: [12], open: true },
+  });
+  assert.equal(
+    submittalBlocker({ ready: false, counts, window: WINDOW, submittal: null, findings: [open] }, true, AFTER),
+    "Correct this punch on the Timesheets page first. They have no default (ruled 2026-09-22): " +
+      "1.4 open punch, no shift: McCullough, Cole 2026-09-15 (punch 12).",
+  );
+});
+
 test("submitting would pay you: crewless and Olo cases only", () => {
   const mine = f({ effective: { choice: "staff", payee: { id: "me", name: "Me" }, source: "default" } });
   const olo = f({ check: "3.7", key: "3.7:olo:x", effective: { choice: "staff", payee: { id: "me", name: "Me" }, source: "recorded" } });

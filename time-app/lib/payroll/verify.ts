@@ -147,6 +147,8 @@ export type AuditRow = {
   actor_role: string | null;
   db_role: string;
   before_image: Record<string, unknown> | null;
+  /** The row after the write. §1.15 reads it; §1.13 (deletions) never has one. */
+  after_image?: Record<string, unknown> | null;
 };
 
 /** A choice already recorded for a ruling-class finding. */
@@ -194,6 +196,22 @@ export type VerifyInput = {
    * deleted" and must never read as a pass (§1.13).
    */
   auditDeletes?: AuditRow[] | null;
+  /**
+   * When auditing started: the `at` of the earliest row_audit row, or null
+   * when the table has no rows yet. The first row stands in exactly for the
+   * moment migration 25 ran, since any write in between would have been
+   * logged first. A window that starts before it cannot see deletions from
+   * before it (§1.13).
+   */
+  auditStartedAt?: string | null;
+  /**
+   * §1.15 — submitted runs that ended before this window, with when each was
+   * submitted, and the row_audit rows for time_entries and shifts written
+   * since the latest of those submittals. A change to a submitted period is
+   * never refused (the clock-in path must not fail); it is reported here.
+   */
+  priorSubmittals?: SubmittalRow[];
+  auditChanges?: AuditRow[];
   /** The newest store_hours.updated_at, for §0.6. */
   storeHoursUpdatedAt?: string | null;
   rulings?: RulingRow[];
@@ -242,6 +260,8 @@ export type Evidence = {
   minutes?: number;
   /** Anything else worth showing, already rendered for a human. */
   notes?: string[];
+  /** The punch has no clock-out (§1.1, and §1.4 when it has no shift either). */
+  open?: boolean;
 };
 
 export type Finding = {
@@ -337,7 +357,7 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "1.4": {
     title: "Truncation",
-    rule: "1.2/1.3 with a scheduled shift → use scheduled end, note it. With NO scheduled shift → no default: correct the punch in Withers-time. The run cannot be submitted until it is fixed (ruled 2026-09-22).",
+    rule: "1.2/1.3 with a scheduled shift → use scheduled end, note it. With NO scheduled shift → no default: correct the punch in Withers-time. The run cannot be submitted until it is fixed (ruled 2026-09-22). An open punch (no clock-out) with no scheduled shift is a 1.4 too (ruled 2026-09-27).",
   },
   "1.5": {
     title: "Short punch on a scheduled shift",
@@ -370,6 +390,10 @@ const RULES: Record<string, { title: string; rule: string }> = {
     rule: "no audit table exists; ids 1270–1274 and ≥3 shifts vanished inside the window. Precondition for trusting anything above: add time_entries/shifts audit triggers (who, when, before-image).",
   },
   "1.14": { title: "Name hygiene", rule: "profiles.full_name containing '@' (invite-flow bug)" },
+  "1.15": {
+    title: "Changed after submittal",
+    rule: "a punch or shift dated inside a submitted run, added, changed or deleted after that run was submitted, is reported to the next run with the punch, the person and who changed it. Never refused and never a block: the clock-in path must not fail, and Withers-time closes a forgotten clock-out at the next clock-in (ruled 2026-09-27).",
+  },
   "3.4": {
     title: "Invoice tip with no deal",
     rule: "an invoice tip that joins to no deal, from any point in history, is listed, never summed. A flag, not a block (ruled 2026-09-22): the submitter sees it and the deal is fixed so a later run pays it.",
@@ -386,7 +410,7 @@ const RULES: Record<string, { title: string; rule: string }> = {
 
 const CHECK_ORDER = [
   "0.1", "0.6", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.10", "1.11", "1.12", "1.13", "1.14",
-  "3.4", "3.5", "3.7",
+  "1.15", "3.4", "3.5", "3.7",
 ];
 
 /**
@@ -674,17 +698,48 @@ function checkPreconditions(input: VerifyInput): Finding[] {
   return out;
 }
 
-/** §1.1 — clock_out IS NULL inside window. */
+/**
+ * §1.1 — clock_out IS NULL inside window. With a scheduled shift it is fixed
+ * here. With NO scheduled shift it is a runaway with no end and nothing to cut
+ * it back to, which is §1.4's (ruled 2026-09-27): 1.1 reports it and points
+ * at the 1.4 finding that blocks, as 1.2 and 1.3 do.
+ */
 function checkOpenPunches(views: PunchView[], window: PayWindow): Finding[] {
   return views
     .filter((v) => v.endMs === null && inWindow(v.date, window))
+    .map((v) => {
+      const summary = `${v.name} is still clocked in from ${formatDayLabel(v.date)} ${formatClock(formatMinutes(nyWallClock(v.row.clock_in_at).minutes))}.`;
+      const evidence = { employee_id: v.employeeId, employee_name: v.name, date: v.date, punch_ids: [v.row.id], open: true };
+      return v.shift
+        ? finding("1.1", { key: `1.1:punch:${v.row.id}`, status: "needs_fix", severity: "error", summary, evidence })
+        : finding("1.1", {
+            key: `1.1:punch:${v.row.id}`,
+            status: "auto_resolved",
+            severity: "warn",
+            summary,
+            resolution: `Handled by 1.4 (finding 1.4:punch:${v.row.id}).`,
+            evidence,
+          });
+    });
+}
+
+/**
+ * §1.4 — an open punch with no scheduled shift (ruled 2026-09-27). No end, and
+ * no shift to take one from: there is no default and no picker (ruling D). The
+ * punch is corrected in Withers-time, and until it is the run cannot be
+ * submitted. Migration 27's payroll_punch_blockers() refuses it too.
+ */
+function checkOpenUnscheduled(views: PunchView[], window: PayWindow): Finding[] {
+  return views
+    .filter((v) => v.endMs === null && !v.shift && inWindow(v.date, window))
     .map((v) =>
-      finding("1.1", {
-        key: `1.1:punch:${v.row.id}`,
+      finding("1.4", {
+        key: `1.4:punch:${v.row.id}`,
         status: "needs_fix",
         severity: "error",
-        summary: `${v.name} is still clocked in from ${formatDayLabel(v.date)} ${formatClock(formatMinutes(nyWallClock(v.row.clock_in_at).minutes))}.`,
-        evidence: { employee_id: v.employeeId, employee_name: v.name, date: v.date, punch_ids: [v.row.id] },
+        summary: `${v.name} ${formatDayLabel(v.date)}: punch ${v.row.id} has no clock-out and no scheduled shift to take one from.`,
+        resolution: "No default. Correct the punch on the Timesheets page (its real clock-out, or remove it), then verify again.",
+        evidence: { employee_id: v.employeeId, employee_name: v.name, date: v.date, punch_ids: [v.row.id], open: true },
       }),
     );
 }
@@ -1410,7 +1465,7 @@ function checkDeletedRows(input: VerifyInput, profiles: Map<string, ProfileRow>)
     ];
   }
 
-  const out: Finding[] = [];
+  const out: Finding[] = [...checkAuditCoverage(input)];
   for (const row of input.auditDeletes) {
     if (row.op !== "DELETE" || !row.before_image) continue;
     const image = row.before_image;
@@ -1423,11 +1478,7 @@ function checkDeletedRows(input: VerifyInput, profiles: Map<string, ProfileRow>)
     if (!inWindow(date, window)) continue;
 
     const employeeId = image.employee_id as string | undefined;
-    const who = row.actor_uid
-      ? nameOf(profiles, row.actor_uid)
-      : row.actor_role
-        ? `the ${row.actor_role} key`
-        : `the database role ${row.db_role}`;
+    const who = actorName(row, profiles);
     const what = row.table_name === "time_entries" ? "punch" : "shift";
 
     out.push(
@@ -1444,6 +1495,137 @@ function checkDeletedRows(input: VerifyInput, profiles: Map<string, ProfileRow>)
           punch_ids: row.table_name === "time_entries" && row.row_id ? [row.row_id] : undefined,
           shift_ids: row.table_name === "shifts" && row.row_id ? [row.row_id] : undefined,
           notes: [JSON.stringify(image)],
+        },
+      }),
+    );
+  }
+  return out;
+}
+
+/** Who made an audited write: the signed-in person, else the key, else the database role. */
+function actorName(row: AuditRow, profiles: Map<string, ProfileRow>): string {
+  if (row.actor_uid) return nameOf(profiles, row.actor_uid);
+  if (row.actor_role) return `the ${row.actor_role} key`;
+  return `the database role ${row.db_role}`;
+}
+
+/**
+ * §1.13 — how far back the log can see. Auditing started with the first
+ * row_audit row (migration 25); a window that begins before that cannot see a
+ * deletion from before it, and says so. A limit to report, not a blocker: the
+ * first live run starts before auditing did.
+ */
+function checkAuditCoverage(input: VerifyInput): Finding[] {
+  const { window } = input;
+  const started = input.auditStartedAt ?? null;
+  if (started) {
+    const s = nyWallClock(started);
+    // Covered only when auditing was running at the window's first midnight.
+    if (s.date < window.start || (s.date === window.start && s.minutes === 0)) return [];
+  }
+  const since = started
+    ? `Auditing started ${formatDayLabel(nyWallClock(started).date)} ${formatClock(formatMinutes(nyWallClock(started).minutes))}`
+    : "The audit log has no rows yet";
+  return [
+    finding("1.13", {
+      key: "1.13:coverage",
+      status: "auto_resolved",
+      severity: "warn",
+      summary: `${since}, and this window starts ${formatDayLabel(window.start)}. A punch or shift deleted before then cannot be seen.`,
+      resolution:
+        "Reported, not blocking. Deletions from before auditing started left no trace; check the Timesheets page against the schedule for those days.",
+      evidence: { date: window.start, notes: [started ? `First row_audit row: ${started}` : "row_audit is empty"] },
+    }),
+  ];
+}
+
+/** The day a time_entries or shifts image falls on, New York. */
+function imageDate(table: string, image: Record<string, unknown> | null | undefined): string | null {
+  if (!image) return null;
+  const stamp = table === "time_entries" ? image.clock_in_at : image.starts_at;
+  return typeof stamp === "string" && stamp ? nyWallClock(stamp).date : null;
+}
+
+/** Columns an UPDATE changed, for the reader. */
+function changedColumns(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter((k) => k !== "updated_at" && JSON.stringify(before[k] ?? null) !== JSON.stringify(after[k] ?? null))
+    .sort();
+}
+
+/**
+ * §1.15 — a punch or shift in a submitted run, changed after the run was
+ * submitted (ruled 2026-09-27). Writes to time_entries and shifts are never
+ * refused: the clock-in path must not fail, and Withers-time closes a
+ * forgotten clock-out at the next clock-in, which edits a punch that may sit
+ * in a submitted run. So the next run's verifier reports every such change,
+ * naming the punch or shift, the person and who changed it. Never a block.
+ *
+ * Which run reports it: changes made after the latest submittal before this
+ * window (earlier ones were the previous run's to report), and, once this run
+ * is itself submitted, only changes made before that (later ones are the next
+ * run's).
+ */
+function checkChangesAfterSubmittal(input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
+  const { window } = input;
+  const prior = (input.priorSubmittals ?? []).filter(
+    (s): s is SubmittalRow & { window_end: string } => !!s.window_end && s.window_end < window.start,
+  );
+  if (prior.length === 0) return [];
+  const latest = prior.reduce((a, b) => (b.window_end > a.window_end ? b : a));
+  const from = Date.parse(latest.submitted_at);
+  const until = input.submittal ? Date.parse(input.submittal.submitted_at) : Infinity;
+
+  const out: Finding[] = [];
+  for (const row of input.auditChanges ?? []) {
+    if (row.table_name !== "time_entries" && row.table_name !== "shifts") continue;
+    const when = Date.parse(row.at);
+    if (!(when > from && when <= until)) continue;
+
+    // The run a change touched: the day the row was on before, else after.
+    let hit: { date: string; run: SubmittalRow & { window_end: string } } | null = null;
+    for (const date of [imageDate(row.table_name, row.before_image), imageDate(row.table_name, row.after_image)]) {
+      if (!date) continue;
+      const run = prior.find(
+        (s) => date >= addDays(s.window_end, -(PERIOD_DAYS - 1)) && date <= s.window_end && when > Date.parse(s.submitted_at),
+      );
+      if (run) {
+        hit = { date, run };
+        break;
+      }
+    }
+    if (!hit) continue;
+
+    const image = row.after_image ?? row.before_image ?? {};
+    const employeeId = typeof image.employee_id === "string" ? image.employee_id : undefined;
+    const what = row.table_name === "time_entries" ? "punch" : "shift";
+    const id = row.row_id ?? (typeof image.id === "number" ? image.id : null);
+    const verb = row.op === "INSERT" ? "added" : row.op === "DELETE" ? "deleted" : "changed";
+    const columns =
+      row.op === "UPDATE" && row.before_image && row.after_image ? changedColumns(row.before_image, row.after_image) : [];
+    const whenSeen = nyWallClock(row.at);
+
+    out.push(
+      finding("1.15", {
+        key: `1.15:audit:${row.id}`,
+        status: "auto_resolved",
+        severity: "warn",
+        summary:
+          `${what} ${id ?? "?"} for ${employeeId ? nameOf(profiles, employeeId) : "someone"} on ${formatDayLabel(hit.date)} ` +
+          `was ${verb}${columns.length ? ` (${columns.join(", ")})` : ""} by ${actorName(row, profiles)} on ` +
+          `${formatDayLabel(whenSeen.date)} ${formatClock(formatMinutes(whenSeen.minutes))}, after the run ending ${hit.run.window_end} was submitted.`,
+        resolution:
+          "Reported, not blocking. The submitted run was paid as it stood; if this change alters what someone is owed, correct it in QBO.",
+        evidence: {
+          date: hit.date,
+          employee_id: employeeId,
+          employee_name: employeeId ? nameOf(profiles, employeeId) : undefined,
+          punch_ids: what === "punch" && id !== null ? [id] : undefined,
+          shift_ids: what === "shift" && id !== null ? [id] : undefined,
+          notes: [
+            ...(row.before_image ? [`before: ${JSON.stringify(row.before_image)}`] : []),
+            ...(row.after_image ? [`after: ${JSON.stringify(row.after_image)}`] : []),
+          ],
         },
       }),
     );
@@ -1515,6 +1697,7 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
       }),
     ),
     ...checkTruncation(runaways, reasons),
+    ...checkOpenUnscheduled(views, window),
     ...checkShortPunches(views, window, runawayIds),
     ...checkTestPunches(views, window),
     ...checkOverlaps(views, window),
@@ -1525,6 +1708,7 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
     ...checkCateringUnderPunched(views, input.shifts, window, input.deals ?? []),
     ...checkDeletedRows(input, profiles),
     ...checkNameHygiene(input.profiles),
+    ...checkChangesAfterSubmittal(input, profiles),
     ...checkCrewlessEvents(input, profiles),
     ...checkBakeShifts(views, input, profiles),
     ...checkUnmatchedTips(input.unmatchedTips ?? []),
