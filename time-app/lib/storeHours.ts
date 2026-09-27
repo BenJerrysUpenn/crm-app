@@ -52,16 +52,25 @@ export function isMissingTable(error: MaybePgError): boolean {
   return /schema cache/i.test(m) && /\btable\b/i.test(m);
 }
 
-// True when a write failed only because shift_types.in_store isn't there yet,
-// so the caller can retry without the column instead of failing the edit.
-export function isMissingInStoreColumn(error: MaybePgError): boolean {
+// True when a query or write failed only because one named column isn't there
+// yet, so the caller can degrade or retry without it instead of failing the
+// edit. The column name is matched against the message because both dialects
+// name the column in it.
+export function isMissingColumn(error: MaybePgError, column: string): boolean {
   if (!error) return false;
   const m = error.message ?? "";
-  // A message that names some other column is not about in_store — retrying
-  // without in_store would not help and would hide the real error.
-  if (m && /\bcolumn\b/i.test(m) && !/in_store/i.test(m)) return false;
+  const names = new RegExp(column.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  // A message that names some OTHER column is not about this one — retrying
+  // without it would not help and would hide the real error.
+  if (m && /\bcolumn\b/i.test(m) && !names.test(m)) return false;
   if (error.code && MISSING_COLUMN_CODES.has(error.code)) return true;
-  return /in_store/i.test(m) && (/does not exist/i.test(m) || /schema cache/i.test(m));
+  return names.test(m) && (/does not exist/i.test(m) || /schema cache/i.test(m));
+}
+
+// True when a write failed only because shift_types.in_store isn't there yet
+// (migration 24).
+export function isMissingInStoreColumn(error: MaybePgError): boolean {
+  return isMissingColumn(error, "in_store");
 }
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
