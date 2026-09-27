@@ -41,6 +41,17 @@
 -- writes a week, so the storage is trivial and the latency is a single local
 -- insert. row_to_json on a time_entries row is ~20 short scalar columns.
 --
+-- WHEN AUDITING STARTED. The log covers writes from the moment this file ran,
+-- not before. The payroll verifier (lib/payroll/verify.ts, §1.13) takes the
+-- earliest row_audit row as the start of coverage and says so for any pay
+-- period that begins before it: a punch or shift deleted before then left no
+-- row here and cannot be seen. The first row is an exact stand-in for the
+-- migration time, because a write between the two would have been logged and
+-- would be the first row instead. An empty table means coverage has not
+-- started for any write yet.
+--
+-- ROLLBACK. supabase/migration_25_down.sql.
+--
 -- RETENTION. None. Nothing prunes this table, on purpose: the value is in the
 -- old rows. Revisit if it ever gets large, which at this write rate is years.
 --
@@ -150,6 +161,14 @@ begin
   return case when tg_op = 'DELETE' then old else new end;
 end;
 $$;
+
+-- Trigger-only. Postgres grants EXECUTE on a new function to PUBLIC, and
+-- Supabase's default privileges grant it to anon, authenticated and
+-- service_role as well, which would put this SECURITY DEFINER function on
+-- /rest/v1/rpc. A trigger does not check EXECUTE when it fires, so nothing
+-- needs the grant. (Calling a trigger function directly fails anyway; this
+-- keeps it off the API surface rather than relying on that.)
+revoke execute on function public.audit_row_change() from public, anon, authenticated, service_role;
 
 -- ---------- the triggers -----------------------------------------------------
 -- AFTER, so only writes that actually committed their row change are logged,
