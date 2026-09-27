@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import SoloCloseNights from "@/components/SoloCloseNights";
 import { useRouter } from "next/navigation";
 import { fmtTime } from "@/lib/format";
 import { describeGap, describeHoursNotSet, type CoverageGap, type HoursNotSetDay } from "@/lib/coverage";
@@ -576,6 +577,8 @@ export default function ScheduleBoard({
           DAYS={DAYS}
         />
       )}
+
+      {isManager && <SoloCloseNights weekStart={weekStart} />}
 
       {!isManager && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
