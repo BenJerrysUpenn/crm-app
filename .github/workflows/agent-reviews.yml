@@ -1,4 +1,4 @@
-# Thin trigger for the three agent PR reviewers (bj-finance #452).
+# Thin trigger for the factory review pass (bj-finance #452, #585).
 #
 # This workflow reviews nothing. It fires three cloud routines over their API
 # triggers and exits, so a review costs seconds of Actions minutes and burns
@@ -59,17 +59,14 @@ jobs:
     timeout-minutes: 5
 
     strategy:
-      # One reviewer failing to fire must not cancel the other two.
-      fail-fast: false
+      # One routine now: the factory review pass (Software-Factory
+      # docs/agents/review/PROMPT.md), which runs all four lenses itself. It
+      # lives on the routine that used to be the architecture reviewer, so it
+      # keeps that routine's id and token. The scar-tissue and documentation
+      # routines are paused (bj-finance #585) and answer 400; do not re-add them.
       matrix:
         include:
-          - reviewer: scar-tissue-reviewer
-            routine_id: trig_01KMG2HcdAaapk6wkTXueLr7
-            secret_name: SCAR_TISSUE_REVIEWER_FIRE_TOKEN
-          - reviewer: documentation-reviewer
-            routine_id: trig_01G1tBTyiDb9eLuGgPKB7DfF
-            secret_name: DOCUMENTATION_REVIEWER_FIRE_TOKEN
-          - reviewer: architecture-reviewer
+          - reviewer: review-pass
             routine_id: trig_01MMh9omPkEFaji6v15Vzx39
             secret_name: ARCHITECTURE_REVIEWER_FIRE_TOKEN
 
