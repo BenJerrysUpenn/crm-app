@@ -22,8 +22,13 @@ test("financeAccess: an employee is refused", () => {
   assert.equal(financeAccess({ role: "employee", active: true }), "refused");
 });
 
-test("financeAccess: a deactivated manager is refused", () => {
-  assert.equal(financeAccess({ role: "manager", active: false }), "refused");
+// The owners are managers kept off the staff roster (active = false).
+test("financeAccess: a manager off the staff roster (an owner) is allowed", () => {
+  assert.equal(financeAccess({ role: "manager", active: false }), "allowed");
+});
+
+test("financeAccess: an offboarded employee off the roster is refused", () => {
+  assert.equal(financeAccess({ role: "employee", active: false }), "refused");
 });
 
 // Every handler under app/api/payroll must refuse before it reads anything. A
