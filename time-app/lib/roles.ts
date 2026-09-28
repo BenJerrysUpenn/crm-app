@@ -24,7 +24,7 @@ export const MANAGER_ROLES: Role[] = ["manager", "owner"];
 type HasRole = { role: string | null } | null | undefined;
 
 export function isManagerRole(role: string | null | undefined): boolean {
-  return role === "manager" || role === "owner";
+  return (MANAGER_ROLES as (string | null | undefined)[]).includes(role);
 }
 
 export function isOwnerRole(role: string | null | undefined): boolean {
