@@ -20,6 +20,12 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/api/unsubscribe/")) {
     return NextResponse.next();
   }
+  // "Yes, send me offers" (bj-finance #425) is public for the same reason:
+  // the person is not a CRM user and the signed token is the authorisation.
+  // The auth gate would bounce them to /login.
+  if (pathname.startsWith("/offers/")) {
+    return NextResponse.next();
+  }
 
   // The catering-shift sweep is hit by a scheduler, which has no session, so
   // the auth gate below would 307 it to /login and nothing would ever run

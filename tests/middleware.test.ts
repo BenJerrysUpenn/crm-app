@@ -80,3 +80,34 @@ describe("the earlier exemption", () => {
     expect(gate.calls).toEqual([]);
   });
 });
+
+describe("the offers opt-in page (bj-finance #425)", () => {
+  // The person pressing "Yes, send me offers" is not a CRM user; the signed
+  // token is the authorisation, so the page must not bounce them to /login.
+  it.each([
+    ["the landing page", "GET", "/offers/some-token"],
+    ["the button's post", "POST", "/offers/some-token"],
+  ])("lets %s through without the login gate", async (_label, method, path) => {
+    const response = await middleware(
+      new NextRequest(`https://crm.withers-ventures.com${path}`, {
+        method,
+        headers: { host: "crm.withers-ventures.com" },
+      }),
+    );
+
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(gate.calls).toEqual([]);
+  });
+
+  it.each([
+    ["the bare /offers path", "/offers"],
+    ["a path that only starts with offers", "/offers-admin"],
+  ])("still gates %s", async (_label, path) => {
+    const response = await middleware(get(path));
+
+    expect(response.status).toBe(307);
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/login");
+    expect(gate.calls).toEqual([path]);
+  });
+});
