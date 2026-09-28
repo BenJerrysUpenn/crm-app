@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadRawData } from "@/lib/emailCampaignsPrototype/load";
 import { compute, type ProspectRow, type RawData } from "@/lib/emailCampaignsPrototype/model";
 
 // Offer-tier routing (bj-finance #425, owners' ruling): Offer = booked in the
@@ -79,8 +81,69 @@ describe("Email campaigns tier routing: Offer needs a recent booking or an expli
     }
   });
 
+  it("routes an opt-in with no recorded source to Warm, not Offer", () => {
+    const r = placement(prospect({ marketing_opt_in: true, opt_in_source: null }));
+    expect(r.tier).toBe("warm");
+    expect(r.cat).toBe("no_deal");
+    expect(r.flows.offerOptedIn).toBe(0);
+  });
+
   it("ignores an explicit source when marketing_opt_in is false", () => {
     const r = placement(prospect({ marketing_opt_in: false, opt_in_source: "explicit_yes" }));
     expect(r.tier).toBe("warm");
+  });
+});
+
+// The database is the system boundary: a fake PostgREST client that returns
+// only the columns each query selects, as the real one does.
+function fakeSupabase(tables: Record<string, Record<string, unknown>[]>): SupabaseClient {
+  const project = (row: Record<string, unknown>, columns: string) =>
+    Object.fromEntries(
+      columns.split(",").map((spec) => {
+        const [alias, expr] = spec.includes(":") ? spec.split(":") : [spec, spec];
+        const [col, key] = expr.split("->>");
+        const v = row[col];
+        return [alias, key ? (v as Record<string, unknown> | null)?.[key] ?? null : v ?? null];
+      }),
+    );
+  const query = (table: string, columns: string, head: boolean) => {
+    let rows = tables[table] ?? [];
+    let from = 0;
+    let to = Infinity;
+    const q = {
+      eq: (col: string, val: unknown) => ((rows = rows.filter((r) => r[col] === val)), q),
+      order: () => q,
+      range: (a: number, b: number) => ((from = a), (to = b), q),
+      then: (resolve: (r: unknown) => void) =>
+        resolve(
+          head
+            ? { count: rows.length, error: null }
+            : { data: rows.slice(from, to + 1).map((r) => project(r, columns)), error: null },
+        ),
+    };
+    return q;
+  };
+  return {
+    from: (table: string) => ({
+      select: (columns: string, opts?: { head?: boolean }) => query(table, columns, !!opts?.head),
+    }),
+  } as unknown as SupabaseClient;
+}
+
+describe("Email campaigns loader feeds the opt-in basis to tier routing", () => {
+  it("puts a loaded explicit opt-in in Offer and a loaded 'booked'-basis opt-in in Warm", async () => {
+    const booked = { ever_booked: true, last_event_date: "2025-01-20", marketing_opt_in: true };
+    const supabase = fakeSupabase({
+      outreach_prospects: [
+        { ...prospect({ ...booked, opt_in_source: "explicit_yes" }), id: 101 },
+        { ...prospect({ ...booked, opt_in_source: "booked" }), id: 102 },
+      ],
+    });
+    const payload = compute(await loadRawData(supabase), NOW);
+    const total = (key: string) => payload.tiers.find((t) => t.key === key)?.total;
+    expect(total("offer")).toBe(1);
+    expect(total("warm")).toBe(1);
+    expect(payload.flows.offerOptedIn).toBe(1);
+    expect(payload.flows.offerToWarm).toBe(1);
   });
 });
