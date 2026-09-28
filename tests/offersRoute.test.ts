@@ -7,25 +7,39 @@ const SECRET = "test-secret-not-a-real-one";
 const PROSPECT_ID = 25386;
 const EMAIL = "Pino@Example.com";
 
-// A stand-in for the shared Supabase project. `rpc` models
-// supabase/crm/007_offers_opt_in.sql rather than returning a constant: it
-// lifts a suppression and opts the person in (owners' ruling 2026-09-27),
-// refuses only a 'dead' row, writes one consent row and one event on the
-// first yes, and nothing on a repeat. That is the behaviour under test.
+// A stand-in for the shared Supabase project, at the database boundary only.
+// The prospect lookup reads a table; the RPC answers with a canned outcome in
+// the exact shape supabase/crm/007_offers_opt_in.sql returns (its RETURN
+// jsonb_build_object lines). The SQL's own decisions (idempotency, lifting a
+// suppression, the booked -> explicit_yes upgrade) are not re-implemented
+// here: a TypeScript copy of them would only test itself. What is under test
+// is what the route does with each outcome the function can return.
+const OUTCOME = {
+  firstYes: {
+    opted_in: true, already: false, refused: null, email_present: true,
+    lifted: false, opted_in_at: "2026-09-27T23:42:00Z",
+  },
+  yesLiftingSuppression: {
+    opted_in: true, already: false, refused: null, email_present: true,
+    lifted: true, opted_in_at: "2026-09-27T23:42:00Z",
+  },
+  repeat: {
+    opted_in: false, already: true, refused: null, email_present: true,
+    lifted: false, opted_in_at: "2026-09-20T14:05:00Z",
+  },
+  dead: {
+    opted_in: false, already: false, refused: "dead", email_present: true,
+    lifted: false, opted_in_at: null,
+  },
+  noEmail: {
+    opted_in: false, already: false, refused: null, email_present: false,
+    lifted: false, opted_in_at: null,
+  },
+} as const;
+
 const db = vi.hoisted(() => {
-  type Prospect = {
-    id: number;
-    email: string | null;
-    status: string;
-    marketing_opt_in: boolean;
-    opt_in_source: string | null;
-    opt_in_at: string | null;
-  };
   const state = {
-    prospects: new Map<number, Prospect>(),
-    suppression: new Set<string>(),
-    consents: [] as Array<Record<string, unknown>>,
-    events: [] as Array<Record<string, unknown>>,
+    prospects: new Map<number, { id: number; email: string | null }>(),
     rpcCalls: [] as Array<Record<string, unknown>>,
     selectError: null as { message: string } | null,
     rpcError: null as { message: string } | null,
@@ -53,46 +67,7 @@ const db = vi.hoisted(() => {
     async rpc(name: string, args: Record<string, unknown>) {
       state.rpcCalls.push({ name, ...args });
       if (state.rpcError) return { data: null, error: state.rpcError };
-      if (state.rpcData) return { data: state.rpcData, error: null };
-
-      const row = state.prospects.get(args.p_prospect_id as number)!;
-      const email = (row.email ?? "").trim().toLowerCase() || null;
-      if (!email) {
-        return { data: { opted_in: false, already: false, refused: null, email_present: false }, error: null };
-      }
-      if (row.status === "dead") {
-        return { data: { opted_in: false, already: false, refused: "dead", email_present: true }, error: null };
-      }
-      const lifted = state.suppression.has(email) || row.status === "suppressed";
-      if (!lifted && row.marketing_opt_in && row.opt_in_source === "explicit_yes") {
-        return {
-          data: { opted_in: false, already: true, refused: null, email_present: true, opted_in_at: row.opt_in_at },
-          error: null,
-        };
-      }
-      const at = "2026-09-27T23:42:00Z";
-      state.suppression.delete(email);
-      Object.assign(row, {
-        marketing_opt_in: true,
-        opt_in_source: "explicit_yes",
-        opt_in_at: at,
-        status: row.status === "suppressed" ? "sequenced" : row.status,
-      });
-      state.consents.push({
-        prospect_id: row.id,
-        email,
-        method: "offers_button",
-        consent_text: args.p_consent_text,
-        page_version: args.p_page_version,
-        ip: args.p_ip,
-        user_agent: args.p_user_agent,
-        lifted_suppression: lifted,
-      });
-      state.events.push({ prospect_id: row.id, event: "opted_in" });
-      return {
-        data: { opted_in: true, already: false, refused: null, email_present: true, lifted, opted_in_at: at },
-        error: null,
-      };
+      return { data: state.rpcData, error: null };
     },
   };
 
@@ -121,26 +96,11 @@ let token: string;
 
 beforeEach(() => {
   process.env.UNSUBSCRIBE_SECRET = SECRET;
-  db.state.prospects = new Map([
-    [
-      PROSPECT_ID,
-      {
-        id: PROSPECT_ID,
-        email: EMAIL,
-        status: "sequenced",
-        marketing_opt_in: false,
-        opt_in_source: null,
-        opt_in_at: null,
-      },
-    ],
-  ]);
-  db.state.suppression = new Set();
-  db.state.consents = [];
-  db.state.events = [];
+  db.state.prospects = new Map([[PROSPECT_ID, { id: PROSPECT_ID, email: EMAIL }]]);
   db.state.rpcCalls = [];
   db.state.selectError = null;
   db.state.rpcError = null;
-  db.state.rpcData = null;
+  db.state.rpcData = { ...OUTCOME.firstYes };
   token = mintOffersToken(PROSPECT_ID, EMAIL, SECRET);
 });
 
@@ -161,12 +121,11 @@ describe("GET — the page the footer link lands on", () => {
     expect(body).not.toContain("action=");
 
     expect(db.state.rpcCalls).toHaveLength(0);
-    expect(db.state.consents).toHaveLength(0);
   });
 });
 
 describe("POST — the button", () => {
-  it("records exactly one consent row with the proof, and confirms", async () => {
+  it("records the consent with its proof in one call, and confirms", async () => {
     const response = await POST(
       buttonPost(token, {
         "user-agent": "Mozilla/5.0 (probe)",
@@ -192,73 +151,44 @@ describe("POST — the button", () => {
         p_user_agent: "Mozilla/5.0 (probe)",
       },
     ]);
-    expect(db.state.consents).toHaveLength(1);
-    expect(db.state.consents[0]).toMatchObject({
-      email: "pino@example.com",
-      method: "offers_button",
-      consent_text: OFFERS_CONSENT_TEXT,
-    });
-    expect(db.state.events).toEqual([{ prospect_id: PROSPECT_ID, event: "opted_in" }]);
   });
 
   it("falls back to x-real-ip, and to nulls when there is nothing", async () => {
     await POST(buttonPost(token, { "x-real-ip": "198.51.100.4" }), ctx(token));
     expect(db.state.rpcCalls[0]).toMatchObject({ p_ip: "198.51.100.4", p_user_agent: null });
 
-    db.state.prospects.get(PROSPECT_ID)!.marketing_opt_in = false;
     db.state.rpcCalls = [];
     await POST(buttonPost(token), ctx(token));
     expect(db.state.rpcCalls[0]).toMatchObject({ p_ip: null });
   });
 
-  it("writes nothing on a repeat press and shows the first date", async () => {
-    await POST(buttonPost(token), ctx(token));
-    const second = await POST(buttonPost(token), ctx(token));
-
-    expect(second.status).toBe(200);
-    expect(await second.text()).toContain("on Sunday, September 27, 2026 at 7:42 PM ET.");
-    expect(db.state.consents).toHaveLength(1);
-    expect(db.state.events).toHaveLength(1);
-  });
-
-  it("upgrades a past booker's implied opt-in to an explicit one", async () => {
-    Object.assign(db.state.prospects.get(PROSPECT_ID)!, {
-      marketing_opt_in: true,
-      opt_in_source: "booked",
-      opt_in_at: "2025-01-01T00:00:00Z",
-    });
+  it("confirms a repeat press with the date they first said yes", async () => {
+    db.state.rpcData = { ...OUTCOME.repeat };
     const response = await POST(buttonPost(token), ctx(token));
 
     expect(response.status).toBe(200);
-    expect(db.state.consents).toHaveLength(1);
-    expect(db.state.prospects.get(PROSPECT_ID)!.opt_in_source).toBe("explicit_yes");
+    expect(await response.text()).toContain(
+      "Agreed by Pino@Example.com on Sunday, September 20, 2026 at 10:05 AM ET.",
+    );
   });
 
-  it("opts in a previously suppressed address and shows the same confirmation", async () => {
+  it("shows a previously suppressed address the same confirmation", async () => {
     // Owners' ruling 2026-09-27: an opt-in after a suppression is an opt-in.
-    db.state.suppression.add("pino@example.com");
-    db.state.prospects.get(PROSPECT_ID)!.status = "suppressed";
+    db.state.rpcData = { ...OUTCOME.yesLiftingSuppression };
     const response = await POST(buttonPost(token), ctx(token));
     const body = await response.text();
 
     expect(response.status).toBe(200);
-    expect(body).toContain("You're on the list");
+    expect(body).toContain("<h1>You're on the list</h1>");
     expect(body).toContain("Agreed by Pino@Example.com on Sunday, September 27, 2026 at 7:42 PM ET.");
-    expect(body).not.toContain("Not added");
-    expect(db.state.suppression.has("pino@example.com")).toBe(false);
-    expect(db.state.consents).toHaveLength(1);
-    expect(db.state.consents[0].lifted_suppression).toBe(true);
-    expect(db.state.events).toHaveLength(1);
-    expect(db.state.prospects.get(PROSPECT_ID)!.status).toBe("sequenced");
   });
 
-  it("404s a dead (test or invalid) row and writes nothing", async () => {
-    db.state.prospects.get(PROSPECT_ID)!.status = "dead";
+  it("404s a dead (test or invalid) row like any other bad link", async () => {
+    db.state.rpcData = { ...OUTCOME.dead };
     const response = await POST(buttonPost(token), ctx(token));
 
     expect(response.status).toBe(404);
-    expect(db.state.consents).toHaveLength(0);
-    expect(db.state.events).toHaveLength(0);
+    expect(await response.text()).toBe("Not found.\n");
   });
 
   it("only the page's own form counts as the button", async () => {
@@ -270,7 +200,7 @@ describe("POST — the button", () => {
   });
 
   it("404s when the RPC finds no address on the row", async () => {
-    db.state.rpcData = { opted_in: false, email_present: false };
+    db.state.rpcData = { ...OUTCOME.noEmail };
     const response = await POST(buttonPost(token), ctx(token));
     expect(response.status).toBe(404);
   });
