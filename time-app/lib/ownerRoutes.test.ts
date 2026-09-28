@@ -1,5 +1,7 @@
 // The owner role through the routes a phone calls (migration 31).
 //
+//   * An owner, kept off the roster (active = false), passes the manager
+//     gates: the Timesheets routes and the clock's geofence exemption.
 //   * A manager cannot give, take away or touch the owner role through the
 //     Team page's routes, and is refused before anything is written or any
 //     sign-in email is sent. An owner can.
@@ -19,6 +21,9 @@ import { loadAppModule, startFakeSupabase, SUPABASE_URL, type FakeSupabase } fro
 
 type Handler = (request: Request, ctx: { params: { id: string } }) => Promise<Response>;
 
+const timesheet = await loadAppModule<{ POST: Handler }>("app/api/time-entries/route.ts");
+const timesheetEntry = await loadAppModule<{ PATCH: Handler }>("app/api/time-entries/[id]/route.ts");
+const clock = await loadAppModule<{ POST: Handler }>("app/api/clock/route.ts");
 const profile = await loadAppModule<{ PATCH: Handler }>("app/api/profiles/[id]/route.ts");
 const invite = await loadAppModule<{ POST: Handler }>("app/api/profiles/route.ts");
 const reinvite = await loadAppModule<{ POST: Handler }>("app/api/profiles/[id]/invite/route.ts");
@@ -35,6 +40,10 @@ const LOGINS: Record<string, string> = {
   [MANAGER]: "manager@example.test",
   [EMPLOYEE]: "employee@example.test",
 };
+
+// The shop, and a spot about 1.1 km north of it.
+const SHOP = { lat: 39.9522, lng: -75.1932 };
+const FAR = { lat: 39.9622, lng: -75.1932 };
 
 let db: FakeSupabase;
 let invitesSent: string[];
@@ -78,6 +87,14 @@ beforeEach(() => {
       { id: MANAGER, role: "manager", active: true, full_name: "Store Manager", phone: "555-0103" },
       { id: EMPLOYEE, role: "employee", active: true, full_name: "Scooper", phone: "555-0104" },
     ],
+    locations: [
+      { id: 1, name: "the shop", latitude: SHOP.lat, longitude: SHOP.lng, radius_meters: 150, is_default: true },
+    ],
+    clockin_reminders: [],
+    clockin_reminder_acks: [],
+    shifts: [],
+    time_entries: [],
+    app_settings: [],
   });
   invitesSent = [];
   standInForAuthAdmin();
@@ -95,6 +112,49 @@ const noParams = { params: { id: "" } };
 function roleOf(id: string) {
   return db.rows("profiles").find((p) => p.id === id)?.role;
 }
+
+// ---- an owner passes the manager gates --------------------------------------
+
+test("an owner off the roster adds a manual punch through the Timesheets route", async () => {
+  db.signIn(OWNER);
+
+  const res = await timesheet.POST(
+    send("POST", { employee_id: EMPLOYEE, clock_in_at: "2026-09-27T08:00:00Z", clock_out_at: "2026-09-27T12:00:00Z" }),
+    noParams,
+  );
+
+  assert.equal(res.status, 200);
+  const [punch] = db.rows("time_entries");
+  assert.equal(punch.employee_id, EMPLOYEE);
+  assert.equal(punch.clock_in_at, "2026-09-27T08:00:00Z");
+});
+
+test("an owner off the roster corrects a punch through the Timesheets route", async () => {
+  db.tables.time_entries.push({
+    id: 7,
+    employee_id: EMPLOYEE,
+    clock_in_at: "2026-09-28T13:00:00.000Z",
+    clock_out_at: "2026-09-28T17:00:00.000Z",
+    status: "closed",
+  });
+  db.signIn(OWNER);
+
+  const res = await timesheetEntry.PATCH(send("PATCH", { clock_in_at: "2026-09-28T12:30:00.000Z" }), {
+    params: { id: "7" },
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(db.rows("time_entries")[0].clock_in_at, "2026-09-28T12:30:00.000Z");
+});
+
+test("an owner clocks in away from the shop, as a manager may", async () => {
+  db.signIn(OWNER);
+
+  const res = await clock.POST(send("POST", { action: "in", ...FAR, accuracy: 8 }), noParams);
+
+  assert.equal(res.status, 200);
+  assert.equal(db.rows("time_entries").length, 1);
+});
 
 // ---- PATCH /api/profiles/:id ------------------------------------------------
 
