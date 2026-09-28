@@ -6,10 +6,11 @@
 //   * Everywhere else an owner passes the manager gate.
 //   * Nothing looks at profiles.active (audit H2).
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
+import React from "react";
 
 import { crmAccess, isManagerRole, isOwnerRole, isPfPath } from "@/lib/roles";
 
@@ -150,12 +151,51 @@ describe("the page-level check (requirePfOwner)", () => {
     await expect(requirePfOwner()).rejects.toThrow("REDIRECT /login");
   });
 
-  it.each(["money", "dial", "safe"])("app/%s/page.tsx checks for an owner before reading the feed", (p) => {
-    const src = readFileSync(join(__dirname, "..", "app", p, "page.tsx"), "utf8");
-    const check = src.indexOf("await requirePfOwner()");
-    const feed = src.indexOf("loadPfData()", src.indexOf("export default"));
-    expect(check).toBeGreaterThan(0);
-    expect(feed).toBeGreaterThan(check);
+  // The pages themselves, run as Next runs a server component. The feed is
+  // fetched from GitHub (lib/pf/data.ts), the system boundary, stubbed here
+  // so the test can see whether a refused visitor's request ever reached it.
+  const pages = {
+    money: () => import("@/app/money/page"),
+    dial: () => import("@/app/dial/page"),
+    safe: () => import("@/app/safe/page"),
+  };
+
+  function stubFeed() {
+    const asked: string[] = [];
+    // Vitest compiles the pages' JSX with the classic runtime, which wants
+    // React in scope; Next's own compiler does not.
+    vi.stubGlobal("React", React);
+    vi.stubEnv("PF_DATA_PATH", "");
+    vi.stubEnv("PF_GITHUB_TOKEN", "test-token-not-real");
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      asked.push(String(input));
+      return new Response("not found", { status: 404 });
+    });
+    return asked;
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(Object.keys(pages))("/%s refuses a manager before the feed is fetched", async (p) => {
+    const asked = stubFeed();
+    signIn("manager");
+    const { default: Page } = await pages[p as keyof typeof pages]();
+
+    await expect(Page()).rejects.toThrow("REDIRECT /no-access");
+    expect(asked).toEqual([]);
+  });
+
+  it.each(Object.keys(pages))("/%s reads the feed for an owner", async (p) => {
+    const asked = stubFeed();
+    signIn("owner", false);
+    const { default: Page } = await pages[p as keyof typeof pages]();
+
+    await expect(Page()).resolves.toBeTruthy();
+    expect(asked).toHaveLength(1);
+    expect(new URL(asked[0]).hostname).toBe("api.github.com");
   });
 
   it("nothing else reads the feed", () => {
