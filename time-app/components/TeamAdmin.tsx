@@ -210,7 +210,12 @@ export default function TeamAdmin({
                 <th className="text-right px-3 py-2">Rate $/h</th>
                 <th className="text-left px-3 py-2">QBO id</th>
                 <th className="text-left px-3 py-2">Pay</th>
-                <th className="text-center px-3 py-2">Active</th>
+                <th
+                  className="text-center px-3 py-2"
+                  title="On the schedule, the staff pickers and the payroll roster. Unticking this does NOT end anyone's access: only banning their login does."
+                >
+                  On roster
+                </th>
                 <th className="text-left px-3 py-2">Invite</th>
               </tr>
             </thead>
@@ -532,7 +537,16 @@ function EmployeeRow({
         {payErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px]">{payErr}</div>}
       </td>
       <td className="px-3 py-2 text-center">
-        <input type="checkbox" checked={active} onChange={(ev) => { setActive(ev.target.checked); onSave(e.id, { active: ev.target.checked }); }} />
+        {/* profiles.active means "on the roster", not "may sign in": the owners
+            are off the roster and still sign in. Access ends by offboarding,
+            which bans the login (crm-app PR #19), or a ban in Supabase Auth
+            (audit H2). */}
+        <input
+          type="checkbox"
+          checked={active}
+          title="On roster. This does not remove their login."
+          onChange={(ev) => { setActive(ev.target.checked); onSave(e.id, { active: ev.target.checked }); }}
+        />
       </td>
       <td className="px-3 py-2 align-top">
         {email ? (
