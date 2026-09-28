@@ -1,6 +1,8 @@
 // Notification preference definitions. Keys match the `type` passed to notify().
 // A key absent from a user's notif_prefs means ON (opt-out model).
 
+import type { Role } from "./types.ts";
+
 export type NotifPrefItem = { key: string; label: string };
 
 export const CHANNELS: NotifPrefItem[] = [
@@ -17,7 +19,7 @@ const MANAGER_TYPES: NotifPrefItem[] = [
   { key: "timeoff_cancelled", label: "When approved time off is cancelled" },
 ];
 
-export const TYPES_BY_ROLE: Record<"owner" | "manager" | "employee", NotifPrefItem[]> = {
+export const TYPES_BY_ROLE: Record<Role, NotifPrefItem[]> = {
   employee: [
     { key: "shift_published", label: "A new shift is posted for me" },
     { key: "schedule_change", label: "When my schedule changes" },
