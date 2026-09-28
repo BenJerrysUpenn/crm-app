@@ -20,6 +20,8 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { isManagerRole } from "../roles.ts";
+
 const TIME = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 export const SUPABASE_URL = "http://fake-project.supabase.test";
@@ -120,7 +122,8 @@ function callerOf(headers: Headers): Caller {
 
 function isManager(caller: Caller): boolean {
   if (caller.kind !== "user") return false;
-  return fake.tables.profiles?.some((p) => p.id === caller.id && p.role === "manager") ?? false;
+  // Mirrors public.is_manager() after migration 31: owners count as managers.
+  return fake.tables.profiles?.some((p) => p.id === caller.id && isManagerRole(p.role as string)) ?? false;
 }
 
 function canRead(table: string, caller: Caller, row: Row): boolean {
