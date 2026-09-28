@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { financeAccess } from "@/lib/financeAccess";
 import { dayKey } from "@/lib/format";
 import { isMissingTable } from "@/lib/storeHours";
 import { loadVerify } from "@/lib/payroll/loadVerify";
@@ -44,7 +45,7 @@ const RAISED_BY_TRIGGER = "P0001";
 // row and will not produce a keyable sheet without it.
 export async function POST(request: Request) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || financeAccess(me) !== "allowed")
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = (await request.json().catch(() => null)) as { window_end?: unknown; note?: unknown } | null;

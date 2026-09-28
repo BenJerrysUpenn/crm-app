@@ -20,7 +20,7 @@ the person, with both options costed before they are shown.
 | Findings endpoint | `GET /api/payroll/verify?window_end=YYYY-MM-DD` |
 | Choices endpoint | `POST` / `DELETE /api/payroll/rulings` |
 | Submittal endpoint | `POST /api/payroll/submit` |
-| The page | `/finance?tab=payroll`, manager-only |
+| The page | `https://finance.withers-ventures.com/payroll` (`/payroll` on localhost and previews), manager-only |
 | Solo-close dropdowns | the **Schedule** view, manager-only (`components/SoloCloseNights.tsx`) |
 | Tests | `time-app/lib/payroll/*.test.ts` — `npm test` |
 

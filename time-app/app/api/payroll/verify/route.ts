@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { financeAccess } from "@/lib/financeAccess";
 import { dayKey } from "@/lib/format";
 import { loadVerify } from "@/lib/payroll/loadVerify";
 import { currentPayWindow, payWindowEnding, type PayWindow } from "@/lib/payroll/window";
@@ -32,7 +33,7 @@ export const fetchCache = "force-no-store";
  */
 export async function GET(request: Request) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || financeAccess(profile) !== "allowed")
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const today = dayKey(new Date().toISOString());

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { siteForHost } from "@/lib/hosts";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,10 +13,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // The same sign-in serves finance.withers-ventures.com (lib/hosts.ts); only
+  // the heading changes. The session cookie stays on the host that set it.
+  const [finance, setFinance] = useState(false);
 
   // Read ?error= straight off the URL. useSearchParams would force this page
   // into a Suspense boundary and break the static build.
   useEffect(() => {
+    setFinance(siteForHost(window.location.host) === "finance");
     const code = new URLSearchParams(window.location.search).get("error");
     if (code === "link")
       setNotice(
@@ -48,8 +53,12 @@ export default function LoginPage() {
         className="bg-white dark:bg-slate-900 rounded-lg shadow-xl p-8 w-full max-w-sm space-y-4 border border-slate-200 dark:border-slate-800"
       >
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Withers Time</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Sign in to clock in.</p>
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+            {finance ? "Withers Finance" : "Withers Time"}
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+            {finance ? "Managers only. Sign in to see payroll." : "Sign in to clock in."}
+          </p>
         </div>
         {notice && (
           <div className="text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-md px-3 py-2">
