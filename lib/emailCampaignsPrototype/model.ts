@@ -404,9 +404,9 @@ const lc = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
  * owners' ruling). Matches Catering-Manager outreach/migrations/009, which
  * excludes exactly these from outreach_warm_eligible. The 'booked' basis
  * seeded for past bookers is implied consent, not an opt-in to offers. */
-export const EXPLICIT_OPT_IN_SOURCES: ReadonlySet<string> = new Set(["explicit_yes", "signup_form"]);
+const EXPLICIT_OPT_IN_SOURCES: ReadonlySet<string> = new Set(["explicit_yes", "signup_form"]);
 
-export const isExplicitOptIn = (p: Pick<ProspectRow, "marketing_opt_in" | "opt_in_source">) =>
+const isExplicitOptIn = (p: Pick<ProspectRow, "marketing_opt_in" | "opt_in_source">) =>
   p.marketing_opt_in && !!p.opt_in_source && EXPLICIT_OPT_IN_SOURCES.has(p.opt_in_source);
 
 export function compute(data: RawData, now: Date): Payload {
