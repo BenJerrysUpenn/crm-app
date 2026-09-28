@@ -2,14 +2,15 @@
 //
 // crm-app #35: the scheduler that hits GET /api/cron/catering-shifts has no
 // session, so the gate 307'd it to /login and the sweep never ran. The fix
-// exempts that one path and nothing else. These tests pin both halves:
+// exempts that path. These tests pin the gate's exemptions and their edges:
 //
 //   * the cron path reaches its route without the gate (and without the
 //     Supabase session round trip);
 //   * every neighbour of it still meets the gate, above all
 //     POST /api/deals/:id/booked-shifts, which writes shifts with the service
 //     role on a signed-in user's behalf;
-//   * the one earlier exemption (one-click unsubscribe) is unchanged.
+//   * the one-click-unsubscribe exemption is unchanged;
+//   * the offers opt-in page (bj-finance #425) is exempt the same way.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
