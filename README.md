@@ -128,3 +128,14 @@ Where it runs: on Alina's Mac, from a clean checkout of `main` at
 automations), never from a dev clone or the Google Drive. This is the only
 thing that runs from that checkout. It is separate from Vercel, which serves
 the web app, and from the droplet's checkout of this repo, which runs nothing.
+
+The web routes that create the same shifts, `POST /api/deals/:id/booked-shifts`
+(signed-in) and `GET /api/cron/catering-shifts`, insert through supabase-js with
+`ON CONFLICT (deal_id, deal_slot) DO NOTHING`. That needs
+`shifts_deal_slot_uidx` to be a plain unique index
+(`time-app/supabase/migration_29.sql`); against the partial index of migration
+18 every insert is refused (crm-app #35). The cron route is exempt from the
+login gate (alongside the one-click-unsubscribe exemption), so it requires
+`CRON_SECRET` (Bearer header or
+`?secret=`): unset answers 503, wrong answers 401, and neither touches the
+database.

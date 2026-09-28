@@ -67,10 +67,13 @@ export function pgShiftStore(sql: Sql): ShiftStore {
 // The insert both of the above share, so the rehearsal plans the statement the
 // live run executes.
 //
-// shifts_deal_slot_uidx is a PARTIAL unique index (where deal_id is not null),
-// so ON CONFLICT has to repeat that predicate or Postgres cannot infer the
-// index and refuses the insert outright ("there is no unique or exclusion
-// constraint matching the ON CONFLICT specification").
+// The predicate is kept on purpose. Until migration 29 (time-app/supabase/
+// migration_29.sql, crm-app #35) shifts_deal_slot_uidx was a PARTIAL unique
+// index (where deal_id is not null), and ON CONFLICT had to repeat that
+// predicate or Postgres refused the insert outright ("there is no unique or
+// exclusion constraint matching the ON CONFLICT specification"). Migration 29
+// makes the index plain; a predicate still infers a plain unique index, so
+// this statement works on both sides of the migration and of its rollback.
 function insertShifts(sql: Sql, rows: ShiftRow[]) {
   return sql`
     insert into public.shifts ${sql(

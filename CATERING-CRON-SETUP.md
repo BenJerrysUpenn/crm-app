@@ -1,6 +1,6 @@
 # Set up the catering-shift reconciler on this Mac
 
-> **Superseded (2026-09-27).** On production the auth middleware redirects `/api/cron/catering-shifts` to `/login`, so pinging the URL does nothing. Run the local command instead: `npm run reconcile-shifts` from a checkout of `main` with `DATABASE_URL` set (see README, "Catering-shift reconciler"). Kept for reference until the route is reachable again.
+> **Superseded (2026-09-27).** The scheduled sweep runs as the local command `npm run reconcile-shifts` from `~/systems/crm-app` (see README, "Catering-shift reconciler"); the Drive `reconcile_catering_shifts.py` is retired. Since crm-app #35 the URL below is reachable again (the login gate exempts exactly `/api/cron/catering-shifts`), but **`CRON_SECRET` is now required**: with it unset on the CRM Vercel project the endpoint answers 503 and does nothing, and a wrong secret gets 401. The "no secret" option below no longer exists. Kept for reference.
 
 Hand this whole file to **Claude Code** in the Terminal on the Mac that already runs the missed-clock-in checker, and let it do the work. Goal: every 15 minutes, ping one web URL so that any booked catering deal whose picklist has been generated gets its crew draft-shifts created in the schedule app.
 
@@ -11,9 +11,7 @@ This is the twin of the existing `com.withers.clockin-cron` job. Same machine, s
 ## Two values to supply
 
 1. **CRM domain** — the production URL of the CRM (the Kanban/pipeline app), NOT the time app. Find it in the CRM's Vercel project → Settings → Domains. Used as `CRM_DOMAIN` below (e.g. `crm.withers-ventures.com`).
-2. **The secret** — reuse the same value that's already in `~/.config/bj-clockin/secret`, OR skip the secret entirely (see note). If reused, it must ALSO be set as `CRON_SECRET` on the **CRM** Vercel project, otherwise the CRM endpoint ignores it.
-
-> Note: the CRM endpoint is only gated if a `CRON_SECRET` env var is set on the CRM Vercel project. If you don't set one there, the endpoint is open and you can drop the `?secret=...` part of the URL entirely — simplest option.
+2. **The secret** — reuse the same value that's already in `~/.config/bj-clockin/secret`, or generate one (`openssl rand -hex 32`). It must ALSO be set as `CRON_SECRET` on the **CRM** Vercel project: without it the endpoint answers 503 and creates nothing (crm-app #35).
 
 ---
 
@@ -30,7 +28,6 @@ mkdir -p ~/.config/bj-catering
 chmod 600 ~/.config/bj-catering/secret
 ```
 
-If you're NOT gating the endpoint, skip this file and use the no-secret script variant below.
 
 ### The script — `~/bin/bj-catering-cron.sh`
 
@@ -128,5 +125,5 @@ rm ~/Library/LaunchAgents/com.withers.catering-cron.plist ~/bin/bj-catering-cron
 ## Context
 
 - Endpoint: `GET /api/cron/catering-shifts` on the CRM app. Already built and deployed once the code is pushed. It scans booked deals (Booked Unpaid or Booked Paid) whose picklist has set a `departure_time`, and creates one open draft shift per crew member, starting an hour before departure. Idempotent — never double-creates.
-- Prereq on the CRM Vercel project: `SUPABASE_SERVICE_ROLE_KEY` must be set (the reconciler writes shifts with it). Optional: `CRON_SECRET` to gate the endpoint.
+- Prereq on the CRM Vercel project: `SUPABASE_SERVICE_ROLE_KEY` must be set (the reconciler writes shifts with it). Required: `CRON_SECRET` (unset -> 503, wrong -> 401). The endpoint is the one CRM route exempt from the login gate, so the secret is its only guard.
 - Only runs while this Mac is powered on and logged in.

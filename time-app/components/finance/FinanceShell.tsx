@@ -97,7 +97,7 @@ function FinanceBar({ name, timeHref }: { name: string; timeHref: string }) {
   );
 }
 
-/** What a signed-in person who is not an active manager sees on any finance page. */
+/** What a signed-in person who is not a manager sees on any finance page. */
 export function ManagersOnly({ name, timeHref }: { name: string; timeHref: string }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950 px-4">
