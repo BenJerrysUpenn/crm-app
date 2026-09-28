@@ -255,7 +255,7 @@ describe("applyAutofill", () => {
   it("never overwrites what the human typed", () => {
     const before = form({
       contact_first_name: "Danielle",
-      contact_email: "DANA@example.org",
+      contact_email: "JORDAN@example.org",
       venue_address: "Irvine Auditorium",
     });
     const { form: after, state } = run(
@@ -264,7 +264,7 @@ describe("applyAutofill", () => {
       EMPTY_AUTOFILL,
     );
     expect(after.contact_first_name).toBe("Danielle");
-    expect(after.contact_email).toBe("DANA@example.org");
+    expect(after.contact_email).toBe("JORDAN@example.org");
     expect(after.venue_address).toBe("Irvine Auditorium");
     // ...and does not claim them as autofilled.
     expect(isAutofilled(after, state, "contact_first_name")).toBe(false);
