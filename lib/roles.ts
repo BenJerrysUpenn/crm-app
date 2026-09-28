@@ -19,7 +19,7 @@ export function isOwnerRole(role: string | null | undefined): boolean {
 
 // The personal-finance pages. Served on their own host (middleware.ts) and
 // readable by the owners only.
-export const PF_ROUTES = ["/money", "/dial", "/safe"];
+const PF_ROUTES = ["/money", "/dial", "/safe"];
 
 export function isPfPath(pathname: string): boolean {
   return PF_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
