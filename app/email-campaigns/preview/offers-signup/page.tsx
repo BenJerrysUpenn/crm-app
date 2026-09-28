@@ -1,13 +1,11 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import RecipientPageFrames from "@/components/emailCampaignsPrototype/RecipientPageFrames";
-import {
-  OFFERS_CONSENT_TEXT,
-  offersConfirmHtml,
-  offersSignedUpHtml,
-} from "@/lib/emailCampaignsPrototype/offersSignupPage";
+import { OFFERS_CONSENT_TEXT, offersConfirmHtml, offersSignedUpHtml } from "@/lib/outreach/offersPage";
 
 export const dynamic = "force-dynamic";
+
+const SAMPLE_EMAIL = "jordan.rivera@example.com";
 
 // /email-campaigns/preview/offers-signup — preview of the page someone lands
 // on after clicking "Yes, send me offers". Served for real at /offers/<token>
@@ -43,12 +41,12 @@ export default async function OffersSignupPreviewPage() {
         {
           label: "1. They click “Yes, send me offers” in the email",
           caption: "nothing is recorded yet",
-          html: offersConfirmHtml(),
+          html: offersConfirmHtml(SAMPLE_EMAIL),
         },
         {
           label: "2. After they press the button",
           caption: "the confirmation, with the consent statement we keep",
-          html: offersSignedUpHtml(now),
+          html: offersSignedUpHtml(now, SAMPLE_EMAIL),
         },
       ]}
     />
