@@ -248,9 +248,9 @@ prospect already flagged `national`, `pa_list` or `internal` — a partial file
 must never un-flag anyone. The asymmetry is the point: a wrong "clear" is a
 violation, a wrong "unknown" is a call we didn't make.
 
-Neither subscription is held yet (national registry, ~$85/area code past the
-free five; PA list ~$495/yr), so today every out-of-window row is a striped,
-risky row rather than a solid green one.
+Both registry subscriptions are in progress (national registry, ~$85/area code
+past the free five; PA list ~$495/yr). Until a registry file has been imported,
+an out-of-window row shows striped, not solid green.
 
 ### Do not call, now phone-keyed
 

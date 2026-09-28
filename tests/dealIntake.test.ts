@@ -39,9 +39,9 @@ const NOW = new Date("2026-09-20T18:30:00Z");
 function completePayload(over: Partial<DealFormPayload> = {}): DealFormPayload {
   return {
     ...EMPTY_DEAL_FORM_PAYLOAD,
-    contact_first_name: "Dana",
-    contact_last_name: "Okafor",
-    contact_email: "dana@example.org",
+    contact_first_name: "Jordan",
+    contact_last_name: "Sample",
+    contact_email: "jordan@example.org",
     contact_phone: "(215) 555-0123",
     event_type: "Corporate",
     venue_address: "3730 Walnut St, Philadelphia, PA",
@@ -59,7 +59,7 @@ function completePayload(over: Partial<DealFormPayload> = {}): DealFormPayload {
 function minimalPayload(over: Partial<DealFormPayload> = {}): DealFormPayload {
   return {
     ...EMPTY_DEAL_FORM_PAYLOAD,
-    contact_first_name: "Dana",
+    contact_first_name: "Jordan",
     contact_phone: "215-555-0123",
     source: "walk_in",
     ...over,
@@ -120,8 +120,8 @@ describe("dedupe keys", () => {
   });
 
   it("lowercases and trims emails", () => {
-    expect(emailKey("  Dana@Example.Org ")).toBe(
-      "dana@example.org",
+    expect(emailKey("  Jordan@Example.Org ")).toBe(
+      "jordan@example.org",
     );
     expect(emailKey("   ")).toBeNull();
   });
@@ -170,7 +170,7 @@ describe("validateDealPayload — manual mode", () => {
   it("accepts a name, an email and a source", () => {
     const payload = minimalPayload({
       contact_phone: "",
-      contact_email: "dana@example.org",
+      contact_email: "jordan@example.org",
       source: "email",
     });
     expect(hasErrors(validateDealPayload(payload, manual))).toBe(false);
@@ -342,9 +342,9 @@ describe("dedupe match shaping", () => {
       toMatch({
         kind: "deal",
         id: 25401,
-        name: "Dana Okafor",
+        name: "Jordan Sample",
         company: "Wharton",
-        email: "dana@example.org",
+        email: "jordan@example.org",
         phone: "(215) 555-0123",
         stage: "Booked Paid",
         event_date: "2026-11-04",
@@ -354,9 +354,9 @@ describe("dedupe match shaping", () => {
     ).toEqual({
       kind: "deal",
       id: 25401,
-      name: "Dana Okafor",
+      name: "Jordan Sample",
       company: "Wharton",
-      email: "dana@example.org",
+      email: "jordan@example.org",
       phone: "(215) 555-0123",
       stage: "Booked Paid",
       event_date: "2026-11-04",
@@ -368,7 +368,7 @@ describe("dedupe match shaping", () => {
     const match = toMatch({
       kind: "prospect",
       id: 126,
-      name: "Dana Okafor",
+      name: "Jordan Sample",
       company: null,
       email: null,
       phone: "2155550123",
