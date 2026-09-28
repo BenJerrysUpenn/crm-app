@@ -51,6 +51,16 @@ Before the sender ships the headers, Alina must:
 
 Unset, the endpoint answers `503` rather than silently dropping opt-outs.
 
+### Offers opt-in (`/offers/[token]`)
+The "Yes, send me offers" explicit-consent control for the warm outreach
+lane's monthly offers list (bj-finance #425). Signed with the same
+`UNSUBSCRIBE_SECRET` above, under a different purpose prefix, so no second
+key is needed; full contract in `lib/outreach/offersToken.ts`'s header. The
+write it calls, and what a suppressed address does now, are documented in
+`supabase/crm/007_offers_opt_in.sql`'s own header — apply that migration
+once (SQL editor or `psql`, per the file) before the route can record a
+real opt-in.
+
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
 
