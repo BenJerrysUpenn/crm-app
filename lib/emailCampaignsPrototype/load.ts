@@ -44,7 +44,7 @@ export async function loadRawData(supabase: SupabaseClient): Promise<RawData> {
     all<ProspectRow>(
       supabase,
       "outreach_prospects",
-      "id,name,company,email,status,engine,category,ever_booked,last_event_date,marketing_opt_in,last_outreach_at,verify_status",
+      "id,name,company,email,status,engine,category,ever_booked,last_event_date,marketing_opt_in,opt_in_source,last_outreach_at,verify_status",
       "id",
     ),
     all<DealRow>(
