@@ -292,7 +292,7 @@ emailing)**, does exactly that and nothing more:
 particular a `'suppressed'` prospect can never be revived this way. A
 do-not-call request outlives every relationship and every mis-tap.
 
-## API routes (Next.js route handlers, all require a signed-in manager)
+## API routes (Next.js route handlers, all require a signed-in manager or owner)
 
 | Method + path | Body | Effect / response |
 | --- | --- | --- |

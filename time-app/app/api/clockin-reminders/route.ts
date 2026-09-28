@@ -1,12 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 // POST { title, body } — publish a new clock-in reminder. There is no edit
 // and no delete: published wording is what people sign for.
 export async function POST(request: Request) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   let b: { title?: unknown; body?: unknown };

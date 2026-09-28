@@ -7,7 +7,8 @@
 #                                               brew install postgresql@14)
 #
 # stub.sql stands in for the Supabase pieces the migrations use (API roles,
-# auth.uid(), default grants); seed.sql adds invented people. Exit status is
+# auth.uid(), default grants); users.sql adds the logins before the
+# migrations and seed.sql their roles after. Exit status is
 # non-zero if any migration fails to apply or any verify file raises.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -26,6 +27,7 @@ pg_ctl -D "$TMP/data" -o "-p $PORT -k $TMP -c listen_addresses=''" -l "$TMP/log"
 PSQL=(psql -X -q -v ON_ERROR_STOP=1 -h "$TMP" -p "$PORT" -U postgres -d postgres)
 
 "${PSQL[@]}" -f local/stub.sql
+"${PSQL[@]}" -f local/users.sql
 for f in $(ls migration*.sql | grep -v -e _verify -e _down | sort -V); do
   if ! "${PSQL[@]}" -f "$f" >/dev/null 2>"$TMP/err"; then
     cat "$TMP/err"; echo "FAILED applying $f"; exit 1

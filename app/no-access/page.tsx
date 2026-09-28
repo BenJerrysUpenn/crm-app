@@ -18,7 +18,7 @@ export default function NoAccessPage() {
         </p>
         <p className="text-xs text-slate-500">
           If you think you should have CRM access, ask an admin to set your role
-          to manager.
+          to manager. The personal-finance pages are for the owners only.
         </p>
         <form action="/api/logout" method="post">
           <button className="text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md px-3 py-1.5">

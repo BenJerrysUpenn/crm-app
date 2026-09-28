@@ -3,6 +3,7 @@
 // so the app runs day one and you wire in keys later.
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
+import { MANAGER_ROLES } from "@/lib/roles";
 
 type NotifyArgs = {
   userId: string;
@@ -98,7 +99,7 @@ export async function notifyManagers(args: { type: string; title: string; body?:
   const { data: managers } = await supabase
     .from("profiles")
     .select("id, phone")
-    .eq("role", "manager");
+    .in("role", MANAGER_ROLES);
   for (const m of managers ?? []) {
     const email = await emailForUser(m.id);
     await notify({

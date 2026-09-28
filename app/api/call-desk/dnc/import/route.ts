@@ -23,8 +23,8 @@ export const dynamic = "force-dynamic";
 // call we didn't make.
 //
 // Manager-only, like every other page and route here: middleware.ts bounces
-// any profile whose role is not 'manager' before the handler runs, and the
-// RPC is SECURITY INVOKER on top of the manager RLS policies.
+// any profile that is not a manager or an owner before the handler runs, and
+// the RPC is SECURITY INVOKER on top of the manager RLS policies.
 
 const MAX_BYTES = 8_000_000;
 const SOURCES = ["national", "pa_list"] as const;

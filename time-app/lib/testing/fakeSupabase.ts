@@ -7,7 +7,7 @@
 // request's cookies (next/headers, which only exists inside Next's server).
 //
 // The fake speaks just enough PostgREST for the routes under test (eq / gte /
-// lte / is filters, limit, single, maybeSingle, insert and update with
+// lte / is / in filters, limit, single, maybeSingle, insert and update with
 // return=representation) and answers /auth/v1/user from the session cookie.
 // Row Level Security is emulated for time_entries only, with the policies
 // migrations 12 and 30 install (supabase/migration_30_verify.sql proves those
@@ -120,7 +120,10 @@ function callerOf(headers: Headers): Caller {
 
 function isManager(caller: Caller): boolean {
   if (caller.kind !== "user") return false;
-  return fake.tables.profiles?.some((p) => p.id === caller.id && p.role === "manager") ?? false;
+  // public.is_manager() as migration 31 writes it: role in ('manager', 'owner').
+  // Spelled out here, not taken from lib/roles.ts, so the stand-in database
+  // cannot drift along with the code under test.
+  return fake.tables.profiles?.some((p) => p.id === caller.id && ["manager", "owner"].includes(p.role as string)) ?? false;
 }
 
 function canRead(table: string, caller: Caller, row: Row): boolean {
@@ -157,6 +160,7 @@ function matches(row: Row, params: URLSearchParams): boolean {
       : op === "lte" ? cell != null && compare(cell, val) <= 0
       : op === "gt" ? cell != null && compare(cell, val) > 0
       : op === "lt" ? cell != null && compare(cell, val) < 0
+      : op === "in" ? val.slice(1, -1).split(",").map((v) => v.replace(/^"(.*)"$/, "$1")).includes(String(cell))
       : (() => { throw new Error(`fake PostgREST: unsupported filter ${col}=${cond}`); })();
     if (!ok) return false;
   }

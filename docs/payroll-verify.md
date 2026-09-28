@@ -195,7 +195,7 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_25.sql` | `row_audit` + triggers — 1.13 |
 | `time-app/supabase/migration_26.sql` | `profiles.qbo_employee_id`, `profiles.pay_type`, `held_tips` — spec 2.5, 3.6 |
 | `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is submitted) and `payroll_run_submittals` (final; `status` is the §6 seam) |
-| `time-app/supabase/migration_28.sql` | extends migration 26's profile guard: an employee cannot change their own `hourly_rate` or `active` either (managers and the service role still can) |
+| `time-app/supabase/migration_28.sql` | extends migration 26's profile guard: an employee cannot change their own `hourly_rate` or `active` either (managers, owners and the service role still can) |
 
 All four are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_2N_verify.sql` to run afterwards (in a

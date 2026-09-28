@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { crmAccess } from "@/lib/roles";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -50,10 +51,13 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Manager-only gate. This Supabase project is shared with the time-clock app,
-  // whose employees must NOT be able to reach the CRM. Only profiles with
-  // role = 'manager' get in. Non-managers are bounced to /no-access (but can
-  // still log out). The deals RLS policy enforces the same rule at the DB level.
+  // Role gate (lib/roles.ts crmAccess). This Supabase project is shared with
+  // the time-clock app, whose employees must NOT be able to reach the CRM.
+  // Managers and owners get in; the personal-finance pages (/money, /dial,
+  // /safe) are for owners only. Everyone else is bounced to /no-access (but
+  // can still log out). RLS enforces the manager rule at the DB level, where
+  // is_manager() is true for owners too. `active` is not consulted: the
+  // owners are off the staff roster (audit H2).
   if (
     user &&
     !isPublic &&
@@ -65,7 +69,7 @@ export async function updateSession(request: NextRequest) {
       .select("role")
       .eq("id", user.id)
       .single();
-    if (profile?.role !== "manager") {
+    if (crmAccess(path, profile?.role) !== "allowed") {
       const url = request.nextUrl.clone();
       url.pathname = "/no-access";
       return NextResponse.redirect(url);

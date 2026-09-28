@@ -4,6 +4,7 @@
 
 import { RULING_CHOICES, choicePays, type SubmittalRow, type Finding, type VerifyResult } from "./verify.ts";
 import { firstSubmittalDay, periodEnded } from "./window.ts";
+import { isManagerRole } from "../roles.ts";
 
 /** A payee as the route found it in `profiles`, or null if the id is unknown. */
 export type PayeeProfile = { id: string; role: string | null; active: boolean } | null;
@@ -27,7 +28,7 @@ export function validateChoice(check: string, choice: string, payeeId: string | 
   }
   if (!payeeId) return "Pick the person this pays.";
   if (!payee || !payee.active) return "That person is not an active team member.";
-  if (choice === "unpunched_manager" && payee.role !== "manager") return "Pick a manager: this pays a manager who closed without punching.";
+  if (choice === "unpunched_manager" && !isManagerRole(payee.role)) return "Pick a manager: this pays a manager who closed without punching.";
   return null;
 }
 

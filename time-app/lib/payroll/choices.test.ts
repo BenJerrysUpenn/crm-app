@@ -41,6 +41,10 @@ test("pay unpunched manager must name a manager", () => {
   assert.equal(validateChoice("1.9", "unpunched_manager", "m", MGR), null);
 });
 
+test("pay unpunched manager accepts an owner on the roster, as it does a manager (migration 31)", () => {
+  assert.equal(validateChoice("1.9", "unpunched_manager", "o", { id: "o", role: "owner", active: true }), null);
+});
+
 test("unknown checks and choices are refused", () => {
   assert.match(validateChoice("1.1", "void", null, null)!, /decided by rule/);
   assert.match(validateChoice("", "void", null, null)!, /That check/);

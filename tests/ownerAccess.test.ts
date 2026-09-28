@@ -1,0 +1,261 @@
+// The owner role in the CRM (time-app migration 31).
+//
+//   * The personal-finance pages (/money, /dial, /safe) are for owners only:
+//     an owner gets in, a manager and an employee do not. Checked at the
+//     middleware gate AND on the page, before the feed is read.
+//   * Everywhere else an owner passes the manager gate.
+//   * Nothing looks at profiles.active (audit H2).
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { NextRequest } from "next/server";
+import React from "react";
+
+import { crmAccess, isManagerRole, isOwnerRole, isPfPath } from "@/lib/roles";
+
+// ---- a stand-in Supabase: one signed-in person with a role -----------------
+const who = vi.hoisted(() => ({
+  user: null as { id: string; email: string } | null,
+  role: null as string | null,
+  active: true,
+}));
+
+function fakeClient() {
+  return {
+    auth: { getUser: async () => ({ data: { user: who.user } }) },
+    from(table: string) {
+      if (table !== "profiles") throw new Error(`unexpected table ${table}`);
+      const row = who.user ? { role: who.role, active: who.active } : null;
+      const b = {
+        select: () => b,
+        eq: () => b,
+        single: async () => ({ data: row, error: null }),
+        maybeSingle: async () => ({ data: row, error: null }),
+      };
+      return b;
+    },
+  };
+}
+
+vi.mock("@supabase/ssr", () => ({ createServerClient: () => fakeClient() }));
+vi.mock("@/lib/supabase/server", () => ({ createClient: () => fakeClient() }));
+vi.mock("next/navigation", () => ({
+  redirect: (to: string) => {
+    throw new Error(`REDIRECT ${to}`);
+  },
+}));
+
+const { updateSession } = await import("@/lib/supabase/middleware");
+const { middleware } = await import("@/middleware");
+const { requirePfOwner } = await import("@/lib/pf/access");
+
+function signIn(role: string | null, active = true) {
+  who.user = { id: "00000000-0000-0000-0000-000000000001", email: "someone@example.test" };
+  who.role = role;
+  who.active = active;
+}
+
+beforeEach(() => {
+  who.user = null;
+  who.role = null;
+  who.active = true;
+});
+
+async function gate(path: string) {
+  const res = await updateSession(new NextRequest(`https://crm.withers-ventures.com${path}`));
+  const location = res.headers.get("location");
+  return location ? new URL(location).pathname : "through";
+}
+
+describe("the role rules", () => {
+  it("an owner is a manager; a manager is not an owner", () => {
+    expect(isManagerRole("owner")).toBe(true);
+    expect(isManagerRole("manager")).toBe(true);
+    expect(isManagerRole("employee")).toBe(false);
+    expect(isOwnerRole("owner")).toBe(true);
+    expect(isOwnerRole("manager")).toBe(false);
+  });
+
+  it.each(["/money", "/dial", "/safe", "/safe/anything"])("%s is a personal-finance path", (p) => {
+    expect(isPfPath(p)).toBe(true);
+  });
+
+  it.each(["/", "/moneyx", "/call-desk", "/safely"])("%s is not", (p) => {
+    expect(isPfPath(p)).toBe(false);
+  });
+
+  it("crmAccess: PF for owners only, the rest for managers and owners", () => {
+    expect(crmAccess("/money", "owner")).toBe("allowed");
+    expect(crmAccess("/money", "manager")).toBe("refused");
+    expect(crmAccess("/money", "employee")).toBe("refused");
+    expect(crmAccess("/", "owner")).toBe("allowed");
+    expect(crmAccess("/", "manager")).toBe("allowed");
+    expect(crmAccess("/", "employee")).toBe("refused");
+    expect(crmAccess("/", null)).toBe("refused");
+  });
+});
+
+describe("the middleware gate", () => {
+  it.each(["/money", "/dial", "/safe"])("lets an owner into %s", async (p) => {
+    signIn("owner", false);
+    expect(await gate(p)).toBe("through");
+  });
+
+  it.each(["/money", "/dial", "/safe"])("sends a manager from %s to /no-access", async (p) => {
+    signIn("manager");
+    expect(await gate(p)).toBe("/no-access");
+  });
+
+  it.each(["/money", "/dial", "/safe"])("sends an employee from %s to /no-access", async (p) => {
+    signIn("employee");
+    expect(await gate(p)).toBe("/no-access");
+  });
+
+  it.each(["/", "/call-desk", "/deals/25401", "/email-campaigns"])(
+    "lets an owner off the roster through the manager gate at %s",
+    async (p) => {
+      signIn("owner", false);
+      expect(await gate(p)).toBe("through");
+    },
+  );
+
+  it("still lets a manager onto the board, and an inactive manager too", async () => {
+    signIn("manager");
+    expect(await gate("/")).toBe("through");
+    signIn("manager", false);
+    expect(await gate("/")).toBe("through");
+  });
+
+  it("still keeps employees out of the CRM", async () => {
+    signIn("employee");
+    expect(await gate("/")).toBe("/no-access");
+  });
+
+  it("sends nobody-signed-in to /login", async () => {
+    expect(await gate("/money")).toBe("/login");
+  });
+});
+
+// The personal-finance host runs the whole middleware (host routing, then
+// the gate above). A manager refused there must land on /no-access and be able
+// to sign out, not bounce to /safe and back again.
+describe("the personal-finance host", () => {
+  const PF = "personal.withers-ventures.com";
+
+  async function visit(path: string, method = "GET") {
+    const res = await middleware(new NextRequest(`https://${PF}${path}`, { method, headers: { host: PF } }));
+    const location = res.headers.get("location");
+    return location ? new URL(location).pathname : "through";
+  }
+
+  it.each(["/money", "/dial", "/safe"])("lets an owner into %s", async (p) => {
+    signIn("owner", false);
+    expect(await visit(p)).toBe("through");
+  });
+
+  it.each(["/money", "/dial", "/safe"])("sends a manager from %s to /no-access", async (p) => {
+    signIn("manager");
+    expect(await visit(p)).toBe("/no-access");
+  });
+
+  it("shows a refused manager the /no-access page", async () => {
+    signIn("manager");
+    expect(await visit("/no-access")).toBe("through");
+  });
+
+  it("lets a refused manager sign out", async () => {
+    signIn("manager");
+    expect(await visit("/api/logout", "POST")).toBe("through");
+  });
+
+  it("sends nobody-signed-in to /login", async () => {
+    expect(await visit("/safe")).toBe("/login");
+  });
+
+  it("still keeps the CRM board off this host, even for an owner", async () => {
+    signIn("owner", false);
+    expect(await visit("/call-desk")).toBe("/safe");
+  });
+});
+
+describe("the page-level check (requirePfOwner)", () => {
+  it("returns the owner's email", async () => {
+    signIn("owner", false);
+    await expect(requirePfOwner()).resolves.toEqual({ email: "someone@example.test" });
+  });
+
+  it.each(["manager", "employee", null])("refuses role %s", async (role) => {
+    signIn(role);
+    await expect(requirePfOwner()).rejects.toThrow("REDIRECT /no-access");
+  });
+
+  it("sends nobody-signed-in to /login", async () => {
+    await expect(requirePfOwner()).rejects.toThrow("REDIRECT /login");
+  });
+
+  // The pages themselves, run as Next runs a server component. The feed is
+  // fetched from GitHub (lib/pf/data.ts), the system boundary, stubbed here
+  // so the test can see whether a refused visitor's request ever reached it.
+  const pages = {
+    money: () => import("@/app/money/page"),
+    dial: () => import("@/app/dial/page"),
+    safe: () => import("@/app/safe/page"),
+  };
+
+  function stubFeed() {
+    const asked: string[] = [];
+    // Vitest compiles the pages' JSX with the classic runtime, which wants
+    // React in scope; Next's own compiler does not.
+    vi.stubGlobal("React", React);
+    vi.stubEnv("PF_DATA_PATH", "");
+    vi.stubEnv("PF_GITHUB_TOKEN", "test-token-not-real");
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      asked.push(String(input));
+      return new Response("not found", { status: 404 });
+    });
+    return asked;
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(Object.keys(pages))("/%s refuses a manager before the feed is fetched", async (p) => {
+    const asked = stubFeed();
+    signIn("manager");
+    const { default: Page } = await pages[p as keyof typeof pages]();
+
+    await expect(Page()).rejects.toThrow("REDIRECT /no-access");
+    expect(asked).toEqual([]);
+  });
+
+  it.each(Object.keys(pages))("/%s reads the feed for an owner", async (p) => {
+    const asked = stubFeed();
+    signIn("owner", false);
+    const { default: Page } = await pages[p as keyof typeof pages]();
+
+    await expect(Page()).resolves.toBeTruthy();
+    expect(asked).toHaveLength(1);
+    expect(new URL(asked[0]).hostname).toBe("api.github.com");
+  });
+
+  it("nothing else reads the feed", () => {
+    // The three pages above are the only importers of loadPfData.
+    const root = join(__dirname, "..");
+    const callers = ["app", "lib", "components"]
+      .flatMap((d) =>
+        (readdirSync(join(root, d), { recursive: true }) as string[])
+          .filter((f) => /\.(ts|tsx)$/.test(f))
+          .map((f) => join(d, f)),
+      )
+      .filter((f) => /import[^;]*\bloadPfData\b/.test(readFileSync(join(root, f), "utf8")))
+      .sort();
+    expect(callers).toEqual([
+      join("app", "dial", "page.tsx"),
+      join("app", "money", "page.tsx"),
+      join("app", "safe", "page.tsx"),
+    ]);
+  });
+});

@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { NextResponse } from "next/server";
+import { MANAGER_ROLES } from "@/lib/roles";
 
 // Employee claims an open (unassigned), published shift. Conditional update on
 // employee_id IS NULL prevents two people grabbing the same shift.
@@ -36,7 +37,7 @@ export async function POST(
   const { data: managers } = await admin
     .from("profiles")
     .select("id, phone")
-    .eq("role", "manager");
+    .in("role", MANAGER_ROLES);
   const who = profile.full_name ?? "An employee";
   for (const m of managers ?? []) {
     const email = await emailForUser(m.id);

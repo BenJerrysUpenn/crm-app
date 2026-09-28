@@ -677,6 +677,24 @@ test("1.9: the scheduled closer is the in-store shift ending last; the manager l
   assert.deepEqual(f.evidence.shift_ids, [close.id]);
 });
 
+test("1.9: an owner on the roster is offered as a manager to pay; an owner off it is not (migration 31)", () => {
+  const ON = "55555555-5555-5555-5555-555555555555";
+  const OFF = "66666666-6666-6666-6666-666666666666";
+  const result = run({
+    ...WED_ONLY,
+    profiles: [
+      ...PROFILES,
+      { id: ON, full_name: "Owner, Rostered", active: true, role: "owner", qbo_employee_id: "13" },
+      { id: OFF, full_name: "Owner, Off Roster", active: false, role: "owner", qbo_employee_id: null },
+    ],
+    punches: [
+      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+    ],
+  });
+  const f = only(result.findings, "1.9")[0];
+  assert.deepEqual(f.candidates!.map((c) => c.id), [SOPHIA, COLE, ON]);
+});
+
 function earlyCloseNight(rulings: RulingRow[] = [], submittal: SubmittalRow | null = null) {
   return run({
     ...WED_ONLY,

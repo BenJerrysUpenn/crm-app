@@ -1,11 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 // Manager creates a manual time entry. Body: { employee_id, clock_in_at, clock_out_at? }
 export async function POST(request: Request) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const body = await request.json();
   if (!body.employee_id || !body.clock_in_at)

@@ -52,6 +52,7 @@ import {
   type StoreHoursRow,
 } from "../coverage.ts";
 import { LONG_SHIFT_HOURS } from "../shiftChecks.ts";
+import { isManagerRole } from "../roles.ts";
 import { PERIOD_DAYS, addDays, inWindow, windowDates, type PayWindow } from "./window.ts";
 import { formatCents, type HeldTipRow } from "./heldTips.ts";
 
@@ -1077,7 +1078,7 @@ function checkClosingPunch(views: PunchView[], input: VerifyInput, profiles: Map
   }
 
   const managers = input.profiles
-    .filter((p) => p.active && p.role === "manager")
+    .filter((p) => p.active && isManagerRole(p.role))
     .map((p) => ({ id: p.id, name: nameOf(profiles, p.id) }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const inStoreByName = new Map(input.shiftTypes.map((t) => [t.name, t.in_store ?? true]));

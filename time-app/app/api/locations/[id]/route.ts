@@ -1,13 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } },
 ) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || !isManager(me))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const body = await request.json();
   const patch: Record<string, unknown> = {};

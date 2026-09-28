@@ -19,7 +19,16 @@ Set both in Vercel (Project Settings, Environment Variables). Do not commit them
 
 A `.env.example` is included as a reference. For local dev, copy it to `.env.local`.
 
+### Who gets in
+`profiles.role` decides, through `lib/roles.ts`: `manager` and `owner` reach
+the CRM, `employee` does not. An owner passes every manager gate (in the
+database too: `is_manager()` is true for owners). `profiles.active` means "on
+the staff roster" and is never an access check; access ends by banning the
+login. The owner role and its guard are time-app migration 31.
+
 ### Personal-finance pages (`/money`, `/dial`, `/safe`)
+**Owners only.** The middleware refuses anyone else, and each page checks
+again (`requirePfOwner` in `lib/pf/access.ts`) before it reads the feed.
 These pages sit behind the same Supabase auth as the rest of the app and read
 a single JSON feed **server-side only** (never from a public path). Feed
 source is resolved in this order:

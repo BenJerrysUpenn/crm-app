@@ -4,6 +4,7 @@ import { getProfile } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import { NextResponse } from "next/server";
 import type { TimeEntry } from "@/lib/types";
+import { isManager } from "@/lib/roles";
 
 // POST { action: "snooze" | "dismiss" }
 // Snooze pushes the nudge out by the configured reminder interval; dismiss
@@ -40,7 +41,7 @@ export async function POST(
 
   // Your own entry, or anyone's if you're a manager.
   const profile = await getProfile();
-  if ((entry as TimeEntry).employee_id !== user.id && profile?.role !== "manager")
+  if ((entry as TimeEntry).employee_id !== user.id && !isManager(profile))
     return NextResponse.json({ error: "Not your time entry" }, { status: 403 });
 
   const now = Date.now();

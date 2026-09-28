@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 const TZ = "America/New_York";
 const OT_THRESHOLD_MIN = 40 * 60; // 40 hours in minutes
@@ -40,7 +41,7 @@ function overlaps(a: { starts_at: string; ends_at: string }, b: { starts_at: str
 // POST { weekStart: "YYYY-MM-DD" } — assign available employees to open shifts.
 export async function POST(request: Request) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const { weekStart } = await request.json();

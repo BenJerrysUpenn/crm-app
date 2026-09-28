@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
 import { NextResponse } from "next/server";
+import { isManager, MANAGER_ROLES } from "@/lib/roles";
 
 export async function DELETE(
   _request: Request,
@@ -56,7 +57,7 @@ export async function DELETE(
     const { data: managers } = await admin
       .from("profiles")
       .select("id, phone")
-      .eq("role", "manager");
+      .in("role", MANAGER_ROLES);
     for (const m of managers ?? []) {
       const email = await emailForUser(m.id);
       await notify({
@@ -79,7 +80,7 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const { status } = await request.json();
   if (!["pending", "approved", "denied"].includes(status))

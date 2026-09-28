@@ -1,4 +1,5 @@
-export type Role = "manager" | "employee";
+// An owner can do everything a manager can (lib/roles.ts). Migration 31.
+export type Role = "owner" | "manager" | "employee";
 
 export type Profile = {
   id: string; // uuid, references auth.users
