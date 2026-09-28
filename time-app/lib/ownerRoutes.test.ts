@@ -1,7 +1,8 @@
 // The owner role through the routes a phone calls (migration 31).
 //
 //   * An owner, kept off the roster (active = false), passes the manager
-//     gates: the Timesheets routes and the clock's geofence exemption.
+//     gates: the Timesheets routes and the clock's geofence exemption, and
+//     gets the alerts sent to managers.
 //   * A manager cannot give, take away or touch the owner role through the
 //     Team page's routes, and is refused before anything is written or any
 //     sign-in email is sent. An owner can.
@@ -27,6 +28,9 @@ const clock = await loadAppModule<{ POST: Handler }>("app/api/clock/route.ts");
 const profile = await loadAppModule<{ PATCH: Handler }>("app/api/profiles/[id]/route.ts");
 const invite = await loadAppModule<{ POST: Handler }>("app/api/profiles/route.ts");
 const reinvite = await loadAppModule<{ POST: Handler }>("app/api/profiles/[id]/invite/route.ts");
+const { notifyManagers } = await loadAppModule<{
+  notifyManagers: (args: { type: string; title: string; body?: string }) => Promise<void>;
+}>("lib/notify.ts");
 
 const OWNER = "00000000-0000-0000-0000-0000000000a1";
 const OTHER_OWNER = "00000000-0000-0000-0000-0000000000a2";
@@ -95,6 +99,7 @@ beforeEach(() => {
     shifts: [],
     time_entries: [],
     app_settings: [],
+    notifications: [],
   });
   invitesSent = [];
   standInForAuthAdmin();
@@ -154,6 +159,13 @@ test("an owner clocks in away from the shop, as a manager may", async () => {
 
   assert.equal(res.status, 200);
   assert.equal(db.rows("time_entries").length, 1);
+});
+
+test("a manager alert reaches the owners as well as the manager, and no employee", async () => {
+  await notifyManagers({ type: "shift_dropped", title: "A shift was dropped" });
+
+  const reached = db.rows("notifications").map((n) => n.user_id).sort();
+  assert.deepEqual(reached, [OWNER, OTHER_OWNER, MANAGER].sort());
 });
 
 // ---- PATCH /api/profiles/:id ------------------------------------------------
