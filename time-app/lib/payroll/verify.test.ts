@@ -16,6 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  DEFAULT_TIP_PAYEE_NAME,
   RULING_CHOICES,
   caseDate,
   choicePays,
@@ -1499,6 +1500,19 @@ test("3.5: with nobody on file matching the default, the case must be answered",
   const f = only(result.findings, "3.5")[0];
   assert.equal(f.defaultPayee, null);
   assert.equal(result.ready, false);
+});
+
+test("3.5: with no name passed in, the default is the one production is configured with", () => {
+  // Production never sets defaultTipPayeeName; every other test here does. The
+  // profile is named by the constant, not a literal, so no real person is
+  // written into this file.
+  const configured = "55555555-5555-5555-5555-555555555555";
+  const profiles: ProfileRow[] = [
+    ...PROFILES,
+    { id: configured, full_name: DEFAULT_TIP_PAYEE_NAME, active: true, role: "manager", qbo_employee_id: "13" },
+  ];
+  const f = only(run({ windowDeals: [CONSULTING], profiles, defaultTipPayeeName: undefined }).findings, "3.5")[0];
+  assert.equal(f.defaultPayee?.id, configured);
 });
 
 // --- §3.7 no bake shift ----------------------------------------------------
