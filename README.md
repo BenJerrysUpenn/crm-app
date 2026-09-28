@@ -101,6 +101,14 @@ Open http://localhost:3000.
 
 ## Deploy
 Push to GitHub, import the repo into Vercel, set the two env vars, deploy.
+
+Two Vercel projects build from this repo: `crm-app` (repo root; crm.withers-ventures.com,
+personal.withers-ventures.com) and `time` (`time-app/`; time.withers-ventures.com,
+finance.withers-ventures.com). `vercel.json` in each root limits automatic deploys to
+`main` (production) and branches named `preview/*` (preview URLs). Every other branch,
+including PR branches and review-pass commits, builds nothing on Vercel: the Hobby plan
+allows 100 deployments a day across the account. To get a preview URL for a prototype or
+a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
 ## Catering-shift reconciler (local command)
