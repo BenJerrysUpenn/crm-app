@@ -18,6 +18,12 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/api/unsubscribe/")) {
     return NextResponse.next();
   }
+  // "Yes, send me offers" (bj-finance #425) is public for the same reason:
+  // the person is not a CRM user and the signed token is the authorisation.
+  // The auth gate would bounce them to /login.
+  if (pathname.startsWith("/offers/")) {
+    return NextResponse.next();
+  }
   const isPfRoute = PF_ROUTES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`)
   );

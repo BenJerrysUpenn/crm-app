@@ -1,103 +1,28 @@
-// PROTOTYPE (v6) — the page someone lands on after clicking "Yes, send me
-// offers" in an email footer. Nothing serves this for real yet: the
-// email-campaigns "Recipient pages" row previews it at
-// /email-campaigns/preview/offers-signup, in a sandboxed frame, with a sample
-// address and no database write.
+// The opt-in page preview for the email-campaigns "Recipient pages" row
+// (/email-campaigns/preview/offers-signup), shown in a sandboxed frame with a
+// sample address and no database write.
 //
-// Brand-plain and styled like the one-click unsubscribe page
-// (lib/outreach/unsubscribePage.ts): no framework, no JS, no cookies.
-//
-// Two states, like the unsubscribe page. Mail providers and corporate link
-// scanners open every link in an email before a person does, so a real
-// version should record consent only when the person presses the button,
-// never on the link click itself.
+// The page itself is live since bj-finance #425: app/offers/[token]/route.ts
+// serves lib/outreach/offersPage.ts, and this file only supplies the sample
+// address, so the preview renders exactly the markup the endpoint serves.
 
-/** The exact statement stored as proof of opt-in, with the address and the
- * date and time the button was pressed. */
-export const OFFERS_CONSENT_TEXT =
-  "Yes, send me offers. I agree to receive one email a month from Ben & Jerry's Philadelphia with its seasonal menu and offers. I can unsubscribe at any time with the link at the bottom of any of these emails.";
+import {
+  OFFERS_CONSENT_TEXT,
+  consentStamp,
+  offersConfirmHtml as liveConfirmHtml,
+  offersSignedUpHtml as liveSignedUpHtml,
+} from "@/lib/outreach/offersPage";
+
+export { OFFERS_CONSENT_TEXT, consentStamp };
 
 export const OFFERS_SAMPLE_EMAIL = "jordan.rivera@example.com";
 
-const esc = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-/** "Sunday, September 27, 2026 at 7:42 PM ET" */
-export function consentStamp(at: Date): string {
-  const tz = "America/New_York";
-  const day = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  }).format(at);
-  const time = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(at);
-  return `${day} at ${time} ET`;
-}
-
-const HEAD = (title: string) => `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>${title}</title>
-<style>
-  body { margin: 0; padding: 48px 20px; background: #0f172a; color: #e2e8f0;
-         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 26rem; margin: 0 auto; }
-  h1 { font-size: 1.25rem; margin: 0 0 0.75rem; }
-  h2 { font-size: 0.95rem; margin: 1.5rem 0 0.25rem; color: #e2e8f0; }
-  p { margin: 0 0 1rem; color: #94a3b8; }
-  ul { margin: 0 0 1rem; padding-left: 1.1rem; color: #94a3b8; }
-  li { margin: 0 0 0.25rem; }
-  button { font: inherit; font-weight: 600; cursor: pointer; border: 0;
-           border-radius: 0.5rem; padding: 0.75rem 1.5rem;
-           background: #e2e8f0; color: #0f172a; }
-  blockquote { margin: 0 0 0.5rem; padding: 0.75rem 1rem; border-left: 3px solid #475569;
-               background: #1e293b; color: #cbd5e1; font-size: 0.9rem; }
-  .small { font-size: 0.85rem; }
-  footer { margin-top: 2rem; font-size: 0.8rem; color: #64748b; }
-</style>
-</head>
-<body>
-<main>
-`;
-
-const TAIL = `<footer>Ben &amp; Jerry's Philadelphia · 218 S 40th St Philadelphia PA 19104</footer>
-</main>
-</body>
-</html>
-`;
-
 /** Step 1: the landing page from the email link. Records nothing. */
 export function offersConfirmHtml(email = OFFERS_SAMPLE_EMAIL): string {
-  return `${HEAD("Yes, send me offers")}<h1>One seasonal menu a month?</h1>
-<p>Press the button and we will send ${esc(email)} one short email a month with our seasonal menu and offers.
-Nothing is signed up until you do.</p>
-<form method="post">
-<input type="hidden" name="via" value="link">
-<button type="submit">Yes, send me offers</button>
-</form>
-${TAIL}`;
+  return liveConfirmHtml(email);
 }
 
-/** Step 2: after the button. The consent statement shown is exactly what is
- * stored, with the address and the date and time. */
+/** Step 2: after the button. */
 export function offersSignedUpHtml(at: Date, email = OFFERS_SAMPLE_EMAIL): string {
-  return `${HEAD("You're on the list")}<h1>You're on the list</h1>
-<p>You're on the list: one short seasonal menu with offers a month from Ben &amp; Jerry's Philadelphia.</p>
-<h2>What you'll get</h2>
-<ul>
-<li>One email a month, no more.</li>
-<li>What's on the catering menu that season, and any offers running that month.</li>
-<li>Sent to ${esc(email)}.</li>
-</ul>
-<h2>How to leave</h2>
-<p>Every email has an Unsubscribe link at the bottom. One click and you're off the list.</p>
-<h2>What we keep as proof you asked</h2>
-<blockquote>${esc(OFFERS_CONSENT_TEXT)}</blockquote>
-<p class="small">Agreed by ${esc(email)} on ${esc(consentStamp(at))}.</p>
-${TAIL}`;
+  return liveSignedUpHtml(at, email);
 }

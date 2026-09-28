@@ -9,9 +9,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// /email-campaigns/preview/offers-signup — PROTOTYPE (v6). The page someone
-// lands on after clicking "Yes, send me offers". Proposed: nothing serves it
-// for real, the address is a sample and nothing is written.
+// /email-campaigns/preview/offers-signup — preview of the page someone lands
+// on after clicking "Yes, send me offers". Served for real at /offers/<token>
+// (bj-finance #425); here the address is a sample and nothing is written.
 export default async function OffersSignupPreviewPage() {
   const supabase = createClient();
   const {
@@ -26,8 +26,8 @@ export default async function OffersSignupPreviewPage() {
       intro={
         <>
           <p>
-            Proposed page for the &ldquo;Yes, send me offers&rdquo; footer link. Nothing serves it yet: this preview
-            uses a sample address and writes nothing.
+            The page for the &ldquo;Yes, send me offers&rdquo; footer link, served at /offers/&lt;token&gt;. This
+            preview uses a sample address and writes nothing.
           </p>
           <p>
             Like the unsubscribe page, it records consent only when the person presses the button (step 1), because
