@@ -36,7 +36,10 @@ export type SequenceDoc = { name: string; steps: SeqStep[] };
 //         BODY, approved 2026-08-26). BODY is one string there; it is split
 //         here at its blank lines into body / signature / opt-out footer, and
 //         its {first_name} placeholder is written as the editor's
-//         {{first_name}} merge field. No other character differs.
+//         {{first_name}} merge field. No other character differs, except
+//         WARM_SIGNATURE's phone line below, dropped here for the PII scrub
+//         (crm-app#42) pending the same change in warm_sender.py — see the
+//         open question on this file.
 //   v5: the footers' trailing link words ("Unsubscribe", "Yes, send me
 //   offers") are stored as {{unsubscribe_link}} / {{offers_link}} in the
 //   editable footer (SEED_LANE_BLOCKS), derived from these constants; the
