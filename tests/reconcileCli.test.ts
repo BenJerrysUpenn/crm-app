@@ -42,7 +42,7 @@ const PLAIN: DealTimes = {
 };
 // The same event with the ice cream cart: the crew starts at the storage unit.
 const CART: DealTimes = { ...PLAIN, id: 25402, staff_count: 1, cart_service: 1 };
-// A deal whose hours are not credible (the Terrain shape: 26h per person).
+// A deal whose hours are not credible (the Example Garden Co shape: 26h per person).
 const LONG: DealTimes = { ...PLAIN, id: 25403, staff_count: 1, labor_hours: 26 };
 
 // An in-memory shifts table with the real unique (deal_id, deal_slot) rule,

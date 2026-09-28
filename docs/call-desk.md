@@ -13,10 +13,11 @@ bj-finance repo (#418).
 
 ## Who uses it and how
 
-Joey (sales coordinator, profile role `manager`, signs in with his Gmail
-address) works a call queue on his phone. For each row he taps **Call now**
-(a `tel:` link that also logs the call), and when he is back in the app he
-must record a **disposition**. He can append **notes**, mark **do not call**,
+The sales coordinator (profile role `manager`, may sign in with a personal
+Gmail address) works a call queue on a phone. For each row they tap **Call
+now** (a `tel:` link that also logs the call), and when they are back in the
+app they must record a **disposition**. They can append **notes**, mark **do
+not call**,
 optionally upload a **recording** (only after confirming consent was obtained
 on the call; Pennsylvania is two-party consent), and **Generate deal** through
 a guided form. The machine (Catering-Manager quote worker) then prices the
@@ -85,7 +86,7 @@ legacy rows do and don't carry.
 
 ```json
 {
-  "by": "josephpettine@gmail.com",
+  "by": "caller@example.com",
   "via": "call_desk",
   "started_at": "2026-09-10T14:03:12.000Z",
   "disposition": "no_answer | voicemail | spoke | interested | do_not_call | null",
@@ -515,8 +516,8 @@ A party of `CAKE_GUEST_MAX` (50) guests or fewer is a cake sale, not a
 catering job: up to two sheet cakes cover 50 people. When guest count is set
 and at or below that, a sky-toned panel appears under the Guest count field
 pointing the caller at `CAKE_ORDER_URL`
-(<https://www.benjerry.com/upenn/cakes>), with a Copy link button so Joey can
-text it. Cakes travel `CAKE_MAX_DRIVE_MINUTES` (35) minutes one-way from the
+(<https://www.benjerry.com/upenn/cakes>), with a Copy link button so the
+caller can text it. Cakes travel `CAKE_MAX_DRIVE_MINUTES` (35) minutes one-way from the
 shop — half catering's 70-minute one-way triage cap, an assumption from
 Alina's 2026-09-09 ruling (bj-finance #411), not a measurement; beyond that
 the customer picks up. All three constants and the pure `shouldSuggestCakes`
@@ -524,7 +525,7 @@ helper live in `lib/callDesk/dealForm.ts`.
 
 It is a pointer and nothing more: no cake order is created, nothing is
 written anywhere, and Create deal stays enabled — a small party at high spend
-may still be worth a catering deal, and that stays Joey's call.
+may still be worth a catering deal, and that stays the caller's call.
 
 Write semantics must match `modules/db.py::create_deal` in Catering-Manager
 exactly: `stage='Open'`, `payment_status='None'`, `is_active=1`,

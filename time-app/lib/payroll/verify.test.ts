@@ -5,8 +5,8 @@
 //
 // Every test name quotes the rule number it holds the code to: the spec's rule
 // text IS the acceptance criterion, and several of these fixtures are the
-// 2026-09-23 pay run's own data (Carli's 2m 11s punch, Joey's test punch, the
-// three nights Sophia closed, NAKASEC's crew of three).
+// 2026-09-23 pay run's own data, under invented names (Casey's 2m 11s punch, Jamie's test punch, the
+// three nights Pat closed, Example Nonprofit's crew of three).
 //
 // Instants carry an explicit -04:00 offset (Eastern Daylight Time in
 // September), so every fixture says exactly which instant it means rather than
@@ -45,16 +45,16 @@ const WINDOW: PayWindow = (() => {
   return r.window;
 })();
 
-const SOPHIA = "11111111-1111-1111-1111-111111111111";
-const CARLI = "22222222-2222-2222-2222-222222222222";
-const COLE = "33333333-3333-3333-3333-333333333333";
-const JOEY = "44444444-4444-4444-4444-444444444444";
+const PAT = "11111111-1111-1111-1111-111111111111";
+const CASEY = "22222222-2222-2222-2222-222222222222";
+const DREW = "33333333-3333-3333-3333-333333333333";
+const JAMIE = "44444444-4444-4444-4444-444444444444";
 
 const PROFILES: ProfileRow[] = [
-  { id: SOPHIA, full_name: "Malmgren, Sophia", active: true, role: "manager", qbo_employee_id: "10" },
-  { id: CARLI, full_name: "Freeman, Carli", active: true, role: "employee", qbo_employee_id: "11" },
-  { id: COLE, full_name: "McCullough, Cole", active: true, role: "manager", qbo_employee_id: "12" },
-  { id: JOEY, full_name: "Barrett, Joey", active: false, role: "employee", qbo_employee_id: null },
+  { id: PAT, full_name: "Example, Pat", active: true, role: "manager", qbo_employee_id: "10" },
+  { id: CASEY, full_name: "Bravo, Casey", active: true, role: "employee", qbo_employee_id: "11" },
+  { id: DREW, full_name: "Sample, Drew", active: true, role: "manager", qbo_employee_id: "12" },
+  { id: JAMIE, full_name: "Tester, Jamie", active: false, role: "employee", qbo_employee_id: null },
 ];
 
 const SHIFT_TYPES: ShiftTypeRow[] = [
@@ -116,6 +116,8 @@ function run(over: Partial<VerifyInput> = {}) {
     auditDeletes: [],
     // The first audit row: long before this window, so 1.13 can see all of it.
     auditStartedAt: "2026-01-05T09:00:00-05:00",
+    // The §3.5/§3.7 default payee, by name words, as production matches it.
+    defaultTipPayeeName: "Pat Example",
     ...over,
   });
 }
@@ -157,21 +159,21 @@ test("0.6: store hours edited before the window are not mentioned", () => {
 // --- §1.1 open punch --------------------------------------------------------
 
 test("1.1: a punch with clock_out IS NULL inside the window blocks the button", () => {
-  const scheduled = shift({ employee_id: COLE, starts_at: at("2026-09-15", "11:00"), ends_at: at("2026-09-15", "17:00") });
+  const scheduled = shift({ employee_id: DREW, starts_at: at("2026-09-15", "11:00"), ends_at: at("2026-09-15", "17:00") });
   const result = run({
     shifts: [scheduled],
-    punches: [punch({ employee_id: COLE, shift_id: scheduled.id, clock_in_at: at("2026-09-15", "11:00") })],
+    punches: [punch({ employee_id: DREW, shift_id: scheduled.id, clock_in_at: at("2026-09-15", "11:00") })],
   });
   const f = only(result.findings, "1.1")[0];
   assert.equal(f.status, "needs_fix");
   assert.equal(f.severity, "error");
-  assert.match(f.summary, /McCullough, Cole/);
+  assert.match(f.summary, /Sample, Drew/);
   assert.equal(result.ready, false, "no ruling can stand in for a punch with no end");
   assert.deepEqual(only(result.findings, "1.4"), [], "with a shift it is 1.1's, not 1.4's");
 });
 
 test("1.4: an open punch with NO scheduled shift is a blocker with no default, fixed upstream (ruled 2026-09-27)", () => {
-  const open = punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:00") });
+  const open = punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00") });
   const result = run({ punches: [open] });
   const f = only(result.findings, "1.4")[0];
   assert.equal(f.key, `1.4:punch:${open.id}`);
@@ -181,7 +183,7 @@ test("1.4: an open punch with NO scheduled shift is a blocker with no default, f
   assert.equal(f.defaultChoice, undefined, "no default");
   assert.equal(f.evidence.open, true);
   assert.deepEqual(f.evidence.punch_ids, [open.id]);
-  assert.match(f.summary, /McCullough, Cole/);
+  assert.match(f.summary, /Sample, Drew/);
   assert.match(f.summary, /no clock-out/);
   assert.match(f.summary, /no scheduled shift/);
   assert.match(f.resolution!, /Correct the punch on the Timesheets page/);
@@ -195,7 +197,7 @@ test("1.4: an open punch with NO scheduled shift is a blocker with no default, f
 });
 
 test("1.1: an open punch outside the window is not this window's problem", () => {
-  const result = run({ punches: [punch({ employee_id: COLE, clock_in_at: at("2026-09-21", "11:00") })] });
+  const result = run({ punches: [punch({ employee_id: DREW, clock_in_at: at("2026-09-21", "11:00") })] });
   assert.deepEqual(only(result.findings, "1.1"), []);
 });
 
@@ -204,7 +206,7 @@ test("1.1: an open punch outside the window is not this window's problem", () =>
 test("1.2: a punch over 15h is reported, and handed to 1.4", () => {
   const result = run({
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-10", "04:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-10", "04:00") }),
     ],
   });
   const f = only(result.findings, "1.2")[0];
@@ -214,12 +216,12 @@ test("1.2: a punch over 15h is reported, and handed to 1.4", () => {
 
 test("1.3: a clock-out inside 5s of the same person's next clock-in is a missed clock-out", () => {
   const closed = punch({
-    employee_id: CARLI,
+    employee_id: CASEY,
     clock_in_at: at("2026-09-09", "11:00"),
     clock_out_at: at("2026-09-09", "17:00"),
   });
   const next = punch({
-    employee_id: CARLI,
+    employee_id: CASEY,
     clock_in_at: `2026-09-09T17:00:03-04:00`,
     clock_out_at: at("2026-09-09", "19:00"),
   });
@@ -231,12 +233,12 @@ test("1.3: a clock-out inside 5s of the same person's next clock-in is a missed 
 
 test("1.3: a gap of more than 5s is a person taking a break, not the app auto-closing", () => {
   const first = punch({
-    employee_id: CARLI,
+    employee_id: CASEY,
     clock_in_at: at("2026-09-09", "11:00"),
     clock_out_at: at("2026-09-09", "14:00"),
   });
   const second = punch({
-    employee_id: CARLI,
+    employee_id: CASEY,
     clock_in_at: at("2026-09-09", "14:30"),
     clock_out_at: at("2026-09-09", "18:00"),
   });
@@ -245,7 +247,7 @@ test("1.3: a gap of more than 5s is a person taking a break, not the app auto-cl
 
 test("1.4: a runaway WITH a scheduled shift is truncated to the scheduled end by rule", () => {
   const scheduled = shift({
-    employee_id: COLE,
+    employee_id: DREW,
     starts_at: at("2026-09-09", "11:00"),
     ends_at: at("2026-09-09", "19:00"),
     position: "PENN Closer",
@@ -254,7 +256,7 @@ test("1.4: a runaway WITH a scheduled shift is truncated to the scheduled end by
     shifts: [scheduled],
     punches: [
       punch({
-        employee_id: COLE,
+        employee_id: DREW,
         shift_id: scheduled.id,
         clock_in_at: at("2026-09-09", "11:00"),
         clock_out_at: at("2026-09-10", "06:00"),
@@ -271,7 +273,7 @@ test("1.4: a runaway WITH a scheduled shift is truncated to the scheduled end by
 test("1.4: a runaway with NO scheduled shift has no default and no picker — it is fixed upstream (ruling D)", () => {
   const result = run({
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-10", "06:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-10", "06:00") }),
     ],
   });
   const f = only(result.findings, "1.4")[0];
@@ -284,7 +286,7 @@ test("1.4: a runaway with NO scheduled shift has no default and no picker — it
 });
 
 test("1.4: a recorded choice cannot answer a runaway — only correcting the punch clears it", () => {
-  const runaway = punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-10", "06:00") });
+  const runaway = punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-10", "06:00") });
   const result = run({
     punches: [runaway],
     rulings: [{ check_id: "1.4", finding_key: `1.4:punch:${runaway.id}`, choice: "real_hours" }],
@@ -296,12 +298,12 @@ test("1.4: a recorded choice cannot answer a runaway — only correcting the pun
 
 test("1.4: one punch flagged by both 1.2 and 1.3 gets one ruling, naming both reasons", () => {
   const runaway = punch({
-    employee_id: COLE,
+    employee_id: DREW,
     clock_in_at: at("2026-09-09", "11:00"),
     clock_out_at: at("2026-09-10", "06:00"),
   });
   const next = punch({
-    employee_id: COLE,
+    employee_id: DREW,
     clock_in_at: `2026-09-10T06:00:02-04:00`,
     clock_out_at: at("2026-09-10", "08:00"),
   });
@@ -313,10 +315,10 @@ test("1.4: one punch flagged by both 1.2 and 1.3 gets one ruling, naming both re
 // --- §1.5 short punch -------------------------------------------------------
 
 test("1.5: a punch under 25% of its scheduled shift has no default and no picker — it is fixed upstream (ruling D)", () => {
-  // Carli, 2026-09-18: 2m 11s against a 7h shift, because Sophia closed for
+  // Casey, 2026-09-18: 2m 11s against a 7h shift, because Pat closed for
   // her. This is the only check in §1 that can make a day LONGER.
   const scheduled = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-18", "15:00"),
     ends_at: at("2026-09-18", "22:00"),
     position: "PENN Closer",
@@ -325,7 +327,7 @@ test("1.5: a punch under 25% of its scheduled shift has no default and no picker
     shifts: [scheduled],
     punches: [
       punch({
-        employee_id: CARLI,
+        employee_id: CASEY,
         shift_id: scheduled.id,
         clock_in_at: at("2026-09-18", "15:00"),
         clock_out_at: `2026-09-18T15:02:11-04:00`,
@@ -344,7 +346,7 @@ test("1.5: a punch under 25% of its scheduled shift has no default and no picker
 
 test("1.5: a punch at exactly 25% of the shift is not short", () => {
   const scheduled = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-18", "14:00"),
     ends_at: at("2026-09-18", "22:00"),
   });
@@ -352,7 +354,7 @@ test("1.5: a punch at exactly 25% of the shift is not short", () => {
     shifts: [scheduled],
     punches: [
       punch({
-        employee_id: CARLI,
+        employee_id: CASEY,
         shift_id: scheduled.id,
         clock_in_at: at("2026-09-18", "14:00"),
         clock_out_at: at("2026-09-18", "16:00"), // 2h of 8h
@@ -365,7 +367,7 @@ test("1.5: a punch at exactly 25% of the shift is not short", () => {
 test("1.5: a short punch with NOTHING scheduled is not a short punch — there is no basis to extend to", () => {
   const result = run({
     punches: [
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-18", "15:00"), clock_out_at: at("2026-09-18", "15:20") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-18", "15:00"), clock_out_at: at("2026-09-18", "15:20") }),
     ],
   });
   assert.deepEqual(only(result.findings, "1.5"), []);
@@ -374,11 +376,11 @@ test("1.5: a short punch with NOTHING scheduled is not a short punch — there i
 // --- §1.6 test punch --------------------------------------------------------
 
 test("1.6: under 5 minutes with nothing scheduled is 0 hours, and listed", () => {
-  // Joey, 2026-09-07: 10.9 seconds.
+  // Jamie, 2026-09-07: 10.9 seconds.
   const result = run({
     punches: [
       punch({
-        employee_id: JOEY,
+        employee_id: JAMIE,
         clock_in_at: at("2026-09-07", "10:00"),
         clock_out_at: `2026-09-07T10:00:11-04:00`,
       }),
@@ -393,7 +395,7 @@ test("1.6: under 5 minutes with nothing scheduled is 0 hours, and listed", () =>
 
 test("1.6: a short punch ON a scheduled shift is 1.5's ruling, never silently zeroed", () => {
   const scheduled = shift({
-    employee_id: JOEY,
+    employee_id: JAMIE,
     starts_at: at("2026-09-07", "10:00"),
     ends_at: at("2026-09-07", "18:00"),
   });
@@ -401,7 +403,7 @@ test("1.6: a short punch ON a scheduled shift is 1.5's ruling, never silently ze
     shifts: [scheduled],
     punches: [
       punch({
-        employee_id: JOEY,
+        employee_id: JAMIE,
         shift_id: scheduled.id,
         clock_in_at: at("2026-09-07", "10:00"),
         clock_out_at: `2026-09-07T10:00:11-04:00`,
@@ -416,12 +418,12 @@ test("1.6: a short punch ON a scheduled shift is 1.5's ruling, never silently ze
 
 test("1.7: the same person on two overlapping punches blocks the button", () => {
   const a = punch({
-    employee_id: COLE,
+    employee_id: DREW,
     clock_in_at: at("2026-09-15", "11:00"),
     clock_out_at: at("2026-09-15", "17:00"),
   });
   const b = punch({
-    employee_id: COLE,
+    employee_id: DREW,
     clock_in_at: at("2026-09-15", "16:00"),
     clock_out_at: at("2026-09-15", "20:00"),
   });
@@ -436,8 +438,8 @@ test("1.7: the same person on two overlapping punches blocks the button", () => 
 test("1.7: two different people at the same time is just a shift with two people on it", () => {
   const result = run({
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "17:00") }),
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "17:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "17:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "17:00") }),
     ],
   });
   assert.deepEqual(only(result.findings, "1.7"), []);
@@ -446,8 +448,8 @@ test("1.7: two different people at the same time is just a shift with two people
 test("1.7: back-to-back punches that touch do not overlap", () => {
   const result = run({
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "15:00") }),
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "15:00"), clock_out_at: at("2026-09-15", "20:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "15:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "15:00"), clock_out_at: at("2026-09-15", "20:00") }),
     ],
   });
   assert.deepEqual(only(result.findings, "1.7"), []);
@@ -466,8 +468,8 @@ test("1.8: a stretch of opening hours with no in-store punch running is reported
   const result = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "15:00") }),
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "17:00"), clock_out_at: at("2026-09-09", "22:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "15:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "17:00"), clock_out_at: at("2026-09-09", "22:00") }),
     ],
   });
   const gaps = only(result.findings, "1.8").filter((f) => f.evidence.interval);
@@ -482,8 +484,8 @@ test("1.8: a gap shorter than 15 minutes is not reported", () => {
   const result = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "15:00") }),
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "15:10"), clock_out_at: at("2026-09-09", "22:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "15:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "15:10"), clock_out_at: at("2026-09-09", "22:00") }),
     ],
   });
   assert.deepEqual(only(result.findings, "1.8").filter((f) => f.evidence.interval), []);
@@ -491,7 +493,7 @@ test("1.8: a gap shorter than 15 minutes is not reported", () => {
 
 test("1.8: a Catering punch is off-site and covers nothing", () => {
   const catering = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-09", "15:00"),
     ends_at: at("2026-09-09", "22:00"),
     position: "Catering",
@@ -501,9 +503,9 @@ test("1.8: a Catering punch is off-site and covers nothing", () => {
     ...WED_ONLY,
     shifts: [catering],
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "15:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "15:00") }),
       punch({
-        employee_id: CARLI,
+        employee_id: CASEY,
         shift_id: catering.id,
         clock_in_at: at("2026-09-09", "15:00"),
         clock_out_at: at("2026-09-09", "22:00"),
@@ -518,7 +520,7 @@ test("1.8: a Catering punch is off-site and covers nothing", () => {
 test("1.8: an open punch covers nothing — it cannot say when its cover stopped", () => {
   const result = run({
     ...WED_ONLY,
-    punches: [punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00") })],
+    punches: [punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00") })],
   });
   const gaps = only(result.findings, "1.8").filter((f) => f.evidence.interval);
   assert.equal(gaps.length, 1);
@@ -528,7 +530,7 @@ test("1.8: an open punch covers nothing — it cannot say when its cover stopped
 test("1.8: a closed day has nothing to cover", () => {
   // Every day closed, one punch on a Wednesday: no gaps anywhere.
   const result = run({
-    punches: [punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "12:00") })],
+    punches: [punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "12:00") })],
   });
   assert.deepEqual(only(result.findings, "1.8").filter((f) => f.evidence.interval), []);
 });
@@ -549,13 +551,13 @@ test("1.9: the last in-store clock-out more than 2h before close is a choice, de
   const result = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
   });
   const f = only(result.findings, "1.9")[0];
   assert.equal(f.status, "needs_ruling");
   assert.equal(f.defaultChoice, "skip");
-  assert.match(f.summary, /Freeman, Carli at 6:00 PM/);
+  assert.match(f.summary, /Bravo, Casey at 6:00 PM/);
   assert.match(f.summary, /4h before the 10:00 PM close/);
   assert.deepEqual(f.options!.map((o) => o.choice), ["skip", "scheduled_closer", "unpunched_manager"]);
   assert.match(f.options![0].effect, /No solo-close bonus/);
@@ -571,7 +573,7 @@ test("1.9: a close at or after 22:00 within 2h of close is a normal night", () =
   const result = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "22:05") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "22:05") }),
     ],
   });
   assert.deepEqual(only(result.findings, "1.9"), []);
@@ -583,7 +585,7 @@ test("1.9: a 4h+ solo tail out before 22:00 is eligible within 2h of close (2.4 
   const result = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "20:30") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "20:30") }),
     ],
   });
   const f = only(result.findings, "1.9")[0];
@@ -594,12 +596,12 @@ test("1.9: a 4h+ solo tail out before 22:00 is eligible within 2h of close (2.4 
 
 test("1.9: a short solo tail out before 22:00 within 2h of close gets NO dropdown (ruling C)", () => {
   // Out before 22:00 and within 2h of close, but alone under 4h: not eligible.
-  // Cole leaves at 20:00, Carli at 20:30: 30 minutes alone.
+  // Drew leaves at 20:00, Casey at 20:30: 30 minutes alone.
   const result = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "20:00") }),
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "16:00"), clock_out_at: at("2026-09-09", "20:30") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "20:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "16:00"), clock_out_at: at("2026-09-09", "20:30") }),
     ],
   });
   assert.deepEqual(only(result.findings, "1.9"), []);
@@ -609,8 +611,8 @@ test("1.9: more than 2h before close is eligible however short the tail", () => 
   const result = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "19:00") }),
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "16:00"), clock_out_at: at("2026-09-09", "19:30") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "19:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "16:00"), clock_out_at: at("2026-09-09", "19:30") }),
     ],
   });
   const f = only(result.findings, "1.9")[0];
@@ -622,8 +624,8 @@ test("1.9: a partner who left before the closer arrived does not shorten the tai
   const result = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "09:00"), clock_out_at: at("2026-09-09", "12:00") }),
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "16:00"), clock_out_at: at("2026-09-09", "20:30") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "09:00"), clock_out_at: at("2026-09-09", "12:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "16:00"), clock_out_at: at("2026-09-09", "20:30") }),
     ],
   });
   assert.equal(only(result.findings, "1.9")[0].evidence.hours, 4.5);
@@ -633,28 +635,28 @@ test("1.9: a day with no closing time is judged on 2.4 alone, as the payroll she
   // ALL_CLOSED: no close to measure 1.9's gap against.
   const long = run({
     punches: [
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
   });
   assert.equal(only(long.findings, "1.9").length, 1);
   const short = run({
     punches: [
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
   });
   assert.deepEqual(only(short.findings, "1.9"), []);
 });
 
 test("1.9: the scheduled closer is the in-store shift ending last; the manager list is managers only", () => {
-  const early = shift({ employee_id: COLE, starts_at: at("2026-09-09", "11:00"), ends_at: at("2026-09-09", "17:00") });
+  const early = shift({ employee_id: DREW, starts_at: at("2026-09-09", "11:00"), ends_at: at("2026-09-09", "17:00") });
   const close = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-09", "16:00"),
     ends_at: at("2026-09-09", "22:00"),
     position: "PENN Closer",
   });
   const event = shift({
-    employee_id: SOPHIA,
+    employee_id: PAT,
     starts_at: at("2026-09-09", "18:00"),
     ends_at: at("2026-09-09", "23:00"),
     position: "Catering",
@@ -664,13 +666,13 @@ test("1.9: the scheduled closer is the in-store shift ending last; the manager l
     ...WED_ONLY,
     shifts: [early, close, event],
     punches: [
-      punch({ employee_id: COLE, shift_id: early.id, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "17:00") }),
+      punch({ employee_id: DREW, shift_id: early.id, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "17:00") }),
     ],
   });
   const f = only(result.findings, "1.9")[0];
-  assert.deepEqual(f.scheduledCloser, { id: CARLI, name: "Freeman, Carli" });
-  assert.match(f.options![1].effect, /Freeman, Carli was scheduled to close/);
-  assert.deepEqual(f.candidates!.map((c) => c.id), [SOPHIA, COLE]);
+  assert.deepEqual(f.scheduledCloser, { id: CASEY, name: "Bravo, Casey" });
+  assert.match(f.options![1].effect, /Bravo, Casey was scheduled to close/);
+  assert.deepEqual(f.candidates!.map((c) => c.id), [PAT, DREW]);
   assert.deepEqual(f.evidence.shift_ids, [close.id]);
 });
 
@@ -678,7 +680,7 @@ function earlyCloseNight(rulings: RulingRow[] = [], submittal: SubmittalRow | nu
   return run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
     rulings,
     submittal,
@@ -691,25 +693,25 @@ test("1.9: a manager who changes the dropdown to pay themselves is flagged, not 
       check_id: "1.9",
       finding_key: "1.9:2026-09-09",
       choice: "unpunched_manager",
-      payee_id: SOPHIA,
-      decided_by: SOPHIA,
+      payee_id: PAT,
+      decided_by: PAT,
       decided_at: at("2026-09-21", "10:00"),
     },
   ]);
   const f = only(result.findings, "1.9")[0];
   assert.deepEqual(f.effective, {
     choice: "unpunched_manager",
-    payee: { id: SOPHIA, name: "Malmgren, Sophia" },
+    payee: { id: PAT, name: "Example, Pat" },
     source: "recorded",
   });
   assert.equal(f.flags!.length, 1);
-  assert.match(result.flags[0].message, /Malmgren, Sophia set this night's dropdown to pay themselves/);
+  assert.match(result.flags[0].message, /Example, Pat set this night's dropdown to pay themselves/);
   assert.equal(result.ready, true);
 });
 
 test("1.9: another manager paying her is not a flag", () => {
   const result = earlyCloseNight([
-    { check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "unpunched_manager", payee_id: SOPHIA, decided_by: COLE },
+    { check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "unpunched_manager", payee_id: PAT, decided_by: DREW },
   ]);
   assert.deepEqual(result.flags, []);
 });
@@ -722,25 +724,25 @@ test("submittal: none recorded is not submitted", () => {
 
 test("submittal: once given it stands, and it is final", () => {
   const result = earlyCloseNight(
-    [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: COLE, decided_at: at("2026-09-21", "10:00") }],
-    { submitted_by: COLE, submitted_at: at("2026-09-21", "12:00") },
+    [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: DREW, decided_at: at("2026-09-21", "10:00") }],
+    { submitted_by: DREW, submitted_at: at("2026-09-21", "12:00") },
   );
   assert.equal(result.submittalState, "submitted");
-  assert.deepEqual(result.submittal, { submitted_by: COLE, submitted_at: at("2026-09-21", "12:00") });
+  assert.deepEqual(result.submittal, { submitted_by: DREW, submitted_at: at("2026-09-21", "12:00") });
 });
 
 test("submittal: there is no stale state — a later timestamp on a choice does not reopen the run", () => {
   // The database refuses such a change (migration 27); even if one got through,
   // the submittal is final and the app does not invite submitting again.
   const result = earlyCloseNight(
-    [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: COLE, decided_at: at("2026-09-21", "13:00") }],
-    { submitted_by: COLE, submitted_at: at("2026-09-21", "12:00") },
+    [{ check_id: "1.9", finding_key: "1.9:2026-09-09", choice: "skip", decided_by: DREW, decided_at: at("2026-09-21", "13:00") }],
+    { submitted_by: DREW, submitted_at: at("2026-09-21", "12:00") },
   );
   assert.equal(result.submittalState, "submitted");
 });
 
 test("submittal: every choice in the submitted run is locked", () => {
-  const result = earlyCloseNight([], { submitted_by: COLE, submitted_at: at("2026-09-21", "12:00") });
+  const result = earlyCloseNight([], { submitted_by: DREW, submitted_at: at("2026-09-21", "12:00") });
   const cases = result.findings.filter((f) => f.status === "needs_ruling");
   assert.ok(cases.length > 0);
   for (const f of cases) assert.equal(f.lockedBy, WINDOW.end, f.key);
@@ -756,11 +758,11 @@ test("submittal: a night inside a neighbouring submitted run is locked by that r
   const result = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
     otherSubmittals: [
-      { window_end: "2026-09-13", submitted_by: COLE, submitted_at: at("2026-09-14", "12:00") },
-      { window_end: undefined, submitted_by: COLE, submitted_at: at("2026-09-14", "12:00") },
+      { window_end: "2026-09-13", submitted_by: DREW, submitted_at: at("2026-09-14", "12:00") },
+      { window_end: undefined, submitted_by: DREW, submitted_at: at("2026-09-14", "12:00") },
     ],
   });
   assert.equal(only(result.findings, "1.9")[0].lockedBy, "2026-09-13");
@@ -792,7 +794,7 @@ test("1.9: a day nobody punched at all is 1.8's whole-day gap, not a closing que
 
 test("1.9: a Catering punch is off-site and cannot be the night's closer", () => {
   const catering = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-09", "18:00"),
     ends_at: at("2026-09-09", "22:00"),
     position: "Catering",
@@ -802,9 +804,9 @@ test("1.9: a Catering punch is off-site and cannot be the night's closer", () =>
     ...WED_ONLY,
     shifts: [catering],
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
       punch({
-        employee_id: CARLI,
+        employee_id: CASEY,
         shift_id: catering.id,
         clock_in_at: at("2026-09-09", "18:00"),
         clock_out_at: at("2026-09-09", "22:00"),
@@ -812,14 +814,14 @@ test("1.9: a Catering punch is off-site and cannot be the night's closer", () =>
     ],
   });
   const f = only(result.findings, "1.9")[0];
-  assert.match(f.summary, /McCullough, Cole at 6:00 PM/);
+  assert.match(f.summary, /Sample, Drew at 6:00 PM/);
 });
 
 // --- §1.10 cover punches ----------------------------------------------------
 
 test("1.10: a blank shift_id joins to that person's own shift that day first", () => {
   const own = shift({
-    employee_id: COLE,
+    employee_id: DREW,
     starts_at: at("2026-09-15", "11:00"),
     ends_at: at("2026-09-15", "19:00"),
     position: "PENN Opener",
@@ -827,7 +829,7 @@ test("1.10: a blank shift_id joins to that person's own shift that day first", (
   const result = run({
     shifts: [own],
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:02"), clock_out_at: at("2026-09-15", "19:05") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:02"), clock_out_at: at("2026-09-15", "19:05") }),
     ],
   });
   const f = only(result.findings, "1.10")[0];
@@ -839,7 +841,7 @@ test("1.10: with no shift of their own, the punch joins an unworked shift that b
   // Nine of nine blank punches in the 2026-09-23 window were covers, and
   // person+date found none of them.
   const carlisShift = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-15", "15:00"),
     ends_at: at("2026-09-15", "22:00"),
     position: "PENN Closer",
@@ -847,17 +849,17 @@ test("1.10: with no shift of their own, the punch joins an unworked shift that b
   const result = run({
     shifts: [carlisShift],
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "15:05"), clock_out_at: at("2026-09-15", "22:10") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "15:05"), clock_out_at: at("2026-09-15", "22:10") }),
     ],
   });
   const f = only(result.findings, "1.10")[0];
-  assert.match(f.resolution ?? "", /Covered Freeman, Carli's shift/);
+  assert.match(f.resolution ?? "", /Covered Bravo, Casey's shift/);
   assert.deepEqual(f.evidence.shift_ids, [carlisShift.id]);
 });
 
 test("1.10: a shift its own person punched is not available to be covered", () => {
   const carlisShift = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-15", "15:00"),
     ends_at: at("2026-09-15", "22:00"),
     position: "PENN Closer",
@@ -866,22 +868,22 @@ test("1.10: a shift its own person punched is not available to be covered", () =
     shifts: [carlisShift],
     punches: [
       punch({
-        employee_id: CARLI,
+        employee_id: CASEY,
         shift_id: carlisShift.id,
         clock_in_at: at("2026-09-15", "15:00"),
         clock_out_at: at("2026-09-15", "22:00"),
       }),
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "15:05"), clock_out_at: at("2026-09-15", "22:10") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "15:05"), clock_out_at: at("2026-09-15", "22:10") }),
     ],
   });
-  const cole = only(result.findings, "1.10")[0];
-  assert.match(cole.summary, /no shift was found for it/);
+  const drew = only(result.findings, "1.10")[0];
+  assert.match(drew.summary, /no shift was found for it/);
 });
 
 test("1.10: a punch with no shift anywhere says so, and is paid as punched", () => {
   const result = run({
     punches: [
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "17:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "17:00") }),
     ],
   });
   const f = only(result.findings, "1.10")[0];
@@ -893,9 +895,9 @@ test("1.10: a punch with no shift anywhere says so, and is paid as punched", () 
 // --- §1.11 / §1.12 catering -------------------------------------------------
 
 test("1.11: a Catering shift with no deal is flagged, and does not block payroll", () => {
-  // "flag at scheduling time, not payroll time" — shift 334, Sophia 09-09.
+  // "flag at scheduling time, not payroll time" — shift 334, Pat 09-09.
   const orphan = shift({
-    employee_id: SOPHIA,
+    employee_id: PAT,
     starts_at: at("2026-09-09", "12:00"),
     ends_at: at("2026-09-09", "16:00"),
     position: "Catering",
@@ -909,10 +911,10 @@ test("1.11: a Catering shift with no deal is flagged, and does not block payroll
 });
 
 test("1.12: a catering event with fewer crew punched than staff_count is reported", () => {
-  // NAKASEC 2026-09-19: 1 of 3.
-  const deal: DealRow = { id: 25390, event_date: "2026-09-19", staff_count: 3, company: "NAKASEC" };
+  // Example Nonprofit 2026-09-19: 1 of 3.
+  const deal: DealRow = { id: 25390, event_date: "2026-09-19", staff_count: 3, company: "Example Nonprofit" };
   const crewShift = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-19", "16:00"),
     ends_at: at("2026-09-19", "21:00"),
     position: "Catering",
@@ -923,7 +925,7 @@ test("1.12: a catering event with fewer crew punched than staff_count is reporte
     shifts: [crewShift],
     punches: [
       punch({
-        employee_id: CARLI,
+        employee_id: CASEY,
         shift_id: crewShift.id,
         clock_in_at: at("2026-09-19", "16:00"),
         clock_out_at: at("2026-09-19", "21:00"),
@@ -931,15 +933,15 @@ test("1.12: a catering event with fewer crew punched than staff_count is reporte
     ],
   });
   const f = only(result.findings, "1.12")[0];
-  assert.match(f.summary, /NAKASEC/);
+  assert.match(f.summary, /Example Nonprofit/);
   assert.match(f.summary, /1 of 3 crew punched/);
   assert.equal(f.status, "auto_resolved");
 });
 
 test("1.12: a fully punched event says nothing", () => {
-  const deal: DealRow = { id: 25390, event_date: "2026-09-19", staff_count: 1, company: "NAKASEC" };
+  const deal: DealRow = { id: 25390, event_date: "2026-09-19", staff_count: 1, company: "Example Nonprofit" };
   const crewShift = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-19", "16:00"),
     ends_at: at("2026-09-19", "21:00"),
     position: "Catering",
@@ -950,7 +952,7 @@ test("1.12: a fully punched event says nothing", () => {
     shifts: [crewShift],
     punches: [
       punch({
-        employee_id: CARLI,
+        employee_id: CASEY,
         shift_id: crewShift.id,
         clock_in_at: at("2026-09-19", "16:00"),
         clock_out_at: at("2026-09-19", "21:00"),
@@ -961,39 +963,39 @@ test("1.12: a fully punched event says nothing", () => {
 });
 
 test("1.12: crew punched counts punches, not the schedule; a manual overlapping punch counts (ruled 2026-09-27)", () => {
-  const deal: DealRow = { id: 25390, event_date: "2026-09-19", staff_count: 2, company: "NAKASEC" };
-  const carliShift = shift({ employee_id: CARLI, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
-  const coleShift = shift({ employee_id: COLE, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
+  const deal: DealRow = { id: 25390, event_date: "2026-09-19", staff_count: 2, company: "Example Nonprofit" };
+  const carliShift = shift({ employee_id: CASEY, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
+  const coleShift = shift({ employee_id: DREW, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
   const result = run({
     deals: [deal],
     shifts: [carliShift, coleShift],
     punches: [
-      // Carli forgot to pick the shift and punched by hand, during it.
-      punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-19", "16:05"), clock_out_at: at("2026-09-19", "21:00") }),
+      // Casey forgot to pick the shift and punched by hand, during it.
+      punch({ employee_id: CASEY, shift_id: null, clock_in_at: at("2026-09-19", "16:05"), clock_out_at: at("2026-09-19", "21:00") }),
     ],
   });
   const found = only(result.findings, "1.12");
-  assert.deepEqual(found.map((f) => f.key), ["1.12:deal:25390", `1.12:unpunched:deal:25390:${COLE}`]);
+  assert.deepEqual(found.map((f) => f.key), ["1.12:deal:25390", `1.12:unpunched:deal:25390:${DREW}`]);
   assert.match(found[0].summary, /1 of 2 crew punched/);
-  assert.match(found[1].summary, /McCullough, Cole/);
-  assert.match(found[1].summary, /NAKASEC/);
+  assert.match(found[1].summary, /Sample, Drew/);
+  assert.match(found[1].summary, /Example Nonprofit/);
   assert.ok(found.every((f) => f.status === "auto_resolved"));
 });
 
 test("1.12: a cover punch with no shift_id is not crew for the event it happened to overlap", () => {
-  // Joey was scheduled and did not come; Carli punched by hand during his
+  // Jamie was scheduled and did not come; Casey punched by hand during his
   // hours. The cover ladder (1.10) pays her hours, but she did not punch FOR
   // the event, so she is not its crew.
-  const deal: DealRow = { id: 25391, event_date: "2026-09-19", staff_count: 1, company: "Wharton" };
-  const joeyShift = shift({ employee_id: JOEY, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
+  const deal: DealRow = { id: 25391, event_date: "2026-09-19", staff_count: 1, company: "Example College" };
+  const joeyShift = shift({ employee_id: JAMIE, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
   const result = run({
     deals: [deal],
     shifts: [joeyShift],
-    punches: [punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-19", "16:00"), clock_out_at: at("2026-09-19", "21:00") })],
+    punches: [punch({ employee_id: CASEY, shift_id: null, clock_in_at: at("2026-09-19", "16:00"), clock_out_at: at("2026-09-19", "21:00") })],
   });
   const found = only(result.findings, "1.12");
   assert.match(found[0].summary, /0 of 1 crew punched/);
-  assert.equal(found[1].key, `1.12:unpunched:deal:25391:${JOEY}`);
+  assert.equal(found[1].key, `1.12:unpunched:deal:25391:${JAMIE}`);
 });
 
 // --- §1.13 deleted rows -----------------------------------------------------
@@ -1007,27 +1009,27 @@ test("1.13: no audit table blocks the button — 'nothing deleted' and 'we canno
 });
 
 test("1.13: a punch deleted from inside the window is reported with who took it", () => {
-  // Joey's 2026-09-10 punch, the one that vanished.
+  // Jamie's 2026-09-10 punch, the one that vanished.
   const deletion: AuditRow = {
     id: 9,
     table_name: "time_entries",
     row_id: 1271,
     op: "DELETE",
     at: at("2026-09-21", "09:12"),
-    actor_uid: SOPHIA,
+    actor_uid: PAT,
     actor_role: "authenticated",
     db_role: "authenticated",
     before_image: {
       id: 1271,
-      employee_id: JOEY,
+      employee_id: JAMIE,
       clock_in_at: at("2026-09-10", "10:00"),
       clock_out_at: at("2026-09-10", "16:00"),
     },
   };
   const result = run({ auditDeletes: [deletion] });
   const f = only(result.findings, "1.13")[0];
-  assert.match(f.summary, /punch 1271 for Barrett, Joey/);
-  assert.match(f.summary, /deleted by Malmgren, Sophia/);
+  assert.match(f.summary, /punch 1271 for Tester, Jamie/);
+  assert.match(f.summary, /deleted by Example, Pat/);
   assert.deepEqual(f.evidence.punch_ids, [1271]);
   assert.equal(f.status, "auto_resolved", "evidence, not a blocker: the manager decides what to do");
 });
@@ -1042,7 +1044,7 @@ test("1.13: a deletion by the service-role key still names an actor", () => {
     actor_uid: null,
     actor_role: "service_role",
     db_role: "service_role",
-    before_image: { id: 350, employee_id: CARLI, starts_at: at("2026-09-12", "13:30"), ends_at: at("2026-09-12", "18:00") },
+    before_image: { id: 350, employee_id: CASEY, starts_at: at("2026-09-12", "13:30"), ends_at: at("2026-09-12", "18:00") },
   };
   const f = only(run({ auditDeletes: [deletion] }).findings, "1.13")[0];
   assert.match(f.summary, /the service_role key/);
@@ -1056,10 +1058,10 @@ test("1.13: a deletion of a row dated outside the window is not this window's bu
     row_id: 900,
     op: "DELETE",
     at: at("2026-09-21", "09:00"),
-    actor_uid: SOPHIA,
+    actor_uid: PAT,
     actor_role: "authenticated",
     db_role: "authenticated",
-    before_image: { id: 900, employee_id: JOEY, clock_in_at: at("2026-08-10", "10:00") },
+    before_image: { id: 900, employee_id: JAMIE, clock_in_at: at("2026-08-10", "10:00") },
   };
   assert.deepEqual(only(run({ auditDeletes: [deletion] }).findings, "1.13"), []);
 });
@@ -1108,7 +1110,7 @@ const NEXT: PayWindow = (() => {
   return r.window;
 })();
 
-const SUBMITTED_0920 = { window_end: "2026-09-20", submitted_by: SOPHIA, submitted_at: at("2026-09-21", "12:00") };
+const SUBMITTED_0920 = { window_end: "2026-09-20", submitted_by: PAT, submitted_at: at("2026-09-21", "12:00") };
 
 function audit(over: Partial<AuditRow> & Pick<AuditRow, "id" | "table_name" | "op" | "at">): AuditRow {
   return { row_id: null, actor_uid: null, actor_role: null, db_role: "authenticated", before_image: null, after_image: null, ...over };
@@ -1121,10 +1123,10 @@ test("1.15: the auto-close of a forgotten clock-out in a submitted run is report
     row_id: 1290,
     op: "UPDATE",
     at: at("2026-09-22", "10:02"),
-    actor_uid: CARLI,
+    actor_uid: CASEY,
     actor_role: "authenticated",
-    before_image: { id: 1290, employee_id: CARLI, clock_in_at: at("2026-09-20", "17:00"), clock_out_at: null },
-    after_image: { id: 1290, employee_id: CARLI, clock_in_at: at("2026-09-20", "17:00"), clock_out_at: at("2026-09-22", "10:02") },
+    before_image: { id: 1290, employee_id: CASEY, clock_in_at: at("2026-09-20", "17:00"), clock_out_at: null },
+    after_image: { id: 1290, employee_id: CASEY, clock_in_at: at("2026-09-20", "17:00"), clock_out_at: at("2026-09-22", "10:02") },
   });
   const result = run({ window: NEXT, today: "2026-10-05", priorSubmittals: [SUBMITTED_0920], auditChanges: [autoClose] });
   const f = only(result.findings, "1.15")[0];
@@ -1133,8 +1135,8 @@ test("1.15: the auto-close of a forgotten clock-out in a submitted run is report
   assert.equal(f.status, "auto_resolved", "never blocks");
   assert.equal(f.severity, "warn");
   assert.match(f.summary, /punch 1290/);
-  assert.match(f.summary, /Freeman, Carli/, "the person");
-  assert.match(f.summary, /was changed \(clock_out_at\) by Freeman, Carli on Tue Sep 22/, "what changed, who changed it, when");
+  assert.match(f.summary, /Bravo, Casey/, "the person");
+  assert.match(f.summary, /was changed \(clock_out_at\) by Bravo, Casey on Tue Sep 22/, "what changed, who changed it, when");
   assert.match(f.summary, /run ending 2026-09-20/);
   assert.deepEqual(f.evidence.punch_ids, [1290]);
   assert.equal(f.evidence.date, "2026-09-20");
@@ -1150,7 +1152,7 @@ test("1.15: a shift added to, or deleted from, a submitted run is reported, nami
     at: at("2026-09-23", "09:00"),
     actor_role: "service_role",
     db_role: "service_role",
-    after_image: { id: 400, employee_id: COLE, starts_at: at("2026-09-19", "12:00"), ends_at: at("2026-09-19", "18:00") },
+    after_image: { id: 400, employee_id: DREW, starts_at: at("2026-09-19", "12:00"), ends_at: at("2026-09-19", "18:00") },
   });
   const deleted = audit({
     id: 72,
@@ -1158,17 +1160,17 @@ test("1.15: a shift added to, or deleted from, a submitted run is reported, nami
     row_id: 1280,
     op: "DELETE",
     at: at("2026-09-24", "15:00"),
-    actor_uid: SOPHIA,
+    actor_uid: PAT,
     actor_role: "authenticated",
-    before_image: { id: 1280, employee_id: JOEY, clock_in_at: at("2026-09-10", "10:00"), clock_out_at: at("2026-09-10", "16:00") },
+    before_image: { id: 1280, employee_id: JAMIE, clock_in_at: at("2026-09-10", "10:00"), clock_out_at: at("2026-09-10", "16:00") },
   });
   const result = run({ window: NEXT, today: "2026-10-05", priorSubmittals: [SUBMITTED_0920], auditChanges: [added, deleted] });
   const [first, second] = only(result.findings, "1.15");
-  assert.match(first.summary, /shift 400 for McCullough, Cole/);
+  assert.match(first.summary, /shift 400 for Sample, Drew/);
   assert.match(first.summary, /added by the service_role key/);
   assert.deepEqual(first.evidence.shift_ids, [400]);
-  assert.match(second.summary, /punch 1280 for Barrett, Joey/);
-  assert.match(second.summary, /deleted by Malmgren, Sophia/);
+  assert.match(second.summary, /punch 1280 for Tester, Jamie/);
+  assert.match(second.summary, /deleted by Example, Pat/);
 });
 
 test("1.15: a change made before the run was submitted, or to a row outside it, is not reported", () => {
@@ -1178,9 +1180,9 @@ test("1.15: a change made before the run was submitted, or to a row outside it, 
     row_id: 1291,
     op: "UPDATE",
     at: at("2026-09-21", "11:59"),
-    actor_uid: SOPHIA,
-    before_image: { id: 1291, employee_id: CARLI, clock_in_at: at("2026-09-18", "11:00") },
-    after_image: { id: 1291, employee_id: CARLI, clock_in_at: at("2026-09-18", "11:30") },
+    actor_uid: PAT,
+    before_image: { id: 1291, employee_id: CASEY, clock_in_at: at("2026-09-18", "11:00") },
+    after_image: { id: 1291, employee_id: CASEY, clock_in_at: at("2026-09-18", "11:30") },
   });
   const thisPeriod = audit({
     id: 74,
@@ -1188,8 +1190,8 @@ test("1.15: a change made before the run was submitted, or to a row outside it, 
     row_id: 1300,
     op: "INSERT",
     at: at("2026-09-22", "11:00"),
-    actor_uid: CARLI,
-    after_image: { id: 1300, employee_id: CARLI, clock_in_at: at("2026-09-22", "11:00") },
+    actor_uid: CASEY,
+    after_image: { id: 1300, employee_id: CASEY, clock_in_at: at("2026-09-22", "11:00") },
   });
   const result = run({
     window: NEXT,
@@ -1207,9 +1209,9 @@ test("1.15: a punch moved out of a submitted run is reported by the day it left"
     row_id: 1292,
     op: "UPDATE",
     at: at("2026-09-25", "09:00"),
-    actor_uid: COLE,
-    before_image: { id: 1292, employee_id: CARLI, clock_in_at: at("2026-09-20", "11:00") },
-    after_image: { id: 1292, employee_id: CARLI, clock_in_at: at("2026-09-21", "11:00") },
+    actor_uid: DREW,
+    before_image: { id: 1292, employee_id: CASEY, clock_in_at: at("2026-09-20", "11:00") },
+    after_image: { id: 1292, employee_id: CASEY, clock_in_at: at("2026-09-21", "11:00") },
   });
   const f = only(run({ window: NEXT, today: "2026-10-05", priorSubmittals: [SUBMITTED_0920], auditChanges: [moved] }).findings, "1.15");
   assert.equal(f.length, 1);
@@ -1223,7 +1225,7 @@ test("1.15: with no submitted run before the window there is nothing to report",
     row_id: 1293,
     op: "DELETE",
     at: at("2026-09-25", "09:00"),
-    before_image: { id: 1293, employee_id: CARLI, clock_in_at: at("2026-09-20", "11:00") },
+    before_image: { id: 1293, employee_id: CASEY, clock_in_at: at("2026-09-20", "11:00") },
   });
   assert.deepEqual(only(run({ window: NEXT, today: "2026-10-05", auditChanges: [change] }).findings, "1.15"), []);
 });
@@ -1231,14 +1233,14 @@ test("1.15: with no submitted run before the window there is nothing to report",
 test("1.15: a change already reported to the run before this one is not reported again", () => {
   // Runs ending 09-06 and 09-20 are both submitted. A change to the 09-06 run
   // made before the 09-20 run was submitted belonged to that run's report.
-  const older = { window_end: "2026-09-06", submitted_by: SOPHIA, submitted_at: at("2026-09-07", "12:00") };
+  const older = { window_end: "2026-09-06", submitted_by: PAT, submitted_at: at("2026-09-07", "12:00") };
   const early = audit({
     id: 77,
     table_name: "time_entries",
     row_id: 1100,
     op: "DELETE",
     at: at("2026-09-15", "09:00"),
-    before_image: { id: 1100, employee_id: CARLI, clock_in_at: at("2026-09-01", "11:00") },
+    before_image: { id: 1100, employee_id: CASEY, clock_in_at: at("2026-09-01", "11:00") },
   });
   const late = audit({
     id: 78,
@@ -1246,7 +1248,7 @@ test("1.15: a change already reported to the run before this one is not reported
     row_id: 1101,
     op: "DELETE",
     at: at("2026-09-22", "09:00"),
-    before_image: { id: 1101, employee_id: CARLI, clock_in_at: at("2026-09-01", "11:00") },
+    before_image: { id: 1101, employee_id: CASEY, clock_in_at: at("2026-09-01", "11:00") },
   });
   const result = run({
     window: NEXT,
@@ -1264,13 +1266,13 @@ test("1.15: once this run is submitted, later changes belong to the run after it
     row_id: 1294,
     op: "DELETE",
     at: at("2026-10-06", "09:00"),
-    before_image: { id: 1294, employee_id: CARLI, clock_in_at: at("2026-09-20", "11:00") },
+    before_image: { id: 1294, employee_id: CASEY, clock_in_at: at("2026-09-20", "11:00") },
   });
   const result = run({
     window: NEXT,
     today: "2026-10-06",
     priorSubmittals: [SUBMITTED_0920],
-    submittal: { window_end: "2026-10-04", submitted_by: SOPHIA, submitted_at: at("2026-10-05", "12:00") },
+    submittal: { window_end: "2026-10-04", submitted_by: PAT, submitted_at: at("2026-10-05", "12:00") },
     auditChanges: [change],
   });
   assert.deepEqual(only(result.findings, "1.15"), []);
@@ -1290,7 +1292,7 @@ test("1.14: a full_name containing '@' is the invite-flow bug, reported and not 
 
 // --- §3.5 crewless catering event -------------------------------------------
 
-const PWC: DealRow = { id: 25100, event_date: "2026-09-09", staff_count: 2, company: "PwC", stage: "Booked Paid" };
+const CONSULTING: DealRow = { id: 25100, event_date: "2026-09-09", staff_count: 2, company: "Example Consulting", stage: "Booked Paid" };
 
 test("3.4: an invoice tip with no deal, from any point in history, is a flag and never a block (ruling A)", () => {
   const result = run({
@@ -1298,7 +1300,7 @@ test("3.4: an invoice tip with no deal, from any point in history, is a flag and
       { id: 41, deal_id: null, payer: "Nobody Known", tip_cents: 2500, paid_date: "2025-11-03", event_date: null, status: "held", released_in_run: null },
       { id: 42, deal_id: null, payer: null, tip_cents: 1000, paid_date: "2026-09-03", event_date: null, status: "held", released_in_run: null, note: "no invoice title" },
       // Defensive: a row that does carry a deal is not unmatched.
-      { id: 43, deal_id: 25188, payer: "Bo Geraci", tip_cents: 10000, paid_date: "2026-09-02", event_date: "2026-09-19", status: "held", released_in_run: null },
+      { id: 43, deal_id: 25188, payer: "Bo Sampleton", tip_cents: 10000, paid_date: "2026-09-02", event_date: "2026-09-19", status: "held", released_in_run: null },
     ],
   });
   const found = only(result.findings, "3.4");
@@ -1324,31 +1326,31 @@ test("3.4: a row with no id is keyed by its payment id, else its date and amount
   assert.deepEqual(only(result.findings, "3.4").map((f) => f.key), ["3.4:held:sq_1", "3.4:held:2026-09-02:700"]);
 });
 
-test("3.5: a booked event with nobody on it gets a picker, default Sophia, and the upstream warning", () => {
-  const result = run({ windowDeals: [PWC] });
+test("3.5: a booked event with nobody on it gets a picker, default Pat, and the upstream warning", () => {
+  const result = run({ windowDeals: [CONSULTING] });
   const f = only(result.findings, "3.5")[0];
   assert.equal(f.key, "3.5:deal:25100");
   assert.equal(f.status, "needs_ruling");
   assert.equal(f.defaultChoice, "staff");
-  // "Malmgren, Sophia" on file is the ruled default "Sophia Malmgren".
-  assert.deepEqual(f.defaultPayee, { id: SOPHIA, name: "Malmgren, Sophia" });
+  // "Example, Pat" on file is the ruled default "Pat Example".
+  assert.deepEqual(f.defaultPayee, { id: PAT, name: "Example, Pat" });
   assert.match(f.summary, /Add the event's Catering shift/);
-  assert.deepEqual(f.candidates!.map((c) => c.id), [CARLI, SOPHIA, COLE]);
+  assert.deepEqual(f.candidates!.map((c) => c.id), [CASEY, PAT, DREW]);
   assert.equal(result.ready, true, "the default stands on its own");
 });
 
 // --- §3.5 crew = a punch (Alina, 2026-09-27) --------------------------------
 //
-// "if Sophia doesn't clock in when she's also helping on that catering event,
+// "if Pat doesn't clock in when she's also helping on that catering event,
 // that's on her. It needs to require a punch." A person is on an event's crew
 // only if they punched for it: a punch on the event's Catering shift by
 // shift_id, or a manual punch (no shift_id) by the scheduled person on the same
 // date that overlaps the shift. Scheduled without a punch is not crew.
 
-/** PwC's Catering shift, 2026-09-09 15:00-18:00, Carli scheduled. */
-function pwcShift(over: Partial<ShiftRow> = {}): ShiftRow {
+/** Example Consulting's Catering shift, 2026-09-09 15:00-18:00, Casey scheduled. */
+function consultingShift(over: Partial<ShiftRow> = {}): ShiftRow {
   return shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-09", "15:00"),
     ends_at: at("2026-09-09", "18:00"),
     position: "Catering",
@@ -1358,105 +1360,105 @@ function pwcShift(over: Partial<ShiftRow> = {}): ShiftRow {
 }
 
 test("3.5: a punch on the event's Catering shift by shift_id makes a crew", () => {
-  const s = pwcShift();
-  const p = punch({ employee_id: CARLI, shift_id: s.id, clock_in_at: at("2026-09-09", "15:02"), clock_out_at: at("2026-09-09", "18:00") });
-  const result = run({ windowDeals: [PWC], shifts: [s], punches: [p] });
+  const s = consultingShift();
+  const p = punch({ employee_id: CASEY, shift_id: s.id, clock_in_at: at("2026-09-09", "15:02"), clock_out_at: at("2026-09-09", "18:00") });
+  const result = run({ windowDeals: [CONSULTING], shifts: [s], punches: [p] });
   assert.deepEqual(only(result.findings, "3.5"), []);
   assert.deepEqual(only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched")), []);
-  const crew = eventCrew(PWC, [s], [p]);
-  assert.deepEqual([...crew.crew.keys()], [CARLI]);
-  assert.deepEqual(crew.crew.get(CARLI), [p.id]);
+  const crew = eventCrew(CONSULTING, [s], [p]);
+  assert.deepEqual([...crew.crew.keys()], [CASEY]);
+  assert.deepEqual(crew.crew.get(CASEY), [p.id]);
 });
 
 test("3.5: a manual punch (no shift_id) by the scheduled person, same date, overlapping the shift, makes a crew", () => {
-  const s = pwcShift();
-  const manual = punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-09", "16:30"), clock_out_at: at("2026-09-09", "19:00") });
-  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [s], punches: [manual] }).findings, "3.5"), []);
+  const s = consultingShift();
+  const manual = punch({ employee_id: CASEY, shift_id: null, clock_in_at: at("2026-09-09", "16:30"), clock_out_at: at("2026-09-09", "19:00") });
+  assert.deepEqual(only(run({ windowDeals: [CONSULTING], shifts: [s], punches: [manual] }).findings, "3.5"), []);
 });
 
 test("3.5: an open manual punch that clocked in during the shift makes a crew", () => {
-  const s = pwcShift();
-  const open = punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-09", "15:10"), clock_out_at: null });
-  assert.deepEqual([...eventCrew(PWC, [s], [open]).crew.keys()], [CARLI]);
+  const s = consultingShift();
+  const open = punch({ employee_id: CASEY, shift_id: null, clock_in_at: at("2026-09-09", "15:10"), clock_out_at: null });
+  assert.deepEqual([...eventCrew(CONSULTING, [s], [open]).crew.keys()], [CASEY]);
 });
 
 test("3.5: scheduled on the event with no punch is not crew: crewless, and the person is named (ruled 2026-09-27)", () => {
-  // Sophia is scheduled on the event and never clocks in.
-  const s = pwcShift({ employee_id: SOPHIA });
-  const result = run({ windowDeals: [PWC], shifts: [s] });
+  // Pat is scheduled on the event and never clocks in.
+  const s = consultingShift({ employee_id: PAT });
+  const result = run({ windowDeals: [CONSULTING], shifts: [s] });
   const f = only(result.findings, "3.5")[0];
   assert.equal(f.key, "3.5:deal:25100");
   assert.equal(f.status, "needs_ruling");
   assert.equal(f.defaultChoice, "staff");
-  assert.deepEqual(f.defaultPayee, { id: SOPHIA, name: "Malmgren, Sophia" });
+  assert.deepEqual(f.defaultPayee, { id: PAT, name: "Example, Pat" });
   assert.match(f.summary, /nobody punched/);
-  assert.match(f.summary, /Malmgren, Sophia/);
+  assert.match(f.summary, /Example, Pat/);
 
   const unpunched = only(result.findings, "1.12").filter((x) => x.key.startsWith("1.12:unpunched"));
   assert.equal(unpunched.length, 1);
-  assert.equal(unpunched[0].key, `1.12:unpunched:deal:25100:${SOPHIA}`);
+  assert.equal(unpunched[0].key, `1.12:unpunched:deal:25100:${PAT}`);
   assert.equal(unpunched[0].status, "auto_resolved", "never blocks");
-  assert.match(unpunched[0].summary, /Malmgren, Sophia/);
-  assert.match(unpunched[0].summary, /PwC/);
-  assert.equal(unpunched[0].evidence.employee_id, SOPHIA);
+  assert.match(unpunched[0].summary, /Example, Pat/);
+  assert.match(unpunched[0].summary, /Example Consulting/);
+  assert.equal(unpunched[0].evidence.employee_id, PAT);
   assert.equal(unpunched[0].evidence.deal_id, 25100);
   assert.deepEqual(unpunched[0].evidence.shift_ids, [s.id]);
   assert.equal(result.ready, true, "the default stands and the finding does not block");
 });
 
 test("3.5: a manual punch by the scheduled person that does not overlap the shift is not crew", () => {
-  // Carli worked the counter that morning; the event was the afternoon.
-  const s = pwcShift();
-  const morning = punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-09", "09:00"), clock_out_at: at("2026-09-09", "15:00") });
-  const result = run({ windowDeals: [PWC], shifts: [s], punches: [morning] });
+  // Casey worked the counter that morning; the event was the afternoon.
+  const s = consultingShift();
+  const morning = punch({ employee_id: CASEY, shift_id: null, clock_in_at: at("2026-09-09", "09:00"), clock_out_at: at("2026-09-09", "15:00") });
+  const result = run({ windowDeals: [CONSULTING], shifts: [s], punches: [morning] });
   assert.equal(only(result.findings, "3.5").length, 1);
-  assert.equal(only(result.findings, "1.12").filter((f) => f.key === `1.12:unpunched:deal:25100:${CARLI}`).length, 1);
+  assert.equal(only(result.findings, "1.12").filter((f) => f.key === `1.12:unpunched:deal:25100:${CASEY}`).length, 1);
 });
 
 test("3.5: a manual punch on another date, or by somebody not scheduled, is not crew", () => {
-  const s = pwcShift();
-  const dayBefore = punch({ employee_id: CARLI, shift_id: null, clock_in_at: at("2026-09-08", "15:00"), clock_out_at: at("2026-09-08", "18:00") });
-  const stranger = punch({ employee_id: COLE, shift_id: null, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
-  assert.equal(eventCrew(PWC, [s], [dayBefore, stranger]).crew.size, 0);
+  const s = consultingShift();
+  const dayBefore = punch({ employee_id: CASEY, shift_id: null, clock_in_at: at("2026-09-08", "15:00"), clock_out_at: at("2026-09-08", "18:00") });
+  const stranger = punch({ employee_id: DREW, shift_id: null, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
+  assert.equal(eventCrew(CONSULTING, [s], [dayBefore, stranger]).crew.size, 0);
 });
 
 test("3.5: a punch with a shift_id for some other shift is not a manual punch", () => {
-  const s = pwcShift();
-  const counter = shift({ employee_id: CARLI, starts_at: at("2026-09-09", "14:00"), ends_at: at("2026-09-09", "17:00"), position: "PENN Opener" });
-  const p = punch({ employee_id: CARLI, shift_id: counter.id, clock_in_at: at("2026-09-09", "14:00"), clock_out_at: at("2026-09-09", "17:00") });
-  assert.equal(eventCrew(PWC, [s, counter], [p]).crew.size, 0);
+  const s = consultingShift();
+  const counter = shift({ employee_id: CASEY, starts_at: at("2026-09-09", "14:00"), ends_at: at("2026-09-09", "17:00"), position: "PENN Opener" });
+  const p = punch({ employee_id: CASEY, shift_id: counter.id, clock_in_at: at("2026-09-09", "14:00"), clock_out_at: at("2026-09-09", "17:00") });
+  assert.equal(eventCrew(CONSULTING, [s, counter], [p]).crew.size, 0);
 });
 
 test("3.5: somebody who punched the event's shift by shift_id is crew; the scheduled person who did not is named", () => {
-  const s = pwcShift({ employee_id: SOPHIA });
-  const cover = punch({ employee_id: CARLI, shift_id: s.id, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
-  const result = run({ windowDeals: [PWC], shifts: [s], punches: [cover] });
+  const s = consultingShift({ employee_id: PAT });
+  const cover = punch({ employee_id: CASEY, shift_id: s.id, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
+  const result = run({ windowDeals: [CONSULTING], shifts: [s], punches: [cover] });
   assert.deepEqual(only(result.findings, "3.5"), []);
   assert.deepEqual(
     only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched")).map((f) => f.key),
-    [`1.12:unpunched:deal:25100:${SOPHIA}`],
+    [`1.12:unpunched:deal:25100:${PAT}`],
   );
 });
 
 test("3.5: the event's shifts are the ones linked to the deal; failing that, Catering shifts on the event date", () => {
   // Linked, on a different day from the event: still the event's shift.
-  const linked = pwcShift({ starts_at: at("2026-09-08", "15:00"), ends_at: at("2026-09-08", "18:00") });
-  const linkedPunch = punch({ employee_id: CARLI, shift_id: linked.id, clock_in_at: at("2026-09-08", "15:00"), clock_out_at: at("2026-09-08", "18:00") });
-  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [linked], punches: [linkedPunch] }).findings, "3.5"), []);
+  const linked = consultingShift({ starts_at: at("2026-09-08", "15:00"), ends_at: at("2026-09-08", "18:00") });
+  const linkedPunch = punch({ employee_id: CASEY, shift_id: linked.id, clock_in_at: at("2026-09-08", "15:00"), clock_out_at: at("2026-09-08", "18:00") });
+  assert.deepEqual(only(run({ windowDeals: [CONSULTING], shifts: [linked], punches: [linkedPunch] }).findings, "3.5"), []);
 
   // No linked shift: a Catering shift on the event date stands in (as the
   // payroll sheet's tips.event_crew does), but only once somebody punches it.
-  const sameDay = pwcShift({ deal_id: null });
-  const sameDayPunch = punch({ employee_id: CARLI, shift_id: sameDay.id, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
-  assert.deepEqual(only(run({ windowDeals: [PWC], shifts: [sameDay], punches: [sameDayPunch] }).findings, "3.5"), []);
-  assert.equal(only(run({ windowDeals: [PWC], shifts: [sameDay] }).findings, "3.5").length, 1);
+  const sameDay = consultingShift({ deal_id: null });
+  const sameDayPunch = punch({ employee_id: CASEY, shift_id: sameDay.id, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
+  assert.deepEqual(only(run({ windowDeals: [CONSULTING], shifts: [sameDay], punches: [sameDayPunch] }).findings, "3.5"), []);
+  assert.equal(only(run({ windowDeals: [CONSULTING], shifts: [sameDay] }).findings, "3.5").length, 1);
 
   // A linked shift exists: a same-day shift for something else is not this event's.
-  const other = pwcShift({ employee_id: COLE, deal_id: null });
-  const otherPunch = punch({ employee_id: COLE, shift_id: other.id, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
-  const crew = eventCrew(PWC, [pwcShift(), other], [otherPunch]);
+  const other = consultingShift({ employee_id: DREW, deal_id: null });
+  const otherPunch = punch({ employee_id: DREW, shift_id: other.id, clock_in_at: at("2026-09-09", "15:00"), clock_out_at: at("2026-09-09", "18:00") });
+  const crew = eventCrew(CONSULTING, [consultingShift(), other], [otherPunch]);
   assert.equal(crew.crew.size, 0);
-  assert.deepEqual(crew.unpunched.map((u) => u.employeeId), [CARLI]);
+  assert.deepEqual(crew.unpunched.map((u) => u.employeeId), [CASEY]);
 });
 
 test("3.5: an unassigned Catering shift is not a crew", () => {
@@ -1467,33 +1469,33 @@ test("3.5: an unassigned Catering shift is not a crew", () => {
     position: "Catering",
     deal_id: 25100,
   });
-  assert.equal(only(run({ windowDeals: [PWC], shifts: [open] }).findings, "3.5").length, 1);
+  assert.equal(only(run({ windowDeals: [CONSULTING], shifts: [open] }).findings, "3.5").length, 1);
 });
 
 test("3.5: a lost deal, or one outside the window, is not asked about", () => {
-  const lost = { ...PWC, stage: "Closed Lost" };
-  const later = { ...PWC, event_date: "2026-10-05" };
-  const unnamed = { ...PWC, id: 25101, company: null, stage: null };
+  const lost = { ...CONSULTING, stage: "Closed Lost" };
+  const later = { ...CONSULTING, event_date: "2026-10-05" };
+  const unnamed = { ...CONSULTING, id: 25101, company: null, stage: null };
   assert.deepEqual(only(run({ windowDeals: [lost, later] }).findings, "3.5"), []);
   assert.match(only(run({ windowDeals: [unnamed] }).findings, "3.5")[0].summary, /deal 25101/);
 });
 
 test("3.5: a crewless tip paid to the person who submits the run is flagged, default or not", () => {
-  const submittal = { submitted_by: SOPHIA, submitted_at: at("2026-09-21", "12:00") };
-  const byDefault = run({ windowDeals: [PWC], submittal });
-  assert.match(byDefault.flags[0].message, /Paid to Malmgren, Sophia, who submitted this run/);
+  const submittal = { submitted_by: PAT, submitted_at: at("2026-09-21", "12:00") };
+  const byDefault = run({ windowDeals: [CONSULTING], submittal });
+  assert.match(byDefault.flags[0].message, /Paid to Example, Pat, who submitted this run/);
 
   const picked = run({
-    windowDeals: [PWC],
+    windowDeals: [CONSULTING],
     submittal,
-    rulings: [{ check_id: "3.5", finding_key: "3.5:deal:25100", choice: "staff", payee_id: CARLI, decided_by: SOPHIA }],
+    rulings: [{ check_id: "3.5", finding_key: "3.5:deal:25100", choice: "staff", payee_id: CASEY, decided_by: PAT }],
   });
   assert.deepEqual(picked.flags, []);
-  assert.equal(only(picked.findings, "3.5")[0].effective?.payee?.id, CARLI);
+  assert.equal(only(picked.findings, "3.5")[0].effective?.payee?.id, CASEY);
 });
 
 test("3.5: with nobody on file matching the default, the case must be answered", () => {
-  const result = run({ windowDeals: [PWC], profiles: PROFILES.filter((p) => p.id !== SOPHIA) });
+  const result = run({ windowDeals: [CONSULTING], profiles: PROFILES.filter((p) => p.id !== PAT) });
   const f = only(result.findings, "3.5")[0];
   assert.equal(f.defaultPayee, null);
   assert.equal(result.ready, false);
@@ -1503,7 +1505,7 @@ test("3.5: with nobody on file matching the default, the case must be answered",
 
 test("3.7: an open period with no Pastry Opener shift worked is a schedule anomaly with a picker", () => {
   const scheduledNotWorked = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-09", "06:00"),
     ends_at: at("2026-09-09", "10:00"),
     position: "Pastry Opener",
@@ -1512,12 +1514,12 @@ test("3.7: an open period with no Pastry Opener shift worked is a schedule anoma
   const f = only(result.findings, "3.7")[0];
   assert.equal(f.key, "3.7:olo:2026-09-20");
   assert.match(f.summary, /norm is at least 4/);
-  assert.deepEqual(f.defaultPayee, { id: SOPHIA, name: "Malmgren, Sophia" });
+  assert.deepEqual(f.defaultPayee, { id: PAT, name: "Example, Pat" });
 });
 
 test("3.7: one bake shift worked is enough to split over", () => {
   const bake = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-09", "06:00"),
     ends_at: at("2026-09-09", "10:00"),
     position: "Pastry Opener",
@@ -1526,7 +1528,7 @@ test("3.7: one bake shift worked is enough to split over", () => {
     ...WED_ONLY,
     shifts: [bake],
     punches: [
-      punch({ employee_id: CARLI, shift_id: bake.id, clock_in_at: at("2026-09-09", "06:00"), clock_out_at: at("2026-09-09", "10:00") }),
+      punch({ employee_id: CASEY, shift_id: bake.id, clock_in_at: at("2026-09-09", "06:00"), clock_out_at: at("2026-09-09", "10:00") }),
     ],
   });
   assert.deepEqual(only(result.findings, "3.7"), []);
@@ -1541,22 +1543,22 @@ test("choices: the paying choices are exactly the ones that need a payee", () =>
   assert.equal(choicePays("1.9", "scheduled_closer"), true);
   assert.equal(choicePays("3.5", "staff"), true);
   assert.equal(choicePays("1.5", "scheduled"), false);
-  assert.equal(sameNameWords("Sophia Malmgren", "Malmgren, Sophia"), true);
+  assert.equal(sameNameWords("Pat Example", "Example, Pat"), true);
   assert.equal(sameNameWords("", ""), false);
-  assert.equal(sameNameWords(null, "Sophia"), false);
+  assert.equal(sameNameWords(null, "Pat"), false);
 });
 
 // --- the button -------------------------------------------------------------
 
 test("§1: a short punch holds the button until the punch itself is corrected (ruling D)", () => {
   const scheduled = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-18", "15:00"),
     ends_at: at("2026-09-18", "22:00"),
     position: "PENN Closer",
   });
   const short = punch({
-    employee_id: CARLI,
+    employee_id: CASEY,
     shift_id: scheduled.id,
     clock_in_at: at("2026-09-18", "15:00"),
     clock_out_at: `2026-09-18T15:02:11-04:00`,
@@ -1578,9 +1580,9 @@ test("§1: a ruling recorded against a different finding does not answer this on
   const after = run({
     ...WED_ONLY,
     punches: [
-      punch({ employee_id: CARLI, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+      punch({ employee_id: CASEY, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
-    rulings: [{ check_id: "1.9", finding_key: "1.9:2026-09-02", choice: "scheduled_closer", payee_id: CARLI }],
+    rulings: [{ check_id: "1.9", finding_key: "1.9:2026-09-02", choice: "scheduled_closer", payee_id: CASEY }],
   });
   const f = only(after.findings, "1.9")[0];
   assert.equal(f.ruling, null);
@@ -1588,7 +1590,7 @@ test("§1: a ruling recorded against a different finding does not answer this on
 });
 
 test("§1: a fix-class finding cannot be ruled away", () => {
-  const open = punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:00") });
+  const open = punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00") });
   const after = run({
     punches: [open],
     rulings: [{ check_id: "1.4", finding_key: `1.1:punch:${open.id}`, choice: "void" }],
@@ -1598,7 +1600,7 @@ test("§1: a fix-class finding cannot be ruled away", () => {
 
 test("§1: findings are grouped by check, in spec order, and only non-empty groups appear", () => {
   const result = run({
-    punches: [punch({ employee_id: COLE, clock_in_at: at("2026-09-15", "11:00") })],
+    punches: [punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00") })],
   });
   // An open punch with no shift: 1.1 detects it, 1.4 blocks it (ruled 2026-09-27).
   assert.deepEqual(result.groups.map((g) => g.check), ["0.1", "1.1", "1.4", "1.10"]);
@@ -1610,7 +1612,7 @@ test("§1: every option a finding offers is in the API's ruling vocabulary", () 
   // vocabulary the route validates against is fixed. This is what stops the
   // two drifting apart.
   const scheduled = shift({
-    employee_id: CARLI,
+    employee_id: CASEY,
     starts_at: at("2026-09-18", "15:00"),
     ends_at: at("2026-09-18", "22:00"),
   });
@@ -1619,15 +1621,15 @@ test("§1: every option a finding offers is in the API's ruling vocabulary", () 
     shifts: [scheduled],
     punches: [
       punch({
-        employee_id: CARLI,
+        employee_id: CASEY,
         shift_id: scheduled.id,
         clock_in_at: at("2026-09-18", "15:00"),
         clock_out_at: `2026-09-18T15:02:11-04:00`,
       }),
       // A runaway with no shift, on a day the store is shut: 1.4, a fix.
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-14", "11:00"), clock_out_at: at("2026-09-15", "06:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-14", "11:00"), clock_out_at: at("2026-09-15", "06:00") }),
       // An early finish on the one open day: 1.9's choice.
-      punch({ employee_id: COLE, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "18:00") }),
     ],
   });
   const ruling = result.findings.filter((f) => f.status === "needs_ruling");

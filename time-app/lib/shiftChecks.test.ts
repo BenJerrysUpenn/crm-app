@@ -2,7 +2,7 @@
 //
 //   npm test        (node --test lib/*.test.ts)
 //
-// The anchor case is the real one: catering deal 25156 (Terrain) produced a
+// The anchor case is the real one: catering deal 25156 (Example Garden Co) produced a
 // shift running 2026-09-27 13:30 to 2026-09-28 15:30 — twenty-six hours — and
 // it was published.
 
@@ -20,7 +20,7 @@ import {
   type ShiftForLengthCheck,
 } from "./shiftChecks.ts";
 
-// The Terrain shift, as stored: 13:30 EDT on the 27th to 15:30 EDT on the 28th.
+// The Example Garden Co shift, as stored: 13:30 EDT on the 27th to 15:30 EDT on the 28th.
 const TERRAIN_START = "2026-09-27T17:30:00Z"; // 13:30 EDT
 const TERRAIN_END = "2026-09-28T19:30:00Z"; // 15:30 EDT
 
@@ -28,7 +28,7 @@ function edt(date: string, hhmm: string) {
   return `${date}T${hhmm}:00-04:00`;
 }
 
-test("the Terrain shift is 26 hours and is flagged", () => {
+test("the Example Garden Co shift is 26 hours and is flagged", () => {
   assert.equal(shiftHours(TERRAIN_START, TERRAIN_END), 26);
   assert.equal(isLongShift(TERRAIN_START, TERRAIN_END), true);
 });

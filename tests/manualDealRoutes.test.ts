@@ -22,7 +22,7 @@ const db = vi.hoisted(() => {
   const client = {
     auth: {
       getUser: async () => ({
-        data: { user: { email: "josephpettine@gmail.com" } },
+        data: { user: { email: "caller1@example.com" } },
       }),
     },
     async rpc(name: string) {
@@ -92,7 +92,7 @@ function post(body: Record<string, unknown>): Request {
 /** Name, phone, source. No venue address, no event at all. */
 const THIN = {
   contact_first_name: "Dana",
-  contact_phone: "215-665-5323",
+  contact_phone: "215-555-0123",
   source: "walk_in",
   venue_address: "",
 };
@@ -139,8 +139,8 @@ describe("POST /api/call-desk/deals is unchanged", () => {
       post({
         prospect_id: 126,
         contact_first_name: "Dana",
-        contact_email: "dana@wharton.upenn.edu",
-        contact_phone: "215-665-5323",
+        contact_email: "dana@example.org",
+        contact_phone: "215-555-0123",
         event_type: "Corporate",
         package_name: "Sundae Party",
         event_date: "2026-11-04",
@@ -162,8 +162,8 @@ describe("POST /api/deals/dedupe", () => {
     id: 25401,
     name: "Dana Okafor",
     company: "Wharton",
-    email: "dana@wharton.upenn.edu",
-    phone: "(215) 665-5323",
+    email: "dana@example.org",
+    phone: "(215) 555-0123",
     stage: "Event Complete",
     event_date: "2025-11-04",
     matched_email: true,
@@ -174,7 +174,7 @@ describe("POST /api/deals/dedupe", () => {
     id: 126,
     name: "Dana Okafor",
     company: null,
-    email: "dana@wharton.upenn.edu",
+    email: "dana@example.org",
     phone: null,
     stage: null,
     event_date: null,
@@ -195,7 +195,7 @@ describe("POST /api/deals/dedupe", () => {
         created_at: "2025-09-01T09:00:00",
       },
     ];
-    const res = await dedupe(post({ email: "dana@wharton.upenn.edu" }));
+    const res = await dedupe(post({ email: "dana@example.org" }));
     const body = await res.json();
     // One read, by id, of matched deals only.
     expect(db.state.dealSelects).toHaveLength(1);
@@ -216,7 +216,7 @@ describe("POST /api/deals/dedupe", () => {
   it("returns the bare matches if the details read fails", async () => {
     db.state.rpcRows = [rpcDeal];
     db.state.dealSelectError = { message: "permission denied" };
-    const res = await dedupe(post({ email: "dana@wharton.upenn.edu" }));
+    const res = await dedupe(post({ email: "dana@example.org" }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.matches).toHaveLength(1);
@@ -226,7 +226,7 @@ describe("POST /api/deals/dedupe", () => {
 
   it("does not read deals when only prospects matched", async () => {
     db.state.rpcRows = [rpcProspect];
-    await dedupe(post({ email: "dana@wharton.upenn.edu" }));
+    await dedupe(post({ email: "dana@example.org" }));
     expect(db.state.dealSelects).toHaveLength(0);
   });
 });

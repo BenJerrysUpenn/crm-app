@@ -3,7 +3,7 @@
 // Payroll spec §3.6 (bj-finance #519): "a table, not prose: (deal, payer, tip,
 // paid date, event date, status). Reconciled every run: released + held +
 // pre_window == all-history invoice-tip total. The prose ledger carried a
-// phantom $100 (Geraci == Burlington, deal 25188)."
+// phantom $100 (two payer names for one payment, deal 25188)."
 //
 // Catering tips are paid on Square invoices, often weeks before the event they
 // belong to, and they are allocated by EVENT date (§3.4). So at any moment some
@@ -80,7 +80,7 @@ export function reconcile(rows: HeldTipRow[], squareCents: number): Reconciliati
  * Rows that look like the same money entered twice.
  *
  * The phantom $100 was one Square payment against deal 25188 written into the
- * prose ledger under two different payer names — "Geraci" and "Burlington" —
+ * prose ledger under two different payer names,
  * which is why payer is NOT part of the key here. Same deal, same day, same
  * amount is the signal; the names were the disguise.
  *

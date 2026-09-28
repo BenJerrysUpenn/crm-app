@@ -21,7 +21,7 @@
 //                   did, but it does not hold the button.
 //   needs_ruling  — code cannot decide (§1.9, §3.5, §3.7). These are
 //                   PER-CASE CHOICES WITH A PRESELECTED DEFAULT (Alina,
-//                   2026-09-22, #519): skip, Sophia, Sophia. A default
+//                   2026-09-22, #519): skip, tip payee, tip payee. A default
 //                   satisfies the button on its own; a manager changes it only
 //                   when the case needs it.
 //   needs_fix     — the data is wrong and no ruling can make it right: an open
@@ -230,6 +230,12 @@ export type VerifyInput = {
    * schedule belongs to whichever submitted run covers it.
    */
   otherSubmittals?: SubmittalRow[];
+  /**
+   * §3.5 / §3.7 — the name the crewless-tip default is matched on. Omitted in
+   * production, where DEFAULT_TIP_PAYEE_NAME applies; tests pass an invented
+   * name so no real person has to appear in a fixture.
+   */
+  defaultTipPayeeName?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -400,11 +406,11 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "3.5": {
     title: "Crewless catering event",
-    rule: "deal shift unassigned + nobody punched → a staff picker on the event, default Sophia (ruled 2026-09-22). Flag a crewless tip paid to the person who submits the run. Upstream: the event needs its Catering shift added. Crew = a punch on the event's Catering shift by shift_id, or a manual punch (no shift_id) by the scheduled person on the same date overlapping it; scheduled with no punch is not crew (ruled 2026-09-27).",
+    rule: "deal shift unassigned + nobody punched → a staff picker on the event, default the designated tip payee (ruled 2026-09-22). Flag a crewless tip paid to the person who submits the run. Upstream: the event needs its Catering shift added. Crew = a punch on the event's Catering shift by shift_id, or a manual punch (no shift_id) by the scheduled person on the same date overlapping it; scheduled with no punch is not crew (ruled 2026-09-27).",
   },
   "3.7": {
     title: "No bake shift worked",
-    rule: "a window with zero Pastry Opener shifts is a schedule anomaly (norm ≥ 2/week, ≥ 4/period); any stranded Olo tips go to a staff picker, default Sophia, flagged when paid to the submitter (ruled 2026-09-22).",
+    rule: "a window with zero Pastry Opener shifts is a schedule anomaly (norm ≥ 2/week, ≥ 4/period); any stranded Olo tips go to a staff picker, default the designated tip payee, flagged when paid to the submitter (ruled 2026-09-22).",
   },
 };
 
@@ -452,7 +458,7 @@ export function choicePays(check: string, choice: string): boolean {
   return PAYING_CHOICES.has(`${check}:${choice}`);
 }
 
-/** "Sophia Malmgren" and "Malmgren, Sophia" are the same words. */
+/** "Pat Example" and "Example, Pat" are the same words. */
 export function sameNameWords(a: string | null | undefined, b: string | null | undefined): boolean {
   const words = (s: string | null | undefined) =>
     (s ?? "")
@@ -842,8 +848,8 @@ function checkTruncation(runaways: PunchView[], reasons: Map<number, string[]>):
  * §1.5 — short punch on a scheduled shift.
  *
  * New in this spec, and the only check that can make somebody's day longer:
- * every other rule here shortens a runaway. Carli's 09-18 punch was 2m 11s
- * against a 7h shift because Sophia closed for her. There is deliberately no
+ * every other rule here shortens a runaway. An employee's 09-18 punch was 2m 11s
+ * against a 7h shift because the manager closed for her. There is deliberately no
  * default — the two answers differ by nearly a full shift's pay — and no
  * picker either (ruling D, 2026-09-22): the punch is corrected in
  * Withers-time, and until it is the run cannot be submitted.
@@ -1031,7 +1037,7 @@ function push(map: Map<string, { from: number; to: number }[]>, date: string, fr
  * §1.9 — no closing punch, and the §2.4 nights the rule cannot pay.
  *
  * Three nights in the 2026-09-23 window ended more than two hours before the
- * door did, and the run had to ask Sophia what happened. Alina ruled on
+ * door did, and the run had to ask the store manager what happened. Alina ruled on
  * 2026-09-22 (#519) that this is a per-night choice on the SCHEDULE view, with
  * three options — pay the scheduled closer, pay a manager who closed without
  * punching, or skip — and that the default is SKIP: no bonus unless a manager
@@ -1175,7 +1181,7 @@ function staffCandidates(input: VerifyInput, profiles: Map<string, ProfileRow>):
 
 /** The profile the §3.5/§3.7 default names, or null if nobody on file matches. */
 function defaultTipPayee(input: VerifyInput, profiles: Map<string, ProfileRow>): Person | null {
-  const p = input.profiles.find((row) => row.active && sameNameWords(row.full_name, DEFAULT_TIP_PAYEE_NAME));
+  const p = input.profiles.find((row) => row.active && sameNameWords(row.full_name, input.defaultTipPayeeName ?? DEFAULT_TIP_PAYEE_NAME));
   return p ? { id: p.id, name: nameOf(profiles, p.id) } : null;
 }
 
@@ -1222,7 +1228,7 @@ function punchOverlapsShift(p: PunchRow, s: ShiftRow): boolean {
 }
 
 /**
- * An event's crew (ruled 2026-09-27, bj-finance #519): "if Sophia doesn't
+ * An event's crew (ruled 2026-09-27, bj-finance #519): "if [the manager] doesn't
  * clock in when she's also helping on that catering event, that's on her. It
  * needs to require a punch."
  *
@@ -1276,7 +1282,7 @@ export function eventCrew(deal: DealRow, shifts: ShiftRow[], punches: PunchRow[]
  * A booked event in the window with no crew, where crew means a punch for the
  * event (eventCrew, ruled 2026-09-27): somebody scheduled who never clocked in
  * is not crew. Any catering tip on it would otherwise go to nobody, so the
- * event gets a staff picker, default Sophia (ruled 2026-09-22). The same
+ * event gets a staff picker, default the designated tip payee (ruled 2026-09-22). The same
  * finding is the upstream warning: the event needs its Catering shift, or the
  * people who worked it need their punches, so the next run pays it the normal
  * way. Each scheduled person with no punch is also named on their own, as a
@@ -1338,7 +1344,7 @@ function eventDealsInWindow(input: VerifyInput): DealRow[] {
  * Olo tips are split by Pastry Opener shifts worked. A window where nobody
  * worked one strands the money, and is a schedule anomaly in its own right: the
  * norm is at least 2 a week, 4 a period. One case per window, with a staff
- * picker for any stranded Olo money, default Sophia (ruled 2026-09-22).
+ * picker for any stranded Olo money, default the designated tip payee (ruled 2026-09-22).
  *
  * A window in which the store never opened is not asked about.
  */

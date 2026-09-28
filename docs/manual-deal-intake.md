@@ -75,7 +75,7 @@ knowing:
 typed phone (digits only, leading US 1 dropped) against existing **deals** and
 **outreach prospects**, through the `deal_dedupe_candidates` RPC. The phone
 half has to be SQL, because `deals.contact_phone` holds whatever a human
-typed — "(215) 665-5323", "+1 215 665 5323" — and PostgREST cannot normalise
+typed — "(215) 555-0123", "+1 215 555 0123" — and PostgREST cannot normalise
 the column side of a filter.
 
 Archived deals are included on purpose: the 9,450 rows migrated from

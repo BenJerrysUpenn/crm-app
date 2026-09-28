@@ -1,7 +1,7 @@
 // Catering shift auto-creation: the window it computes, and what it does with
 // a deal whose labor_hours are not credible.
 //
-// The anchor case is deal 25156 (Terrain, 2026-09-27): labor_hours = 26 went
+// The anchor case is deal 25156 (Example Garden Co, 2026-09-27): labor_hours = 26 went
 // straight into shift 350, which ran 13:30 on the 27th to 15:30 on the 28th and
 // was published. Nothing between the deal and the schedule asked whether a
 // person could work it.
@@ -18,7 +18,7 @@ import {
 // The note createDraftShiftsForDeal assembles, without needing a Supabase
 // client. Kept in the same order as the real thing: the alarm first, then where
 // to be, then the provenance.
-function noteFor(deal: Parameters<typeof computeShiftWindow>[0], company = "Terrain") {
+function noteFor(deal: Parameters<typeof computeShiftWindow>[0], company = "Example Garden Co") {
   const win = computeShiftWindow(deal)!;
   const marker = isLongShiftHours(win.hours) ? longShiftWarning(win.hours, win.laborHours) : null;
   return [marker, win.cartEvent ? CART_NOTE : null, `Auto-created from booked deal #${deal.id}`, company]
@@ -26,47 +26,47 @@ function noteFor(deal: Parameters<typeof computeShiftWindow>[0], company = "Terr
     .join(" · ");
 }
 
-// Terrain, reconstructed from the shift it produced: a 13:30 start means a
+// Example Garden Co, reconstructed from the shift it produced: a 13:30 start means a
 // 14:30 departure_time, and a 15:30 finish the next day means labor_hours = 26.
 // (13:30 New York is 17:30Z — late September is still EDT.) staff_count is left
 // out because computeShiftWindow does not use it.
-const TERRAIN = {
+const GARDEN = {
   id: 25156,
   event_date: "2026-09-27",
   departure_time: "14:30",
   labor_hours: 26,
-  company: "Terrain",
+  company: "Example Garden Co",
 };
 
 describe("computeShiftWindow", () => {
   it("starts an hour before departure, New York time", () => {
-    const win = computeShiftWindow({ ...TERRAIN, labor_hours: 8 });
+    const win = computeShiftWindow({ ...GARDEN, labor_hours: 8 });
     expect(win?.startISO).toBe("2026-09-27T17:30:00.000Z"); // 13:30 EDT
     expect(win?.endISO).toBe("2026-09-28T01:30:00.000Z"); // 21:30 EDT
     expect(win?.hours).toBe(8);
   });
 
-  it("reproduces the 26-hour Terrain window without clamping it", () => {
-    const win = computeShiftWindow(TERRAIN);
+  it("reproduces the 26-hour Example Garden Co window without clamping it", () => {
+    const win = computeShiftWindow(GARDEN);
     expect(win?.startISO).toBe("2026-09-27T17:30:00.000Z"); // Sun 13:30 EDT
     expect(win?.endISO).toBe("2026-09-28T19:30:00.000Z"); // Mon 15:30 EDT
     expect(win?.hours).toBe(26);
   });
 
   it("falls back to four hours when labor_hours is missing or nonsense", () => {
-    expect(computeShiftWindow({ ...TERRAIN, labor_hours: null })?.hours).toBe(4);
-    expect(computeShiftWindow({ ...TERRAIN, labor_hours: 0 })?.hours).toBe(4);
-    expect(computeShiftWindow({ ...TERRAIN, labor_hours: -3 })?.hours).toBe(4);
+    expect(computeShiftWindow({ ...GARDEN, labor_hours: null })?.hours).toBe(4);
+    expect(computeShiftWindow({ ...GARDEN, labor_hours: 0 })?.hours).toBe(4);
+    expect(computeShiftWindow({ ...GARDEN, labor_hours: -3 })?.hours).toBe(4);
   });
 
   it("returns null until the picklist has set a departure time", () => {
-    expect(computeShiftWindow({ ...TERRAIN, departure_time: null })).toBeNull();
-    expect(computeShiftWindow({ ...TERRAIN, event_date: "" })).toBeNull();
+    expect(computeShiftWindow({ ...GARDEN, departure_time: null })).toBeNull();
+    expect(computeShiftWindow({ ...GARDEN, event_date: "" })).toBeNull();
   });
 
   it("handles a winter date, when New York is on standard time", () => {
     const win = computeShiftWindow({
-      ...TERRAIN,
+      ...GARDEN,
       event_date: "2026-12-05",
       departure_time: "14:30",
       labor_hours: 8,
@@ -108,14 +108,14 @@ describe("longShiftWarning", () => {
 // marker leads, so it is the first thing on the shift card.
 describe("the shift note for an implausible deal", () => {
   it("puts the marker first", () => {
-    expect(noteFor(TERRAIN)).toBe(
-      "CHECK HOURS: deal says 26h per person. · Auto-created from booked deal #25156 · Terrain",
+    expect(noteFor(GARDEN)).toBe(
+      "CHECK HOURS: deal says 26h per person. · Auto-created from booked deal #25156 · Example Garden Co",
     );
   });
 
   it("leaves a normal deal's note exactly as it was", () => {
-    expect(noteFor({ ...TERRAIN, labor_hours: 6 })).toBe(
-      "Auto-created from booked deal #25156 · Terrain",
+    expect(noteFor({ ...GARDEN, labor_hours: 6 })).toBe(
+      "Auto-created from booked deal #25156 · Example Garden Co",
     );
   });
 });
@@ -130,7 +130,7 @@ describe("the shift note for an implausible deal", () => {
 
 // A plain 8-hour event: departure 14:30, so an ordinary shift is 13:30–21:30
 // New York and a cart shift is 12:30–21:30.
-const EVENT = { ...TERRAIN, labor_hours: 8 };
+const EVENT = { ...GARDEN, labor_hours: 8 };
 
 describe("isCartEvent", () => {
   it("accepts the integer the column actually holds", () => {
@@ -220,7 +220,7 @@ describe("the cart storage hour (EST)", () => {
 describe("the cart storage hour on a DST changeover day", () => {
   // 2026-11-01: the clocks go back at 02:00. A daytime departure is cleanly on
   // standard time, and both hours before it are too.
-  const FALL_BACK = { ...TERRAIN, event_date: "2026-11-01", labor_hours: 6 };
+  const FALL_BACK = { ...GARDEN, event_date: "2026-11-01", labor_hours: 6 };
 
   it("uses standard time for a departure after the changeover", () => {
     const plain = computeShiftWindow({ ...FALL_BACK, cart_service: 0 })!;
@@ -233,7 +233,7 @@ describe("the cart storage hour on a DST changeover day", () => {
   });
 
   it("uses daylight time for a departure after the spring-forward changeover", () => {
-    const spring = { ...TERRAIN, event_date: "2027-03-14", labor_hours: 6 };
+    const spring = { ...GARDEN, event_date: "2027-03-14", labor_hours: 6 };
     const plain = computeShiftWindow({ ...spring, cart_service: 0 })!;
     const cart = computeShiftWindow({ ...spring, cart_service: 1 })!;
     expect(plain.startISO).toBe("2027-03-14T17:30:00.000Z"); // 13:30 EDT
@@ -250,7 +250,7 @@ describe("the cart storage hour on a DST changeover day", () => {
     // instant it picks, the cart start must sit exactly one hour before the
     // non-cart start and the end must not move.
     for (const event_date of ["2027-03-14", "2026-11-01"]) {
-      const deal = { ...TERRAIN, event_date, departure_time: "04:00", labor_hours: 6 };
+      const deal = { ...GARDEN, event_date, departure_time: "04:00", labor_hours: 6 };
       const plain = computeShiftWindow({ ...deal, cart_service: 0 })!;
       const cart = computeShiftWindow({ ...deal, cart_service: 1 })!;
       const earlierBy =
@@ -265,20 +265,20 @@ describe("the cart storage hour on a DST changeover day", () => {
 describe("a cart event's note", () => {
   it("says where to start and why the shift is longer", () => {
     expect(noteFor({ ...EVENT, cart_service: 1 })).toBe(
-      "Cart event: start at the storage unit, includes 1h cart pickup · Auto-created from booked deal #25156 · Terrain",
+      "Cart event: start at the storage unit, includes 1h cart pickup · Auto-created from booked deal #25156 · Example Garden Co",
     );
   });
 
   it("is absent when there is no cart", () => {
     expect(noteFor({ ...EVENT, cart_service: 0 })).toBe(
-      "Auto-created from booked deal #25156 · Terrain",
+      "Auto-created from booked deal #25156 · Example Garden Co",
     );
   });
 });
 
 describe("a cart event that the extra hour tips over the limit", () => {
   it("is flagged on the real length, not the quoted one", () => {
-    const deal = { ...TERRAIN, labor_hours: 14.5, cart_service: 1 };
+    const deal = { ...GARDEN, labor_hours: 14.5, cart_service: 1 };
     const win = computeShiftWindow(deal)!;
     expect(win.laborHours).toBe(14.5);
     expect(win.hours).toBe(15.5);
@@ -290,19 +290,19 @@ describe("a cart event that the extra hour tips over the limit", () => {
     expect(longShiftWarning(15.5, 14.5)).toBe(
       "CHECK HOURS: shift is 15.5h per person (deal says 14.5h plus 1h cart pickup).",
     );
-    expect(noteFor({ ...TERRAIN, labor_hours: 14.5, cart_service: 1 })).toBe(
-      "CHECK HOURS: shift is 15.5h per person (deal says 14.5h plus 1h cart pickup). · Cart event: start at the storage unit, includes 1h cart pickup · Auto-created from booked deal #25156 · Terrain",
+    expect(noteFor({ ...GARDEN, labor_hours: 14.5, cart_service: 1 })).toBe(
+      "CHECK HOURS: shift is 15.5h per person (deal says 14.5h plus 1h cart pickup). · Cart event: start at the storage unit, includes 1h cart pickup · Auto-created from booked deal #25156 · Example Garden Co",
     );
   });
 
   it("leaves the same deal alone without the cart", () => {
-    const win = computeShiftWindow({ ...TERRAIN, labor_hours: 14.5, cart_service: 0 })!;
+    const win = computeShiftWindow({ ...GARDEN, labor_hours: 14.5, cart_service: 0 })!;
     expect(win.hours).toBe(14.5);
     expect(isLongShiftHours(win.hours)).toBe(false);
   });
 
   it("catches the exact boundary: 14 quoted hours plus the cart hour is 15", () => {
-    const win = computeShiftWindow({ ...TERRAIN, labor_hours: 14, cart_service: 1 })!;
+    const win = computeShiftWindow({ ...GARDEN, labor_hours: 14, cart_service: 1 })!;
     expect(win.hours).toBe(15);
     expect(isLongShiftHours(win.hours)).toBe(true);
   });

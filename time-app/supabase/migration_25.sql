@@ -4,7 +4,7 @@
 --
 -- Why: the 2026-09-23 pay run could not account for its own inputs. Time entry
 -- ids 1270–1274 and at least three shifts had vanished from inside the pay
--- window, including Joey's 09-10 punch, and there was no record anywhere of who
+-- window, including one employee's 09-10 punch, and there was no record anywhere of who
 -- removed them or what they said. Payroll spec (bj-finance #519, item 1.13 and
 -- build order 9.1): "no audit table exists ... Precondition for trusting
 -- anything above." Every other timesheet check is only as good as the promise

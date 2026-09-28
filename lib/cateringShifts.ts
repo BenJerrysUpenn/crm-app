@@ -38,7 +38,7 @@ const DEFAULT_LABOR_HOURS = 4;
 const CART_STORAGE_PICKUP_MIN = 120;
 
 // At or above this many hours a shift is not credible and must be looked at by
-// a person. Deal 25156 (Terrain, 2026-09-27) had labor_hours = 26, which became
+// a person. Deal 25156 (2026-09-27) had labor_hours = 26, which became
 // shift 350 running 13:30 on the 27th to 15:30 on the 28th, and it was
 // published: no layer between the deal and the schedule ever asked whether a
 // human could work it.

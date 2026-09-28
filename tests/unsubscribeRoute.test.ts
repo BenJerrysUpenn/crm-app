@@ -3,7 +3,7 @@ import { mintUnsubscribeToken } from "@/lib/outreach/unsubscribeToken";
 
 const SECRET = "test-secret-not-a-real-one";
 const PROSPECT_ID = 25386;
-const EMAIL = "Pino@Example.com";
+const EMAIL = "Remy@Example.com";
 
 // A stand-in for the shared Supabase project, small enough to read in one go.
 // `rpc` mirrors supabase/crm/005_unsubscribe.sql: the suppression insert is
@@ -122,7 +122,7 @@ describe("POST — RFC 8058 one-click", () => {
 
     expect(db.state.suppression).toHaveLength(1);
     expect(db.state.suppression[0]).toMatchObject({
-      email: "pino@example.com",
+      email: "remy@example.com",
       channel: "email",
       reason: "unsubscribe",
     });
@@ -180,7 +180,7 @@ describe("POST — the human-clicked button", () => {
 describe("POST — rejected tokens", () => {
   const badTokens = (): Array<[string, string]> => [
     ["a bad MAC", mintUnsubscribeToken(PROSPECT_ID, EMAIL, "a-different-secret")],
-    ["another prospect's address", mintUnsubscribeToken(PROSPECT_ID, "someone@else.com", SECRET)],
+    ["another prospect's address", mintUnsubscribeToken(PROSPECT_ID, "someone@example.org", SECRET)],
     ["an unknown prospect id", mintUnsubscribeToken(999999, EMAIL, SECRET)],
     ["a malformed token", "not-a-real-token"],
     ["an empty token", ""],
