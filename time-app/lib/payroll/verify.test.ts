@@ -841,36 +841,36 @@ test("1.10: a blank shift_id joins to that person's own shift that day first", (
 test("1.10: with no shift of their own, the punch joins an unworked shift that brackets it, and names the swap", () => {
   // Nine of nine blank punches in the 2026-09-23 window were covers, and
   // person+date found none of them.
-  const carlisShift = shift({
+  const caseysShift = shift({
     employee_id: CASEY,
     starts_at: at("2026-09-15", "15:00"),
     ends_at: at("2026-09-15", "22:00"),
     position: "PENN Closer",
   });
   const result = run({
-    shifts: [carlisShift],
+    shifts: [caseysShift],
     punches: [
       punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "15:05"), clock_out_at: at("2026-09-15", "22:10") }),
     ],
   });
   const f = only(result.findings, "1.10")[0];
   assert.match(f.resolution ?? "", /Covered Bravo, Casey's shift/);
-  assert.deepEqual(f.evidence.shift_ids, [carlisShift.id]);
+  assert.deepEqual(f.evidence.shift_ids, [caseysShift.id]);
 });
 
 test("1.10: a shift its own person punched is not available to be covered", () => {
-  const carlisShift = shift({
+  const caseysShift = shift({
     employee_id: CASEY,
     starts_at: at("2026-09-15", "15:00"),
     ends_at: at("2026-09-15", "22:00"),
     position: "PENN Closer",
   });
   const result = run({
-    shifts: [carlisShift],
+    shifts: [caseysShift],
     punches: [
       punch({
         employee_id: CASEY,
-        shift_id: carlisShift.id,
+        shift_id: caseysShift.id,
         clock_in_at: at("2026-09-15", "15:00"),
         clock_out_at: at("2026-09-15", "22:00"),
       }),
@@ -965,11 +965,11 @@ test("1.12: a fully punched event says nothing", () => {
 
 test("1.12: crew punched counts punches, not the schedule; a manual overlapping punch counts (ruled 2026-09-27)", () => {
   const deal: DealRow = { id: 25390, event_date: "2026-09-19", staff_count: 2, company: "Example Nonprofit" };
-  const carliShift = shift({ employee_id: CASEY, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
-  const coleShift = shift({ employee_id: DREW, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
+  const caseyShift = shift({ employee_id: CASEY, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
+  const drewShift = shift({ employee_id: DREW, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
   const result = run({
     deals: [deal],
-    shifts: [carliShift, coleShift],
+    shifts: [caseyShift, drewShift],
     punches: [
       // Casey forgot to pick the shift and punched by hand, during it.
       punch({ employee_id: CASEY, shift_id: null, clock_in_at: at("2026-09-19", "16:05"), clock_out_at: at("2026-09-19", "21:00") }),
@@ -988,10 +988,10 @@ test("1.12: a cover punch with no shift_id is not crew for the event it happened
   // hours. The cover ladder (1.10) pays her hours, but she did not punch FOR
   // the event, so she is not its crew.
   const deal: DealRow = { id: 25391, event_date: "2026-09-19", staff_count: 1, company: "Example College" };
-  const joeyShift = shift({ employee_id: JAMIE, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
+  const jamieShift = shift({ employee_id: JAMIE, starts_at: at("2026-09-19", "16:00"), ends_at: at("2026-09-19", "21:00"), position: "Catering", deal_id: deal.id });
   const result = run({
     deals: [deal],
-    shifts: [joeyShift],
+    shifts: [jamieShift],
     punches: [punch({ employee_id: CASEY, shift_id: null, clock_in_at: at("2026-09-19", "16:00"), clock_out_at: at("2026-09-19", "21:00") })],
   });
   const found = only(result.findings, "1.12");

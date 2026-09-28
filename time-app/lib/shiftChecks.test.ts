@@ -21,16 +21,16 @@ import {
 } from "./shiftChecks.ts";
 
 // The Example Garden Co shift, as stored: 13:30 EDT on the 27th to 15:30 EDT on the 28th.
-const TERRAIN_START = "2026-09-27T17:30:00Z"; // 13:30 EDT
-const TERRAIN_END = "2026-09-28T19:30:00Z"; // 15:30 EDT
+const GARDEN_START = "2026-09-27T17:30:00Z"; // 13:30 EDT
+const GARDEN_END = "2026-09-28T19:30:00Z"; // 15:30 EDT
 
 function edt(date: string, hhmm: string) {
   return `${date}T${hhmm}:00-04:00`;
 }
 
 test("the Example Garden Co shift is 26 hours and is flagged", () => {
-  assert.equal(shiftHours(TERRAIN_START, TERRAIN_END), 26);
-  assert.equal(isLongShift(TERRAIN_START, TERRAIN_END), true);
+  assert.equal(shiftHours(GARDEN_START, GARDEN_END), 26);
+  assert.equal(isLongShift(GARDEN_START, GARDEN_END), true);
 });
 
 test("the threshold is 15 hours and is inclusive", () => {
@@ -64,11 +64,11 @@ test("a long overnight catering shift is still caught", () => {
 });
 
 test("backwards, equal and unparseable times are not 'long'", () => {
-  assert.equal(isLongShift(TERRAIN_END, TERRAIN_START), false);
-  assert.equal(isLongShift(TERRAIN_START, TERRAIN_START), false);
-  assert.equal(isLongShift("not a date", TERRAIN_END), false);
-  assert.equal(shiftHours(TERRAIN_END, TERRAIN_START), 0);
-  assert.equal(shiftHours("not a date", TERRAIN_END), 0);
+  assert.equal(isLongShift(GARDEN_END, GARDEN_START), false);
+  assert.equal(isLongShift(GARDEN_START, GARDEN_START), false);
+  assert.equal(isLongShift("not a date", GARDEN_END), false);
+  assert.equal(shiftHours(GARDEN_END, GARDEN_START), 0);
+  assert.equal(shiftHours("not a date", GARDEN_END), 0);
 });
 
 test("length is real elapsed time, so DST changes count", () => {
@@ -90,7 +90,7 @@ test("length is real elapsed time, so DST changes count", () => {
 test("findLongShifts returns only the bad ones, with their details", () => {
   const shifts: ShiftForLengthCheck[] = [
     { id: 1, employee_id: "emp-1", position: "PENN Opener", starts_at: edt("2026-09-27", "09:00"), ends_at: edt("2026-09-27", "17:00") },
-    { id: 350, employee_id: null, position: "Catering", starts_at: TERRAIN_START, ends_at: TERRAIN_END },
+    { id: 350, employee_id: null, position: "Catering", starts_at: GARDEN_START, ends_at: GARDEN_END },
     { id: 2, employee_id: "emp-2", position: "PENN Closer", starts_at: edt("2026-09-28", "15:00"), ends_at: edt("2026-09-28", "23:00") },
   ];
   assert.deepEqual(findLongShifts(shifts), [
@@ -98,15 +98,15 @@ test("findLongShifts returns only the bad ones, with their details", () => {
       id: 350,
       employee_id: null,
       position: "Catering",
-      starts_at: TERRAIN_START,
-      ends_at: TERRAIN_END,
+      starts_at: GARDEN_START,
+      ends_at: GARDEN_END,
       hours: 26,
     },
   ]);
 });
 
 test("findLongShifts copes with missing id, employee and position", () => {
-  const [found] = findLongShifts([{ starts_at: TERRAIN_START, ends_at: TERRAIN_END }]);
+  const [found] = findLongShifts([{ starts_at: GARDEN_START, ends_at: GARDEN_END }]);
   assert.equal(found.id, null);
   assert.equal(found.employee_id, null);
   assert.equal(found.position, null);
@@ -115,7 +115,7 @@ test("findLongShifts copes with missing id, employee and position", () => {
 
 test("the check is not catering-specific", () => {
   const [found] = findLongShifts([
-    { id: 9, position: "PENN Closer", starts_at: TERRAIN_START, ends_at: TERRAIN_END, employee_id: "emp-3" },
+    { id: 9, position: "PENN Closer", starts_at: GARDEN_START, ends_at: GARDEN_END, employee_id: "emp-3" },
   ]);
   assert.equal(found.position, "PENN Closer");
   assert.match(describeLongShift(found), /^PENN Closer shift /);
@@ -123,7 +123,7 @@ test("the check is not catering-specific", () => {
 
 test("the warning reads as plain English and names the position", () => {
   const [found] = findLongShifts([
-    { id: 350, position: "Catering", employee_id: null, starts_at: TERRAIN_START, ends_at: TERRAIN_END },
+    { id: 350, position: "Catering", employee_id: null, starts_at: GARDEN_START, ends_at: GARDEN_END },
   ]);
   assert.equal(
     describeLongShift(found),
@@ -132,13 +132,13 @@ test("the warning reads as plain English and names the position", () => {
 });
 
 test("a shift with no position just says 'Shift'", () => {
-  const [found] = findLongShifts([{ starts_at: TERRAIN_START, ends_at: TERRAIN_END }]);
+  const [found] = findLongShifts([{ starts_at: GARDEN_START, ends_at: GARDEN_END }]);
   assert.match(describeLongShift(found), /^Shift Sun Sep 27, 1:30 PM /);
 });
 
 test("formatInstant renders New York wall clock", () => {
-  assert.equal(formatInstant(TERRAIN_START), "Sun Sep 27, 1:30 PM");
-  assert.equal(formatInstant(TERRAIN_END), "Mon Sep 28, 3:30 PM");
+  assert.equal(formatInstant(GARDEN_START), "Sun Sep 27, 1:30 PM");
+  assert.equal(formatInstant(GARDEN_END), "Mon Sep 28, 3:30 PM");
   assert.equal(formatInstant("2026-09-27T04:00:00Z"), "Sun Sep 27, 12:00 AM");
 });
 

@@ -447,9 +447,9 @@ describe("the async edges", () => {
       phone: "215-555-0123",
     });
     // Once the human edits the email it is theirs, and it is looked up.
-    const edited = { ...filled.form, contact_email: "dana.o@example.org" };
+    const edited = { ...filled.form, contact_email: "jordan.s@example.org" };
     expect(autofillLookupKeys(edited, filled.state).email).toBe(
-      "dana.o@example.org",
+      "jordan.s@example.org",
     );
   });
 });
