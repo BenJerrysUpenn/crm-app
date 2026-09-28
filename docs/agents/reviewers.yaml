@@ -1,6 +1,12 @@
-# What the three agent PR reviewers grade a pull request in this repository against.
-# Schema and deployment: BenJerrysUpenn/bj-finance
-# docs/agents/scheduled-tasks/README-reviewers.md. Lane bj-finance #452, rollout #496.
+# What the factory review pass grades a pull request in this repository against
+# (bj-finance #585; previously the three #452 reviewers, rollout #496).
+#
+# THIS FILE IS HOW THIS REPOSITORY OPTS IN. The review pass is one cloud routine
+# shared across the portfolio, fired by .github/workflows/agent-reviews.yml, a
+# copy of Software-Factory's docs/agents/review/caller-template.yml that calls
+# Software-Factory's reusable .github/workflows/agent-review.yml@main. The pass
+# reads this file from this repo's origin/main. No file, no review. Schema and
+# deployment: Software-Factory docs/routines/reviewers.md.
 #
 # Maintainer information, not reviewer output. A reviewer never reports what it read,
 # never says a document is thin, and never mentions a gap. It cites rules and
@@ -101,13 +107,15 @@ documentation_map:
     docs: [docs/payroll-verify.md]
   - paths: [indeed-cv-downloader/**]
     docs: [indeed-cv-downloader/README.md]
+  - paths: [.github/workflows/agent-reviews.yml, docs/agents/reviewers.yaml]
+    docs: [docs/agents/reviewers.yaml]   # its header above; a gate file, so findings are questions
 
 # Extra one-way globs for merge_danger.py, beyond Software-Factory's built-in
 # list. This repo's migrations do NOT live under a `migrations/` directory: they
 # are supabase/crm/*.sql and time-app/supabase/migration_*.sql, which the
 # built-in list catches only through `**/*.sql`. The two directories are listed
 # whole so a non-.sql file there (supabase/crm/backfills/*.py writes the live
-# hosted database) is one-way too. Payroll paths are built-in already. The
+# hosted database) is one-way too. Money-movement paths are built-in already. The
 # call-desk do-not-call gate and the one-click unsubscribe decide who may
 # legally be called or mailed: a call or a mail made while they are wrong
 # cannot be recalled by a revert.
