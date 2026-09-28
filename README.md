@@ -134,7 +134,8 @@ The web routes that create the same shifts, `POST /api/deals/:id/booked-shifts`
 `ON CONFLICT (deal_id, deal_slot) DO NOTHING`. That needs
 `shifts_deal_slot_uidx` to be a plain unique index
 (`time-app/supabase/migration_29.sql`); against the partial index of migration
-18 every insert is refused (crm-app #35). The cron route is the one CRM route
-exempt from the login gate, so it requires `CRON_SECRET` (Bearer header or
+18 every insert is refused (crm-app #35). The cron route is exempt from the
+login gate (alongside the one-click-unsubscribe exemption), so it requires
+`CRON_SECRET` (Bearer header or
 `?secret=`): unset answers 503, wrong answers 401, and neither touches the
 database.
