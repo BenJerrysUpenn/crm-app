@@ -3,6 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { sendInvite, siteOrigin } from "@/lib/authLinks";
 import { NextResponse } from "next/server";
+import { isManager, canAssignRole, canEditProfile, OWNER_ONLY_EDIT } from "@/lib/roles";
+import type { Role } from "@/lib/types";
 
 // POST /api/profiles
 //
@@ -14,7 +16,7 @@ import { NextResponse } from "next/server";
 // corresponding profiles row.
 //
 // Body:
-//   { email: string, full_name: string, role?: 'employee'|'manager',
+//   { email: string, full_name: string, role?: 'employee'|'manager'|'owner',
 //     phone?: string, hourly_rate?: number }
 //
 // If the auth user already exists (someone re-invited), we still upsert
@@ -23,13 +25,13 @@ import { NextResponse } from "next/server";
 // Per Alina 2026-08-27: "Add a way to add new employees on the team page."
 export async function POST(request: Request) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || !isManager(me))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   let body: {
     email?: string;
     full_name?: string;
-    role?: "employee" | "manager";
+    role?: string;
     phone?: string;
     hourly_rate?: number;
   };
@@ -47,8 +49,12 @@ export async function POST(request: Request) {
   const full_name = (body.full_name || "").trim();
   if (!full_name || full_name.includes("@"))
     return NextResponse.json({ error: "Full name required (not an email)" }, { status: 400 });
-  const role: "employee" | "manager" =
-    body.role === "manager" ? "manager" : "employee";
+  // Anything unrecognised is an employee, as before. Only an owner may make
+  // someone an owner (lib/roles.ts).
+  const role: Role =
+    body.role === "owner" || body.role === "manager" ? body.role : "employee";
+  if (!canAssignRole(me, role))
+    return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
   const phone = (body.phone || "").trim() || null;
   const hourly_rate =
     typeof body.hourly_rate === "number" && !isNaN(body.hourly_rate)
@@ -56,6 +62,24 @@ export async function POST(request: Request) {
       : null;
 
   const admin = createAdminClient();
+
+  // Re-inviting an existing account rewrites its role and active flag below,
+  // through the service role, which the database guard does not stop. So a
+  // manager is refused here, before anything is sent, when the email belongs
+  // to an owner.
+  const { data: before } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  const existing = (before?.users ?? []).find(
+    (u) => (u.email ?? "").toLowerCase() === email,
+  );
+  if (existing) {
+    const { data: existingProfile } = await admin
+      .from("profiles")
+      .select("role")
+      .eq("id", existing.id)
+      .maybeSingle();
+    if (!canEditProfile(me, existingProfile))
+      return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
+  }
 
   // Creates the auth user (which fires handle_new_user) and emails the link.
   const invite = await sendInvite({
@@ -69,13 +93,13 @@ export async function POST(request: Request) {
 
   // A re-invite goes out as a magic link, which doesn't always carry the
   // user back, so look the existing account up by email in that case.
-  let userId = invite.userId;
+  let userId = invite.userId ?? existing?.id ?? null;
   if (!userId) {
     const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    const existing = (list?.users ?? []).find(
+    const created = (list?.users ?? []).find(
       (u) => (u.email ?? "").toLowerCase() === email,
     );
-    userId = existing?.id ?? null;
+    userId = created?.id ?? null;
   }
   if (!userId)
     return NextResponse.json({ error: "No user id returned" }, { status: 500 });

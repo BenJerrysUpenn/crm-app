@@ -4,6 +4,7 @@ import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import ScheduleBoard from "@/components/ScheduleBoard";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
+import { isManagerRole } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export default async function SchedulePage({
   const profile = await getProfile();
   if (!profile) redirect("/login");
   const supabase = createClient();
-  const isManager = profile.role === "manager";
+  const isManager = isManagerRole(profile.role);
 
   const weekStart = sundayOf(searchParams.week);
   const weekEnd = addDays(weekStart, 7);

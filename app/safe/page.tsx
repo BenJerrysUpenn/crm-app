@@ -1,5 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
+import { requirePfOwner } from "@/lib/pf/access";
 import PfTopBar from "@/components/pf/PfTopBar";
 import MetaBanner from "@/components/pf/MetaBanner";
 import FeedMissing from "@/components/pf/FeedMissing";
@@ -10,11 +9,8 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Safe to spend" };
 
 export default async function SafePage() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // Owners only (lib/pf/access.ts). Before the feed is read, never after.
+  const user = await requirePfOwner();
 
   const feed = await loadPfData();
 

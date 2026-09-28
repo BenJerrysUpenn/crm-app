@@ -3,6 +3,7 @@ import { getProfile } from "@/lib/auth";
 import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 // Manager approves/denies a shift_request. Handles both types:
 //   type='drop'   → on approve, release the shift (employee_id = NULL)
@@ -15,7 +16,7 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const { status } = await request.json();
   if (!["approved", "denied"].includes(status))

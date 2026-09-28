@@ -3,6 +3,7 @@ import { getProfile } from "@/lib/auth";
 import { isISODate } from "@/lib/holidays";
 import { isMissingTable } from "@/lib/storeHours";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -12,7 +13,7 @@ export const fetchCache = "force-no-store";
 // Deleting a date that has no exception is a no-op, not an error. -> { ok }
 export async function DELETE(_request: Request, { params }: { params: { date: string } }) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   if (!isISODate(params.date))

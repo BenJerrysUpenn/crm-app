@@ -2,10 +2,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { isMissingInStoreColumn } from "@/lib/storeHours";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const body = await request.json();
   const patch: Record<string, unknown> = {};
@@ -48,7 +49,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
 export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const supabase = createClient();
   // Soft-delete so existing shifts that reference the name are unaffected.

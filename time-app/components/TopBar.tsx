@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import type { Role } from "@/lib/types";
+import { isManagerRole } from "@/lib/roles";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -33,7 +34,7 @@ export default function TopBar({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const visible = links.filter((l) => !l.managerOnly || role === "manager");
+  const visible = links.filter((l) => !l.managerOnly || isManagerRole(role));
 
   function isActive(href: string) {
     return href === "/" ? pathname === "/" : pathname.startsWith(href);

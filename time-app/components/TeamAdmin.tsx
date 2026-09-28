@@ -8,8 +8,17 @@ import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } fr
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
 import { PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/payroll/payType";
+import { assignableRoles, canEditProfile } from "@/lib/roles";
+import type { Role } from "@/lib/types";
+
+const ROLE_LABELS: Record<Role, string> = {
+  employee: "Employee",
+  manager: "Manager",
+  owner: "Owner",
+};
 
 export default function TeamAdmin({
+  viewerRole,
   employees,
   locations,
   emailById,
@@ -22,6 +31,9 @@ export default function TeamAdmin({
   storeHoursReady,
   holidays,
 }: {
+  // The signed-in person's role. Decides which roles the forms offer and
+  // which rows are read-only (a manager cannot edit an owner).
+  viewerRole: Role;
   employees: Profile[];
   locations: Location[];
   emailById: Record<string, string>;
@@ -45,7 +57,9 @@ export default function TeamAdmin({
   const [newEmail, setNewEmail] = useState("");
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
-  const [newRole, setNewRole] = useState<"employee" | "manager">("employee");
+  const [newRole, setNewRole] = useState<Role>("employee");
+  const viewer = { role: viewerRole };
+  const roleOptions = assignableRoles(viewer);
   const [newRate, setNewRate] = useState<string>("");
 
   // Returns the server's message when a save is refused, or null when it stuck.
@@ -170,11 +184,12 @@ export default function TeamAdmin({
               />
               <select
                 value={newRole}
-                onChange={(e) => setNewRole(e.target.value as "employee" | "manager")}
+                onChange={(e) => setNewRole(e.target.value as Role)}
                 className="text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1"
               >
-                <option value="employee">Employee</option>
-                <option value="manager">Manager</option>
+                {roleOptions.map((r) => (
+                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                ))}
               </select>
               <input
                 type="number"
@@ -221,7 +236,16 @@ export default function TeamAdmin({
             </thead>
             <tbody>
               {employees.map((e) => (
-                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} onSave={saveProfile} onResend={resendInvite} />
+                <EmployeeRow
+                  key={e.id}
+                  e={e}
+                  email={emailById[e.id] ?? ""}
+                  saving={savingId === e.id}
+                  editable={canEditProfile(viewer, e)}
+                  roleOptions={roleOptions}
+                  onSave={saveProfile}
+                  onResend={resendInvite}
+                />
               ))}
             </tbody>
           </table>
@@ -444,12 +468,17 @@ function EmployeeRow({
   e,
   email,
   saving,
+  editable,
+  roleOptions,
   onSave,
   onResend,
 }: {
   e: Profile;
   email: string;
   saving: boolean;
+  // False on an owner's row when a manager is looking: shown, not editable.
+  editable: boolean;
+  roleOptions: Role[];
   onSave: (id: string, patch: Partial<Profile>) => Promise<string | null>;
   onResend: (id: string) => Promise<string>;
 }) {
@@ -498,22 +527,24 @@ function EmployeeRow({
     <tr className="border-t border-slate-200 dark:border-slate-800">
       <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">{email || "—"}</td>
       <td className="px-3 py-2">
-        <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-40" />
+        <input disabled={!editable} value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-40" />
       </td>
       <td className="px-3 py-2">
-        <input value={phone} onChange={(ev) => setPhone(ev.target.value)} onBlur={() => onSave(e.id, { phone })} placeholder="+1215..." className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-32" />
+        <input disabled={!editable} value={phone} onChange={(ev) => setPhone(ev.target.value)} onBlur={() => onSave(e.id, { phone })} placeholder="+1215..." className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-32" />
       </td>
       <td className="px-3 py-2">
-        <select value={role} onChange={(ev) => { const r = ev.target.value as Profile["role"]; setRole(r); onSave(e.id, { role: r }); }} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100">
-          <option value="employee">employee</option>
-          <option value="manager">manager</option>
+        <select disabled={!editable} value={role} onChange={(ev) => { const r = ev.target.value as Profile["role"]; setRole(r); onSave(e.id, { role: r }); }} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100">
+          {(roleOptions.includes(e.role) ? roleOptions : [e.role, ...roleOptions]).map((r) => (
+            <option key={r} value={r} disabled={!roleOptions.includes(r)}>{r}</option>
+          ))}
         </select>
       </td>
       <td className="px-3 py-2 text-right">
-        <input value={rate} onChange={(ev) => setRate(ev.target.value)} onBlur={() => onSave(e.id, { hourly_rate: rate ? Number(rate) : null })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-20 text-right" />
+        <input disabled={!editable} value={rate} onChange={(ev) => setRate(ev.target.value)} onBlur={() => onSave(e.id, { hourly_rate: rate ? Number(rate) : null })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-20 text-right" />
       </td>
       <td className="px-3 py-2">
         <input
+          disabled={!editable}
           value={qbo}
           onChange={(ev) => { setQbo(ev.target.value); setQboErr(null); }}
           onBlur={saveQbo}
@@ -525,6 +556,7 @@ function EmployeeRow({
       </td>
       <td className="px-3 py-2">
         <select
+          disabled={!editable}
           value={payType}
           onChange={(ev) => savePayType(ev.target.value)}
           title="Salaried or hourly. The payroll sheet reads this."
@@ -543,6 +575,7 @@ function EmployeeRow({
             (audit H2). */}
         <input
           type="checkbox"
+          disabled={!editable}
           checked={active}
           title="On roster. This does not remove their login."
           onChange={(ev) => { setActive(ev.target.checked); onSave(e.id, { active: ev.target.checked }); }}
@@ -551,7 +584,7 @@ function EmployeeRow({
       <td className="px-3 py-2 align-top">
         {email ? (
           <>
-            <button type="button" onClick={resend} disabled={inviteBusy} className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50">
+            <button type="button" onClick={resend} disabled={inviteBusy || !editable} className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50">
               {inviteBusy ? "Sending…" : "Resend invite"}
             </button>
             {inviteMsg && <div className="text-[11px] text-slate-500 mt-0.5 max-w-[220px]">{inviteMsg}</div>}

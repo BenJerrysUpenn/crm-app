@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { isPfPath } from "@/lib/roles";
 
 // Personal-finance pages live on their own subdomain (same Vercel project,
 // host-routed) — mirroring how crm./time. split off this repo.
 const PF_HOST = "personal.withers-ventures.com";
-const PF_ROUTES = ["/money", "/dial", "/safe"];
 
 const CRON_CATERING_SHIFTS = "/api/cron/catering-shifts";
 
@@ -35,17 +35,23 @@ export async function middleware(request: NextRequest) {
   if (pathname === CRON_CATERING_SHIFTS) {
     return NextResponse.next();
   }
-  const isPfRoute = PF_ROUTES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`)
-  );
+  const isPfRoute = isPfPath(pathname);
 
   if (host === PF_HOST) {
     // Landing: the phone-frequent widget. Auth still applies below.
     if (pathname === "/") {
       return NextResponse.redirect(new URL("/safe", request.url));
     }
-    // Keep the CRM off this host (auth/login routes stay shared).
-    if (!isPfRoute && pathname !== "/login" && !pathname.startsWith("/auth")) {
+    // Keep the CRM off this host (auth/login routes stay shared, and so do
+    // sign-out and the "no access" page a non-owner is sent to; bouncing those
+    // to /safe would loop a manager between /safe and /no-access).
+    if (
+      !isPfRoute &&
+      pathname !== "/login" &&
+      !pathname.startsWith("/auth") &&
+      pathname !== "/no-access" &&
+      pathname !== "/api/logout"
+    ) {
       return NextResponse.redirect(new URL("/safe", request.url));
     }
   } else if (isPfRoute && host.endsWith("withers-ventures.com")) {

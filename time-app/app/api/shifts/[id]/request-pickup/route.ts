@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { NextResponse } from "next/server";
+import { MANAGER_ROLES } from "@/lib/roles";
 
 // Employee requests to pick up an open (unassigned), published shift.
 // Creates a pending shift_requests row of type='pickup' and notifies managers.
@@ -64,7 +65,7 @@ export async function POST(
   const { data: managers } = await admin
     .from("profiles")
     .select("id, phone")
-    .eq("role", "manager");
+    .in("role", MANAGER_ROLES);
   const who = profile.full_name ?? "An employee";
   const when = `${fmtDate(shift.starts_at)} ${fmtTime(shift.starts_at)}–${fmtTime(shift.ends_at)}`;
   const posBit = shift.position ? " · " + shift.position : "";

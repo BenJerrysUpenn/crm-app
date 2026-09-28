@@ -8,7 +8,16 @@ export const CHANNELS: NotifPrefItem[] = [
   { key: "sms", label: "Text message" },
 ];
 
-export const TYPES_BY_ROLE: Record<"manager" | "employee", NotifPrefItem[]> = {
+const MANAGER_TYPES: NotifPrefItem[] = [
+  { key: "missed_clockin", label: "When a staff member misses a clock-in" },
+  { key: "shift_picked_up", label: "When an open shift is picked up" },
+  { key: "drop_request", label: "Swap / drop requests" },
+  { key: "time_off_request", label: "Time-off requests" },
+  { key: "availability_change", label: "When someone changes their availability" },
+  { key: "timeoff_cancelled", label: "When approved time off is cancelled" },
+];
+
+export const TYPES_BY_ROLE: Record<"owner" | "manager" | "employee", NotifPrefItem[]> = {
   employee: [
     { key: "shift_published", label: "A new shift is posted for me" },
     { key: "schedule_change", label: "When my schedule changes" },
@@ -18,12 +27,8 @@ export const TYPES_BY_ROLE: Record<"manager" | "employee", NotifPrefItem[]> = {
     { key: "drop_decision", label: "When my drop request is approved or denied" },
     { key: "timeoff_decision", label: "When my time-off request is approved or denied" },
   ],
-  manager: [
-    { key: "missed_clockin", label: "When a staff member misses a clock-in" },
-    { key: "shift_picked_up", label: "When an open shift is picked up" },
-    { key: "drop_request", label: "Swap / drop requests" },
-    { key: "time_off_request", label: "Time-off requests" },
-    { key: "availability_change", label: "When someone changes their availability" },
-    { key: "timeoff_cancelled", label: "When approved time off is cancelled" },
-  ],
+  manager: MANAGER_TYPES,
+  // Owners get every manager notification (lib/roles.ts), so they choose from
+  // the same list.
+  owner: MANAGER_TYPES,
 };

@@ -111,3 +111,30 @@ describe("the offers opt-in page (bj-finance #425)", () => {
     expect(gate.calls).toEqual([path]);
   });
 });
+
+describe("the personal-finance host", () => {
+  const PF = "personal.withers-ventures.com";
+
+  it.each(["/money", "/dial", "/safe"])("sends %s to the gate (owners only, lib/roles.ts)", async (path) => {
+    const response = await middleware(get(path, PF));
+
+    expect(gate.calls).toEqual([path]);
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/login");
+  });
+
+  // A manager refused on this host is sent to /no-access, and signs out
+  // through /api/logout. Bouncing either to /safe would loop the manager
+  // between /safe and /no-access.
+  it.each(["/no-access", "/api/logout"])("does not bounce %s to /safe", async (path) => {
+    await middleware(get(path, PF));
+
+    expect(gate.calls).toEqual([path]);
+  });
+
+  it("still keeps the CRM board off this host", async () => {
+    const response = await middleware(get("/call-desk", PF));
+
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/safe");
+    expect(gate.calls).toEqual([]);
+  });
+});

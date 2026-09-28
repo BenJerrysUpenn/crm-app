@@ -15,6 +15,7 @@ import {
 import { findLongShifts } from "@/lib/shiftChecks";
 import { isMissingTable, isMissingInStoreColumn } from "@/lib/storeHours";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 function addDays(d: string, n: number) {
   const x = new Date(d + "T00:00:00Z");
@@ -145,7 +146,7 @@ async function loadClosedRanges(supabase: Supabase, weekStart: string, lastDate:
 // could not run".
 export async function POST(request: Request) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await request.json();
