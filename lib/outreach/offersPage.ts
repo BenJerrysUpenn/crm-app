@@ -106,14 +106,3 @@ export function offersSignedUpHtml(at: Date, email: string): string {
 <p class="small">Agreed by ${esc(email)} on ${esc(consentStamp(at))}.</p>
 ${TAIL}`;
 }
-
-/** POST, refused: the address is on the suppression list (it unsubscribed,
- * bounced, complained or asked on a call not to be contacted). A button on a
- * page is not enough to undo that, so nothing is written. Not part of the
- * approved prototype copy; kept to two plain sentences. */
-export function offersRefusedHtml(): string {
-  return `${HEAD("Not added")}<h1>Not added</h1>
-<p>This address asked us to stop emailing it, so we have not added it to the list.</p>
-<p>If you would like to hear from us again, reply to any of our emails and we will sort it out.</p>
-${TAIL}`;
-}

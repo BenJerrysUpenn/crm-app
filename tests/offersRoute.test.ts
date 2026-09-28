@@ -9,7 +9,8 @@ const EMAIL = "Pino@Example.com";
 
 // A stand-in for the shared Supabase project. `rpc` models
 // supabase/crm/007_offers_opt_in.sql rather than returning a constant: it
-// refuses a suppressed address, writes one consent row and one event on the
+// lifts a suppression and opts the person in (owners' ruling 2026-09-27),
+// refuses only a 'dead' row, writes one consent row and one event on the
 // first yes, and nothing on a repeat. That is the behaviour under test.
 const db = vi.hoisted(() => {
   type Prospect = {
@@ -59,17 +60,24 @@ const db = vi.hoisted(() => {
       if (!email) {
         return { data: { opted_in: false, already: false, refused: null, email_present: false }, error: null };
       }
-      if (["suppressed", "dead"].includes(row.status) || state.suppression.has(email)) {
-        return { data: { opted_in: false, already: false, refused: "suppressed", email_present: true }, error: null };
+      if (row.status === "dead") {
+        return { data: { opted_in: false, already: false, refused: "dead", email_present: true }, error: null };
       }
-      if (row.marketing_opt_in && row.opt_in_source === "explicit_yes") {
+      const lifted = state.suppression.has(email) || row.status === "suppressed";
+      if (!lifted && row.marketing_opt_in && row.opt_in_source === "explicit_yes") {
         return {
           data: { opted_in: false, already: true, refused: null, email_present: true, opted_in_at: row.opt_in_at },
           error: null,
         };
       }
       const at = "2026-09-27T23:42:00Z";
-      Object.assign(row, { marketing_opt_in: true, opt_in_source: "explicit_yes", opt_in_at: at });
+      state.suppression.delete(email);
+      Object.assign(row, {
+        marketing_opt_in: true,
+        opt_in_source: "explicit_yes",
+        opt_in_at: at,
+        status: row.status === "suppressed" ? "sequenced" : row.status,
+      });
       state.consents.push({
         prospect_id: row.id,
         email,
@@ -78,9 +86,13 @@ const db = vi.hoisted(() => {
         page_version: args.p_page_version,
         ip: args.p_ip,
         user_agent: args.p_user_agent,
+        lifted_suppression: lifted,
       });
       state.events.push({ prospect_id: row.id, event: "opted_in" });
-      return { data: { opted_in: true, already: false, refused: null, email_present: true, opted_in_at: at }, error: null };
+      return {
+        data: { opted_in: true, already: false, refused: null, email_present: true, lifted, opted_in_at: at },
+        error: null,
+      };
     },
   };
 
@@ -222,12 +234,29 @@ describe("POST — the button", () => {
     expect(db.state.prospects.get(PROSPECT_ID)!.opt_in_source).toBe("explicit_yes");
   });
 
-  it("refuses a suppressed address and writes nothing", async () => {
+  it("opts in a previously suppressed address and shows the same confirmation", async () => {
+    // Owners' ruling 2026-09-27: an opt-in after a suppression is an opt-in.
     db.state.suppression.add("pino@example.com");
+    db.state.prospects.get(PROSPECT_ID)!.status = "suppressed";
+    const response = await POST(buttonPost(token), ctx(token));
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain("You're on the list");
+    expect(body).toContain("Agreed by Pino@Example.com on Sunday, September 27, 2026 at 7:42 PM ET.");
+    expect(body).not.toContain("Not added");
+    expect(db.state.suppression.has("pino@example.com")).toBe(false);
+    expect(db.state.consents).toHaveLength(1);
+    expect(db.state.consents[0].lifted_suppression).toBe(true);
+    expect(db.state.events).toHaveLength(1);
+    expect(db.state.prospects.get(PROSPECT_ID)!.status).toBe("sequenced");
+  });
+
+  it("404s a dead (test or invalid) row and writes nothing", async () => {
+    db.state.prospects.get(PROSPECT_ID)!.status = "dead";
     const response = await POST(buttonPost(token), ctx(token));
 
-    expect(response.status).toBe(409);
-    expect(await response.text()).toContain("asked us to stop emailing it");
+    expect(response.status).toBe(404);
     expect(db.state.consents).toHaveLength(0);
     expect(db.state.events).toHaveLength(0);
   });

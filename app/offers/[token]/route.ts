@@ -6,7 +6,6 @@ import {
   OFFERS_CONSENT_TEXT,
   OFFERS_PAGE_VERSION,
   offersConfirmHtml,
-  offersRefusedHtml,
   offersSignedUpHtml,
 } from "@/lib/outreach/offersPage";
 
@@ -26,8 +25,11 @@ export const runtime = "nodejs";
 // POST  /offers/<token>  the button. Verifies the token, then one RPC
 //       (supabase/crm/007_offers_opt_in.sql) records the consent row, sets
 //       the opt-in on the prospect and logs an 'opted_in' event, in one
-//       transaction. It refuses a suppressed address and writes nothing on a
-//       repeat press.
+//       transaction. A yes after an opt-out is a real yes (owners' ruling
+//       2026-09-27): the same transaction lifts the suppression and records
+//       what it lifted, and the person sees the same confirmation as anyone
+//       else. It writes nothing on a repeat press, and refuses only a 'dead'
+//       (test or invalid) row, which is a 404 like any other bad link.
 //
 // Mirrors app/api/unsubscribe/[token]/route.ts on purpose: the service-role
 // client (the person is not a CRM user; the token is the authorisation), a
@@ -119,6 +121,7 @@ type OptInResult = {
   already?: boolean;
   refused?: string | null;
   email_present?: boolean;
+  lifted?: boolean;
   opted_in_at?: string | null;
 };
 
@@ -155,8 +158,9 @@ export async function POST(
   if (error) return text("Offers sign-up failed.\n", 500);
 
   const outcome = (data ?? {}) as OptInResult;
-  if (outcome.refused) return html(offersRefusedHtml(), 409);
-  if (!outcome.email_present) return notFound();
+  // 'dead' is the only refusal left: a test or invalid row. Nobody real is
+  // behind it, so it answers like any other link that leads nowhere.
+  if (outcome.refused || !outcome.email_present) return notFound();
 
   // A repeat press shows the date they first said yes, which is the date the
   // stored proof carries.
