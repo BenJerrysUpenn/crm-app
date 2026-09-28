@@ -27,6 +27,12 @@ const OUTCOME = {
     opted_in: false, already: true, refused: null, email_present: true,
     lifted: false, opted_in_at: "2026-09-20T14:05:00Z",
   },
+  // crm/008: a signup_form opt-in is already explicit. Same shape as repeat;
+  // opted_in_at is the form's date, which the function leaves untouched.
+  signupFormAlready: {
+    opted_in: false, already: true, refused: null, email_present: true,
+    lifted: false, opted_in_at: "2026-06-01T16:00:00Z",
+  },
   dead: {
     opted_in: false, already: false, refused: "dead", email_present: true,
     lifted: false, opted_in_at: null,
@@ -170,6 +176,16 @@ describe("POST — the button", () => {
     expect(await response.text()).toContain(
       "Agreed by Remy@Example.com on Sunday, September 20, 2026 at 10:05 AM ET.",
     );
+  });
+
+  it("confirms a signup_form opt-in as already on the list, with the form's date", async () => {
+    db.state.rpcData = { ...OUTCOME.signupFormAlready };
+    const response = await POST(buttonPost(token), ctx(token));
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain("<h1>You're on the list</h1>");
+    expect(body).toContain("Agreed by Remy@Example.com on Monday, June 1, 2026 at 12:00 PM ET.");
   });
 
   it("shows a previously suppressed address the same confirmation", async () => {
