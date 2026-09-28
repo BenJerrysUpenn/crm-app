@@ -6,7 +6,7 @@ import CallDesk from "@/components/callDesk/CallDesk";
 export const dynamic = "force-dynamic";
 
 // /call-desk — the "Recently Contacted" call queue (bj-finance #409).
-// Mobile-first: Joey works this on his phone. The page itself is a thin
+// Mobile-first: the sales caller works this on a phone. The page itself is a thin
 // auth shell; everything live lives in the CallDesk client component.
 export default async function CallDeskPage() {
   const supabase = createClient();

@@ -64,12 +64,12 @@ function f(over: Partial<Finding>): Finding {
 
 test("the snapshot records every case's effective choice, defaults included", () => {
   const snap = submittalSnapshot([
-    f({ effective: { choice: "staff", payee: { id: "s", name: "Sophia" }, source: "default" } }),
+    f({ effective: { choice: "staff", payee: { id: "s", name: "Pat" }, source: "default" } }),
     f({ check: "1.5", key: "1.5:punch:9", ruling: { check_id: "1.5", finding_key: "1.5:punch:9", choice: "as_punched" } }),
     f({ check: "1.1", key: "1.1:punch:3", status: "needs_fix" }),
   ]);
   assert.deepEqual(snap, [
-    { key: "3.5:deal:1", check: "3.5", choice: "staff", payee_id: "s", payee_name: "Sophia", source: "default" },
+    { key: "3.5:deal:1", check: "3.5", choice: "staff", payee_id: "s", payee_name: "Pat", source: "default" },
     { key: "1.5:punch:9", check: "1.5", choice: "as_punched", payee_id: null, payee_name: null, source: "recorded" },
   ]);
 });
@@ -118,19 +118,19 @@ test("a 1.4 or 1.5 punch blocks submittal and is named in the reason (ruling D)"
     check: "1.4",
     key: "1.4:punch:7",
     status: "needs_fix",
-    evidence: { employee_name: "Barrett, Joey", date: "2026-09-10", punch_ids: [7] },
+    evidence: { employee_name: "Tester, Jamie", date: "2026-09-10", punch_ids: [7] },
   });
   const short = f({
     check: "1.5",
     key: "1.5:punch:8",
     status: "needs_fix",
-    evidence: { employee_name: "Freeman, Carli", date: "2026-09-18", punch_ids: [8] },
+    evidence: { employee_name: "Bravo, Casey", date: "2026-09-18", punch_ids: [8] },
   });
   const base = { ready: false, counts, window: WINDOW, submittal: null };
   assert.equal(
     submittalBlocker({ ...base, findings: [runaway, short] }, true, AFTER),
     "Correct these 2 punches on the Timesheets page first. They have no default (ruled 2026-09-22): " +
-      "1.4 runaway, no shift: Barrett, Joey 2026-09-10 (punch 7); 1.5 short punch: Freeman, Carli 2026-09-18 (punch 8).",
+      "1.4 runaway, no shift: Tester, Jamie 2026-09-10 (punch 7); 1.5 short punch: Bravo, Casey 2026-09-18 (punch 8).",
   );
   const bare = f({ check: "1.5", key: "1.5:punch:9", status: "needs_fix", evidence: {} });
   assert.match(
@@ -145,12 +145,12 @@ test("an open punch with no shift blocks submittal and says it is open (ruled 20
     check: "1.4",
     key: "1.4:punch:12",
     status: "needs_fix",
-    evidence: { employee_name: "McCullough, Cole", date: "2026-09-15", punch_ids: [12], open: true },
+    evidence: { employee_name: "Sample, Drew", date: "2026-09-15", punch_ids: [12], open: true },
   });
   assert.equal(
     submittalBlocker({ ready: false, counts, window: WINDOW, submittal: null, findings: [open] }, true, AFTER),
     "Correct this punch on the Timesheets page first. They have no default (ruled 2026-09-22): " +
-      "1.4 open punch, no shift: McCullough, Cole 2026-09-15 (punch 12).",
+      "1.4 open punch, no shift: Sample, Drew 2026-09-15 (punch 12).",
   );
 });
 

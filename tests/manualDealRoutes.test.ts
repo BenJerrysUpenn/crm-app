@@ -22,7 +22,7 @@ const db = vi.hoisted(() => {
   const client = {
     auth: {
       getUser: async () => ({
-        data: { user: { email: "josephpettine@gmail.com" } },
+        data: { user: { email: "caller1@example.com" } },
       }),
     },
     async rpc(name: string) {
@@ -91,8 +91,8 @@ function post(body: Record<string, unknown>): Request {
 
 /** Name, phone, source. No venue address, no event at all. */
 const THIN = {
-  contact_first_name: "Dana",
-  contact_phone: "215-665-5323",
+  contact_first_name: "Jordan",
+  contact_phone: "215-555-0123",
   source: "walk_in",
   venue_address: "",
 };
@@ -116,7 +116,7 @@ describe("POST /api/deals without a venue address", () => {
     const body = await res.json();
     expect(body.dry_run).toBe(true);
     expect(body.deal_insert.venue_address).toBeNull();
-    expect(body.deal_insert.contact_first_name).toBe("Dana");
+    expect(body.deal_insert.contact_first_name).toBe("Jordan");
     // Nothing to price yet, and it says so rather than queueing a job.
     expect(body.quote_jobs).toEqual([]);
     expect(body.quote_skipped).toBeTruthy();
@@ -138,9 +138,9 @@ describe("POST /api/call-desk/deals is unchanged", () => {
     const res = await createCallDesk(
       post({
         prospect_id: 126,
-        contact_first_name: "Dana",
-        contact_email: "dana@wharton.upenn.edu",
-        contact_phone: "215-665-5323",
+        contact_first_name: "Jordan",
+        contact_email: "jordan@example.org",
+        contact_phone: "215-555-0123",
         event_type: "Corporate",
         package_name: "Sundae Party",
         event_date: "2026-11-04",
@@ -160,10 +160,10 @@ describe("POST /api/deals/dedupe", () => {
   const rpcDeal = {
     kind: "deal",
     id: 25401,
-    name: "Dana Okafor",
+    name: "Jordan Sample",
     company: "Wharton",
-    email: "dana@wharton.upenn.edu",
-    phone: "(215) 665-5323",
+    email: "jordan@example.org",
+    phone: "(215) 555-0123",
     stage: "Event Complete",
     event_date: "2025-11-04",
     matched_email: true,
@@ -172,9 +172,9 @@ describe("POST /api/deals/dedupe", () => {
   const rpcProspect = {
     kind: "prospect",
     id: 126,
-    name: "Dana Okafor",
+    name: "Jordan Sample",
     company: null,
-    email: "dana@wharton.upenn.edu",
+    email: "jordan@example.org",
     phone: null,
     stage: null,
     event_date: null,
@@ -187,15 +187,15 @@ describe("POST /api/deals/dedupe", () => {
     db.state.dealRows = [
       {
         id: 25401,
-        contact_first_name: "Dana",
-        contact_last_name: "Okafor",
+        contact_first_name: "Jordan",
+        contact_last_name: "Sample",
         venue_name: "Huntsman Hall",
         venue_address: "3730 Walnut St, Philadelphia, PA",
         updated_at: "2025-11-05T12:00:00",
         created_at: "2025-09-01T09:00:00",
       },
     ];
-    const res = await dedupe(post({ email: "dana@wharton.upenn.edu" }));
+    const res = await dedupe(post({ email: "jordan@example.org" }));
     const body = await res.json();
     // One read, by id, of matched deals only.
     expect(db.state.dealSelects).toHaveLength(1);
@@ -203,8 +203,8 @@ describe("POST /api/deals/dedupe", () => {
     const d = body.matches.find((m: { kind: string }) => m.kind === "deal");
     expect(d).toMatchObject({
       id: 25401,
-      first_name: "Dana",
-      last_name: "Okafor",
+      first_name: "Jordan",
+      last_name: "Sample",
       venue_name: "Huntsman Hall",
       venue_address: "3730 Walnut St, Philadelphia, PA",
       touched_at: "2025-11-05T12:00:00",
@@ -216,7 +216,7 @@ describe("POST /api/deals/dedupe", () => {
   it("returns the bare matches if the details read fails", async () => {
     db.state.rpcRows = [rpcDeal];
     db.state.dealSelectError = { message: "permission denied" };
-    const res = await dedupe(post({ email: "dana@wharton.upenn.edu" }));
+    const res = await dedupe(post({ email: "jordan@example.org" }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.matches).toHaveLength(1);
@@ -226,7 +226,7 @@ describe("POST /api/deals/dedupe", () => {
 
   it("does not read deals when only prospects matched", async () => {
     db.state.rpcRows = [rpcProspect];
-    await dedupe(post({ email: "dana@wharton.upenn.edu" }));
+    await dedupe(post({ email: "jordan@example.org" }));
     expect(db.state.dealSelects).toHaveLength(0);
   });
 });

@@ -1,8 +1,8 @@
 // The roster join between this app and QuickBooks Payroll.
 //
 // Payroll spec §2.5 (bj-finance #519): "Withers-time `profiles` ↔ QBO by a
-// stored map (`profiles.qbo_employee_id`), never by name ('piper' = Kieran
-// Flint; QBO itself returns different display names per endpoint)."
+// stored map (`profiles.qbo_employee_id`), never by name (a nickname in one
+// system is a full name in the other; QBO itself returns different display names per endpoint)."
 //
 // The 2026-09-23 run matched people by name and could not: one person's
 // Withers-time name was a nickname, and QBO's own endpoints disagree with each

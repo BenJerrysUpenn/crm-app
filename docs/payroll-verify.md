@@ -142,14 +142,14 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 | 1.14 | `full_name` containing `@` | rule, warning |
 | 1.15 | A punch or shift in a submitted run changed after its submittal | rule, warning (never blocks) |
 | 3.4 | Invoice tip with no deal, any date | rule, **flag** (never blocks) |
-| 3.5 | Booked event in the window that nobody punched for | **choice**: who is paid its tip (**default: Sophia**); also the upstream warning to add the shift |
-| 3.7 | No Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: Sophia**); a schedule anomaly (norm ≥ 4 a period) |
+| 3.5 | Booked event in the window that nobody punched for | **choice**: who is paid its tip (**default: the designated tip payee, `DEFAULT_TIP_PAYEE_NAME`**); also the upstream warning to add the shift |
+| 3.7 | No Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: the designated tip payee**); a schedule anomaly (norm ≥ 4 a period) |
 
 Notes on the ones that surprise people:
 
 - **1.5 is the only check that can make a day longer.** Every other rule here
-  shortens a runaway. Carli's 09-18 punch was 2m 11s against a 7h shift because
-  Sophia closed for her.
+  shortens a runaway. An employee's 09-18 punch was 2m 11s against a 7h
+  shift because the manager closed for her.
 - **1.9's default is skip** (ruled 2026-09-22): no solo-close bonus unless a
   manager picks the scheduled closer or a manager who closed without punching.
   The dropdown is on the schedule, next to the week it happened in. It appears
