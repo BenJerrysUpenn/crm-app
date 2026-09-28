@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   mintOffersToken,
@@ -15,13 +14,13 @@ import {
 const SECRET = "test-secret-not-a-real-one";
 
 describe("offersMac", () => {
-  // Recomputed from node:crypto directly, so the test fails if the module
-  // changes the MAC input shape.
+  // An independent literal: HMAC_SHA256(SECRET, "offers:123:someone@example.com")
+  // as `openssl dgst -sha256 -hmac` prints it, and the MAC half of the pinned
+  // 123 vector below. Fails if the module changes the MAC input shape.
   it("is HMAC_SHA256 over `offers:<id>:<email_key>`", () => {
-    const expected = createHmac("sha256", SECRET)
-      .update("offers:123:someone@example.com")
-      .digest("hex");
-    expect(offersMac(123, " Someone@Example.com ", SECRET)).toBe(expected);
+    expect(offersMac(123, " Someone@Example.com ", SECRET)).toBe(
+      "739d835908fa9273509992c699fa985e54783d796a16857393b77a0dd9752fa8",
+    );
   });
 });
 
@@ -40,10 +39,10 @@ describe("mintOffersToken", () => {
   });
 
   it("is unpadded base64url of `<id>.<mac>`", () => {
-    const token = mintOffersToken(42, "someone@example.com", SECRET);
+    const token = mintOffersToken(123, "someone@example.com", SECRET);
     expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(Buffer.from(token, "base64url").toString("utf8")).toBe(
-      `42.${offersMac(42, "someone@example.com", SECRET)}`,
+      "123.739d835908fa9273509992c699fa985e54783d796a16857393b77a0dd9752fa8",
     );
   });
 });
