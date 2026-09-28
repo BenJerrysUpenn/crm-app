@@ -55,6 +55,10 @@ export type ProspectRow = {
   ever_booked: boolean;
   last_event_date: string | null;
   marketing_opt_in: boolean;
+  // Why marketing_opt_in is true. 'booked' is the implied basis seeded for
+  // past bookers and does NOT put anyone in Offer; only an explicit opt-in
+  // does (EXPLICIT_OPT_IN_SOURCES).
+  opt_in_source: string | null;
   last_outreach_at: string | null;
   verify_status: string | null;
 };
@@ -162,7 +166,7 @@ export type Flows = {
   coldToDeal: number; // cold prospects whose email is on a CRM deal
   coldSuppressed: number;
   offerBookedRecent: number; // in Offer because they booked in the last 12 months
-  offerOptedIn: number; // in Offer because they opted in (and did not book recently)
+  offerOptedIn: number; // in Offer because they explicitly opted in (and did not book recently)
   dealToWarm: number; // Warm: enquired (deal on file), never booked
   offerToWarm: number; // Warm: booked, but more than 12 months ago
   suppressed: number; // every tier: opted out / bounced / suppressed
@@ -396,6 +400,15 @@ function newCat(key: string, label: string): CatAcc {
 
 const lc = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
+/** Opt-in sources that put a prospect in the Offer tier (bj-finance #425,
+ * owners' ruling). Matches Catering-Manager outreach/migrations/009, which
+ * excludes exactly these from outreach_warm_eligible. The 'booked' basis
+ * seeded for past bookers is implied consent, not an opt-in to offers. */
+export const EXPLICIT_OPT_IN_SOURCES: ReadonlySet<string> = new Set(["explicit_yes", "signup_form"]);
+
+export const isExplicitOptIn = (p: Pick<ProspectRow, "marketing_opt_in" | "opt_in_source">) =>
+  p.marketing_opt_in && !!p.opt_in_source && EXPLICIT_OPT_IN_SOURCES.has(p.opt_in_source);
+
 export function compute(data: RawData, now: Date): Payload {
   const nowMs = now.getTime();
   const DAY = 86_400_000;
@@ -478,7 +491,8 @@ export function compute(data: RawData, now: Date): Payload {
     if (p.engine === "cold") tier = "cold";
     else if (p.engine === "warm") {
       recentBooker = p.ever_booked && (p.last_event_date ?? "") >= twelveMonthsAgoISO;
-      tier = p.marketing_opt_in || recentBooker ? "offer" : "warm";
+      // Offer = booked in the last 12 months OR an explicit opt-in.
+      tier = recentBooker || isExplicitOptIn(p) ? "offer" : "warm";
     } else continue; // no engine: manual contacts, outside every tier
     const acc = tiers[tier];
     acc.routed++;
@@ -623,12 +637,12 @@ export function compute(data: RawData, now: Date): Payload {
     warm: {
       label: "Warm",
       blurb: "Middle of funnel",
-      definition: "Enquired before, or booked more than 12 months ago and not opted in.",
+      definition: "Enquired before, or booked more than 12 months ago and not explicitly opted in.",
     },
     offer: {
       label: "Offer",
       blurb: "Bottom of funnel",
-      definition: "Booked in the last 12 months, or opted in to marketing.",
+      definition: "Booked in the last 12 months, or explicitly opted in to offers.",
     },
   };
 
