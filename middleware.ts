@@ -6,6 +6,8 @@ import { updateSession } from "@/lib/supabase/middleware";
 const PF_HOST = "personal.withers-ventures.com";
 const PF_ROUTES = ["/money", "/dial", "/safe"];
 
+const CRON_CATERING_SHIFTS = "/api/cron/catering-shifts";
+
 export async function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const { pathname } = request.nextUrl;
@@ -16,6 +18,15 @@ export async function middleware(request: NextRequest) {
   // the auth gate below does to an anonymous request. Returned before
   // updateSession so there is no Supabase round trip either.
   if (pathname.startsWith("/api/unsubscribe/")) {
+    return NextResponse.next();
+  }
+
+  // The catering-shift sweep is hit by a scheduler, which has no session, so
+  // the auth gate below would 307 it to /login and nothing would ever run
+  // (crm-app #35). Exact path only: every other route, including
+  // /api/deals/:id/booked-shifts, stays behind the login. The route itself
+  // requires CRON_SECRET and answers 503 when it is unset (lib/cronAuth.ts).
+  if (pathname === CRON_CATERING_SHIFTS) {
     return NextResponse.next();
   }
   const isPfRoute = PF_ROUTES.some(

@@ -276,6 +276,11 @@ export function supabaseShiftStore(admin: SupabaseClient): ShiftStore {
         .limit(1);
       return !!existing && existing.length > 0;
     },
+    // PostgREST sends this as ON CONFLICT (deal_id, deal_slot) DO NOTHING and
+    // has no way to add a WHERE, so it needs a PLAIN unique index on exactly
+    // those columns: shifts_deal_slot_uidx as migration 29 left it
+    // (time-app/supabase/migration_29.sql). Against migration 18's partial
+    // index every insert is refused (crm-app #35).
     async insertShiftsIgnoringDuplicates(rows) {
       const { error, data } = await admin
         .from("shifts")
