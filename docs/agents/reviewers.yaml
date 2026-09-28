@@ -58,6 +58,71 @@ architecture_ground_truth:
 
 documentation_reference: README.md
 
+# Which documents describe which code, for the documentation lens of the factory
+# review pass (bj-finance #585; schema: Software-Factory docs/routines/reviewers.md).
+# Globs match like git's `:(glob)` pathspec: `*` stays inside one directory, `**`
+# crosses them. A changed path takes the docs of EVERY entry it matches.
+documentation_map:
+  - paths: [app/**, components/**, lib/**, scripts/**, middleware.ts, next.config.js, package.json, .env.example]
+    docs: [README.md]
+  - paths:
+      - app/call-desk/**
+      - app/api/call-desk/**
+      - components/callDesk/**
+      - lib/callDesk/**
+      - supabase/crm/001_call_desk.sql
+      - supabase/crm/002_call_desk_history.sql
+      - supabase/crm/003_call_desk_compliance.sql
+      - supabase/crm/004_call_desk_perf.sql
+    docs: [docs/call-desk.md]
+  - paths: [lib/callDesk/compliance.ts, app/call-desk/dnc-import/**, app/api/call-desk/dnc/**, supabase/crm/003_call_desk_compliance.sql]
+    docs: [docs/call-desk-do-not-call-policy.md]
+  - paths: [app/api/unsubscribe/**, lib/outreach/**, supabase/crm/005_unsubscribe.sql]
+    docs: [docs/unsubscribe.md]
+  - paths:
+      - app/deals/**
+      - app/api/deals/**
+      - components/NewDealForm.tsx
+      - lib/dealIntake.ts
+      - lib/dealAutofill.ts
+      - lib/dealDedupe.ts
+      - lib/callDesk/dealCreate.ts
+      - lib/callDesk/dealForm.ts
+      - lib/callDesk/dealRequest.ts
+      - supabase/crm/006_manual_deal_intake.sql
+    docs: [docs/manual-deal-intake.md]
+  - paths: [supabase/crm/backfills/**]
+    docs: [supabase/crm/backfills/README.md]
+  - paths: [time-app/**]
+    docs: [time-app/SETUP-GUIDE.md]
+  - paths: [time-app/app/api/cron/missed-clockins/**]
+    docs: [time-app/ALEX-CRON-SETUP.md]
+  - paths: [time-app/lib/payroll/**, time-app/app/api/payroll/**, time-app/supabase/migration_25*.sql, time-app/supabase/migration_26*.sql, time-app/supabase/migration_27*.sql, time-app/supabase/migration_28*.sql]
+    docs: [docs/payroll-verify.md]
+  - paths: [indeed-cv-downloader/**]
+    docs: [indeed-cv-downloader/README.md]
+
+# Extra one-way globs for merge_danger.py, beyond Software-Factory's built-in
+# list. This repo's migrations do NOT live under a `migrations/` directory: they
+# are supabase/crm/*.sql and time-app/supabase/migration_*.sql, which the
+# built-in list catches only through `**/*.sql`. The two directories are listed
+# whole so a non-.sql file there (supabase/crm/backfills/*.py writes the live
+# hosted database) is one-way too. Payroll paths are built-in already. The
+# call-desk do-not-call gate and the one-click unsubscribe decide who may
+# legally be called or mailed: a call or a mail made while they are wrong
+# cannot be recalled by a revert.
+one_way_paths:
+  - supabase/**
+  - time-app/supabase/**
+  - lib/callDesk/compliance.ts
+  - app/api/call-desk/dnc/**
+  - app/api/unsubscribe/**
+  - lib/outreach/unsubscribe*.ts
+
+# This repository's agent-reviews.yml calls the factory review pass (#585), so
+# the review-wait hook waits for its `factory-review:` summary.
+review_pipeline: factory
+
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
   previews are SSO-gated with no CLI path, and end-to-end checks on a preview are
