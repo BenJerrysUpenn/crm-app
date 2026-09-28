@@ -234,8 +234,10 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
       expect(supp).toEqual([{ email: null, phone: "+12155550100", channel: "phone" }]);
     });
 
-    it("still upgrades a booked (implied) opt-in to explicit_yes with a consent row", async () => {
-      const id = await prospect({ marketing_opt_in: true, opt_in_source: "booked", opt_in_at: FORM_DATE });
+    // The explicit set is exactly explicit_yes and signup_form (EXPLICIT_OPT_IN_SOURCES
+    // in lib/emailCampaignsPrototype/model.ts); every other source is upgraded.
+    it.each(["booked", "import"])("still upgrades an opt_in_source=%s opt-in to explicit_yes with a consent row", async (source) => {
+      const id = await prospect({ marketing_opt_in: true, opt_in_source: source, opt_in_at: FORM_DATE });
       expect(await press(id)).toMatchObject({ opted_in: true, already: false, lifted: false });
       expect((await row(id)).opt_in_source).toBe("explicit_yes");
       expect(await counts(id)).toEqual({ consents: 1, events: 1, email_supp: 0 });
