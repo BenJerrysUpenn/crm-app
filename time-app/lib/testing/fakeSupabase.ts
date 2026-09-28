@@ -37,7 +37,8 @@ export type FakeSupabase = {
   // underneath the route between its read and its write, as a fob tap would.
   beforeWrite: ((table: string) => void) | null;
   signIn(userId: string): void;
-  signOut(): void;
+  // The Cookie header a browser with this session sends (for middleware).
+  cookieHeader(): string;
   rows(table: string): Row[];
 };
 
@@ -269,8 +270,8 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
       const ref = new URL(SUPABASE_URL).hostname.split(".")[0];
       cookieJar.set(`sb-${ref}-auth-token`, JSON.stringify(session));
     },
-    signOut() {
-      cookieJar = new Map();
+    cookieHeader() {
+      return [...cookieJar].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ");
     },
     rows(table) {
       return fake.tables[table] ?? [];
