@@ -16,7 +16,7 @@ Every 5 minutes, make an HTTPS GET request to:
 https://time.withers-ventures.com/api/cron/missed-clockins?secret=PASTE_CRON_SECRET_HERE
 ```
 
-That endpoint looks for anyone who was scheduled but hasn't clocked in, and sends them and the managers an alert. It's safe to call any time; when nothing is due it does nothing. A successful call returns JSON like `{"checked":N,"flagged":[...]}`.
+That endpoint looks for anyone who was scheduled but hasn't clocked in, and sends them and the managers an alert. It's safe to call any time; when nothing is due it does nothing. A successful call returns JSON like `{"checked":N,"unreadable":[...],"flaggedEmployee":[...],"flaggedManager":[...],"reminded":[...],"clockoutReminded":[...]}`.
 
 ### Requirements
 

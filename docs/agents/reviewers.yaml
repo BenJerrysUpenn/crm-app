@@ -130,8 +130,6 @@ exclusions:
       ground truth, since one-click unsubscribe is a legal obligation — but #496 named
       three documents and a reviewer never widens its own closed set. Promoting it is a
       human's edit to this file.
-  - path: CATERING-CRON-SETUP.md
-    why: A one-time operator setup guide.
   - path: time-app/SETUP-GUIDE.md
     why: A one-time operator setup guide for a separate application in this repo.
   - path: time-app/ALEX-CRON-SETUP.md
