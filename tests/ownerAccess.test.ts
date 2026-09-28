@@ -47,6 +47,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const { updateSession } = await import("@/lib/supabase/middleware");
+const { middleware } = await import("@/middleware");
 const { requirePfOwner } = await import("@/lib/pf/access");
 
 function signIn(role: string | null, active = true) {
@@ -133,6 +134,48 @@ describe("the middleware gate", () => {
 
   it("sends nobody-signed-in to /login", async () => {
     expect(await gate("/money")).toBe("/login");
+  });
+});
+
+// The personal-finance host runs the whole middleware (host routing, then
+// the gate above). A manager refused there must land on /no-access and be able
+// to sign out, not bounce to /safe and back again.
+describe("the personal-finance host", () => {
+  const PF = "personal.withers-ventures.com";
+
+  async function visit(path: string, method = "GET") {
+    const res = await middleware(new NextRequest(`https://${PF}${path}`, { method, headers: { host: PF } }));
+    const location = res.headers.get("location");
+    return location ? new URL(location).pathname : "through";
+  }
+
+  it.each(["/money", "/dial", "/safe"])("lets an owner into %s", async (p) => {
+    signIn("owner", false);
+    expect(await visit(p)).toBe("through");
+  });
+
+  it.each(["/money", "/dial", "/safe"])("sends a manager from %s to /no-access", async (p) => {
+    signIn("manager");
+    expect(await visit(p)).toBe("/no-access");
+  });
+
+  it("shows a refused manager the /no-access page", async () => {
+    signIn("manager");
+    expect(await visit("/no-access")).toBe("through");
+  });
+
+  it("lets a refused manager sign out", async () => {
+    signIn("manager");
+    expect(await visit("/api/logout", "POST")).toBe("through");
+  });
+
+  it("sends nobody-signed-in to /login", async () => {
+    expect(await visit("/safe")).toBe("/login");
+  });
+
+  it("still keeps the CRM board off this host, even for an owner", async () => {
+    signIn("owner", false);
+    expect(await visit("/call-desk")).toBe("/safe");
   });
 });
 
