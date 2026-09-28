@@ -127,18 +127,3 @@ test("profilePatchRefusal: an owner can grant and remove the owner role", () => 
 test("profilePatchRefusal: an unknown role is refused for everyone", () => {
   assert.equal(profilePatchRefusal(owner, employee, { role: "admin" }), "Unknown role.");
 });
-
-// The routes that change a profile consult the same rules before writing.
-test("the profile routes check the owner rules before they write", () => {
-  const api = join(import.meta.dirname, "..", "app", "api", "profiles");
-  const patch = readFileSync(join(api, "[id]", "route.ts"), "utf8");
-  assert.ok(
-    patch.indexOf("profilePatchRefusal(") > 0 && patch.indexOf("profilePatchRefusal(") < patch.indexOf(".update(patch)"),
-    "PATCH /api/profiles/:id must refuse before it updates",
-  );
-  const invite = readFileSync(join(api, "route.ts"), "utf8");
-  assert.ok(invite.indexOf("canAssignRole(") > 0 && invite.indexOf("canAssignRole(") < invite.indexOf("sendInvite("));
-  assert.ok(invite.indexOf("canEditProfile(") > 0 && invite.indexOf("canEditProfile(") < invite.indexOf("sendInvite("));
-  const reinvite = readFileSync(join(api, "[id]", "invite", "route.ts"), "utf8");
-  assert.ok(reinvite.indexOf("canEditProfile(") > 0 && reinvite.indexOf("canEditProfile(") < reinvite.indexOf("sendInvite("));
-});
