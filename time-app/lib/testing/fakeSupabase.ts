@@ -20,8 +20,6 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { isManagerRole } from "../roles.ts";
-
 const TIME = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 export const SUPABASE_URL = "http://fake-project.supabase.test";
@@ -122,8 +120,10 @@ function callerOf(headers: Headers): Caller {
 
 function isManager(caller: Caller): boolean {
   if (caller.kind !== "user") return false;
-  // Mirrors public.is_manager() after migration 31: owners count as managers.
-  return fake.tables.profiles?.some((p) => p.id === caller.id && isManagerRole(p.role as string)) ?? false;
+  // public.is_manager() as migration 31 writes it: role in ('manager', 'owner').
+  // Spelled out here, not taken from lib/roles.ts, so the stand-in database
+  // cannot drift along with the code under test.
+  return fake.tables.profiles?.some((p) => p.id === caller.id && ["manager", "owner"].includes(p.role as string)) ?? false;
 }
 
 function canRead(table: string, caller: Caller, row: Row): boolean {
