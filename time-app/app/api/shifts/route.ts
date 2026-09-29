@@ -3,6 +3,8 @@ import { getProfile } from "@/lib/auth";
 import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
+import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
+import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
 
 // POST: create a shift (manager only). Body: employee_id, starts_at, ends_at,
@@ -11,6 +13,12 @@ import { NextResponse } from "next/server";
 // A shift of 15+ hours is refused with 409 unless the body carries
 // confirmLong: true. Nobody works a 26-hour shift on purpose, and one reached
 // the published schedule from a catering deal because no layer ever asked.
+//
+// A shift assigned to someone whose availability does not cover it (time off,
+// a "can't work" block, hours outside what they gave, or nothing on file) is
+// refused with 409 "availability_mismatch" unless the body carries
+// confirmAvailability: true. If availability cannot be read it is 503
+// "availability_unavailable" — never a silent pass. See lib/availabilityCheck.ts.
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -31,6 +39,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "long_shift", hours: shiftHours(startsAt, endsAt) }, { status: 409 });
 
   const supabase = createClient();
+
+  if (body.employee_id && body.confirmAvailability !== true) {
+    const candidate = { employee_id: String(body.employee_id), position: body.position ?? null, starts_at: startsAt, ends_at: endsAt };
+    const range = availabilityDateRange([candidate]);
+    if (range) {
+      const load = await loadAvailabilityRows(supabase, range, [candidate.employee_id]);
+      if (!load.ok) return NextResponse.json({ error: "availability_unavailable" }, { status: 503 });
+      const mismatch = checkShiftAvailability(candidate, load.rows);
+      if (mismatch) return NextResponse.json({ error: "availability_mismatch", mismatch }, { status: 409 });
+    }
+  }
+
   const { data, error } = await supabase
     .from("shifts")
     .insert({

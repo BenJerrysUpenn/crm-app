@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import ScheduleBoard from "@/components/ScheduleBoard";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
+import type { AvailabilityRow } from "@/lib/availabilityCheck";
+import { loadAvailabilityRows } from "@/lib/availabilityRows";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +89,7 @@ export default async function SchedulePage({
 
   let employees: Profile[] = [];
   let locations: Location[] = [];
-  let availability: Availability[] = [];
+  let availability: AvailabilityRow[] = [];
   if (isManager) {
     const { data: emps } = await supabase
       .from("profiles")
@@ -97,13 +99,12 @@ export default async function SchedulePage({
     employees = (emps as Profile[]) ?? [];
     const { data: locs } = await supabase.from("locations").select("*").order("id");
     locations = (locs as Location[]) ?? [];
-    // Everyone's availability + time off for the week, to show while drafting.
-    const { data: avail } = await supabase
-      .from("availability")
-      .select("*")
-      .gte("specific_date", weekStart)
-      .lt("specific_date", weekEnd);
-    availability = (avail as Availability[]) ?? [];
+    // Everyone's availability + time off for the week, to show while drafting:
+    // dated rows (padded a day each side for overnight shifts) AND weekly rows.
+    // Weekly rows are what the "Repeats every …" toggle writes; reading only
+    // dated rows made everyone on a weekly pattern look like they had nothing.
+    const load = await loadAvailabilityRows(supabase, { from: addDays(weekStart, -1), to: weekEnd });
+    availability = load.ok ? load.rows : [];
   }
 
   return (

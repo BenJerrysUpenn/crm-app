@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtDate } from "@/lib/format";
 import type { Availability, Profile } from "@/lib/types";
+import { resolveDay, type Kind } from "@/lib/availabilityCheck";
 
 type Row = Availability & { profiles: Pick<Profile, "id" | "full_name"> };
 
@@ -14,22 +15,31 @@ function addDays(d: string, n: number) {
   x.setUTCDate(x.getUTCDate() + n);
   return x.toISOString().slice(0, 10);
 }
-function t(s: string | null) {
-  if (!s) return "any";
-  const [h, m] = s.split(":");
-  const hr = Number(h);
+// Minutes past midnight to "9:00am"; 1440 reads as "12:00am".
+function t(minutes: number) {
+  const hr = Math.floor(minutes / 60) % 24;
+  const m = String(minutes % 60).padStart(2, "0");
   const ampm = hr >= 12 ? "pm" : "am";
   const h12 = hr % 12 === 0 ? 12 : hr % 12;
   return `${h12}:${m}${ampm}`;
 }
+const CHIP: Record<Kind, string> = {
+  unavailable: "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-900",
+  preferred: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-900",
+  available: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900",
+};
+const KIND_LABEL: Record<Kind, string> = { unavailable: "can't work", preferred: "prefers", available: "available" };
 
 export default function ManagerAvailability({
   weekStart,
   weekRows,
+  weeklyRows = [],
   timeOff,
 }: {
   weekStart: string;
   weekRows: Row[];
+  /** Weekly ("repeats every …") rows. Resolved against weekRows per date. */
+  weeklyRows?: Row[];
   timeOff: Row[];
 }) {
   const router = useRouter();
@@ -53,9 +63,11 @@ export default function ManagerAvailability({
     router.refresh();
   }
 
-  // Group week availability by employee.
+  // Group availability by employee: dated rows for the week and weekly rows
+  // alike, then resolve each date with the same rules the schedule checks use
+  // (lib/availabilityCheck.ts) so this view and the warnings never disagree.
   const byEmp = new Map<string, Row[]>();
-  for (const r of weekRows) {
+  for (const r of [...weekRows, ...weeklyRows]) {
     const arr = byEmp.get(r.employee_id) ?? [];
     arr.push(r);
     byEmp.set(r.employee_id, arr);
@@ -160,24 +172,18 @@ export default function ManagerAvailability({
           <div key={id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
             <div className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3">{list[0].profiles?.full_name ?? id}</div>
             <div className="flex flex-wrap gap-2">
-              {list
-                .slice()
-                .sort((a, b) => (a.specific_date! < b.specific_date! ? -1 : 1))
-                .map((a) => {
-                  const col = dates.indexOf(a.specific_date!);
-                  const pref = a.preference ?? "available";
-                  const cls =
-                    pref === "unavailable"
-                      ? "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-900"
-                      : pref === "preferred"
-                        ? "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-900"
-                        : "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900";
-                  return (
-                    <span key={a.id} className={`text-xs rounded-md px-2 py-1 border ${cls}`}>
-                      {col >= 0 ? DOW[col] : fmtDate(a.specific_date! + "T12:00:00")} {t(a.start_time)}–{t(a.end_time)}
-                    </span>
-                  );
-                })}
+              {dates.flatMap((date, col) =>
+                resolveDay(id, date, list).blocks.map((b) => (
+                  <span
+                    key={`${date}-${b.from}-${b.kind}`}
+                    title={`${KIND_LABEL[b.kind]}${b.source === "weekly" ? " (every week)" : ""}`}
+                    className={`text-xs rounded-md px-2 py-1 border ${CHIP[b.kind]}`}
+                  >
+                    {b.source === "weekly" ? "↻ " : ""}
+                    {DOW[col]} {b.from === 0 && b.to === 1440 ? "all day" : `${t(b.from)}–${t(b.to)}`}
+                  </span>
+                )),
+              )}
             </div>
           </div>
         ))

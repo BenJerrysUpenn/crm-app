@@ -13,6 +13,13 @@ import {
   type StoreHoursRow,
 } from "@/lib/coverage";
 import { findLongShifts } from "@/lib/shiftChecks";
+import {
+  availabilityDateRange,
+  findAvailabilityMismatches,
+  type AvailabilityMismatch,
+  type ShiftForAvailability,
+} from "@/lib/availabilityCheck";
+import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { isMissingTable, isMissingInStoreColumn } from "@/lib/storeHours";
 import { NextResponse } from "next/server";
 
@@ -138,11 +145,18 @@ async function loadClosedRanges(supabase: Supabase, weekStart: string, lastDate:
 //     unquestioned. This check needs nothing from migration 24, so it runs even
 //     when the store-hours tables are missing.
 //
-// Either one stops the publish with a 409 carrying both results.
+//  3. Availability — is every draft being published assigned to someone whose
+//     availability covers it? Time off, a "can't work" block, hours outside
+//     what they gave, and "no availability on file" all count (see
+//     lib/availabilityCheck.ts). Only the drafts this publish puts live are
+//     checked; open shifts never are.
+//
+// Any of them stops the publish with a 409 carrying all the results, so the
+// board shows one dialog with one "Publish anyway".
 //
 // force: true is the manager's override. It covers "publish despite the gaps",
-// "publish despite the long shift", and "publish even though the coverage check
-// could not run".
+// "publish despite the long shift", "publish despite the availability
+// mismatches", and "publish even though a check could not run".
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile || profile.role !== "manager")
@@ -199,13 +213,34 @@ export async function POST(request: Request) {
     });
   }
 
+  // Availability. Skipped under force: the manager has already said yes, and a
+  // failed read must not block an override.
+  let availability: (AvailabilityMismatch & { employee_name: string | null })[] = [];
+  if (!force) {
+    const assigned = inWeek.filter((s) => s.employee_id) as ShiftForAvailability[];
+    const range = availabilityDateRange(assigned);
+    if (range) {
+      const ids = Array.from(new Set(assigned.map((s) => s.employee_id as string)));
+      const load = await loadAvailabilityRows(supabase, range, ids);
+      if (!load.ok) return NextResponse.json({ error: "availability_unavailable" }, { status: 503 });
+      const mismatches = findAvailabilityMismatches(assigned, load.rows);
+      if (mismatches.length) {
+        // Names for the dialog. Not load-bearing: a failed read shows "Someone".
+        const { data: people } = await supabase.from("profiles").select("id, full_name").in("id", ids);
+        const nameById = new Map(((people ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name]));
+        availability = mismatches.map((m) => ({ ...m, employee_name: nameById.get(m.employee_id) ?? null }));
+      }
+    }
+  }
+
   const gaps = coverage?.gaps ?? [];
-  if (!force && (gaps.length > 0 || longShifts.length > 0)) {
+  if (!force && (gaps.length > 0 || longShifts.length > 0 || availability.length > 0)) {
     return NextResponse.json(
       {
         error: "schedule_checks",
         gaps,
         longShifts,
+        availability,
         hoursNotSet: coverage?.hoursNotSet ?? [],
       },
       { status: 409 },
