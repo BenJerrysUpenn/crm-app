@@ -67,9 +67,18 @@ export default async function AvailabilityPage({
       .select("*, profiles(id, full_name)")
       .eq("is_available", true)
       .not("specific_date", "is", null)
-      .gte("specific_date", weekStart)
+      // A day early: an overnight block from the Saturday before reaches Sunday.
+      .gte("specific_date", addDays(weekStart, -1))
       .lt("specific_date", weekEnd)
       .order("specific_date", { ascending: true });
+    // Weekly rows too: the "Repeats every …" toggle writes weekday, not
+    // specific_date, and a Team view that skipped them showed everyone on a
+    // weekly pattern as having submitted nothing.
+    const { data: weeklyRows } = await supabase
+      .from("availability")
+      .select("*, profiles(id, full_name)")
+      .eq("is_available", true)
+      .not("weekday", "is", null);
     const { data: timeOff } = await supabase
       .from("availability")
       .select("*, profiles(id, full_name)")
@@ -84,6 +93,7 @@ export default async function AvailabilityPage({
             <ManagerAvailability
               weekStart={weekStart}
               weekRows={(weekRows as (Availability & { profiles: Pick<Profile, "id" | "full_name"> })[]) ?? []}
+              weeklyRows={(weeklyRows as (Availability & { profiles: Pick<Profile, "id" | "full_name"> })[]) ?? []}
               timeOff={(timeOff as (Availability & { profiles: Pick<Profile, "id" | "full_name"> })[]) ?? []}
             />
           </div>

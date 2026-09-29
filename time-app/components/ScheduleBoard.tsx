@@ -6,7 +6,16 @@ import { useRouter } from "next/navigation";
 import { fmtTime } from "@/lib/format";
 import { describeGap, describeHoursNotSet, type CoverageGap, type HoursNotSetDay } from "@/lib/coverage";
 import { describeLongShift, formatHours, type LongShift } from "@/lib/shiftChecks";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
+import {
+  describeForSave,
+  describeMismatch,
+  formatSpan,
+  groupMismatches,
+  resolveDay,
+  type AvailabilityMismatch,
+  type AvailabilityRow,
+} from "@/lib/availabilityCheck";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -65,7 +74,8 @@ export default function ScheduleBoard({
   locations: Location[];
   dropRequests: DropReq[];
   shiftTypes: ShiftType[];
-  availability?: Availability[];
+  /** Dated rows for the week (padded a day) plus everyone's weekly rows. */
+  availability?: AvailabilityRow[];
   annotations?: Annotation[];
 }) {
   const colorByType = new Map(shiftTypes.map((t) => [t.name, t.color]));
@@ -77,13 +87,6 @@ export default function ScheduleBoard({
     const ap = hr >= 12 ? "p" : "a";
     const h12 = hr % 12 === 0 ? 12 : hr % 12;
     return m === "00" ? `${h12}${ap}` : `${h12}:${m}${ap}`;
-  }
-  // Availability summary for an employee on a specific date (for the modal).
-  function availFor(employeeId: string, date: string) {
-    const rows = availability.filter((a) => a.employee_id === employeeId && a.specific_date === date);
-    const timeOff = rows.find((a) => !a.is_available);
-    const blocks = rows.filter((a) => a.is_available);
-    return { timeOff, blocks };
   }
   const router = useRouter();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -102,11 +105,27 @@ export default function ScheduleBoard({
   // check could not run at all.
   const [coverage, setCoverage] = useState<
     | null
-    | { kind: "checks"; gaps: CoverageGap[]; longShifts: LongShift[]; hoursNotSet: HoursNotSetDay[] }
-    | { kind: "unavailable" }
+    | {
+        kind: "checks";
+        gaps: CoverageGap[];
+        longShifts: LongShift[];
+        availability: (AvailabilityMismatch & { employee_name?: string | null })[];
+        hoursNotSet: HoursNotSetDay[];
+      }
+    | { kind: "unavailable"; what: "store hours" | "availability" }
   >(null);
   // Hours of a shift the manager is saving that is long enough to query.
   const [longSave, setLongSave] = useState<number | null>(null);
+  // The availability warning for the shift being saved. `key` pins it to the
+  // person and times it was raised for: change either and it must be asked
+  // again, so "Save anyway" can never wave through a different assignment.
+  const [availSave, setAvailSave] = useState<
+    | null
+    | { key: string; kind: "mismatch"; mismatch: AvailabilityMismatch }
+    | { key: string; kind: "unavailable" }
+  >(null);
+  const draftKey = (d: Draft | null) => (d ? `${d.employee_id}|${d.starts_at}|${d.ends_at}` : "");
+  const availConfirmed = availSave !== null && availSave.key === draftKey(draft);
 
   async function saveAnnotation() {
     if (!annDraft) return;
@@ -270,12 +289,13 @@ export default function ScheduleBoard({
         kind: "checks",
         gaps: j.gaps ?? [],
         longShifts: j.longShifts ?? [],
+        availability: j.availability ?? [],
         hoursNotSet: j.hoursNotSet ?? [],
       });
       return;
     }
-    if (res.status === 503 && j.error === "coverage_unavailable") {
-      setCoverage({ kind: "unavailable" });
+    if (res.status === 503 && (j.error === "coverage_unavailable" || j.error === "availability_unavailable")) {
+      setCoverage({ kind: "unavailable", what: j.error === "availability_unavailable" ? "availability" : "store hours" });
       return;
     }
     if (!res.ok) {
@@ -324,6 +344,7 @@ export default function ScheduleBoard({
   function newShift(dateStr: string, employeeId?: string) {
     setErr(null);
     setLongSave(null);
+    setAvailSave(null);
     setHowMany(1);
     setDraft({
       employee_id: employeeId ?? employees[0]?.id ?? "",
@@ -339,6 +360,7 @@ export default function ScheduleBoard({
   function editShift(s: ShiftWithEmployee) {
     setErr(null);
     setLongSave(null);
+    setAvailSave(null);
     setDraft({
       id: s.id,
       employee_id: s.employee_id ?? "",
@@ -353,7 +375,9 @@ export default function ScheduleBoard({
 
   // confirmLong: the manager has seen how long this shift is and meant it. The
   // server refuses a 15+ hour shift without it.
-  async function save(confirmLong = false) {
+  // confirmAvailability: the manager has seen that the person's availability
+  // does not cover this shift (or could not be read) and is assigning anyway.
+  async function save(confirmLong = false, confirmAvailability = false) {
     if (!draft) return;
     const start = new Date(draft.starts_at);
     const end = new Date(draft.ends_at);
@@ -378,6 +402,7 @@ export default function ScheduleBoard({
         notes: draft.notes || null,
         published: draft.published,
         confirmLong,
+        confirmAvailability,
       };
       // Open shifts can be created in bulk (How Many).
       const count = !draft.id && !draft.employee_id ? Math.max(1, Math.min(20, howMany)) : 1;
@@ -394,12 +419,21 @@ export default function ScheduleBoard({
             setLongSave(typeof j.hours === "number" ? j.hours : 0);
             return;
           }
+          if (res.status === 409 && j.error === "availability_mismatch" && j.mismatch) {
+            setAvailSave({ key: draftKey(draft), kind: "mismatch", mismatch: j.mismatch });
+            return;
+          }
+          if (res.status === 503 && j.error === "availability_unavailable") {
+            setAvailSave({ key: draftKey(draft), kind: "unavailable" });
+            return;
+          }
           setErr(j.error ?? `Save failed (${res.status}).`);
           return;
         }
       }
       setDraft(null);
       setLongSave(null);
+      setAvailSave(null);
       router.refresh();
     } catch (e) {
       setErr((e as Error)?.message ?? "Network error.");
@@ -681,13 +715,17 @@ export default function ScheduleBoard({
 
       {coverage && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setCoverage(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-lg space-y-3" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">
               {coverage.kind !== "checks"
-                ? "Store coverage couldn't be checked"
-                : coverage.gaps.length === 0
-                  ? "Check this shift before publishing"
-                  : "Nobody is in the store"}
+                ? coverage.what === "availability"
+                  ? "Availability couldn't be checked"
+                  : "Store coverage couldn't be checked"
+                : coverage.gaps.length > 0
+                  ? "Nobody is in the store"
+                  : coverage.longShifts.length > 0
+                    ? "Check this shift before publishing"
+                    : "Check who's scheduled before publishing"}
             </h2>
             {coverage.kind === "checks" ? (
               <>
@@ -719,6 +757,43 @@ export default function ScheduleBoard({
                     </ul>
                   </>
                 )}
+                {(() => {
+                  const { conflicts, noAvailability } = groupMismatches(coverage.availability);
+                  const nameOf = (m: AvailabilityMismatch & { employee_name?: string | null }) =>
+                    m.employee_name ?? nameById.get(m.employee_id) ?? null;
+                  return (
+                    <>
+                      {conflicts.length > 0 && (
+                        <>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">
+                            Scheduled outside their availability:
+                          </p>
+                          <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 max-h-48 overflow-y-auto">
+                            {conflicts.map((m, i) => (
+                              <li key={`a-${m.shift_id ?? i}`} className="text-sm text-amber-900 dark:text-amber-200">
+                                {describeMismatch(m, nameOf(m))}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                      {noAvailability.length > 0 && (
+                        <>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">
+                            No availability on file (they haven&apos;t said whether they can work these):
+                          </p>
+                          <ul className="space-y-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 max-h-48 overflow-y-auto">
+                            {noAvailability.map((m, i) => (
+                              <li key={`n-${m.shift_id ?? i}`} className="text-sm text-slate-700 dark:text-slate-300">
+                                {describeMismatch(m, nameOf(m))}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
                 {coverage.hoursNotSet.length > 0 && (
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
@@ -730,9 +805,10 @@ export default function ScheduleBoard({
               </>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Something went wrong reading the store hours, so we couldn&apos;t tell whether anyone is scheduled for
-                every open hour this week. Nothing has been published. Try again in a moment, or publish without the
-                check.
+                {coverage.what === "availability"
+                  ? "Something went wrong reading the team's availability, so we couldn't tell whether everyone scheduled can work their shifts."
+                  : "Something went wrong reading the store hours, so we couldn't tell whether anyone is scheduled for every open hour this week."}{" "}
+                Nothing has been published. Try again in a moment, or publish without the check.
               </p>
             )}
             <div className="flex justify-end gap-2 pt-1">
@@ -829,19 +905,27 @@ export default function ScheduleBoard({
               )}
             </div>
             {draft.employee_id && draft.starts_at && (() => {
-              const { timeOff, blocks } = availFor(draft.employee_id, draft.starts_at.slice(0, 10));
-              const by = (p: string) => blocks.filter((b) => (b.preference ?? "available") === p);
-              const pref = by("preferred"), avail = by("available"), unavail = by("unavailable");
+              // Same resolver as the save/publish checks: dated rows, then the
+              // weekly pattern, time off on top.
+              const day = resolveDay(draft.employee_id, draft.starts_at.slice(0, 10), availability);
+              const spans = (kind: string) =>
+                day.blocks
+                  .filter((b) => b.kind === kind)
+                  .map((b) => `${b.source === "weekly" ? "↻ " : ""}${formatSpan(b.from, b.to)}`)
+                  .join(", ");
+              const pref = spans("preferred"), avail = spans("available"), unavail = spans("unavailable");
               return (
                 <div className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/40 px-3 py-2 text-xs space-y-1">
                   <div className="text-slate-600 dark:text-slate-400">Availability that day</div>
-                  {timeOff && (
-                    <div className="text-rose-300">Time off ({timeOff.status})</div>
+                  {day.timeOff && (
+                    <div className="text-rose-500 dark:text-rose-300">
+                      {day.timeOff === "pending" ? "Time-off request pending" : "Time off (approved)"}
+                    </div>
                   )}
-                  {pref.length > 0 && <div className="text-sky-300">Prefers: {pref.map((b) => `${fmtT(b.start_time)}–${fmtT(b.end_time)}`).join(", ")}</div>}
-                  {avail.length > 0 && <div className="text-emerald-300">Available: {avail.map((b) => `${fmtT(b.start_time)}–${fmtT(b.end_time)}`).join(", ")}</div>}
-                  {unavail.length > 0 && <div className="text-rose-300">Can&apos;t work: {unavail.map((b) => `${fmtT(b.start_time)}–${fmtT(b.end_time)}`).join(", ")}</div>}
-                  {!timeOff && blocks.length === 0 && <div className="text-slate-500">No availability submitted.</div>}
+                  {pref && <div className="text-sky-600 dark:text-sky-300">Prefers: {pref}</div>}
+                  {avail && <div className="text-emerald-600 dark:text-emerald-300">Available: {avail}</div>}
+                  {unavail && <div className="text-rose-500 dark:text-rose-300">Can&apos;t work: {unavail}</div>}
+                  {!day.timeOff && day.blocks.length === 0 && <div className="text-slate-500">No availability submitted.</div>}
                 </div>
               );
             })()}
@@ -876,14 +960,40 @@ export default function ScheduleBoard({
                 This shift is {formatHours(longSave)} hours long. Save anyway?
               </div>
             )}
+            {availConfirmed && availSave && (() => {
+              if (availSave.kind === "unavailable") {
+                return (
+                  <div className="rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+                    Couldn&apos;t read {nameById.get(draft.employee_id) ?? "this person"}&apos;s availability, so we
+                    can&apos;t tell whether they can work this. Try again, or save anyway.
+                  </div>
+                );
+              }
+              const { title, lines } = describeForSave(availSave.mismatch, nameById.get(draft.employee_id));
+              const noneOnFile = availSave.mismatch.reasons.every((r) => r.kind === "no_availability");
+              return (
+                <div
+                  className={`rounded-md border px-3 py-2 text-sm space-y-0.5 ${
+                    noneOnFile
+                      ? "border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-800 dark:text-slate-200"
+                      : "border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200"
+                  }`}
+                >
+                  <div className="font-medium">{title}</div>
+                  {lines.map((l, i) => (
+                    <div key={i}>{l}</div>
+                  ))}
+                </div>
+              );
+            })()}
             <div className="flex items-center justify-between pt-2">
               {draft.id ? (
                 <button onClick={remove} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
               ) : <span />}
               <div className="flex gap-2">
                 <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-                <button onClick={() => save(longSave !== null)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
-                  {busy ? "Submitting…" : longSave !== null ? "Save anyway" : "Submit"}
+                <button onClick={() => save(longSave !== null, availConfirmed)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
+                  {busy ? "Submitting…" : longSave !== null || availConfirmed ? "Save anyway" : "Submit"}
                 </button>
               </div>
             </div>

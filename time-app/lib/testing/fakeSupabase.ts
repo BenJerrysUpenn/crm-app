@@ -7,7 +7,7 @@
 // request's cookies (next/headers, which only exists inside Next's server).
 //
 // The fake speaks just enough PostgREST for the routes under test (eq / gte /
-// lte / is filters, limit, single, maybeSingle, insert and update with
+// lte / is / in filters and not.<filter>, limit, single, maybeSingle, insert and update with
 // return=representation) and answers /auth/v1/user from the session cookie.
 // Row Level Security is emulated for time_entries only, with the policies
 // migrations 12 and 30 install (supabase/migration_30_verify.sql proves those
@@ -142,14 +142,16 @@ function compare(a: unknown, b: string): number {
   return x < b ? -1 : x > b ? 1 : 0;
 }
 
-function matches(row: Row, params: URLSearchParams): boolean {
-  for (const [col, cond] of params) {
-    if (["select", "order", "limit", "offset", "on_conflict", "columns"].includes(col)) continue;
-    const dot = cond.indexOf(".");
-    const op = cond.slice(0, dot);
-    const val = cond.slice(dot + 1);
-    const cell = row[col];
-    const ok =
+function matchesOne(cell: unknown, col: string, cond: string): boolean {
+  const dot = cond.indexOf(".");
+  const op = cond.slice(0, dot);
+  const val = cond.slice(dot + 1);
+  if (op === "not") return !matchesOne(cell, col, val);
+  if (op === "in") {
+    const list = val.replace(/^\(|\)$/g, "").split(",").map((v) => v.replace(/^"|"$/g, ""));
+    return cell !== null && cell !== undefined && list.includes(String(cell));
+  }
+  return (
       op === "eq" ? cell !== null && cell !== undefined && String(cell) === val
       : op === "neq" ? String(cell) !== val
       : op === "is" ? (val === "null" ? cell === null || cell === undefined : String(cell) === val)
@@ -157,8 +159,14 @@ function matches(row: Row, params: URLSearchParams): boolean {
       : op === "lte" ? cell != null && compare(cell, val) <= 0
       : op === "gt" ? cell != null && compare(cell, val) > 0
       : op === "lt" ? cell != null && compare(cell, val) < 0
-      : (() => { throw new Error(`fake PostgREST: unsupported filter ${col}=${cond}`); })();
-    if (!ok) return false;
+      : (() => { throw new Error(`fake PostgREST: unsupported filter ${col}=${cond}`); })()
+  );
+}
+
+function matches(row: Row, params: URLSearchParams): boolean {
+  for (const [col, cond] of params) {
+    if (["select", "order", "limit", "offset", "on_conflict", "columns"].includes(col)) continue;
+    if (!matchesOne(row[col], col, cond)) return false;
   }
   return true;
 }
