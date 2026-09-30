@@ -50,12 +50,14 @@ test("approved time off: Time off, whatever else is on file", () => {
   const c = cell([timeOff(TUE, "approved"), dated(TUE, "09:00", "17:00")]);
   assert.equal(c.state, "time_off");
   assert.equal("label" in c && c.label, "Time off");
+  assert.equal(c.title, "Time off (approved)");
 });
 
 test("pending time off: its own state and label", () => {
   const c = cell([timeOff(TUE, "pending"), weekly(2, "12:00", "17:00", "preferred")]);
   assert.equal(c.state, "time_off_pending");
   assert.equal("label" in c && c.label, "Time off pending");
+  assert.equal(c.title, "Time-off request pending");
 });
 
 test("denied time off is ignored: the hours show instead", () => {
@@ -67,14 +69,17 @@ test("can't work all day (a dated all-day block): Unavailable", () => {
   const c = cell([dated(TUE, null, null, "unavailable")]);
   assert.equal(c.state, "unavailable");
   assert.equal("label" in c && c.label, "Unavailable");
+  assert.equal(c.title, "Can't work all day");
 });
 
 test("can't work all day from the weekly pattern (is_available false): Unavailable", () => {
   assert.equal(cell([weekly(2, null, null, "available", false)]).state, "unavailable");
 });
 
+// Weekly and dated rows stay separate blocks in the resolved day, so these two
+// only cover the day once the cell joins them.
 test("can't-work blocks that together cover the day count as the whole day", () => {
-  assert.equal(cell([dated(TUE, "00:00", "12:00", "unavailable"), dated(TUE, "12:00", null, "unavailable")]).state, "unavailable");
+  assert.equal(cell([weekly(2, "00:00", "12:00", "unavailable"), dated(TUE, "12:00", null, "unavailable")]).state, "unavailable");
 });
 
 // --- partial day ------------------------------------------------------------
@@ -107,6 +112,11 @@ test("several spans of one kind join on one line", () => {
   assert.deepEqual(c.state === "hours" && c.lines, [{ kind: "available", text: "Avail 9a–12p, 5–10p" }]);
 });
 
+test("touching spans of one kind from the weekly pattern and a date read as one span", () => {
+  const c = cell([weekly(2, "09:00", "12:00"), dated(TUE, "12:00", "17:00")]);
+  assert.deepEqual(c.state === "hours" && c.lines, [{ kind: "available", text: "Avail 9a–5p" }]);
+});
+
 test("an overnight block from the day before shows on this day up to its end", () => {
   const c = cell([dated(MON, "18:00", "02:00")]);
   assert.deepEqual(c.state === "hours" && c.lines, [{ kind: "available", text: "Avail 12–2a" }]);
@@ -118,6 +128,7 @@ test("nothing on file: the faint 'no avail.' marker, never Unavailable", () => {
   const c = cell([]);
   assert.equal(c.state, "none");
   assert.equal("label" in c && c.label, "no avail.");
+  assert.equal(c.title, "No availability on file");
 });
 
 test("someone else's rows don't count for this person", () => {
