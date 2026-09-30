@@ -8,6 +8,7 @@ import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } fr
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
 import { PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/payroll/payType";
+import { archiveConfirmMessage, archiveName, archivedToggleLabel, splitArchived } from "@/lib/teamArchive";
 
 export default function TeamAdmin({
   employees,
@@ -48,11 +49,15 @@ export default function TeamAdmin({
   const [newRole, setNewRole] = useState<"employee" | "manager">("employee");
   const [newRate, setNewRate] = useState<string>("");
 
+  // Archived people (profiles.active = false) sit below the table, hidden
+  // until the manager asks for them.
+  const { current, archived } = splitArchived(employees);
+  const [showArchived, setShowArchived] = useState(false);
+
   // Returns the server's message when a save is refused, or null when it stuck.
-  // Most edits here cannot be refused, but the QBO employee id can: it is
-  // validated (payroll spec 2.5) and unique across the team, and silently
-  // swallowing "that id is already on someone else" would leave the manager
-  // looking at a value the database does not have.
+  // Most edits here cannot be refused, but pay type and archive read their
+  // answer back, so a refused save never leaves the row showing a value the
+  // database does not have.
   async function saveProfile(id: string, patch: Partial<Profile>): Promise<string | null> {
     setSavingId(id);
     const res = await fetch(`/api/profiles/${id}`, {
@@ -123,7 +128,9 @@ export default function TeamAdmin({
 
   return (
     <div className="space-y-8">
-      <section>
+      {/* As wide as the staff table needs, centred, and no wider. On a phone
+          the table box scrolls sideways instead. */}
+      <section className="mx-auto w-fit max-w-full">
         <div className="flex items-start justify-between mb-1 gap-3">
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Team</h1>
           <button
@@ -134,17 +141,17 @@ export default function TeamAdmin({
             {addOpen ? "Cancel" : "+ Add employee"}
           </button>
         </div>
-        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 max-w-prose">
           Use the button above to invite a new person by email. They get a link
           to set their password, and then they appear in the list below. Use
-          Resend invite if the link expired. <strong>QBO id</strong> is that
-          person&rsquo;s employee id in QuickBooks Payroll — payroll matches
-          people on it, never on their name, so anyone paid needs one.
-          <strong> Pay</strong> is salaried or hourly: the payroll sheet prints
-          &ldquo;salary&rdquo; instead of hours for a salaried person.
+          Resend invite if the link expired. <strong>Pay</strong> is salaried or
+          hourly: the payroll sheet prints &ldquo;salary&rdquo; instead of hours
+          for a salaried person. <strong>Archive</strong> hides someone from the
+          team, schedule and availability; it does not remove their login or
+          delete anything.
         </p>
         {addOpen && (
-          <div className="mb-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
+          <div className="mb-4 max-w-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
                 type="email"
@@ -199,8 +206,8 @@ export default function TeamAdmin({
             </div>
           </div>
         )}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
-          <table className="w-full text-sm min-w-[640px]">
+        <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm">
             <thead className="bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-xs">
               <tr>
                 <th className="text-left px-3 py-2">Email</th>
@@ -208,44 +215,63 @@ export default function TeamAdmin({
                 <th className="text-left px-3 py-2">Phone</th>
                 <th className="text-left px-3 py-2">Role</th>
                 <th className="text-right px-3 py-2">Rate $/h</th>
-                <th className="text-left px-3 py-2">QBO id</th>
                 <th className="text-left px-3 py-2">Pay</th>
-                <th
-                  className="text-center px-3 py-2"
-                  title="On the schedule, the staff pickers and the payroll roster. Unticking this does NOT end anyone's access: only banning their login does."
-                >
-                  On roster
-                </th>
                 <th className="text-left px-3 py-2">Invite</th>
+                <th className="px-3 py-2"><span className="sr-only">Archive</span></th>
               </tr>
             </thead>
             <tbody>
-              {employees.map((e) => (
+              {current.map((e) => (
                 <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} onSave={saveProfile} onResend={resendInvite} />
               ))}
             </tbody>
+            {showArchived && archived.length > 0 && (
+              <tbody>
+                <tr className="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+                  <th colSpan={8} className="text-left px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Archived
+                  </th>
+                </tr>
+                {archived.map((e) => (
+                  <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} onSave={saveProfile} onResend={resendInvite} />
+                ))}
+              </tbody>
+            )}
           </table>
         </div>
+        {archived.length > 0 && (
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => setShowArchived((v) => !v)}
+              className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-100"
+            >
+              {archivedToggleLabel(archived.length, showArchived)}
+            </button>
+          </div>
+        )}
       </section>
 
-      <ClockinRemindersAdmin
-        reminders={reminders}
-        employees={employees.filter((e) => e.active)}
-        employeeCount={employeeCount}
-      />
+      <div className="mx-auto max-w-4xl space-y-8">
+        <ClockinRemindersAdmin
+          reminders={reminders}
+          employees={employees.filter((e) => e.active)}
+          employeeCount={employeeCount}
+        />
 
-      <StoreHoursAdmin
-        hours={storeHours}
-        exceptions={storeExceptions}
-        holidays={holidays}
-        ready={storeHoursReady}
-      />
+        <StoreHoursAdmin
+          hours={storeHours}
+          exceptions={storeExceptions}
+          holidays={holidays}
+          ready={storeHoursReady}
+        />
 
-      <ShiftTypesSection shiftTypes={shiftTypes} />
+        <ShiftTypesSection shiftTypes={shiftTypes} />
 
-      <LocationSection locations={locations} />
+        <LocationSection locations={locations} />
 
-      <SettingsSection settings={settings} />
+        <SettingsSection settings={settings} />
+      </div>
     </div>
   );
 }
@@ -457,31 +483,27 @@ function EmployeeRow({
   const [phone, setPhone] = useState(e.phone ?? "");
   const [role, setRole] = useState(e.role);
   const [rate, setRate] = useState(e.hourly_rate?.toString() ?? "");
-  const [qbo, setQbo] = useState(e.qbo_employee_id ?? "");
-  const [qboErr, setQboErr] = useState<string | null>(null);
   const [payType, setPayType] = useState<string>(e.pay_type ?? "");
   const [payErr, setPayErr] = useState<string | null>(null);
 
-  // Same read-back as the QBO id: a refused save puts the select back to what
-  // the database holds, so the row never shows a pay type that is not stored.
+  // A refused save puts the select back to what the database holds, so the
+  // row never shows a pay type that is not stored.
   async function savePayType(next: string) {
     setPayType(next);
     const err = await onSave(e.id, { pay_type: next === "" ? null : (next as Profile["pay_type"]) });
     setPayErr(err);
     if (err) setPayType(e.pay_type ?? "");
   }
-  const [active, setActive] = useState(e.active);
 
-  // The QBO employee id is the one field on this row a save can refuse, so it
-  // is the one that reads its answer back. On a refusal the typed value is put
-  // back to what the database still holds, so the cell never shows a mapping
-  // that is not there.
-  async function saveQbo() {
-    const next = qbo.trim();
-    if (next === (e.qbo_employee_id ?? "")) return;
-    const err = await onSave(e.id, { qbo_employee_id: next === "" ? null : next });
-    setQboErr(err);
-    if (err) setQbo(e.qbo_employee_id ?? "");
+  // Archive is profiles.active = false: off the team table, the schedule and
+  // the availability grid, exactly as "off roster" was. It is not access: the
+  // owners are archived and still sign in. Access ends by offboarding, which
+  // bans the login (crm-app PR #19), or a ban in Supabase Auth (audit H2).
+  // Nothing is deleted, so Unarchive restores them as they were.
+  const [archiveErr, setArchiveErr] = useState<string | null>(null);
+  async function setArchived(archive: boolean) {
+    if (archive && !window.confirm(archiveConfirmMessage(archiveName(e, email)))) return;
+    setArchiveErr(await onSave(e.id, { active: !archive }));
   }
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMsg, setInviteMsg] = useState<string | null>(null);
@@ -498,7 +520,7 @@ function EmployeeRow({
     <tr className="border-t border-slate-200 dark:border-slate-800">
       <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">{email || "—"}</td>
       <td className="px-3 py-2">
-        <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-40" />
+        <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-48" />
       </td>
       <td className="px-3 py-2">
         <input value={phone} onChange={(ev) => setPhone(ev.target.value)} onBlur={() => onSave(e.id, { phone })} placeholder="+1215..." className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-32" />
@@ -510,18 +532,7 @@ function EmployeeRow({
         </select>
       </td>
       <td className="px-3 py-2 text-right">
-        <input value={rate} onChange={(ev) => setRate(ev.target.value)} onBlur={() => onSave(e.id, { hourly_rate: rate ? Number(rate) : null })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-20 text-right" />
-      </td>
-      <td className="px-3 py-2">
-        <input
-          value={qbo}
-          onChange={(ev) => { setQbo(ev.target.value); setQboErr(null); }}
-          onBlur={saveQbo}
-          placeholder="not set"
-          title="QuickBooks Payroll employee id. Payroll matches people on this, never on names."
-          className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-24"
-        />
-        {qboErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px]">{qboErr}</div>}
+        <input value={rate} onChange={(ev) => setRate(ev.target.value)} onBlur={() => onSave(e.id, { hourly_rate: rate ? Number(rate) : null })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-16 text-right" />
       </td>
       <td className="px-3 py-2">
         <select
@@ -536,27 +547,39 @@ function EmployeeRow({
         </select>
         {payErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px]">{payErr}</div>}
       </td>
-      <td className="px-3 py-2 text-center">
-        {/* profiles.active means "on the roster", not "may sign in": the owners
-            are off the roster and still sign in. Access ends by offboarding,
-            which bans the login (crm-app PR #19), or a ban in Supabase Auth
-            (audit H2). */}
-        <input
-          type="checkbox"
-          checked={active}
-          title="On roster. This does not remove their login."
-          onChange={(ev) => { setActive(ev.target.checked); onSave(e.id, { active: ev.target.checked }); }}
-        />
-      </td>
       <td className="px-3 py-2 align-top">
         {email ? (
           <>
-            <button type="button" onClick={resend} disabled={inviteBusy} className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50">
+            <button type="button" onClick={resend} disabled={inviteBusy} className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50 whitespace-nowrap">
               {inviteBusy ? "Sending…" : "Resend invite"}
             </button>
             {inviteMsg && <div className="text-[11px] text-slate-500 mt-0.5 max-w-[220px]">{inviteMsg}</div>}
           </>
         ) : null}
+      </td>
+      <td className="px-3 py-2 align-top text-right">
+        {e.active ? (
+          <button
+            type="button"
+            onClick={() => setArchived(true)}
+            disabled={saving}
+            title="Hide from the team, schedule and availability. Does not remove their login."
+            className="text-xs text-slate-500 hover:text-rose-500 disabled:opacity-50"
+          >
+            Archive
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setArchived(false)}
+            disabled={saving}
+            title="Put them back on the team, schedule and availability."
+            className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50"
+          >
+            Unarchive
+          </button>
+        )}
+        {archiveErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px] text-left">{archiveErr}</div>}
       </td>
     </tr>
   );
