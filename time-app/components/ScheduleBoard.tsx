@@ -15,6 +15,7 @@ import {
   type AvailabilityMismatch,
   type AvailabilityRow,
 } from "@/lib/availabilityCheck";
+import { availabilityCell, type CellAvailability, type CellLine } from "@/lib/availabilityCell";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
@@ -609,6 +610,7 @@ export default function ScheduleBoard({
           fmtTime={fmtTime}
           dayLabel={dayLabel}
           DAYS={DAYS}
+          availability={availability}
         />
       )}
 
@@ -1018,6 +1020,7 @@ function ManagerMatrix({
   fmtTime,
   dayLabel,
   DAYS,
+  availability,
 }: {
   dates: string[];
   employees: Profile[];
@@ -1029,6 +1032,7 @@ function ManagerMatrix({
   fmtTime: (iso: string | null) => string;
   dayLabel: (d: string) => string;
   DAYS: string[];
+  availability: AvailabilityRow[];
 }) {
   function cellShifts(date: string, employeeId: string | null) {
     return shiftsForDay(date).filter((s) =>
@@ -1042,7 +1046,10 @@ function ManagerMatrix({
     );
   }
 
-  const cols = `170px repeat(7, minmax(150px, 1fr))`;
+  // Seven equal day columns that share whatever width the page has. The
+  // wrapper's min-width is the point below which the grid scrolls sideways
+  // instead (tablet and phone); every laptop and desktop width fits.
+  const cols = `160px repeat(7, minmax(0, 1fr))`;
 
   function Chip({ s }: { s: ShiftWithEmployee }) {
     const color = s.position ? colorByType.get(s.position) : undefined;
@@ -1056,11 +1063,11 @@ function ManagerMatrix({
             : "bg-slate-100/60 dark:bg-slate-800/30 border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
         }`}
       >
-        <div className="font-medium whitespace-nowrap">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
+        <div className="font-medium whitespace-nowrap truncate">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
         {s.position && <div className="text-slate-500 truncate">{s.position}</div>}
-        {!s.published && <div className="text-amber-500">draft</div>}
+        {!s.published && <div className="text-amber-500 truncate">draft</div>}
         {s.published && s.employee_id && (
-          <div className={s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}>
+          <div className={`truncate ${s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}`}>
             {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
           </div>
         )}
@@ -1077,12 +1084,15 @@ function ManagerMatrix({
         </div>
         {dates.map((d, i) => {
           const cs = cellShifts(d, id);
+          // Open shifts belong to nobody, so they have no availability.
+          const avail = id === null ? null : availabilityCell(resolveDay(id, d, availability));
           return (
-            <div key={i} className={`px-1.5 py-1.5 border-r border-slate-200 dark:border-slate-800 min-h-[56px] ${tint ? "bg-emerald-50/40 dark:bg-emerald-950/10" : ""}`}>
+            <div key={i} className={`min-w-0 px-1.5 py-1.5 border-r border-slate-200 dark:border-slate-800 min-h-[56px] ${tint ? "bg-emerald-50/40 dark:bg-emerald-950/10" : avail ? CELL_BG[avail.state] : ""}`}>
+              {avail && <AvailabilityNote a={avail} />}
               {cs.map((s) => <Chip key={s.id} s={s} />)}
               <button
                 onClick={() => newShift(d, id ?? "")}
-                className="w-full text-[11px] text-slate-400 hover:text-emerald-500 border border-dashed border-slate-300 dark:border-slate-700 rounded-md py-1"
+                className="w-full text-[11px] text-slate-400 hover:text-emerald-500 border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/50 rounded-md py-1"
               >
                 + Add
               </button>
@@ -1095,6 +1105,7 @@ function ManagerMatrix({
 
   return (
     <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+      <div className="min-w-[1180px]">
       {/* Header */}
       <div className="grid bg-slate-100 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800" style={{ gridTemplateColumns: cols }}>
         <div className="px-3 py-2 sticky left-0 bg-slate-100 dark:bg-slate-800/60 z-10 text-xs font-medium text-slate-500">Staff</div>
@@ -1113,6 +1124,53 @@ function ManagerMatrix({
       {employees.map((e) => (
         <Row key={e.id} id={e.id} label={e.full_name ?? e.id} sub={`${weekHoursFor(e.id).toFixed(1)}h`} />
       ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Availability in a grid cell (lib/availabilityCell.ts decides the words).
+// Full-day states shade the whole cell; hours are one or two faint lines so
+// the shift cards stay the focus; nothing on file is a faint marker that must
+// not read as unavailable.
+// ---------------------------------------------------------------------------
+// Grey with a faint hatch, so a day off reads at a glance in either theme.
+const CELL_OFF =
+  "bg-slate-100 dark:bg-slate-800/70 bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(100,116,139,0.12)_6px_12px)]";
+const CELL_BG: Record<CellAvailability["state"], string> = {
+  time_off: CELL_OFF,
+  unavailable: CELL_OFF,
+  time_off_pending: "bg-amber-50 dark:bg-amber-950/25",
+  hours: "",
+  none: "",
+};
+
+const LINE_TEXT: Record<CellLine["kind"], string> = {
+  unavailable: "text-rose-600/90 dark:text-rose-300/80",
+  preferred: "text-sky-700/90 dark:text-sky-300/80",
+  available: "text-emerald-700/90 dark:text-emerald-400/80",
+};
+
+function AvailabilityNote({ a }: { a: CellAvailability }) {
+  if (a.state === "hours") {
+    return (
+      <div title={a.title} className="mb-1 px-0.5 text-[10px] leading-tight">
+        {a.lines.map((l) => (
+          <div key={l.kind} className={`truncate ${LINE_TEXT[l.kind]}`}>{l.text}</div>
+        ))}
+      </div>
+    );
+  }
+  const text =
+    a.state === "none"
+      ? "text-slate-400 dark:text-slate-600 italic font-normal normal-case tracking-normal"
+      : a.state === "time_off_pending"
+        ? "text-amber-700 dark:text-amber-300"
+        : "text-slate-500 dark:text-slate-400";
+  return (
+    <div title={a.title} className={`mb-1 px-0.5 text-[10px] leading-tight font-semibold uppercase tracking-wide truncate ${text}`}>
+      {a.label}
     </div>
   );
 }
