@@ -50,6 +50,12 @@
 //
 // Rows with status "denied" are ignored whatever they say.
 //
+// A weekly row only speaks for dates on or after the day it was created (its
+// created_at, read as a New York calendar date). Setting "can't work Sundays"
+// today says nothing about last Sunday, which may already have been worked.
+// A block spilling past midnight from the day before is judged by that day.
+// A row with no created_at applies to every date. Dated rows are unaffected.
+//
 // Everything is America/New_York wall clock, via lib/coverage.ts.
 
 import {
@@ -75,6 +81,8 @@ export type AvailabilityRow = {
   is_available: boolean;
   status?: "pending" | "approved" | "denied" | string | null;
   preference?: "available" | "preferred" | "unavailable" | string | null;
+  /** When the row was written. A weekly row does not apply before this date (New York). */
+  created_at?: string | null;
 };
 
 /** Just enough of a shift to place it on the clock and name it. */
@@ -131,6 +139,19 @@ function kindOf(row: AvailabilityRow): Kind {
   if (row.preference === "unavailable") return "unavailable";
   if (row.preference === "preferred") return "preferred";
   return "available";
+}
+
+/**
+ * The New York calendar date a row was created on, or null when it has no
+ * readable created_at (such a row applies to every date).
+ */
+function createdOn(row: AvailabilityRow): string | null {
+  if (!row.created_at) return null;
+  try {
+    return nyWallClock(row.created_at).date;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -208,6 +229,9 @@ export function resolveDay(employeeId: string, date: string, rows: AvailabilityR
     } else if (row.weekday !== null && row.weekday !== undefined) {
       if (row.weekday === weekday) offset = 0;
       else if (row.weekday === prevWeekday) offset = -1440;
+      // Not in force yet on the date the block belongs to.
+      const since = offset === null ? null : createdOn(row);
+      if (since !== null && (offset === 0 ? date : prevDate) < since) offset = null;
     }
     if (offset === null) continue;
 

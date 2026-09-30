@@ -167,3 +167,40 @@ test("loadAvailabilityRows reports a failed read as a failure, never as 'nothing
   };
   assert.deepEqual(await loadAvailabilityRows(failing, { from: "2026-09-26", to: "2026-10-04" }), { ok: false });
 });
+
+test("loadAvailabilityRows reads created_at, so weekly rows start on the day they were made", async () => {
+  const selects: string[] = [];
+  const recording = {
+    from: () => {
+      const q: Record<string, unknown> = {};
+      q.select = (cols: string) => {
+        selects.push(cols);
+        return q;
+      };
+      for (const m of ["not", "gte", "lte", "in"]) q[m] = () => q;
+      q.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
+      return q;
+    },
+  };
+  await loadAvailabilityRows(recording, { from: "2026-09-26", to: "2026-10-04" });
+  assert.equal(selects.length, 2);
+  for (const cols of selects) assert.match(cols, /\bcreated_at\b/);
+});
+
+test("saving a shift on a date before a weekly can't-work row was created is not a conflict", async () => {
+  const SUN = "2026-09-27";
+  const NEXT_SUN = "2026-10-04";
+  db.tables.availability.push(
+    // Their older weekly pattern: Sundays, any time.
+    { ...weekly(SAM, 0, "00:00", "00:00", "available"), start_time: null, end_time: null },
+    // Added Monday 09-28: can't work Sundays.
+    { ...weekly(SAM, 0, "00:00", "00:00", "unavailable"), start_time: null, end_time: null, created_at: "2026-09-28T18:30:00Z" },
+  );
+  const before = await shifts.POST(req("POST", { employee_id: SAM, starts_at: edt(SUN, "12:00"), ends_at: edt(SUN, "17:00") }), noParams);
+  assert.equal(before.status, 200);
+
+  const after = await shifts.POST(req("POST", { employee_id: SAM, starts_at: edt(NEXT_SUN, "12:00"), ends_at: edt(NEXT_SUN, "17:00") }), noParams);
+  assert.equal(after.status, 409);
+  const j = await after.json();
+  assert.deepEqual(j.mismatch.reasons, [{ kind: "unavailable_overlap", date: NEXT_SUN, from: "12:00", to: "17:00" }]);
+});

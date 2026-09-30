@@ -351,3 +351,68 @@ test("availabilityDateRange spans the day before the first start to the last end
   );
   assert.equal(availabilityDateRange([]), null);
 });
+
+// --- a weekly row applies from the day it was created ---------------------
+
+const SUN_BEFORE = "2026-09-27";
+const SUN_AFTER = "2026-10-04";
+
+function weeklyCreated(weekday: number, start: string | null, end: string | null, preference: AvailabilityRow["preference"], created_at: string | null | undefined): AvailabilityRow {
+  return { ...weekly(weekday, start, end, preference), created_at };
+}
+
+test("a weekly row does not reach back before the day it was created (James, Sunday can't-work)", () => {
+  assert.equal(weekdayOf(SUN_BEFORE), 0);
+  assert.equal(weekdayOf(SUN_AFTER), 0);
+  // Created Monday 2026-09-28, mid-afternoon Eastern.
+  const rows = [weeklyCreated(0, null, null, "unavailable", "2026-09-28T18:30:00+00:00")];
+  assert.deepEqual(resolveDay(SAM, SUN_BEFORE, rows).blocks, []);
+  assert.deepEqual(resolveDay(SAM, SUN_AFTER, rows).blocks, [{ from: 0, to: 1440, kind: "unavailable", source: "weekly" }]);
+  // The shift he already worked on the 27th is "nothing on file", not a conflict.
+  assert.deepEqual(kinds(rows, shift(SUN_BEFORE, "12:00", "17:00")), [{ kind: "no_availability", date: SUN_BEFORE }]);
+  assert.deepEqual(kinds(rows, shift(SUN_AFTER, "12:00", "17:00")), [
+    { kind: "unavailable_overlap", date: SUN_AFTER, from: "12:00", to: "17:00" },
+  ]);
+});
+
+test("a weekly row applies on its own creation date", () => {
+  const rows = [weeklyCreated(0, "09:00", "17:00", "available", "2026-09-27T13:00:00+00:00")];
+  assert.equal(checkShiftAvailability(shift(SUN_BEFORE, "10:00", "15:00"), rows), null);
+});
+
+test("creation date is the New York date, not the UTC one", () => {
+  // 11:30 PM Eastern on Saturday 09-26 is already Sunday 09-27 in UTC.
+  const lateSat = [weeklyCreated(0, null, null, "unavailable", "2026-09-27T03:30:00Z")];
+  assert.deepEqual(resolveDay(SAM, SUN_BEFORE, lateSat).blocks, [{ from: 0, to: 1440, kind: "unavailable", source: "weekly" }]);
+  // 11:30 PM Eastern on Sunday 09-27 is Monday 09-28 in UTC: still counts that Sunday.
+  const lateSun = [weeklyCreated(0, null, null, "unavailable", "2026-09-28T03:30:00Z")];
+  assert.deepEqual(resolveDay(SAM, SUN_BEFORE, lateSun).blocks, [{ from: 0, to: 1440, kind: "unavailable", source: "weekly" }]);
+  // 11:30 PM Eastern on Monday 09-28: not that Sunday.
+  const lateMon = [weeklyCreated(0, null, null, "unavailable", "2026-09-29T03:30:00Z")];
+  assert.deepEqual(resolveDay(SAM, SUN_BEFORE, lateMon).blocks, []);
+});
+
+test("an overnight weekly block is judged by the date it starts on", () => {
+  // Every Saturday 8 PM to 2 AM, created Sunday 09-27: the spill into Sunday
+  // 09-27 belongs to Saturday 09-26, before the row existed.
+  const rows = [weeklyCreated(6, "20:00", "02:00", "unavailable", "2026-09-27T16:00:00Z")];
+  assert.deepEqual(resolveDay(SAM, SUN_BEFORE, rows).blocks, []);
+  assert.deepEqual(resolveDay(SAM, "2026-09-26", rows).blocks, []);
+  assert.deepEqual(resolveDay(SAM, "2026-10-03", rows).blocks, [{ from: 1200, to: 1440, kind: "unavailable", source: "weekly" }]);
+  assert.deepEqual(resolveDay(SAM, SUN_AFTER, rows).blocks, [{ from: 0, to: 120, kind: "unavailable", source: "weekly" }]);
+  // Created on the Saturday itself: that night's spill into Sunday counts.
+  const sameDay = [weeklyCreated(6, "20:00", "02:00", "unavailable", "2026-09-26T16:00:00Z")];
+  assert.deepEqual(resolveDay(SAM, SUN_BEFORE, sameDay).blocks, [{ from: 0, to: 120, kind: "unavailable", source: "weekly" }]);
+});
+
+test("a weekly row with no (or unreadable) created_at applies to every date", () => {
+  for (const created of [undefined, null, "", "not a date"]) {
+    const rows = [weeklyCreated(0, null, null, "unavailable", created)];
+    assert.deepEqual(resolveDay(SAM, "2020-01-05", rows).blocks, [{ from: 0, to: 1440, kind: "unavailable", source: "weekly" }], String(created));
+  }
+});
+
+test("dated rows ignore created_at", () => {
+  const row: AvailabilityRow = { ...dated(SUN_BEFORE, "09:00", "17:00"), created_at: "2026-10-01T12:00:00Z" };
+  assert.equal(checkShiftAvailability(shift(SUN_BEFORE, "10:00", "15:00"), [row]), null);
+});
