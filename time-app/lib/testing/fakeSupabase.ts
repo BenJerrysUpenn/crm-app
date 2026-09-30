@@ -36,6 +36,10 @@ export type FakeSupabase = {
   // Runs before each write reaches the "database": lets a test move the world
   // underneath the route between its read and its write, as a fob tap would.
   beforeWrite: ((table: string) => void) | null;
+  // Columns a migration has not added yet, per table. A write naming one is
+  // refused as hosted PostgREST does (PGRST204, "schema cache"); seed the rows
+  // without the column too, as select("*") would return them.
+  missingColumns: Record<string, string[]>;
   signIn(userId: string): void;
   // The Cookie header a browser with this session sends (for middleware).
   cookieHeader(): string;
@@ -210,6 +214,20 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
 
   fake.beforeWrite?.(table);
 
+  if (method === "POST" || method === "PATCH") {
+    const parsed = JSON.parse(body ?? "null") as Row | Row[] | null;
+    const keys = (Array.isArray(parsed) ? parsed : [parsed ?? {}]).flatMap((r) => Object.keys(r));
+    const absent = keys.find((k) => fake.missingColumns[table]?.includes(k));
+    if (absent) {
+      return json(400, {
+        code: "PGRST204",
+        details: null,
+        hint: null,
+        message: `Could not find the '${absent}' column of '${table}' in the schema cache`,
+      });
+    }
+  }
+
   if (method === "POST") {
     if (!canWrite(table, caller)) {
       return json(403, {
@@ -264,6 +282,7 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
   fake = {
     tables: structuredClone(tables),
     beforeWrite: null,
+    missingColumns: {},
     signIn(userId) {
       const accessToken = `token-for-${userId}`;
       tokens.set(accessToken, userId);

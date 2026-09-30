@@ -1,42 +1,95 @@
-// Unit tests for Archive on the Team page.
+// Unit tests for Archive and On schedule on the Team page.
 //
 //   npm test        (node --test lib/*.test.ts)
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { archiveConfirmMessage, archiveName, archivedToggleLabel, splitArchived } from "./teamArchive.ts";
+import {
+  ARCHIVE_NEEDS_MIGRATION,
+  archiveColumnReady,
+  archiveConfirmMessage,
+  archiveName,
+  archivePatch,
+  archivedToggleLabel,
+  isArchived,
+  parseArchivedAt,
+  splitArchived,
+} from "./teamArchive.ts";
 
-const p = (full_name: string | null, active: boolean) => ({ full_name, active });
+const p = (full_name: string | null, archived_at?: string | null, active = true) =>
+  archived_at === undefined ? { full_name, active } : { full_name, active, archived_at };
 
-test("splitArchived: active people are current, inactive are archived, order kept", () => {
-  const ann = p("Ann", true);
-  const bob = p("Bob", false);
-  const cat = p("Cat", true);
-  const dan = p("Dan", false);
+const WHEN = "2026-09-29T18:00:00.000Z";
+
+test("splitArchived: archived_at set is archived, null is current, order kept", () => {
+  const ann = p("Ann", null);
+  const bob = p("Bob", WHEN);
+  const cat = p("Cat", null);
+  const dan = p("Dan", WHEN);
   const { current, archived } = splitArchived([ann, bob, cat, dan]);
   assert.deepEqual(current, [ann, cat]);
   assert.deepEqual(archived, [bob, dan]);
 });
 
-test("splitArchived: nobody archived gives an empty archived list", () => {
-  const { current, archived } = splitArchived([p("Ann", true)]);
-  assert.equal(current.length, 1);
+test("splitArchived: off the schedule is NOT archived (owners and office staff stay on the team)", () => {
+  const owner = p("Alina Withers", null, false);
+  const { current, archived } = splitArchived([owner]);
+  assert.deepEqual(current, [owner]);
   assert.equal(archived.length, 0);
 });
 
+test("splitArchived: before migration 32 (no archived_at key) nobody is archived, even if inactive", () => {
+  const people = [p("Ann", undefined, true), p("Alex", undefined, false)];
+  const { current, archived } = splitArchived(people);
+  assert.equal(current.length, 2);
+  assert.equal(archived.length, 0);
+});
+
+test("isArchived: only a timestamp counts", () => {
+  assert.equal(isArchived({ archived_at: WHEN }), true);
+  assert.equal(isArchived({ archived_at: null }), false);
+  assert.equal(isArchived({}), false);
+  assert.equal(isArchived({ archived_at: "" }), false);
+});
+
+test("archiveColumnReady: a null archived_at means the column exists; a missing key means it doesn't", () => {
+  assert.equal(archiveColumnReady([p("Ann", null)]), true);
+  assert.equal(archiveColumnReady([p("Ann", WHEN)]), true);
+  assert.equal(archiveColumnReady([p("Ann"), p("Bob")]), false);
+  assert.equal(archiveColumnReady([]), false);
+});
+
+test("archivePatch: Archive sends true, Unarchive sends null, and neither touches active", () => {
+  assert.deepEqual(archivePatch(true), { archived_at: true });
+  assert.deepEqual(archivePatch(false), { archived_at: null });
+});
+
+test("parseArchivedAt: true is the server's now, null unarchives, anything else refused", () => {
+  const now = new Date(WHEN);
+  assert.deepEqual(parseArchivedAt(true, now), { ok: true, value: WHEN });
+  assert.deepEqual(parseArchivedAt(null, now), { ok: true, value: null });
+  for (const bad of [false, "2020-01-01T00:00:00Z", "", 0, 1, {}, undefined]) {
+    assert.equal(parseArchivedAt(bad, now).ok, false, `accepted ${JSON.stringify(bad)}`);
+  }
+});
+
+test("ARCHIVE_NEEDS_MIGRATION names the migration", () => {
+  assert.match(ARCHIVE_NEEDS_MIGRATION, /migration 32/);
+});
+
 test("archiveName: full name first", () => {
-  assert.equal(archiveName(p("Joey Smith", true), "joey@example.com"), "Joey Smith");
+  assert.equal(archiveName(p("Joey Smith"), "joey@example.com"), "Joey Smith");
 });
 
 test("archiveName: a name that is really an email, or none, falls back to the email", () => {
-  assert.equal(archiveName(p("joey@example.com", true), "joey@example.com"), "joey@example.com");
-  assert.equal(archiveName(p(null, true), "joey@example.com"), "joey@example.com");
-  assert.equal(archiveName(p("   ", true), "joey@example.com"), "joey@example.com");
+  assert.equal(archiveName(p("joey@example.com"), "joey@example.com"), "joey@example.com");
+  assert.equal(archiveName(p(null), "joey@example.com"), "joey@example.com");
+  assert.equal(archiveName(p("   "), "joey@example.com"), "joey@example.com");
 });
 
 test("archiveName: no name and no email", () => {
-  assert.equal(archiveName(p(null, true), ""), "this person");
+  assert.equal(archiveName(p(null), ""), "this person");
 });
 
 test("archiveConfirmMessage: the wording Alina asked for", () => {
