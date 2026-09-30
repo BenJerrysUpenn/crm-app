@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Modal from "./Modal";
 import type { Availability } from "@/lib/types";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -198,68 +199,64 @@ export default function AvailabilityCalendar({
       </div>
 
       {draft && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">
-              Add preference — {new Date(draft.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-            </h2>
+        <Modal onClose={() => setDraft(null)} className="max-w-md space-y-4">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+            Add preference — {new Date(draft.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+          </h2>
 
-            <div className="flex gap-4 text-sm">
-              <label className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                <input type="radio" checked={draft.kind === "unavailable"} onChange={() => setDraft({ ...draft, kind: "unavailable" })} /> I&apos;m unavailable to work
-              </label>
-              <label className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                <input type="radio" checked={draft.kind === "preferred"} onChange={() => setDraft({ ...draft, kind: "preferred" })} /> I prefer to work
-              </label>
-            </div>
-
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-              <input type="checkbox" checked={draft.allDay} onChange={(e) => setDraft({ ...draft, allDay: e.target.checked })} /> All day
+          <div className="flex gap-4 text-sm">
+            <label className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+              <input type="radio" checked={draft.kind === "unavailable"} onChange={() => setDraft({ ...draft, kind: "unavailable" })} /> I&apos;m unavailable to work
             </label>
-
-            {!draft.allDay && (
-              <div className="flex items-center gap-2">
-                <input type="time" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100" />
-                <span className="text-slate-500">–</span>
-                <input type="time" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100" />
-              </div>
-            )}
-
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-              <input type="checkbox" checked={draft.repeats} onChange={(e) => setDraft({ ...draft, repeats: e.target.checked })} /> Repeats every {DOW[weekdayOf(draft.date)]}
+            <label className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+              <input type="radio" checked={draft.kind === "preferred"} onChange={() => setDraft({ ...draft, kind: "preferred" })} /> I prefer to work
             </label>
-
-            <label className="block text-xs text-slate-600 dark:text-slate-400">Note
-              <input value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100" />
-            </label>
-
-            {err && <div className="text-sm text-rose-400">{err}</div>}
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-              <button onClick={save} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
-            </div>
           </div>
-        </div>
+
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <input type="checkbox" checked={draft.allDay} onChange={(e) => setDraft({ ...draft, allDay: e.target.checked })} /> All day
+          </label>
+
+          {!draft.allDay && (
+            <div className="flex items-center gap-2">
+              <input type="time" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100" />
+              <span className="text-slate-500">–</span>
+              <input type="time" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100" />
+            </div>
+          )}
+
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <input type="checkbox" checked={draft.repeats} onChange={(e) => setDraft({ ...draft, repeats: e.target.checked })} /> Repeats every {DOW[weekdayOf(draft.date)]}
+          </label>
+
+          <label className="block text-xs text-slate-600 dark:text-slate-400">Note
+            <input value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100" />
+          </label>
+
+          {err && <div className="text-sm text-rose-400">{err}</div>}
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+            <button onClick={save} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
+          </div>
+        </Modal>
       )}
 
       {viewing && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setViewing(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-sm space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">
-              {viewing.preference === "unavailable" ? "Unavailable to work" : "Prefer to work"}
-            </h2>
-            <div className="text-sm text-slate-700 dark:text-slate-300">
-              {viewing.weekday !== null ? `Every ${DOW[viewing.weekday]}` : new Date((viewing.specific_date ?? "") + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
-              {" · "}
-              {viewing.start_time ? `${fmtT(viewing.start_time)}–${fmtT(viewing.end_time)}` : "all day"}
-            </div>
-            {viewing.note && <div className="text-sm text-slate-500">{viewing.note}</div>}
-            <div className="flex justify-between pt-2">
-              <button onClick={() => { del(viewing.id); setViewing(null); }} className="text-sm text-rose-500 hover:text-rose-400">Remove</button>
-              <button onClick={() => setViewing(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
-            </div>
+        <Modal onClose={() => setViewing(null)} className="max-w-sm space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+            {viewing.preference === "unavailable" ? "Unavailable to work" : "Prefer to work"}
+          </h2>
+          <div className="text-sm text-slate-700 dark:text-slate-300">
+            {viewing.weekday !== null ? `Every ${DOW[viewing.weekday]}` : new Date((viewing.specific_date ?? "") + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+            {" · "}
+            {viewing.start_time ? `${fmtT(viewing.start_time)}–${fmtT(viewing.end_time)}` : "all day"}
           </div>
-        </div>
+          {viewing.note && <div className="text-sm text-slate-500">{viewing.note}</div>}
+          <div className="flex justify-between pt-2">
+            <button onClick={() => { del(viewing.id); setViewing(null); }} className="text-sm text-rose-500 hover:text-rose-400">Remove</button>
+            <button onClick={() => setViewing(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
+          </div>
+        </Modal>
       )}
 
       <TimeOffSection timeOff={timeOff} />

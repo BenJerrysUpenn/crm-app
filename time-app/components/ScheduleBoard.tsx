@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Modal from "./Modal";
 import { fmtTime } from "@/lib/format";
 import { describeGap, describeHoursNotSet, type CoverageGap, type HoursNotSetDay } from "@/lib/coverage";
 import { describeLongShift, formatHours, type LongShift } from "@/lib/shiftChecks";
@@ -713,291 +714,285 @@ export default function ScheduleBoard({
       )}
 
       {coverage && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setCoverage(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-lg space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">
-              {coverage.kind !== "checks"
-                ? coverage.what === "availability"
-                  ? "Availability couldn't be checked"
-                  : "Store coverage couldn't be checked"
-                : coverage.gaps.length > 0
-                  ? "Nobody is in the store"
-                  : coverage.longShifts.length > 0
-                    ? "Check this shift before publishing"
-                    : "Check who's scheduled before publishing"}
-            </h2>
-            {coverage.kind === "checks" ? (
-              <>
-                {coverage.gaps.length > 0 && (
-                  <>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      The store is open at these times this week, and no one is scheduled in store:
-                    </p>
-                    <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
-                      {coverage.gaps.map((g) => (
-                        <li key={`${g.date}-${g.from}-${g.to}`} className="text-sm text-amber-900 dark:text-amber-200">
-                          {describeGap(g)}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                {coverage.longShifts.length > 0 && (
-                  <>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      {coverage.longShifts.length === 1 ? "This shift is" : "These shifts are"} too long to be right:
-                    </p>
-                    <ul className="space-y-1 rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2">
-                      {coverage.longShifts.map((s, i) => (
-                        <li key={s.id ?? `${s.starts_at}-${i}`} className="text-sm text-rose-900 dark:text-rose-200">
-                          {describeLongShift(s)}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                {(() => {
-                  const { conflicts, noAvailability } = groupMismatches(coverage.availability);
-                  const nameOf = (m: AvailabilityMismatch & { employee_name?: string | null }) =>
-                    m.employee_name ?? nameById.get(m.employee_id) ?? null;
-                  return (
-                    <>
-                      {conflicts.length > 0 && (
-                        <>
-                          <p className="text-sm text-slate-600 dark:text-slate-400">
-                            Scheduled outside their availability:
-                          </p>
-                          <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 max-h-48 overflow-y-auto">
-                            {conflicts.map((m, i) => (
-                              <li key={`a-${m.shift_id ?? i}`} className="text-sm text-amber-900 dark:text-amber-200">
-                                {describeMismatch(m, nameOf(m))}
-                              </li>
-                            ))}
-                          </ul>
-                        </>
-                      )}
-                      {noAvailability.length > 0 && (
-                        <>
-                          <p className="text-sm text-slate-600 dark:text-slate-400">
-                            No availability on file (they haven&apos;t said whether they can work these):
-                          </p>
-                          <ul className="space-y-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 max-h-48 overflow-y-auto">
-                            {noAvailability.map((m, i) => (
-                              <li key={`n-${m.shift_id ?? i}`} className="text-sm text-slate-700 dark:text-slate-300">
-                                {describeMismatch(m, nameOf(m))}
-                              </li>
-                            ))}
-                          </ul>
-                        </>
-                      )}
-                    </>
-                  );
-                })()}
-                {coverage.hoursNotSet.length > 0 && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
+        <Modal onClose={() => setCoverage(null)} className="max-w-lg space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+            {coverage.kind !== "checks"
+              ? coverage.what === "availability"
+                ? "Availability couldn't be checked"
+                : "Store coverage couldn't be checked"
+              : coverage.gaps.length > 0
+                ? "Nobody is in the store"
+                : coverage.longShifts.length > 0
+                  ? "Check this shift before publishing"
+                  : "Check who's scheduled before publishing"}
+          </h2>
+          {coverage.kind === "checks" ? (
+            <>
+              {coverage.gaps.length > 0 && (
+                <>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    The store is open at these times this week, and no one is scheduled in store:
                   </p>
-                )}
+                  <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
+                    {coverage.gaps.map((g) => (
+                      <li key={`${g.date}-${g.from}-${g.to}`} className="text-sm text-amber-900 dark:text-amber-200">
+                        {describeGap(g)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {coverage.longShifts.length > 0 && (
+                <>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    {coverage.longShifts.length === 1 ? "This shift is" : "These shifts are"} too long to be right:
+                  </p>
+                  <ul className="space-y-1 rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2">
+                    {coverage.longShifts.map((s, i) => (
+                      <li key={s.id ?? `${s.starts_at}-${i}`} className="text-sm text-rose-900 dark:text-rose-200">
+                        {describeLongShift(s)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {(() => {
+                const { conflicts, noAvailability } = groupMismatches(coverage.availability);
+                const nameOf = (m: AvailabilityMismatch & { employee_name?: string | null }) =>
+                  m.employee_name ?? nameById.get(m.employee_id) ?? null;
+                return (
+                  <>
+                    {conflicts.length > 0 && (
+                      <>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                          Scheduled outside their availability:
+                        </p>
+                        <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 max-h-48 overflow-y-auto">
+                          {conflicts.map((m, i) => (
+                            <li key={`a-${m.shift_id ?? i}`} className="text-sm text-amber-900 dark:text-amber-200">
+                              {describeMismatch(m, nameOf(m))}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {noAvailability.length > 0 && (
+                      <>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                          No availability on file (they haven&apos;t said whether they can work these):
+                        </p>
+                        <ul className="space-y-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 max-h-48 overflow-y-auto">
+                          {noAvailability.map((m, i) => (
+                            <li key={`n-${m.shift_id ?? i}`} className="text-sm text-slate-700 dark:text-slate-300">
+                              {describeMismatch(m, nameOf(m))}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
+              {coverage.hoursNotSet.length > 0 && (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Nothing has been published. Fix the shifts above, or publish anyway.
+                  Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
                 </p>
-              </>
-            ) : (
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                {coverage.what === "availability"
-                  ? "Something went wrong reading the team's availability, so we couldn't tell whether everyone scheduled can work their shifts."
-                  : "Something went wrong reading the store hours, so we couldn't tell whether anyone is scheduled for every open hour this week."}{" "}
-                Nothing has been published. Try again in a moment, or publish without the check.
+              )}
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Nothing has been published. Fix the shifts above, or publish anyway.
               </p>
-            )}
-            <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => { setCoverage(null); publishWeek(true); }} disabled={copying} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
-                Publish anyway
-              </button>
-              <button
-                onClick={() => { if (coverage.kind === "unavailable") { setCoverage(null); publishWeek(); } else setCoverage(null); }}
-                disabled={copying}
-                className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50"
-              >
-                {coverage.kind === "checks" ? "Go back and fix" : "Try again"}
-              </button>
-            </div>
+            </>
+          ) : (
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              {coverage.what === "availability"
+                ? "Something went wrong reading the team's availability, so we couldn't tell whether everyone scheduled can work their shifts."
+                : "Something went wrong reading the store hours, so we couldn't tell whether anyone is scheduled for every open hour this week."}{" "}
+              Nothing has been published. Try again in a moment, or publish without the check.
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => { setCoverage(null); publishWeek(true); }} disabled={copying} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
+              Publish anyway
+            </button>
+            <button
+              onClick={() => { if (coverage.kind === "unavailable") { setCoverage(null); publishWeek(); } else setCoverage(null); }}
+              disabled={copying}
+              className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50"
+            >
+              {coverage.kind === "checks" ? "Go back and fix" : "Try again"}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {annDraft && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setAnnDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">Add annotation</h2>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Start date
-                <input type="date" value={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, start_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-              <label className="block text-xs text-slate-600 dark:text-slate-400">End date
-                <input type="date" value={annDraft.end_date} min={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, end_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-            </div>
-            <label className="block text-xs text-slate-600 dark:text-slate-400">Title
-              <input value={annDraft.title} onChange={(e) => setAnnDraft({ ...annDraft, title: e.target.value })} placeholder="Closed for July 4th, Big event…" className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+        <Modal onClose={() => setAnnDraft(null)} className="max-w-md space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">Add annotation</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Start date
+              <input type="date" value={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, start_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
             </label>
-            <label className="block text-xs text-slate-600 dark:text-slate-400">Message
-              <textarea value={annDraft.message} onChange={(e) => setAnnDraft({ ...annDraft, message: e.target.value })} rows={2} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+            <label className="block text-xs text-slate-600 dark:text-slate-400">End date
+              <input type="date" value={annDraft.end_date} min={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, end_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
             </label>
-            <div className="flex items-center gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Color
-                <input type="color" value={annDraft.color} onChange={(e) => setAnnDraft({ ...annDraft, color: e.target.value })} className="ml-2 align-middle w-9 h-8 rounded border border-slate-300 dark:border-slate-700" />
-              </label>
-            </div>
-            <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.business_closed} onChange={(e) => setAnnDraft({ ...annDraft, business_closed: e.target.checked })} /> Business closed</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.no_time_off} onChange={(e) => setAnnDraft({ ...annDraft, no_time_off: e.target.checked })} /> Don&apos;t allow time off</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.announcement} onChange={(e) => setAnnDraft({ ...annDraft, announcement: e.target.checked })} /> Announcement</label>
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => setAnnDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-              <button onClick={saveAnnotation} disabled={busy || !annDraft.title} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Save</button>
-            </div>
           </div>
-        </div>
+          <label className="block text-xs text-slate-600 dark:text-slate-400">Title
+            <input value={annDraft.title} onChange={(e) => setAnnDraft({ ...annDraft, title: e.target.value })} placeholder="Closed for July 4th, Big event…" className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+          </label>
+          <label className="block text-xs text-slate-600 dark:text-slate-400">Message
+            <textarea value={annDraft.message} onChange={(e) => setAnnDraft({ ...annDraft, message: e.target.value })} rows={2} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+          </label>
+          <div className="flex items-center gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Color
+              <input type="color" value={annDraft.color} onChange={(e) => setAnnDraft({ ...annDraft, color: e.target.value })} className="ml-2 align-middle w-9 h-8 rounded border border-slate-300 dark:border-slate-700" />
+            </label>
+          </div>
+          <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
+            <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.business_closed} onChange={(e) => setAnnDraft({ ...annDraft, business_closed: e.target.checked })} /> Business closed</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.no_time_off} onChange={(e) => setAnnDraft({ ...annDraft, no_time_off: e.target.checked })} /> Don&apos;t allow time off</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.announcement} onChange={(e) => setAnnDraft({ ...annDraft, announcement: e.target.checked })} /> Announcement</label>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => setAnnDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+            <button onClick={saveAnnotation} disabled={busy || !annDraft.title} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Save</button>
+          </div>
+        </Modal>
       )}
 
       {draft && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit shift" : "New shift"}</h2>
+        <Modal onClose={() => setDraft(null)} className="max-w-md space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit shift" : "New shift"}</h2>
 
-            {/* Suggestions: shift types with default times */}
-            {!draft.id && shiftTypes.some((t) => t.default_start && t.default_end) && (
-              <div>
-                <div className="text-xs text-slate-500 mb-1">Suggestions</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {shiftTypes.filter((t) => t.default_start && t.default_end).map((t) => {
-                    const d = draft.starts_at.slice(0, 10);
-                    return (
-                      <button
-                        key={t.id}
-                        onClick={() => setDraft({ ...draft, position: t.name, starts_at: `${d}T${t.default_start!.slice(0, 5)}`, ends_at: `${d}T${t.default_end!.slice(0, 5)}` })}
-                        style={{ borderLeft: `4px solid ${t.color}` }}
-                        className="text-left text-xs rounded-md border border-slate-300 dark:border-slate-700 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
-                      >
-                        <div className="font-medium text-slate-800 dark:text-slate-200">{fmtT(t.default_start)}–{fmtT(t.default_end)}</div>
-                        <div className="text-slate-500">{t.name}</div>
-                      </button>
-                    );
-                  })}
-                </div>
+          {/* Suggestions: shift types with default times */}
+          {!draft.id && shiftTypes.some((t) => t.default_start && t.default_end) && (
+            <div>
+              <div className="text-xs text-slate-500 mb-1">Suggestions</div>
+              <div className="grid grid-cols-2 gap-2">
+                {shiftTypes.filter((t) => t.default_start && t.default_end).map((t) => {
+                  const d = draft.starts_at.slice(0, 10);
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setDraft({ ...draft, position: t.name, starts_at: `${d}T${t.default_start!.slice(0, 5)}`, ends_at: `${d}T${t.default_end!.slice(0, 5)}` })}
+                      style={{ borderLeft: `4px solid ${t.color}` }}
+                      className="text-left text-xs rounded-md border border-slate-300 dark:border-slate-700 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      <div className="font-medium text-slate-800 dark:text-slate-200">{fmtT(t.default_start)}–{fmtT(t.default_end)}</div>
+                      <div className="text-slate-500">{t.name}</div>
+                    </button>
+                  );
+                })}
               </div>
-            )}
+            </div>
+          )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
-                <select value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
-                  <option value="">Open (unassigned)</option>
-                  {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
-                </select>
-              </label>
-              {!draft.id && !draft.employee_id && (
-                <label className="block text-xs text-slate-600 dark:text-slate-400">How many
-                  <input type="number" min={1} max={20} value={howMany} onChange={(e) => setHowMany(Number(e.target.value))} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-                </label>
-              )}
-            </div>
-            {draft.employee_id && draft.starts_at && (() => {
-              // Same resolver as the save/publish checks: dated rows, then the
-              // weekly pattern, time off on top.
-              const day = resolveDay(draft.employee_id, draft.starts_at.slice(0, 10), availability);
-              const spans = (kind: string) =>
-                day.blocks
-                  .filter((b) => b.kind === kind)
-                  .map((b) => `${b.source === "weekly" ? "↻ " : ""}${formatSpan(b.from, b.to)}`)
-                  .join(", ");
-              const pref = spans("preferred"), avail = spans("available"), unavail = spans("unavailable");
-              return (
-                <div className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/40 px-3 py-2 text-xs space-y-1">
-                  <div className="text-slate-600 dark:text-slate-400">Availability that day</div>
-                  {day.timeOff && (
-                    <div className="text-rose-500 dark:text-rose-300">
-                      {day.timeOff === "pending" ? "Time-off request pending" : "Time off (approved)"}
-                    </div>
-                  )}
-                  {pref && <div className="text-sky-600 dark:text-sky-300">Prefers: {pref}</div>}
-                  {avail && <div className="text-emerald-600 dark:text-emerald-300">Available: {avail}</div>}
-                  {unavail && <div className="text-rose-500 dark:text-rose-300">Can&apos;t work: {unavail}</div>}
-                  {!day.timeOff && day.blocks.length === 0 && <div className="text-slate-500">No availability submitted.</div>}
-                </div>
-              );
-            })()}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Start
-                <input type="datetime-local" value={draft.starts_at} onChange={(e) => setDraft({ ...draft, starts_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-              <label className="block text-xs text-slate-600 dark:text-slate-400">End
-                <input type="datetime-local" value={draft.ends_at} onChange={(e) => setDraft({ ...draft, ends_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Shift type
-                <select value={draft.position} onChange={(e) => setDraft({ ...draft, position: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
-                  <option value="">—</option>
-                  {shiftTypes.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-                </select>
-              </label>
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Location
-                <select value={draft.location_id} onChange={(e) => setDraft({ ...draft, location_id: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
-                  <option value="">—</option>
-                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
-              </label>
-            </div>
-            <label className="block text-xs text-slate-600 dark:text-slate-400">Notes
-              <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
+              <select value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
+                <option value="">Open (unassigned)</option>
+                {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
+              </select>
             </label>
-            {err && <div className="text-sm text-rose-300">{err}</div>}
-            {longSave !== null && (
-              <div className="rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2 text-sm text-rose-900 dark:text-rose-200">
-                This shift is {formatHours(longSave)} hours long. Save anyway?
-              </div>
+            {!draft.id && !draft.employee_id && (
+              <label className="block text-xs text-slate-600 dark:text-slate-400">How many
+                <input type="number" min={1} max={20} value={howMany} onChange={(e) => setHowMany(Number(e.target.value))} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+              </label>
             )}
-            {availConfirmed && availSave && (() => {
-              if (availSave.kind === "unavailable") {
-                return (
-                  <div className="rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
-                    Couldn&apos;t read {nameById.get(draft.employee_id) ?? "this person"}&apos;s availability, so we
-                    can&apos;t tell whether they can work this. Try again, or save anyway.
+          </div>
+          {draft.employee_id && draft.starts_at && (() => {
+            // Same resolver as the save/publish checks: dated rows, then the
+            // weekly pattern, time off on top.
+            const day = resolveDay(draft.employee_id, draft.starts_at.slice(0, 10), availability);
+            const spans = (kind: string) =>
+              day.blocks
+                .filter((b) => b.kind === kind)
+                .map((b) => `${b.source === "weekly" ? "↻ " : ""}${formatSpan(b.from, b.to)}`)
+                .join(", ");
+            const pref = spans("preferred"), avail = spans("available"), unavail = spans("unavailable");
+            return (
+              <div className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/40 px-3 py-2 text-xs space-y-1">
+                <div className="text-slate-600 dark:text-slate-400">Availability that day</div>
+                {day.timeOff && (
+                  <div className="text-rose-500 dark:text-rose-300">
+                    {day.timeOff === "pending" ? "Time-off request pending" : "Time off (approved)"}
                   </div>
-                );
-              }
-              const { title, lines } = describeForSave(availSave.mismatch, nameById.get(draft.employee_id));
-              const noneOnFile = availSave.mismatch.reasons.every((r) => r.kind === "no_availability");
+                )}
+                {pref && <div className="text-sky-600 dark:text-sky-300">Prefers: {pref}</div>}
+                {avail && <div className="text-emerald-600 dark:text-emerald-300">Available: {avail}</div>}
+                {unavail && <div className="text-rose-500 dark:text-rose-300">Can&apos;t work: {unavail}</div>}
+                {!day.timeOff && day.blocks.length === 0 && <div className="text-slate-500">No availability submitted.</div>}
+              </div>
+            );
+          })()}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Start
+              <input type="datetime-local" value={draft.starts_at} onChange={(e) => setDraft({ ...draft, starts_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+            </label>
+            <label className="block text-xs text-slate-600 dark:text-slate-400">End
+              <input type="datetime-local" value={draft.ends_at} onChange={(e) => setDraft({ ...draft, ends_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+            </label>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Shift type
+              <select value={draft.position} onChange={(e) => setDraft({ ...draft, position: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
+                <option value="">—</option>
+                {shiftTypes.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Location
+              <select value={draft.location_id} onChange={(e) => setDraft({ ...draft, location_id: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
+                <option value="">—</option>
+                {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="block text-xs text-slate-600 dark:text-slate-400">Notes
+            <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+          </label>
+          {err && <div className="text-sm text-rose-300">{err}</div>}
+          {longSave !== null && (
+            <div className="rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2 text-sm text-rose-900 dark:text-rose-200">
+              This shift is {formatHours(longSave)} hours long. Save anyway?
+            </div>
+          )}
+          {availConfirmed && availSave && (() => {
+            if (availSave.kind === "unavailable") {
               return (
-                <div
-                  className={`rounded-md border px-3 py-2 text-sm space-y-0.5 ${
-                    noneOnFile
-                      ? "border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-800 dark:text-slate-200"
-                      : "border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200"
-                  }`}
-                >
-                  <div className="font-medium">{title}</div>
-                  {lines.map((l, i) => (
-                    <div key={i}>{l}</div>
-                  ))}
+                <div className="rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+                  Couldn&apos;t read {nameById.get(draft.employee_id) ?? "this person"}&apos;s availability, so we
+                  can&apos;t tell whether they can work this. Try again, or save anyway.
                 </div>
               );
-            })()}
-            <div className="flex items-center justify-between pt-2">
-              {draft.id ? (
-                <button onClick={remove} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
-              ) : <span />}
-              <div className="flex gap-2">
-                <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-                <button onClick={() => save(longSave !== null, availConfirmed)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
-                  {busy ? "Submitting…" : longSave !== null || availConfirmed ? "Save anyway" : "Submit"}
-                </button>
+            }
+            const { title, lines } = describeForSave(availSave.mismatch, nameById.get(draft.employee_id));
+            const noneOnFile = availSave.mismatch.reasons.every((r) => r.kind === "no_availability");
+            return (
+              <div
+                className={`rounded-md border px-3 py-2 text-sm space-y-0.5 ${
+                  noneOnFile
+                    ? "border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-800 dark:text-slate-200"
+                    : "border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200"
+                }`}
+              >
+                <div className="font-medium">{title}</div>
+                {lines.map((l, i) => (
+                  <div key={i}>{l}</div>
+                ))}
               </div>
+            );
+          })()}
+          <div className="flex items-center justify-between pt-2">
+            {draft.id ? (
+              <button onClick={remove} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
+            ) : <span />}
+            <div className="flex gap-2">
+              <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+              <button onClick={() => save(longSave !== null, availConfirmed)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
+                {busy ? "Submitting…" : longSave !== null || availConfirmed ? "Save anyway" : "Submit"}
+              </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
