@@ -8,7 +8,20 @@ import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } fr
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
 import { PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/payroll/payType";
-import { archiveConfirmMessage, archiveName, archivedToggleLabel, splitArchived } from "@/lib/teamArchive";
+import {
+  ARCHIVE_NEEDS_MIGRATION,
+  archiveColumnReady,
+  archiveConfirmMessage,
+  archiveName,
+  archivePatch,
+  archivedToggleLabel,
+  isArchived,
+  splitArchived,
+} from "@/lib/teamArchive";
+
+// What the Team page sends to PATCH /api/profiles/:id. archived_at is sent as
+// true (archive now, the server stamps the time) or null (unarchive).
+type ProfilePatch = Partial<Omit<Profile, "archived_at">> & { archived_at?: true | null };
 
 export default function TeamAdmin({
   employees,
@@ -49,16 +62,18 @@ export default function TeamAdmin({
   const [newRole, setNewRole] = useState<"employee" | "manager">("employee");
   const [newRate, setNewRate] = useState<string>("");
 
-  // Archived people (profiles.active = false) sit below the table, hidden
-  // until the manager asks for them.
+  // Archived people (profiles.archived_at set, migration 32) sit below the
+  // table, hidden until the manager asks for them. Before migration 32 the
+  // column is absent, nobody reads as archived, and Archive says so.
   const { current, archived } = splitArchived(employees);
+  const archiveReady = archiveColumnReady(employees);
   const [showArchived, setShowArchived] = useState(false);
 
   // Returns the server's message when a save is refused, or null when it stuck.
-  // Most edits here cannot be refused, but pay type and archive read their
-  // answer back, so a refused save never leaves the row showing a value the
+  // Most edits here cannot be refused, but pay type, On schedule and archive
+  // read their answer back, so a refused save never leaves the row showing a value the
   // database does not have.
-  async function saveProfile(id: string, patch: Partial<Profile>): Promise<string | null> {
+  async function saveProfile(id: string, patch: ProfilePatch): Promise<string | null> {
     setSavingId(id);
     const res = await fetch(`/api/profiles/${id}`, {
       method: "PATCH",
@@ -146,9 +161,9 @@ export default function TeamAdmin({
           to set their password, and then they appear in the list below. Use
           Resend invite if the link expired. <strong>Pay</strong> is salaried or
           hourly: the payroll sheet prints &ldquo;salary&rdquo; instead of hours
-          for a salaried person. <strong>Archive</strong> hides someone from the
-          team, schedule and availability; it does not remove their login or
-          delete anything.
+          for a salaried person. <strong>On schedule</strong> shows someone on the
+          schedule and availability; <strong>Archive</strong> takes them off
+          everything, this list included, and deletes nothing.
         </p>
         {addOpen && (
           <div className="mb-4 max-w-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
@@ -216,24 +231,30 @@ export default function TeamAdmin({
                 <th className="text-left px-3 py-2">Role</th>
                 <th className="text-right px-3 py-2">Rate $/h</th>
                 <th className="text-left px-3 py-2">Pay</th>
+                <th
+                  className="text-center px-3 py-2 whitespace-nowrap"
+                  title="On the schedule, availability, the staff pickers and the payroll roster. Unticking this does NOT end anyone's access: only banning their login does."
+                >
+                  On schedule
+                </th>
                 <th className="text-left px-3 py-2">Invite</th>
                 <th className="px-3 py-2"><span className="sr-only">Archive</span></th>
               </tr>
             </thead>
             <tbody>
               {current.map((e) => (
-                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} onSave={saveProfile} onResend={resendInvite} />
+                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} onSave={saveProfile} onResend={resendInvite} />
               ))}
             </tbody>
             {showArchived && archived.length > 0 && (
               <tbody>
                 <tr className="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
-                  <th colSpan={8} className="text-left px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                  <th colSpan={9} className="text-left px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
                     Archived
                   </th>
                 </tr>
                 {archived.map((e) => (
-                  <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} onSave={saveProfile} onResend={resendInvite} />
+                  <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} onSave={saveProfile} onResend={resendInvite} />
                 ))}
               </tbody>
             )}
@@ -470,13 +491,15 @@ function EmployeeRow({
   e,
   email,
   saving,
+  archiveReady,
   onSave,
   onResend,
 }: {
   e: Profile;
   email: string;
   saving: boolean;
-  onSave: (id: string, patch: Partial<Profile>) => Promise<string | null>;
+  archiveReady: boolean;
+  onSave: (id: string, patch: ProfilePatch) => Promise<string | null>;
   onResend: (id: string) => Promise<string>;
 }) {
   const [name, setName] = useState(e.full_name ?? "");
@@ -495,15 +518,34 @@ function EmployeeRow({
     if (err) setPayType(e.pay_type ?? "");
   }
 
-  // Archive is profiles.active = false: off the team table, the schedule and
-  // the availability grid, exactly as "off roster" was. It is not access: the
-  // owners are archived and still sign in. Access ends by offboarding, which
-  // bans the login (crm-app PR #19), or a ban in Supabase Auth (audit H2).
-  // Nothing is deleted, so Unarchive restores them as they were.
+  // On schedule is profiles.active: the schedule, availability, the staff
+  // pickers and the payroll roster read it. It is not access: the owners are
+  // off the schedule and still sign in. Access ends by offboarding, which bans
+  // the login (crm-app PR #19), or a ban in Supabase Auth (audit H2). A
+  // refused save puts the box back to what the database holds.
+  const archivedRow = isArchived(e);
+  const [active, setActive] = useState(e.active);
+  const [activeErr, setActiveErr] = useState<string | null>(null);
+  async function saveActive(next: boolean) {
+    setActive(next);
+    const err = await onSave(e.id, { active: next });
+    setActiveErr(err);
+    if (err) setActive(e.active);
+  }
+
+  // Archive is profiles.archived_at (migration 32): off the team table, and
+  // the server also sets active = false, so off the schedule too. Unarchive
+  // clears archived_at only; the manager ticks On schedule if they're back on
+  // the floor. Nothing is deleted. Before migration 32 both refuse with a
+  // message instead of falling back to active alone.
   const [archiveErr, setArchiveErr] = useState<string | null>(null);
   async function setArchived(archive: boolean) {
+    if (!archiveReady) {
+      setArchiveErr(ARCHIVE_NEEDS_MIGRATION);
+      return;
+    }
     if (archive && !window.confirm(archiveConfirmMessage(archiveName(e, email)))) return;
-    setArchiveErr(await onSave(e.id, { active: !archive }));
+    setArchiveErr(await onSave(e.id, archivePatch(archive)));
   }
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMsg, setInviteMsg] = useState<string | null>(null);
@@ -547,6 +589,17 @@ function EmployeeRow({
         </select>
         {payErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px]">{payErr}</div>}
       </td>
+      <td className="px-3 py-2 text-center">
+        <input
+          type="checkbox"
+          checked={active}
+          disabled={archivedRow}
+          title={archivedRow ? "Unarchive first to put them back on the schedule." : "On the schedule and availability. This does not remove their login."}
+          onChange={(ev) => saveActive(ev.target.checked)}
+          className="disabled:opacity-40"
+        />
+        {activeErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px] text-left">{activeErr}</div>}
+      </td>
       <td className="px-3 py-2 align-top">
         {email ? (
           <>
@@ -558,7 +611,7 @@ function EmployeeRow({
         ) : null}
       </td>
       <td className="px-3 py-2 align-top text-right">
-        {e.active ? (
+        {!archivedRow ? (
           <button
             type="button"
             onClick={() => setArchived(true)}
@@ -573,7 +626,7 @@ function EmployeeRow({
             type="button"
             onClick={() => setArchived(false)}
             disabled={saving}
-            title="Put them back on the team, schedule and availability."
+            title="Put them back in the team list. Tick On schedule if they're back on the floor."
             className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50"
           >
             Unarchive
