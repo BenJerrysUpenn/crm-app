@@ -4,42 +4,34 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtDate } from "@/lib/format";
 import type { Availability, Profile } from "@/lib/types";
-import { resolveDay, type Kind } from "@/lib/availabilityCheck";
+import type { AvailabilityRow } from "@/lib/availabilityCheck";
+import { buildTeamGrid, type RosterPerson } from "@/lib/teamAvailability";
+import TeamAvailabilityGrid from "@/components/TeamAvailabilityGrid";
 
 type Row = Availability & { profiles: Pick<Profile, "id" | "full_name"> };
-
-const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function addDays(d: string, n: number) {
   const x = new Date(d + "T00:00:00Z");
   x.setUTCDate(x.getUTCDate() + n);
   return x.toISOString().slice(0, 10);
 }
-// Minutes past midnight to "9:00am"; 1440 reads as "12:00am".
-function t(minutes: number) {
-  const hr = Math.floor(minutes / 60) % 24;
-  const m = String(minutes % 60).padStart(2, "0");
-  const ampm = hr >= 12 ? "pm" : "am";
-  const h12 = hr % 12 === 0 ? 12 : hr % 12;
-  return `${h12}:${m}${ampm}`;
-}
-const CHIP: Record<Kind, string> = {
-  unavailable: "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-900",
-  preferred: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-900",
-  available: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900",
-};
-const KIND_LABEL: Record<Kind, string> = { unavailable: "can't work", preferred: "prefers", available: "available" };
 
 export default function ManagerAvailability({
   weekStart,
-  weekRows,
-  weeklyRows = [],
+  roster,
+  availability,
   timeOff,
 }: {
   weekStart: string;
-  weekRows: Row[];
-  /** Weekly ("repeats every …") rows. Resolved against weekRows per date. */
-  weeklyRows?: Row[];
+  /** Everyone on the roster, in the Schedule page's order. Null when the read failed. */
+  roster: RosterPerson[] | null;
+  /**
+   * Availability rows for the grid (lib/availabilityRows.ts): dated rows from
+   * the day before the week through its Saturday, plus every weekly row. Null
+   * when the read failed.
+   */
+  availability: AvailabilityRow[] | null;
+  /** Every time-off request, for the approvals card. */
   timeOff: Row[];
 }) {
   const router = useRouter();
@@ -61,16 +53,6 @@ export default function ManagerAvailability({
     });
     setBusyId(null);
     router.refresh();
-  }
-
-  // Group availability by employee: dated rows for the week and weekly rows
-  // alike, then resolve each date with the same rules the schedule checks use
-  // (lib/availabilityCheck.ts) so this view and the warnings never disagree.
-  const byEmp = new Map<string, Row[]>();
-  for (const r of [...weekRows, ...weeklyRows]) {
-    const arr = byEmp.get(r.employee_id) ?? [];
-    arr.push(r);
-    byEmp.set(r.employee_id, arr);
   }
 
   type TOGroup = {
@@ -111,6 +93,10 @@ export default function ManagerAvailability({
       : `${fmtDate(g.start + "T12:00:00")} – ${fmtDate(g.end + "T12:00:00")}`;
   }
 
+  // Resolved per day with the same rules the schedule checks use
+  // (lib/availabilityCheck.ts), so this grid and the warnings never disagree.
+  const grid = roster && availability ? buildTeamGrid(roster, weekStart, availability) : null;
+
   const pending = group(timeOff.filter((r) => r.status === "pending"));
   const decided = group(timeOff.filter((r) => r.status !== "pending"));
 
@@ -124,7 +110,7 @@ export default function ManagerAvailability({
       </div>
 
       {/* Time-off approvals */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-5xl">
         <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
           Time-off requests {pending.length > 0 && <span className="text-amber-400">({pending.length} pending)</span>}
         </div>
@@ -163,30 +149,13 @@ export default function ManagerAvailability({
         )}
       </div>
 
-      {/* Week availability per employee */}
-      <div className="text-sm text-slate-600 dark:text-slate-400">{rangeLabel}</div>
-      {byEmp.size === 0 ? (
-        <div className="text-slate-500 text-sm">No availability submitted for this week.</div>
+      {/* Week grid: everyone on the roster, one column per day */}
+      {grid ? (
+        <TeamAvailabilityGrid grid={grid} rangeLabel={rangeLabel} />
       ) : (
-        Array.from(byEmp.entries()).map(([id, list]) => (
-          <div key={id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
-            <div className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3">{list[0].profiles?.full_name ?? id}</div>
-            <div className="flex flex-wrap gap-2">
-              {dates.flatMap((date, col) =>
-                resolveDay(id, date, list).blocks.map((b) => (
-                  <span
-                    key={`${date}-${b.from}-${b.kind}`}
-                    title={`${KIND_LABEL[b.kind]}${b.source === "weekly" ? " (every week)" : ""}`}
-                    className={`text-xs rounded-md px-2 py-1 border ${CHIP[b.kind]}`}
-                  >
-                    {b.source === "weekly" ? "↻ " : ""}
-                    {DOW[col]} {b.from === 0 && b.to === 1440 ? "all day" : `${t(b.from)}–${t(b.to)}`}
-                  </span>
-                )),
-              )}
-            </div>
-          </div>
-        ))
+        <div className="text-sm text-rose-600 dark:text-rose-400">
+          {rangeLabel} · Couldn&apos;t load the team&apos;s availability. Refresh to try again.
+        </div>
       )}
     </div>
   );
