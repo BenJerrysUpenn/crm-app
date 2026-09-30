@@ -6,6 +6,8 @@ import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import AvailabilityCalendar from "@/components/AvailabilityCalendar";
 import ManagerAvailability from "@/components/ManagerAvailability";
+import { loadAvailabilityRows } from "@/lib/availabilityRows";
+import { loadRoster } from "@/lib/teamRoster";
 import type { Availability, Profile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -61,24 +63,14 @@ export default async function AvailabilityPage({
   // ---- Manager: weekly team availability + approvals ----
   if (isManager && view === "team") {
     const weekStart = sundayOf(searchParams.week);
-    const weekEnd = addDays(weekStart, 7);
-    const { data: weekRows } = await supabase
-      .from("availability")
-      .select("*, profiles(id, full_name)")
-      .eq("is_available", true)
-      .not("specific_date", "is", null)
-      // A day early: an overnight block from the Saturday before reaches Sunday.
-      .gte("specific_date", addDays(weekStart, -1))
-      .lt("specific_date", weekEnd)
-      .order("specific_date", { ascending: true });
-    // Weekly rows too: the "Repeats every …" toggle writes weekday, not
-    // specific_date, and a Team view that skipped them showed everyone on a
-    // weekly pattern as having submitted nothing.
-    const { data: weeklyRows } = await supabase
-      .from("availability")
-      .select("*, profiles(id, full_name)")
-      .eq("is_available", true)
-      .not("weekday", "is", null);
+    // The grid lists everyone on the roster (the Schedule page's list), and
+    // reads availability through the shared loader: dated rows from the day
+    // before the week (an overnight block from that Saturday reaches Sunday)
+    // plus every weekly "Repeats every …" row.
+    const [roster, availability] = await Promise.all([
+      loadRoster(supabase),
+      loadAvailabilityRows(supabase, { from: addDays(weekStart, -1), to: addDays(weekStart, 6) }),
+    ]);
     const { data: timeOff } = await supabase
       .from("availability")
       .select("*, profiles(id, full_name)")
@@ -88,12 +80,13 @@ export default async function AvailabilityPage({
       <div className="min-h-screen flex flex-col">
         <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
         <main className="flex-1">
-          <div className="mx-auto max-w-5xl px-4 py-6">
+          {/* Full page width so all seven days fit side by side. */}
+          <div className="mx-auto px-4 sm:px-6 py-6">
             <Tabs active="team" />
             <ManagerAvailability
               weekStart={weekStart}
-              weekRows={(weekRows as (Availability & { profiles: Pick<Profile, "id" | "full_name"> })[]) ?? []}
-              weeklyRows={(weeklyRows as (Availability & { profiles: Pick<Profile, "id" | "full_name"> })[]) ?? []}
+              roster={roster.ok ? roster.people : null}
+              availability={availability.ok ? availability.rows : null}
               timeOff={(timeOff as (Availability & { profiles: Pick<Profile, "id" | "full_name"> })[]) ?? []}
             />
           </div>
