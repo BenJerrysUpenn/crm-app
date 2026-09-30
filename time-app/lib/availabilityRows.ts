@@ -6,10 +6,13 @@
 // every …" toggle on the Availability calendar writes weekday, not
 // specific_date), so a reader that only asks for dated rows sees them as
 // having no availability at all.
+//
+// created_at is read because a weekly row only applies from the date it was
+// created (see resolveDay in lib/availabilityCheck.ts).
 
 import type { AvailabilityRow } from "@/lib/availabilityCheck";
 
-const COLUMNS = "employee_id, weekday, specific_date, start_time, end_time, is_available, status, preference";
+const COLUMNS = "employee_id, weekday, specific_date, start_time, end_time, is_available, status, preference, created_at";
 
 // Just the slice of the Supabase client this file uses, so both the cookie
 // client and the admin client fit.
