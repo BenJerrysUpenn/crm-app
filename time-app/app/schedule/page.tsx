@@ -111,7 +111,10 @@ export default async function SchedulePage({
     <div className="min-h-screen flex flex-col">
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
       <main className="flex-1">
-        <div className="mx-auto max-w-5xl px-4 py-6">
+        {/* Managers get the full width: the week grid is 7 days plus a staff
+            column and should not need a sideways scroll on a laptop. Staff
+            keep the narrow centred column. */}
+        <div className={isManager ? "px-4 lg:px-6 py-6" : "mx-auto max-w-5xl px-4 py-6"}>
           <ScheduleBoard
             isManager={isManager}
             weekStart={weekStart}
