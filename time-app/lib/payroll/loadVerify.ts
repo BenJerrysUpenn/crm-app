@@ -1,6 +1,6 @@
 // Loads everything the §1 rulebook needs for one pay window and runs it.
 //
-// Shared by GET /api/payroll/verify (the Finance tab and the schedule's
+// Shared by GET /api/payroll/verify (the payroll page's checks and its
 // solo-close dropdowns) and POST /api/payroll/submit, so the submittal is
 // checked against exactly the result a manager was looking at. Server-only:
 // it takes the request's Supabase client, so every read runs under the

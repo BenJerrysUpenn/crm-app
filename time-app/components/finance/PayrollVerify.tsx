@@ -5,6 +5,7 @@ import type { CheckGroup, Finding } from "@/lib/payroll/verify";
 import type { LoadedVerify } from "@/lib/payroll/loadVerify";
 import { submittalBlocker, paysSubmitter } from "@/lib/payroll/choices";
 import { recordChoice, resetChoice } from "./choiceApi";
+import SoloCloseNights from "@/components/SoloCloseNights";
 
 // The Verify timesheets screen (bj-finance #519, payroll spec §1).
 //
@@ -16,8 +17,9 @@ import { recordChoice, resetChoice } from "./choiceApi";
 //
 // Ruled 2026-09-22: every judgement call is a per-case choice with a
 // PRESELECTED DEFAULT, and there is ONE submittal for the whole run, which any
-// manager may give. The §1.9 solo-close dropdown lives on the schedule view;
-// this tab shows what was chosen and links there.
+// manager may give. The §1.9 solo-close dropdowns are in the solo-close card
+// above the checks (components/SoloCloseNights.tsx); the 1.9 check shows what
+// was chosen and links up to it.
 //
 // Follow-up ruling, same day: the submittal is FINAL. It is only offered once
 // the pay period has ended, it cannot be undone, and it locks every choice in
@@ -142,6 +144,11 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
         <>
           <Summary result={result} />
           <SubmitPanel result={result} meId={meId} busy={busy} onSubmit={submit} />
+          <SoloCloseNights
+            from={result.window.start}
+            to={result.window.end}
+            onSaved={() => verify(result.window.end)}
+          />
           {result.groups.map((group) => (
             <GroupCard key={group.check} group={group} busy={busy} onRule={rule} onClear={unrule} />
           ))}
@@ -383,8 +390,8 @@ function FindingRow({
 /**
  * A case with a preselected default (§1.9, §3.5, §3.7). The default is shown as
  * already standing; changing it records a choice, and "reset" puts the default
- * back. §1.9 is changed on the schedule, per the ruling, so here it is shown
- * with a link there.
+ * back. §1.9 is changed in the solo-close card above the checks, so here it is
+ * shown with a link up to it.
  */
 function ChoiceRow({
   finding,
@@ -411,13 +418,9 @@ function ChoiceRow({
         <div className="text-slate-700 dark:text-slate-300">
           {labelFor(finding, effective?.choice ?? "skip").replace(/ \(default\)$/, "")}
           {payeeName ? ` — ${payeeName}` : ""} {recorded ? "(changed from default)" : "(default)"}{" "}
-          {/* A plain link, not next/link: on finance.withers-ventures.com the schedule
-              is on the time host, and middleware redirects there (lib/hosts.ts). */}
-          {finding.evidence.date && (
-            <a href={`/schedule?week=${finding.evidence.date}`} className="underline text-slate-500 hover:text-emerald-600 ml-1">
-              change on the schedule
-            </a>
-          )}
+          <a href="#solo-close" className="underline text-slate-500 hover:text-emerald-600 ml-1">
+            change in Solo close above
+          </a>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">

@@ -8,9 +8,12 @@ import AvailabilityCalendar from "@/components/AvailabilityCalendar";
 import ManagerAvailability from "@/components/ManagerAvailability";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { loadRoster } from "@/lib/teamRoster";
+import { dropPastTimeOff, todayInNewYork } from "@/lib/timeOff";
 import type { Availability, Profile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+type TimeOffRow = Availability & { profiles: Pick<Profile, "id" | "full_name"> };
 
 const TZ = "America/New_York";
 function addDays(d: string, n: number) {
@@ -71,11 +74,33 @@ export default async function AvailabilityPage({
       loadRoster(supabase),
       loadAvailabilityRows(supabase, { from: addDays(weekStart, -1), to: addDays(weekStart, 6) }),
     ]);
-    const { data: timeOff } = await supabase
+    // Time-off requests that are not over yet (lib/timeOff.ts). The database
+    // keeps only days from today on (New York), plus undated rows; then, for a
+    // request already under way, its earlier days are read back so the card
+    // still shows the whole range. Past requests stay in the table.
+    const today = todayInNewYork(new Date());
+    const { data: current } = await supabase
       .from("availability")
       .select("*, profiles(id, full_name)")
       .eq("is_available", false)
+      .or(`specific_date.is.null,specific_date.gte.${today}`)
       .order("specific_date", { ascending: true });
+    const underway = Array.from(
+      new Set((current ?? []).map((r) => r.request_group as string | null).filter((g): g is string => !!g)),
+    );
+    const { data: earlier } = underway.length
+      ? await supabase
+          .from("availability")
+          .select("*, profiles(id, full_name)")
+          .eq("is_available", false)
+          .in("request_group", underway)
+          .lt("specific_date", today)
+          .order("specific_date", { ascending: true })
+      : { data: [] };
+    const timeOff = dropPastTimeOff(
+      [...((earlier as TimeOffRow[]) ?? []), ...((current as TimeOffRow[]) ?? [])],
+      today,
+    );
     return (
       <div className="min-h-screen flex flex-col">
         <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
@@ -87,7 +112,7 @@ export default async function AvailabilityPage({
               weekStart={weekStart}
               roster={roster.ok ? roster.people : null}
               availability={availability.ok ? availability.rows : null}
-              timeOff={(timeOff as (Availability & { profiles: Pick<Profile, "id" | "full_name"> })[]) ?? []}
+              timeOff={timeOff}
             />
           </div>
         </main>

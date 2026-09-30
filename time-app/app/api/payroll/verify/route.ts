@@ -20,7 +20,7 @@ export const fetchCache = "force-no-store";
  *
  * The §1 timesheet checks for one pay window (bj-finance #519), with every
  * per-case choice attached and the run's submittal state. Manager-only: these
- * findings name people, hours and money. The Finance tab and the schedule's
+ * findings name people, hours and money. The payroll page's checks and its
  * solo-close dropdowns both read it.
  *
  * `window_end` must be a period end: every other Sunday, on the cycle through
