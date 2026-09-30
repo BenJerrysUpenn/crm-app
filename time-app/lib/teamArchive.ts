@@ -46,12 +46,14 @@ export function splitArchived<T extends Person>(people: T[]): { current: T[]; ar
   return { current, archived };
 }
 
+export type ArchivePatch = { archived_at: true | null };
+
 /**
  * What the Team page sends to PATCH /api/profiles/:id. Archive sends
  * archived_at: true and the server stamps the time and sets active = false.
  * Unarchive sends null and leaves active alone.
  */
-export function archivePatch(archive: boolean): { archived_at: true | null } {
+export function archivePatch(archive: boolean): ArchivePatch {
   return { archived_at: archive ? true : null };
 }
 

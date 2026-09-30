@@ -14,6 +14,7 @@ import {
   archiveConfirmMessage,
   archiveName,
   archivePatch,
+  type ArchivePatch,
   archivedToggleLabel,
   isArchived,
   splitArchived,
@@ -21,7 +22,7 @@ import {
 
 // What the Team page sends to PATCH /api/profiles/:id. archived_at is sent as
 // true (archive now, the server stamps the time) or null (unarchive).
-type ProfilePatch = Partial<Omit<Profile, "archived_at">> & { archived_at?: true | null };
+type ProfilePatch = Partial<Omit<Profile, "archived_at">> & Partial<ArchivePatch>;
 
 export default function TeamAdmin({
   employees,
