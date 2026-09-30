@@ -69,6 +69,15 @@ test("Unarchive clears archived_at and leaves active false", async () => {
   assert.equal(row(SAM).active, false);
 });
 
+test("Unarchive leaves active as it is, even when it is true", async () => {
+  // An archived row still on the schedule (set outside the Team page).
+  row(SAM).archived_at = "2026-09-01T12:00:00.000Z";
+  const res = await patch(SAM, { archived_at: null });
+  assert.equal(res.status, 200);
+  assert.equal(row(SAM).archived_at, null);
+  assert.equal(row(SAM).active, true);
+});
+
 test("On schedule sets active and nothing else", async () => {
   const res = await patch(OWNER, { active: true });
   assert.equal(res.status, 200);
