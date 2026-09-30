@@ -17,6 +17,8 @@
 // omits the key, so nobody reads as archived, and Archive/Unarchive are
 // refused with ARCHIVE_NEEDS_MIGRATION rather than falling back to active.
 
+import type { Parsed } from "./storeHours.ts";
+
 type Person = { full_name: string | null; archived_at?: string | null };
 
 /** Shown when Archive or Unarchive is tried before migration 32 is applied. */
@@ -52,8 +54,6 @@ export function splitArchived<T extends Person>(people: T[]): { current: T[]; ar
 export function archivePatch(archive: boolean): { archived_at: true | null } {
   return { archived_at: archive ? true : null };
 }
-
-export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /**
  * The route's reading of archived_at from the request body: true archives now
