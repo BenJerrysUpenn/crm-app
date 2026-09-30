@@ -7,6 +7,7 @@ import type { Availability, Profile } from "@/lib/types";
 import type { AvailabilityRow } from "@/lib/availabilityCheck";
 import { buildTeamGrid, type RosterPerson } from "@/lib/teamAvailability";
 import TeamAvailabilityGrid from "@/components/TeamAvailabilityGrid";
+import { timeOffGroupKey } from "@/lib/timeOff";
 
 type Row = Availability & { profiles: Pick<Profile, "id" | "full_name"> };
 
@@ -31,7 +32,7 @@ export default function ManagerAvailability({
    * when the read failed.
    */
   availability: AvailabilityRow[] | null;
-  /** Every time-off request, for the approvals card. */
+  /** Time-off requests whose last day is today or later (lib/timeOff.ts), for the approvals card. */
   timeOff: Row[];
 }) {
   const router = useRouter();
@@ -67,7 +68,7 @@ export default function ManagerAvailability({
   function group(rows: Row[]): TOGroup[] {
     const map = new Map<string, Row[]>();
     for (const r of rows) {
-      const key = `${r.employee_id}|${r.request_group ?? "single-" + r.id}`;
+      const key = timeOffGroupKey(r);
       const arr = map.get(key) ?? [];
       arr.push(r);
       map.set(key, arr);
