@@ -714,7 +714,7 @@ export default function ScheduleBoard({
 
       {coverage && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setCoverage(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-lg space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 modal-panel rounded-xl p-5 w-full max-w-lg space-y-3" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">
               {coverage.kind !== "checks"
                 ? coverage.what === "availability"
@@ -828,7 +828,7 @@ export default function ScheduleBoard({
 
       {annDraft && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setAnnDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 modal-panel rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">Add annotation</h2>
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-xs text-slate-600 dark:text-slate-400">Start date
@@ -864,7 +864,7 @@ export default function ScheduleBoard({
 
       {draft && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 modal-panel rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit shift" : "New shift"}</h2>
 
             {/* Suggestions: shift types with default times */}

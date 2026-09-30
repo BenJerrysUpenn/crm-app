@@ -199,7 +199,7 @@ export default function AvailabilityCalendar({
 
       {draft && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 modal-panel rounded-xl p-5 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">
               Add preference — {new Date(draft.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
             </h2>
@@ -244,7 +244,7 @@ export default function AvailabilityCalendar({
 
       {viewing && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setViewing(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-sm space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 modal-panel rounded-xl p-5 w-full max-w-sm space-y-3" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">
               {viewing.preference === "unavailable" ? "Unavailable to work" : "Prefer to work"}
             </h2>

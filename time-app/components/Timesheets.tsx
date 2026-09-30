@@ -249,7 +249,7 @@ export default function Timesheets({
 
       {draft && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(ev) => ev.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 modal-panel rounded-xl p-5 w-full max-w-md space-y-3" onClick={(ev) => ev.stopPropagation()}>
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit time entry" : "Add time entry"}</h2>
             <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
               <select value={draft.employee_id} onChange={(ev) => setDraft({ ...draft, employee_id: ev.target.value })} disabled={!!draft.id} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100 disabled:opacity-60">
