@@ -14,6 +14,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { easternTodayYmd, easternWallTimeToUTCISO } from "@/lib/dateFormat";
+import type { Stage } from "@/lib/stages";
 import {
   computeBelowMin,
   computeDealFunnel,
@@ -34,6 +35,10 @@ import { windowStart, type WindowKey } from "./windows";
 // Page size for range reads; deals and non-added events are both well under a
 // couple thousand rows, so a single 5000-row page covers them.
 const PAGE = 5000;
+
+// The stage a deal parks at while its machine-produced draft waits on a human
+// send. Typed against lib/stages.ts, so a renamed stage fails tsc.
+const DRAFT_AWAITING_SEND_STAGE: Stage = "Quote Review";
 
 const DEAL_COLUMNS =
   "id,stage,contact_email,event_type,created_at,updated_at,total_with_tax,subtotal_pretax,signed_contract_total";
@@ -308,7 +313,7 @@ export async function fetchExceptionQueue(
     .from("deals")
     .select("id,company,contact_first_name,contact_last_name,contact_email,event_type,stage,updated_at,last_outbound_at,gmail_thread_id")
     .eq("archived", 0)
-    .eq("stage", "Quote Review")
+    .eq("stage", DRAFT_AWAITING_SEND_STAGE)
     .order("updated_at", { ascending: true })
     .limit(200);
   if (dErr) throw dErr;
