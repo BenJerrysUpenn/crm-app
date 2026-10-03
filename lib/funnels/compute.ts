@@ -11,6 +11,7 @@
 // contacts reuse deal rows, so created_at would credit the machine for deals it
 // never touched. See attributeDeals().
 
+import { emailKey } from "@/lib/dealIntake";
 import type { Stage } from "@/lib/stages";
 import { deriveProfile, PROFILES, type Profile } from "./profile";
 import type {
@@ -50,10 +51,6 @@ export function reachedBooked(stage: string): boolean {
 }
 
 // --- Small helpers -----------------------------------------------------------
-
-export function emailKey(email: string | null | undefined): string {
-  return (email ?? "").trim().toLowerCase();
-}
 
 /** deals.created_at / updated_at are stored as ISO text; parse defensively. */
 export function parseTs(iso: string | null | undefined): number {
@@ -110,7 +107,7 @@ export function computeOutreachFunnel(
   const emailOf = new Map<number, string>();
   for (const p of prospects) {
     if (p.engine === "warm" || p.engine === "cold") engineOf.set(p.id, p.engine);
-    emailOf.set(p.id, emailKey(p.email));
+    emailOf.set(p.id, emailKey(p.email) ?? "");
   }
 
   // Earliest in-window mail per prospect, plus event flags per prospect.
