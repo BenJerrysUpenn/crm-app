@@ -20,6 +20,8 @@ const db = vi.hoisted(() => {
     user: { email: "manager@example.com" } as { email: string } | null,
     tables: {} as Record<string, Row[]>,
     tableErrors: {} as Record<string, { message: string; code?: string }>,
+    // One read only, keyed "table:columns" as the route selects them.
+    readErrors: {} as Record<string, { message: string; code?: string }>,
     rpcCalls: [] as Array<{ name: string; args: Row }>,
     rpcError: null as { message: string; code?: string } | null,
   };
@@ -27,10 +29,12 @@ const db = vi.hoisted(() => {
   function query(table: string) {
     const filters: Array<(r: Row) => boolean> = [];
     let head = false;
+    let cols = "";
     let order: { col: string; asc: boolean } | null = null;
     let limit = Infinity;
     const q: any = {
-      select(_cols: string, opts?: { head?: boolean }) {
+      select(c: string, opts?: { head?: boolean }) {
+        cols = c;
         head = !!opts?.head;
         return q;
       },
@@ -64,7 +68,7 @@ const db = vi.hoisted(() => {
         return q;
       },
       then(resolve: (v: unknown) => void, reject: (e: unknown) => void) {
-        const err = state.tableErrors[table];
+        const err = state.tableErrors[table] ?? state.readErrors[`${table}:${cols}`];
         if (err) return Promise.resolve({ data: null, count: null, error: err }).then(resolve, reject);
         let rows = (state.tables[table] ?? []).filter((r) => filters.every((f) => f(r)));
         if (order) {
@@ -144,6 +148,7 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   db.state.user = { email: "manager@example.com" };
   db.state.tableErrors = {};
+  db.state.readErrors = {};
   db.state.rpcCalls = [];
   db.state.rpcError = null;
   db.state.tables = {
@@ -217,6 +222,32 @@ describe("GET /api/funnels", () => {
     expect(loop.cold).toEqual({ gate_passed: true, gate_date: "2026-09-24", queued: 1 });
     expect(loop.quote_jobs).toEqual({ pending: 1, running: 0, error: 1 });
     expect(loop.suppression).toEqual({ total: 1, opt_out_events: 1, prospects_total: 3 });
+  });
+
+  it("fails loudly when the last-activity read fails, rather than reporting no activity", async () => {
+    db.state.readErrors["outreach_events:occurred_at"] = { message: "connection reset", code: "08006" };
+    const res = await get();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: "connection reset", migration_missing: false });
+  });
+
+  it("reports the cold lane's domain-age gate as not passed before its date", async () => {
+    vi.setSystemTime(new Date("2026-09-20T16:00:00Z"));
+    const { loop } = await (await get()).json();
+    expect(loop.cold).toMatchObject({ gate_passed: false, gate_date: "2026-09-24" });
+  });
+
+  it("counts today's sends from Eastern midnight on the day the clocks go back", async () => {
+    // 2026-11-01: midnight in New York is still EDT (04:00Z); 11:00 EST now.
+    vi.setSystemTime(new Date("2026-11-01T16:00:00Z"));
+    db.state.tables.outreach_events = [
+      // 23:30 on Oct 31 in New York: yesterday.
+      { prospect_id: 10, event: "sequenced", occurred_at: "2026-11-01T03:30:00Z" },
+      // 00:30 on Nov 1 in New York: today.
+      { prospect_id: 11, event: "sequenced", occurred_at: "2026-11-01T04:30:00Z" },
+    ];
+    const { loop } = await (await get()).json();
+    expect(loop.warm.sent_today).toBe(1);
   });
 
   it("computes the funnel over the window the URL asks for", async () => {
