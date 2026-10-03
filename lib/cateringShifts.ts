@@ -92,10 +92,6 @@ export function isCartEvent(value: unknown): boolean {
   return false;
 }
 
-// The Eastern wall-clock-to-UTC rule lives in lib/dateFormat.ts
-// (easternWallTimeToUTCISO) so there is one definition of it; the Funnels
-// "today" counter reads the same function.
-
 // Work out the shift's UTC start/end from the deal. Requires departure_time,
 // which the catering automation only sets once a picklist has been generated —
 // that's our guarantee the timing is real. No departure_time => no shift yet
