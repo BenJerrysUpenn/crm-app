@@ -20,13 +20,18 @@ export async function POST(req: NextRequest) {
   if (!user)
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  let body: { prospect_id?: number };
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const prospectId = Number(body.prospect_id);
+  // Read the id defensively: a valid-but-non-object body (`null`, a number, an
+  // array) reaches here, and `(null)?.prospect_id` is undefined, so it falls
+  // into the same 400 as a missing id rather than throwing an unhandled 500.
+  const prospectId = Number(
+    (body as { prospect_id?: unknown } | null)?.prospect_id,
+  );
   if (!Number.isInteger(prospectId) || prospectId <= 0) {
     return NextResponse.json({ error: "prospect_id required" }, { status: 400 });
   }

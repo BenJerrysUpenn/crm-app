@@ -13,6 +13,7 @@
 
 import { emailKey } from "@/lib/dealIntake";
 import type { Stage } from "@/lib/stages";
+import { reachedBooked, reachedQuoted } from "@/lib/stages";
 import { deriveProfile, PROFILES, type Profile } from "./profile";
 import { ENGINES } from "./types";
 import type {
@@ -29,27 +30,13 @@ import type {
 } from "./types";
 
 // --- Stage vocabulary (typed against lib/stages.ts, so a renamed stage fails tsc)
-
-const QUOTED_STAGES: ReadonlySet<Stage> = new Set<Stage>([
-  "Sent Quote",
-  "Booked Unpaid",
-  "Booked Paid",
-  "Event Complete",
-]);
-const BOOKED_STAGES: ReadonlySet<Stage> = new Set<Stage>([
-  "Booked Unpaid",
-  "Booked Paid",
-  "Event Complete",
-]);
+//
+// The cumulative "reached quoted / reached booked" funnel sets live in
+// lib/stages.ts alongside TERMINAL_STAGES, so "quoted" and "booked" mean one
+// thing across the app. These two are point-in-time single-stage checks local
+// to the deal funnel's complete / below-min tallies.
 const COMPLETE_STAGE: Stage = "Event Complete";
 const BELOW_MIN_STAGE: Stage = "Closed Below Min";
-
-export function reachedQuoted(stage: string): boolean {
-  return QUOTED_STAGES.has(stage as Stage);
-}
-export function reachedBooked(stage: string): boolean {
-  return BOOKED_STAGES.has(stage as Stage);
-}
 
 // --- Small helpers -----------------------------------------------------------
 
