@@ -68,8 +68,8 @@ export function median(values: number[]): number | null {
 
 // --- Window filtering --------------------------------------------------------
 
-export function inWindow(iso: string | null | undefined, startMs: number): boolean {
-  const t = parseTs(iso);
+/** An instant (ms, NaN when unparseable) is inside a window that starts at `startMs`, inclusive. */
+export function inWindow(t: number, startMs: number): boolean {
   return !Number.isNaN(t) && t >= startMs;
 }
 
@@ -105,7 +105,7 @@ export function computeOutreachFunnel(
   for (const e of events) {
     if (e.prospect_id == null) continue;
     const t = parseTs(e.occurred_at);
-    if (e.event === "sequenced" && !Number.isNaN(t) && t >= windowStartMs) {
+    if (e.event === "sequenced" && inWindow(t, windowStartMs)) {
       const prev = mailAt.get(e.prospect_id);
       if (prev === undefined || t < prev) mailAt.set(e.prospect_id, t);
     } else if ((REPLY_EVENTS as readonly string[]).includes(e.event)) {
@@ -208,7 +208,7 @@ export function computeDealFunnel(
   };
 
   for (const d of deals) {
-    if (!inWindow(d.created_at, windowStartMs)) continue;
+    if (!inWindow(parseTs(d.created_at), windowStartMs)) continue;
     const profile = deriveProfile(d.event_type, d.contact_email);
     bump("__all__", d);
     bump(profile, d);
@@ -275,8 +275,7 @@ export function computeQuoteLatency(
   for (const p of pairs) {
     const c = parseTs(p.created_at);
     const q = parseTs(p.quote_sent_at);
-    if (Number.isNaN(c) || Number.isNaN(q)) continue;
-    if (c < windowStartMs) continue;
+    if (!inWindow(c, windowStartMs) || Number.isNaN(q)) continue;
     const hours = (q - c) / (1000 * 60 * 60);
     if (hours < 0) continue;
     clean.push({ createdMs: c, hours });
