@@ -23,7 +23,6 @@ import {
 } from "./compute";
 import type {
   DealRow,
-  Engine,
   FunnelPayload,
   OutreachEventRow,
   ProspectRow,

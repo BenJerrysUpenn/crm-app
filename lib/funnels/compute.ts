@@ -14,6 +14,7 @@
 import { emailKey } from "@/lib/dealIntake";
 import type { Stage } from "@/lib/stages";
 import { deriveProfile, PROFILES, type Profile } from "./profile";
+import { ENGINES } from "./types";
 import type {
   BelowMinResult,
   DealFunnelRow,
@@ -106,7 +107,7 @@ export function computeOutreachFunnel(
   const engineOf = new Map<number, Engine>();
   const emailOf = new Map<number, string>();
   for (const p of prospects) {
-    if (p.engine === "warm" || p.engine === "cold") engineOf.set(p.id, p.engine);
+    if (p.engine != null && ENGINES.includes(p.engine)) engineOf.set(p.id, p.engine);
     emailOf.set(p.id, emailKey(p.email) ?? "");
   }
 
@@ -142,8 +143,7 @@ export function computeOutreachFunnel(
     dealsByEmail.set(k, agg);
   }
 
-  const engines: Engine[] = ["warm", "cold"];
-  return engines.map((engine) => {
+  return ENGINES.map((engine) => {
     let sent = 0;
     let repliedN = 0;
     let handedN = 0;

@@ -7,7 +7,8 @@
 import type { Profile } from "./profile";
 import type { WindowKey } from "./windows";
 
-export type Engine = "warm" | "cold";
+export const ENGINES = ["warm", "cold"] as const;
+export type Engine = (typeof ENGINES)[number];
 
 // --- Raw row projections -----------------------------------------------------
 
