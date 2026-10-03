@@ -154,6 +154,19 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
     return c;
   };
 
+  // The function's security posture: definer/invoker, search_path, and who
+  // may EXECUTE it (grantee 0 in the ACL is PUBLIC).
+  const FN = "public.outreach_offers_opt_in(bigint, text, text, text, text)";
+  const functionFacts = async () =>
+    (await sql`
+      SELECT p.prosecdef, p.proconfig,
+             has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
+             has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
+             has_function_privilege('service_role', p.oid, 'EXECUTE') AS service_role,
+             EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0) AS public
+        FROM pg_proc p
+       WHERE p.oid = ${FN}::regprocedure`)[0];
+
   describe("crm/007 alone (the gap)", () => {
     it("rewrote a signup_form opt-in to explicit_yes with a second consent", async () => {
       const id = await prospect({ marketing_opt_in: true, opt_in_source: "signup_form", opt_in_at: FORM_DATE });
@@ -263,15 +276,7 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
     });
 
     it("keeps SECURITY INVOKER, search_path and service_role-only EXECUTE", async () => {
-      const [f] = await sql`
-        SELECT p.prosecdef, p.proconfig,
-               has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
-               has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
-               has_function_privilege('service_role', p.oid, 'EXECUTE') AS service_role,
-               EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0) AS public
-          FROM pg_proc p
-         WHERE p.oid = 'public.outreach_offers_opt_in(bigint, text, text, text, text)'::regprocedure`;
-      expect(f).toEqual({
+      expect(await functionFacts()).toEqual({
         prosecdef: false, proconfig: ["search_path=public"],
         anon: false, authenticated: false, service_role: true, public: false,
       });
@@ -281,19 +286,13 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
     // test above passes on 007's grants alone. This one scrambles the ACL
     // first: only 009's own REVOKE and GRANT can put it back.
     it("leaves EXECUTE service_role-only whatever ACL the function had before", async () => {
-      const fn = "public.outreach_offers_opt_in(bigint, text, text, text, text)";
-      await sql.unsafe(`GRANT EXECUTE ON FUNCTION ${fn} TO PUBLIC, anon, authenticated;
-                        REVOKE EXECUTE ON FUNCTION ${fn} FROM service_role;`);
+      await sql.unsafe(`GRANT EXECUTE ON FUNCTION ${FN} TO PUBLIC, anon, authenticated;
+                        REVOKE EXECUTE ON FUNCTION ${FN} FROM service_role;`);
       await sql.unsafe(migration("009_offers_opt_in_signup_form.sql"));
 
-      const [f] = await sql`
-        SELECT has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
-               has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
-               has_function_privilege('service_role', p.oid, 'EXECUTE') AS service_role,
-               EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0) AS public
-          FROM pg_proc p
-         WHERE p.oid = ${fn}::regprocedure`;
-      expect(f).toEqual({ anon: false, authenticated: false, service_role: true, public: false });
+      expect(await functionFacts()).toMatchObject({
+        anon: false, authenticated: false, service_role: true, public: false,
+      });
     });
   });
 });
