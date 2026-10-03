@@ -15,7 +15,7 @@ import { emailKey } from "@/lib/dealIntake";
 import type { Stage } from "@/lib/stages";
 import { reachedBooked, reachedQuoted } from "@/lib/stages";
 import { deriveProfile, PROFILES, type Profile } from "./profile";
-import { ENGINES } from "./types";
+import { ENGINES, REPLY_EVENTS } from "./types";
 import type {
   BelowMinResult,
   DealFunnelRow,
@@ -108,7 +108,7 @@ export function computeOutreachFunnel(
     if (e.event === "sequenced" && !Number.isNaN(t) && t >= windowStartMs) {
       const prev = mailAt.get(e.prospect_id);
       if (prev === undefined || t < prev) mailAt.set(e.prospect_id, t);
-    } else if (e.event === "replied" || e.event === "interested") {
+    } else if ((REPLY_EVENTS as readonly string[]).includes(e.event)) {
       replied.add(e.prospect_id);
     } else if (e.event === "handed_off") {
       handedOff.add(e.prospect_id);

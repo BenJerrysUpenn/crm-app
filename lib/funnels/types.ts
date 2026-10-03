@@ -10,6 +10,11 @@ import type { WindowKey } from "./windows";
 export const ENGINES = ["warm", "cold"] as const;
 export type Engine = (typeof ENGINES)[number];
 
+// The outreach events that count as a prospect replying. One list, so the
+// funnel's "replied" step and the exception queue's "replies awaiting
+// handling" agree on what a reply is.
+export const REPLY_EVENTS = ["replied", "interested"] as const;
+
 // --- Raw row projections -----------------------------------------------------
 
 export type ProspectRow = {

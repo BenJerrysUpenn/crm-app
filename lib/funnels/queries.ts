@@ -21,6 +21,7 @@ import {
   computeQuoteLatency,
   parseTs,
 } from "./compute";
+import { REPLY_EVENTS } from "./types";
 import type {
   DealRow,
   FunnelPayload,
@@ -333,7 +334,7 @@ export async function fetchExceptionQueue(
   const { data: replyRows, error: rErr } = await supabase
     .from("outreach_events")
     .select("prospect_id,event,occurred_at")
-    .in("event", ["replied", "interested"])
+    .in("event", [...REPLY_EVENTS])
     .order("occurred_at", { ascending: false })
     .limit(200);
   if (rErr) throw rErr;
