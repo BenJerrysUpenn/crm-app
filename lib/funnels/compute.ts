@@ -9,7 +9,7 @@
 // ACTIVITY JOIN (a prospect was mailed, then a deal on the same email was
 // touched AFTER the mail), NEVER a join on deals.created_at. Repeat and legacy
 // contacts reuse deal rows, so created_at would credit the machine for deals it
-// never touched. See attributeDeals().
+// never touched. See computeOutreachFunnel().
 
 import { emailKey } from "@/lib/dealIntake";
 import type { Stage } from "@/lib/stages";
