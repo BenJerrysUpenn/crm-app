@@ -44,10 +44,14 @@ policies from `supabase/crm/001_call_desk.sql`. No service-role client is used h
 
 Layer 1 derives the customer profile in **TypeScript** (`lib/funnels/profile.ts`),
 not a SQL view — a view is DDL, and this pass is pure reads that must run without an
-Alex-approved migration. Precedence: `penn_account` (@upenn.edu) → `wedding`
-(wedding/bridal/rehearsal/engagement) → `mitzvah` → `office_admin` (corporate event
-type **and** a business email domain) → `family_celebration`
-(birthday/baby shower/gender reveal/family reunion) → `unclassified`. `event_type` is
+Alex-approved migration. Precedence follows the spec's literal order — occasion
+before channel (first match wins): `wedding` (wedding/bridal/rehearsal/engagement) →
+`mitzvah` → `office_admin` (corporate event type **and** a business email domain) →
+`penn_account` (@upenn.edu) → `family_celebration`
+(birthday/baby shower/gender reveal/family reunion) → `unclassified`. A "wedding at an
+@upenn.edu address" or "corporate order from Penn" is resolved in favour of the
+occasion; whether `penn_account` should instead win for any Penn address is the open
+behaviour question for #396 Funnel data model / #438 bucket naming. `event_type` is
 dirty free-text and is normalized before matching.
 
 ## What is a proxy / approximation (say it, don't hide it)
