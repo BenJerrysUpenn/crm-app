@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PROFILE_LABELS, type Profile } from "@/lib/funnels/profile";
 import { WINDOWS, WINDOW_LABELS, type WindowKey } from "@/lib/funnels/windows";
 import type { FunnelPayload } from "@/lib/funnels/types";
+import { pct } from "@/lib/funnels/compute";
 import type { ExceptionQueue, LoopStatus } from "@/lib/funnels/queries";
 import { ageLabel, ago, gmailLink, money, pctLabel } from "./format";
 
@@ -613,12 +614,10 @@ function convCell(value: number, denom: number) {
 // --- panel 4: health strip ---------------------------------------------------
 
 function HealthStrip({ loop }: { loop: LoopStatus }) {
-  const suppressionRate =
-    loop.suppression.prospects_total > 0
-      ? Math.round(
-          (loop.suppression.total / loop.suppression.prospects_total) * 1000,
-        ) / 10
-      : 0;
+  const suppressionRate = pct(
+    loop.suppression.total,
+    loop.suppression.prospects_total,
+  );
   return (
     <Panel title="Health strip" hint="Deliverability and backlog at a glance.">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
