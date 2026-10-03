@@ -4,7 +4,7 @@
 // the profile derivation, the window arithmetic, and — the one that must never
 // regress — outreach->deal attribution via the ACTIVITY JOIN, never created_at.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deriveProfile,
   emailDomain,
@@ -27,7 +27,7 @@ import {
   pct,
   weekStartISO,
 } from "@/lib/funnels/compute";
-import { ageLabel, gmailLink, money, pctLabel } from "@/components/funnels/format";
+import { ageLabel, ago, gmailLink, money, pctLabel } from "@/components/funnels/format";
 import type {
   DealRow,
   OutreachEventRow,
@@ -378,6 +378,26 @@ describe("display formatting", () => {
     expect(ageLabel(0.4)).toBe("<1h");
     expect(ageLabel(47.4)).toBe("47h");
     expect(ageLabel(48)).toBe("2d");
+  });
+
+  describe("last activity, relative to now", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("says never for no activity and unknown for an unreadable instant", () => {
+      expect(ago(null)).toBe("never");
+      expect(ago("not a date")).toBe("unknown");
+    });
+
+    it("reads minutes, then hours under two days, then days", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-25T16:00:00Z"));
+      expect(ago("2026-09-25T15:59:50Z")).toBe("just now");
+      expect(ago("2026-09-25T15:15:00Z")).toBe("45m ago");
+      expect(ago("2026-09-24T00:00:00Z")).toBe("40h ago");
+      expect(ago("2026-09-22T16:00:00Z")).toBe("3d ago");
+    });
   });
 
   it("shows whole dollars and a dash for a missing percentage", () => {
