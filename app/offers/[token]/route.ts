@@ -23,13 +23,13 @@ export const runtime = "nodejs";
 //       whose mail a scanner touched — so consent is the button press, which
 //       is the owners' ruling.
 // POST  /offers/<token>  the button. Verifies the token, then one RPC
-//       (supabase/crm/007_offers_opt_in.sql, body replaced by crm/008)
+//       (supabase/crm/007_offers_opt_in.sql, body replaced by crm/009)
 //       records the consent row, sets the opt-in on the prospect and logs an
 //       'opted_in' event, in one transaction. A yes after an opt-out is a real yes (owners' ruling
 //       2026-09-27): the same transaction lifts the suppression and records
 //       what it lifted, and the person sees the same confirmation as anyone
 //       else. It writes nothing on a repeat press (an existing explicit_yes
-//       or signup_form opt-in, crm/008), and refuses only a 'dead'
+//       or signup_form opt-in, crm/009), and refuses only a 'dead'
 //       (test or invalid) row, which is a 404 like any other bad link.
 //
 // Mirrors app/api/unsubscribe/[token]/route.ts on purpose: the service-role

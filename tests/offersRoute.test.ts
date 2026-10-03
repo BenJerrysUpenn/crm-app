@@ -27,7 +27,7 @@ const OUTCOME = {
     opted_in: false, already: true, refused: null, email_present: true,
     lifted: false, opted_in_at: "2026-09-20T14:05:00Z",
   },
-  // crm/008: a signup_form opt-in is already explicit. Same shape as repeat;
+  // crm/009: a signup_form opt-in is already explicit. Same shape as repeat;
   // opted_in_at is the form's date, which the function leaves untouched.
   signupFormAlready: {
     opted_in: false, already: true, refused: null, email_present: true,

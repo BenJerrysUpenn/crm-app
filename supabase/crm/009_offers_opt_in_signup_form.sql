@@ -1,9 +1,12 @@
 -- ============================================================================
--- Withers CRM — migration crm/008: a signup_form opt-in is already explicit
+-- Withers CRM — migration crm/009: a signup_form opt-in is already explicit
 -- bj-finance #425
 --
+-- Numbered 009, not 008: origin/main already has crm/008 (the Hot Chocolate
+-- Float Party migration, #57), so this file takes the next free number.
+--
 -- Run once in the Supabase SQL editor, or:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/crm/008_offers_opt_in_signup_form.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/crm/009_offers_opt_in_signup_form.sql
 -- Idempotent: CREATE OR REPLACE of one function, plus its comment and grants.
 -- Requires crm/007 (the consent table this writes). No table, column, index
 -- or policy changes.
@@ -90,7 +93,7 @@ BEGIN
   -- Lock the row: the checks and the write below must see the same
   -- prospect, and a concurrent press must wait for this one.
   --
-  -- "Explicit" is the same set everywhere (crm/008): 'explicit_yes' (this
+  -- "Explicit" is the same set everywhere (crm/009): 'explicit_yes' (this
   -- button) or 'signup_form' (they opted in on a form). coalesce, because
   -- opt_in_source may be NULL and NULL IN (...) is NULL, not false.
   SELECT nullif(lower(btrim(p.email)), ''), p.status, p.opt_in_at,
@@ -212,7 +215,7 @@ COMMENT ON FUNCTION public.outreach_offers_opt_in(bigint, text, text, text, text
   'marketing_opt_in/opt_in_source=explicit_yes/opt_in_at + ''opted_in'' event '
   'in one transaction. A yes after an opt-out lifts the suppression in the '
   'same transaction and records it (lifted_suppression). An existing explicit '
-  'opt-in (explicit_yes or signup_form, crm/008) with no opt-out since is a '
+  'opt-in (explicit_yes or signup_form, crm/009) with no opt-out since is a '
   'repeat and writes nothing. Refuses only a ''dead'' prospect. Returns '
   '{opted_in, already, refused, email_present, lifted, opted_in_at}.';
 

@@ -1,4 +1,4 @@
-// SQL-level tests for public.outreach_offers_opt_in (crm/007 + crm/008).
+// SQL-level tests for public.outreach_offers_opt_in (crm/007 + crm/009).
 //
 // tests/offersRoute.test.ts tests the route against the function's canned
 // outcomes; this file tests the function itself, in a real Postgres. It runs
@@ -9,7 +9,7 @@
 // Each run creates a throwaway database on that server, builds the few tables
 // the function touches (stand-ins for bj-finance outreach/migrations 001-005
 // and crm/003, reduced to the columns the function reads and writes), applies
-// the real supabase/crm/007 and 008 files, and drops the database afterwards.
+// the real supabase/crm/007 and 009 files, and drops the database afterwards.
 //
 //   initdb -D /tmp/pg-crm -U postgres --auth=trust
 //   pg_ctl -D /tmp/pg-crm -o "-p 55432 -k /tmp" -l /tmp/pg-crm.log start
@@ -163,9 +163,9 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
     });
   });
 
-  describe("after crm/008", () => {
+  describe("after crm/009", () => {
     beforeAll(async () => {
-      await sql.unsafe(migration("008_offers_opt_in_signup_form.sql"));
+      await sql.unsafe(migration("009_offers_opt_in_signup_form.sql"));
     });
 
     it("treats a signup_form opt-in as already explicit and writes nothing", async () => {
@@ -279,12 +279,12 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
 
     // CREATE OR REPLACE keeps whatever ACL the function already has, so the
     // test above passes on 007's grants alone. This one scrambles the ACL
-    // first: only 008's own REVOKE and GRANT can put it back.
+    // first: only 009's own REVOKE and GRANT can put it back.
     it("leaves EXECUTE service_role-only whatever ACL the function had before", async () => {
       const fn = "public.outreach_offers_opt_in(bigint, text, text, text, text)";
       await sql.unsafe(`GRANT EXECUTE ON FUNCTION ${fn} TO PUBLIC, anon, authenticated;
                         REVOKE EXECUTE ON FUNCTION ${fn} FROM service_role;`);
-      await sql.unsafe(migration("008_offers_opt_in_signup_form.sql"));
+      await sql.unsafe(migration("009_offers_opt_in_signup_form.sql"));
 
       const [f] = await sql`
         SELECT has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
