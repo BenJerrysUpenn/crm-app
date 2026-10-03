@@ -289,11 +289,12 @@ describe("quote latency", () => {
   it("trends the median by the Monday-UTC week the deal was created in", () => {
     const r = computeQuoteLatency(
       [
+        // Week of Mon 2026-09-14: one 1.25h quote -> rounds to 1.3. Listed first
+        // so the trend has to be put in week order, not arrival order.
+        { created_at: "2026-09-14T00:00:00Z", quote_sent_at: "2026-09-14T01:15:00Z" },
         // Week of Mon 2026-09-07: 2h and 6h -> median 4.
         { created_at: "2026-09-10T00:00:00Z", quote_sent_at: "2026-09-10T02:00:00Z" },
         { created_at: "2026-09-11T00:00:00Z", quote_sent_at: "2026-09-11T06:00:00Z" },
-        // Week of Mon 2026-09-14: one 1.25h quote -> rounds to 1.3.
-        { created_at: "2026-09-14T00:00:00Z", quote_sent_at: "2026-09-14T01:15:00Z" },
       ],
       START,
     );
