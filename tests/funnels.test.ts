@@ -27,6 +27,7 @@ import {
   pct,
   weekStartISO,
 } from "@/lib/funnels/compute";
+import { ageLabel, gmailLink, money, pctLabel } from "@/components/funnels/format";
 import type {
   DealRow,
   OutreachEventRow,
@@ -333,6 +334,32 @@ describe("deal value precedence", () => {
     const all = computeDealFunnel(deals, START).find((r) => r.profile === "__all__")!;
     expect(all.quoted_value).toBe(500);
     expect(all.booked_value).toBe(200);
+  });
+});
+
+// --- display formatting --------------------------------------------------------
+
+describe("display formatting", () => {
+  it("links a thread when there is one, else searches the address, else the inbox", () => {
+    expect(gmailLink("thr-1", "a@b.com")).toBe("https://mail.google.com/mail/u/0/#all/thr-1");
+    expect(gmailLink(null, "a+x@b.com")).toBe(
+      "https://mail.google.com/mail/u/0/#search/a%2Bx%40b.com",
+    );
+    expect(gmailLink(null, null)).toBe("https://mail.google.com/mail/u/0/#all");
+  });
+
+  it("labels ages in hours under two days, days after", () => {
+    expect(ageLabel(null)).toBe("—");
+    expect(ageLabel(0.4)).toBe("<1h");
+    expect(ageLabel(47.4)).toBe("47h");
+    expect(ageLabel(48)).toBe("2d");
+  });
+
+  it("shows whole dollars and a dash for a missing percentage", () => {
+    expect(money(1234.6)).toBe("$1,235");
+    expect(money(null)).toBe("$0");
+    expect(pctLabel(null)).toBe("—");
+    expect(pctLabel(33.3)).toBe("33.3%");
   });
 });
 
