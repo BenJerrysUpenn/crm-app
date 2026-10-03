@@ -281,6 +281,12 @@ export const PACKAGES: ReadonlyArray<Package> = [
     value: "Super Deluxe Sundae Party",
     description: "cookies, brownies, 6 toppings",
   },
+  {
+    // Spelled byte for byte as deals_package_name_check (supabase/crm/008)
+    // and Catering-Manager have it. Upgrades: cookies and brownies only.
+    value: "Hot Chocolate Float Party",
+    description: "1 scoop on hot chocolate, whipped cream, chocolate sauce",
+  },
 ];
 
 export const PACKAGE_NAMES: ReadonlyArray<string> = PACKAGES.map((p) => p.value);

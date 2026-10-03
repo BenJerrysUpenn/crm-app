@@ -35,7 +35,7 @@ BEGIN;
 --
 -- Why an RPC rather than two PostgREST queries. The phone match has to be
 -- made on the NORMALISED key: `deals.contact_phone` holds whatever a human
--- typed — "(215) 665-5323", "215.665.5323", "+1 215 665 5323" — so a literal
+-- typed — "(215) 555-0123", "215.555.0123", "+1 215 555 0123" — so a literal
 -- comparison finds nothing, and PostgREST cannot call normalize_phone on the
 -- column side of a filter. Doing it here also keeps one definition of
 -- "the same person" instead of one per caller.

@@ -39,10 +39,10 @@ const NOW = new Date("2026-09-20T18:30:00Z");
 function completePayload(over: Partial<DealFormPayload> = {}): DealFormPayload {
   return {
     ...EMPTY_DEAL_FORM_PAYLOAD,
-    contact_first_name: "Dana",
-    contact_last_name: "Okafor",
-    contact_email: "dana@wharton.upenn.edu",
-    contact_phone: "(215) 665-5323",
+    contact_first_name: "Jordan",
+    contact_last_name: "Sample",
+    contact_email: "jordan@example.org",
+    contact_phone: "(215) 555-0123",
     event_type: "Corporate",
     venue_address: "3730 Walnut St, Philadelphia, PA",
     package_name: "Sundae Party",
@@ -59,15 +59,15 @@ function completePayload(over: Partial<DealFormPayload> = {}): DealFormPayload {
 function minimalPayload(over: Partial<DealFormPayload> = {}): DealFormPayload {
   return {
     ...EMPTY_DEAL_FORM_PAYLOAD,
-    contact_first_name: "Dana",
-    contact_phone: "215-665-5323",
+    contact_first_name: "Jordan",
+    contact_phone: "215-555-0123",
     source: "walk_in",
     ...over,
   };
 }
 
 const CTX = {
-  callerEmail: "josephpettine@gmail.com",
+  callerEmail: "caller1@example.com",
   nowUtc: NOW,
   prospectId: null as number | null,
   profileLabel: "Office admin",
@@ -110,9 +110,9 @@ describe("initialSfLeadState", () => {
 
 describe("dedupe keys", () => {
   it("normalises phones the way public.normalize_phone does", () => {
-    expect(phoneKey("(215) 665-5323")).toBe("2156655323");
-    expect(phoneKey("+1 215 665 5323")).toBe("2156655323");
-    expect(phoneKey("12156655323")).toBe("2156655323");
+    expect(phoneKey("(215) 555-0123")).toBe("2155550123");
+    expect(phoneKey("+1 215 555 0123")).toBe("2155550123");
+    expect(phoneKey("12155550123")).toBe("2155550123");
     // Not a US 11-digit number: left alone rather than silently truncated.
     expect(phoneKey("442079460000")).toBe("442079460000");
     expect(phoneKey("")).toBeNull();
@@ -120,8 +120,8 @@ describe("dedupe keys", () => {
   });
 
   it("lowercases and trims emails", () => {
-    expect(emailKey("  Dana@Wharton.UPenn.edu ")).toBe(
-      "dana@wharton.upenn.edu",
+    expect(emailKey("  Jordan@Example.Org ")).toBe(
+      "jordan@example.org",
     );
     expect(emailKey("   ")).toBeNull();
   });
@@ -170,7 +170,7 @@ describe("validateDealPayload — manual mode", () => {
   it("accepts a name, an email and a source", () => {
     const payload = minimalPayload({
       contact_phone: "",
-      contact_email: "dana@wharton.upenn.edu",
+      contact_email: "jordan@example.org",
       source: "email",
     });
     expect(hasErrors(validateDealPayload(payload, manual))).toBe(false);
@@ -272,11 +272,11 @@ describe("buildDealInsert", () => {
       CTX,
     );
     expect(row.notes).toBe(
-      "[2026-09-20] Created by hand by josephpettine@gmail.com " +
+      "[2026-09-20] Created by hand by caller1@example.com " +
         "(source: Walk-in). Profile: Office admin.\n" +
         "[2026-09-20] wants vegan",
     );
-    expect(row.lead_source).toBe("josephpettine@gmail.com");
+    expect(row.lead_source).toBe("caller1@example.com");
   });
 
   it("keeps the call desk's own provenance line", () => {
@@ -284,6 +284,28 @@ describe("buildDealInsert", () => {
     expect(row.notes).toContain("Created from call desk");
     expect(row.notes).toContain("(prospect #126)");
     expect(row.source).toBe("phone");
+  });
+});
+
+// crm/008. The guided form offers whatever pricing_packages holds, so the new
+// package needs no form code; what must hold is that nothing between the
+// chosen chip and the insert re-spells or drops the name, because the CHECK
+// constraint and Catering-Manager match it byte for byte.
+describe("Hot Chocolate Float Party through intake", () => {
+  const HOT_CHOC = "Hot Chocolate Float Party";
+
+  it("validates, is quote-ready, and reaches the insert unchanged", () => {
+    const payload = completePayload({
+      package_name: HOT_CHOC,
+      flavors: ["Vanilla", "Chocolate"],
+      toppings: [],
+      extras: ["Cookies", "Brownies"],
+    });
+    expect(hasErrors(validateDealPayload(payload))).toBe(false);
+    expect(isQuoteReady(payload)).toBe(true);
+    const row = buildDealInsert(payload, CTX);
+    expect(row.package_name).toBe(HOT_CHOC);
+    expect(disallowedInsertKeys(row)).toEqual([]);
   });
 });
 
@@ -342,10 +364,10 @@ describe("dedupe match shaping", () => {
       toMatch({
         kind: "deal",
         id: 25401,
-        name: "Dana Okafor",
+        name: "Jordan Sample",
         company: "Wharton",
-        email: "dana@wharton.upenn.edu",
-        phone: "(215) 665-5323",
+        email: "jordan@example.org",
+        phone: "(215) 555-0123",
         stage: "Booked Paid",
         event_date: "2026-11-04",
         matched_email: true,
@@ -354,10 +376,10 @@ describe("dedupe match shaping", () => {
     ).toEqual({
       kind: "deal",
       id: 25401,
-      name: "Dana Okafor",
+      name: "Jordan Sample",
       company: "Wharton",
-      email: "dana@wharton.upenn.edu",
-      phone: "(215) 665-5323",
+      email: "jordan@example.org",
+      phone: "(215) 555-0123",
       stage: "Booked Paid",
       event_date: "2026-11-04",
       matched: ["email", "phone"],
@@ -368,10 +390,10 @@ describe("dedupe match shaping", () => {
     const match = toMatch({
       kind: "prospect",
       id: 126,
-      name: "Dana Okafor",
+      name: "Jordan Sample",
       company: null,
       email: null,
-      phone: "2156655323",
+      phone: "2155550123",
       stage: null,
       event_date: null,
       matched_email: false,

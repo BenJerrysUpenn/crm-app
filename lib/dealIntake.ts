@@ -136,6 +136,16 @@ export type DedupeMatch = {
    *  whether this is the same enquiry or last year's party. */
   stage?: string | null;
   event_date?: string | null;
+  /** Deals only, and only from POST /api/deals/dedupe, which reads them off
+   *  the matched deal rows after the RPC (`attachDealDetails`) so the New deal
+   *  form can autofill from them. Absent when that read failed; autofill then
+   *  falls back to splitting `name`. See lib/dealAutofill.ts. */
+  first_name?: string | null;
+  last_name?: string | null;
+  venue_name?: string | null;
+  venue_address?: string | null;
+  /** The deal row's updated_at, else created_at: how recent it is. */
+  touched_at?: string | null;
   /** Which key matched. Both is the strongest signal. */
   matched: ("email" | "phone")[];
 };

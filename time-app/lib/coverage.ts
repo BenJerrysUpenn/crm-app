@@ -266,8 +266,13 @@ export function shiftSegments(shift: CoverageShift): DaySegment[] {
   return segments.filter((s) => s.to > s.from);
 }
 
-/** Sort and merge intervals, joining ones that touch as well as ones that overlap. */
-function mergeIntervals(intervals: { from: number; to: number }[]): { from: number; to: number }[] {
+/**
+ * Sort and merge intervals, joining ones that touch as well as ones that
+ * overlap. Exported because the payroll mid-day gap check (lib/payroll/verify.ts,
+ * spec 1.8) asks the same question of PUNCHES that this file asks of SHIFTS,
+ * and the two must not drift apart.
+ */
+export function mergeIntervals(intervals: { from: number; to: number }[]): { from: number; to: number }[] {
   const sorted = [...intervals].sort((a, b) => a.from - b.from || a.to - b.to);
   const merged: { from: number; to: number }[] = [];
   for (const interval of sorted) {
@@ -278,8 +283,8 @@ function mergeIntervals(intervals: { from: number; to: number }[]): { from: numb
   return merged;
 }
 
-/** The stretches of [opens, closes) that `merged` does not cover. */
-function uncovered(opens: number, closes: number, merged: { from: number; to: number }[]) {
+/** The stretches of [opens, closes) that `merged` does not cover. Exported for the same reason as mergeIntervals. */
+export function uncovered(opens: number, closes: number, merged: { from: number; to: number }[]) {
   const gaps: { from: number; to: number }[] = [];
   let cursor = opens;
   for (const interval of merged) {

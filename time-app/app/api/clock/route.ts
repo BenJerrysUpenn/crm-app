@@ -103,7 +103,12 @@ export async function POST(request: Request) {
       .limit(1);
     const shiftId = shifts?.[0]?.id ?? null;
 
-    const { data, error } = await supabase
+    // Written with the service role, after the reminder gate and the geofence
+    // above. Employees have no insert on time_entries through their own
+    // session (migration 30), so this route is the only way a punch gets in
+    // from a phone. clock_in_at is left to the column default: the database's
+    // now(), never a time the client sent.
+    const { data, error } = await admin
       .from("time_entries")
       .insert({
         employee_id: user.id,
@@ -131,7 +136,10 @@ export async function POST(request: Request) {
     if (!openEntry) {
       return NextResponse.json({ error: "Not clocked in." }, { status: 409 });
     }
-    const { data, error } = await supabase
+    // Service role, as for clock-in (migration 30). The filters repeat what
+    // the read above established, because the service role is not held to
+    // RLS: only this person's entry, and only while it is still open.
+    const { data, error } = await admin
       .from("time_entries")
       .update({
         clock_out_at: new Date().toISOString(),
@@ -141,6 +149,8 @@ export async function POST(request: Request) {
         status: "closed",
       })
       .eq("id", (openEntry as TimeEntry).id)
+      .eq("employee_id", user.id)
+      .eq("status", "open")
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

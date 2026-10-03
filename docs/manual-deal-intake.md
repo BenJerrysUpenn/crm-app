@@ -21,6 +21,7 @@ What it could not do:
 | Source | hard-coded `phone` | the human picks: phone / email / walk-in / other |
 | Required to submit | name, email, phone, event type, venue, package, date, both times, guests | name, **one** contact method, source |
 | Duplicate check | none | advisory warning on email or phone |
+| Autofill | from the prospect | from the best duplicate match |
 | Salesforce | nothing | the deal is queued for lead creation |
 
 So the gap was: you could only write down a deal for somebody the outreach
@@ -42,6 +43,11 @@ Optional does not mean unchecked: a date that IS typed still has to be a date,
 an email still has to look like one. `validateDealPayload(payload, { mode })`
 holds both rule sets; `call_desk` is the default so nothing about the existing
 form changed.
+
+The red asterisks come from `REQUIRED_FIELDS` / `isRequiredField` in
+`lib/callDesk/dealForm.ts`, and `tests/dealFormRequired.test.ts` checks them
+against the validator, so an asterisk never promises a rule the validator
+does not enforce. On the manual form only Source and First name carry one.
 
 ### What a thin deal costs
 
@@ -69,7 +75,7 @@ knowing:
 typed phone (digits only, leading US 1 dropped) against existing **deals** and
 **outreach prospects**, through the `deal_dedupe_candidates` RPC. The phone
 half has to be SQL, because `deals.contact_phone` holds whatever a human
-typed — "(215) 665-5323", "+1 215 665 5323" — and PostgREST cannot normalise
+typed — "(215) 555-0123", "+1 215 555 0123" — and PostgREST cannot normalise
 the column side of a filter.
 
 Archived deals are included on purpose: the 9,450 rows migrated from
@@ -87,6 +93,43 @@ entering the same voicemail at once.
 If the RPC is missing the lookup returns `unavailable` and intake carries on.
 A duplicate check that cannot run must never stop somebody writing down a
 customer who is standing at the counter.
+
+## Autofill
+
+The duplicate check is also where "what we already know about this person"
+lives, so the form fills itself from it. When the check finds a match for the
+typed email or phone, the form's **empty** fields are filled from the best
+match:
+
+- **Fields:** first name, last name, email, phone, company, venue name, venue
+  address. Nothing else. Event type, name, date, times, guest count, package,
+  flavors, toppings, extras and day-of contact are never copied: it is a new
+  event.
+- **Best match:** the strongest match first (email and phone, then email,
+  then phone, because an office phone is often shared), then deals before
+  prospects, then the most recently updated. A prospect has no venue, so it
+  only fills contact fields.
+- **Never overwrites.** A field that holds anything the human typed is left
+  alone. A field still holding exactly what autofill put there is autofill's,
+  and follows the chosen match: pick another match and it changes, type an
+  email nobody matches and it empties again.
+- **Visible and reversible.** Each filled field says "Filled from deal #N"
+  under it, and the Contact section says how many were filled with an
+  **Undo autofill** link. Undo empties what autofill filled and does not
+  re-apply that match; each match in the duplicate list has **Fill the form
+  from this one** to choose it (or another) by hand.
+
+It applies automatically rather than waiting for a click because Alina wants
+autofill to do the work, and a filled field is cheaper to correct than an
+empty one is to type. The duplicate tick-box still applies: a match is a
+match.
+
+The RPC returns a joined name and no venue, so `POST /api/deals/dedupe` reads
+first name, last name, venue name, venue address and updated_at off the
+matched deals by id (`attachDealDetails` in `lib/dealDedupe.ts`). It runs as
+the signed-in user, under the same manager RLS as the RPC, and needs no
+migration. If that read fails, autofill falls back to the joined name.
+The rules live in `lib/dealAutofill.ts`.
 
 ## Source, and why 'form' is not on the list
 
@@ -172,7 +215,8 @@ mechanism (#409).
 | The shared writer | `lib/callDesk/dealCreate.ts` |
 | Untrusted-body coercion | `lib/callDesk/dealRequest.ts` |
 | Duplicate lookup | `lib/dealDedupe.ts` + `supabase/crm/006` |
+| Autofill rules | `lib/dealAutofill.ts` |
 | The form | `components/callDesk/GenerateDealForm.tsx` (`prospect: null`) |
 | Page and entry point | `app/deals/new/page.tsx`, `components/NewDealForm.tsx`, `components/TopBar.tsx` |
 | Routes | `app/api/deals/route.ts`, `app/api/deals/dedupe/route.ts` |
-| Tests | `tests/dealIntake.test.ts` |
+| Tests | `tests/dealIntake.test.ts`, `tests/dealFormRequired.test.ts`, `tests/dealAutofill.test.ts`, `tests/manualDealRoutes.test.ts` |

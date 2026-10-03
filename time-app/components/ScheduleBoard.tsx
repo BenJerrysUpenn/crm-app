@@ -2,10 +2,21 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Modal from "./Modal";
 import { fmtTime } from "@/lib/format";
 import { describeGap, describeHoursNotSet, type CoverageGap, type HoursNotSetDay } from "@/lib/coverage";
 import { describeLongShift, formatHours, type LongShift } from "@/lib/shiftChecks";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
+import {
+  describeForSave,
+  describeMismatch,
+  formatSpan,
+  groupMismatches,
+  resolveDay,
+  type AvailabilityMismatch,
+  type AvailabilityRow,
+} from "@/lib/availabilityCheck";
+import { availabilityCell, type CellAvailability, type CellLine } from "@/lib/availabilityCell";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -64,7 +75,8 @@ export default function ScheduleBoard({
   locations: Location[];
   dropRequests: DropReq[];
   shiftTypes: ShiftType[];
-  availability?: Availability[];
+  /** Dated rows for the week (padded a day) plus everyone's weekly rows. */
+  availability?: AvailabilityRow[];
   annotations?: Annotation[];
 }) {
   const colorByType = new Map(shiftTypes.map((t) => [t.name, t.color]));
@@ -76,13 +88,6 @@ export default function ScheduleBoard({
     const ap = hr >= 12 ? "p" : "a";
     const h12 = hr % 12 === 0 ? 12 : hr % 12;
     return m === "00" ? `${h12}${ap}` : `${h12}:${m}${ap}`;
-  }
-  // Availability summary for an employee on a specific date (for the modal).
-  function availFor(employeeId: string, date: string) {
-    const rows = availability.filter((a) => a.employee_id === employeeId && a.specific_date === date);
-    const timeOff = rows.find((a) => !a.is_available);
-    const blocks = rows.filter((a) => a.is_available);
-    return { timeOff, blocks };
   }
   const router = useRouter();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -101,11 +106,27 @@ export default function ScheduleBoard({
   // check could not run at all.
   const [coverage, setCoverage] = useState<
     | null
-    | { kind: "checks"; gaps: CoverageGap[]; longShifts: LongShift[]; hoursNotSet: HoursNotSetDay[] }
-    | { kind: "unavailable" }
+    | {
+        kind: "checks";
+        gaps: CoverageGap[];
+        longShifts: LongShift[];
+        availability: (AvailabilityMismatch & { employee_name?: string | null })[];
+        hoursNotSet: HoursNotSetDay[];
+      }
+    | { kind: "unavailable"; what: "store hours" | "availability" }
   >(null);
   // Hours of a shift the manager is saving that is long enough to query.
   const [longSave, setLongSave] = useState<number | null>(null);
+  // The availability warning for the shift being saved. `key` pins it to the
+  // person and times it was raised for: change either and it must be asked
+  // again, so "Save anyway" can never wave through a different assignment.
+  const [availSave, setAvailSave] = useState<
+    | null
+    | { key: string; kind: "mismatch"; mismatch: AvailabilityMismatch }
+    | { key: string; kind: "unavailable" }
+  >(null);
+  const draftKey = (d: Draft | null) => (d ? `${d.employee_id}|${d.starts_at}|${d.ends_at}` : "");
+  const availConfirmed = availSave !== null && availSave.key === draftKey(draft);
 
   async function saveAnnotation() {
     if (!annDraft) return;
@@ -269,12 +290,13 @@ export default function ScheduleBoard({
         kind: "checks",
         gaps: j.gaps ?? [],
         longShifts: j.longShifts ?? [],
+        availability: j.availability ?? [],
         hoursNotSet: j.hoursNotSet ?? [],
       });
       return;
     }
-    if (res.status === 503 && j.error === "coverage_unavailable") {
-      setCoverage({ kind: "unavailable" });
+    if (res.status === 503 && (j.error === "coverage_unavailable" || j.error === "availability_unavailable")) {
+      setCoverage({ kind: "unavailable", what: j.error === "availability_unavailable" ? "availability" : "store hours" });
       return;
     }
     if (!res.ok) {
@@ -323,6 +345,7 @@ export default function ScheduleBoard({
   function newShift(dateStr: string, employeeId?: string) {
     setErr(null);
     setLongSave(null);
+    setAvailSave(null);
     setHowMany(1);
     setDraft({
       employee_id: employeeId ?? employees[0]?.id ?? "",
@@ -338,6 +361,7 @@ export default function ScheduleBoard({
   function editShift(s: ShiftWithEmployee) {
     setErr(null);
     setLongSave(null);
+    setAvailSave(null);
     setDraft({
       id: s.id,
       employee_id: s.employee_id ?? "",
@@ -352,7 +376,9 @@ export default function ScheduleBoard({
 
   // confirmLong: the manager has seen how long this shift is and meant it. The
   // server refuses a 15+ hour shift without it.
-  async function save(confirmLong = false) {
+  // confirmAvailability: the manager has seen that the person's availability
+  // does not cover this shift (or could not be read) and is assigning anyway.
+  async function save(confirmLong = false, confirmAvailability = false) {
     if (!draft) return;
     const start = new Date(draft.starts_at);
     const end = new Date(draft.ends_at);
@@ -377,6 +403,7 @@ export default function ScheduleBoard({
         notes: draft.notes || null,
         published: draft.published,
         confirmLong,
+        confirmAvailability,
       };
       // Open shifts can be created in bulk (How Many).
       const count = !draft.id && !draft.employee_id ? Math.max(1, Math.min(20, howMany)) : 1;
@@ -393,12 +420,21 @@ export default function ScheduleBoard({
             setLongSave(typeof j.hours === "number" ? j.hours : 0);
             return;
           }
+          if (res.status === 409 && j.error === "availability_mismatch" && j.mismatch) {
+            setAvailSave({ key: draftKey(draft), kind: "mismatch", mismatch: j.mismatch });
+            return;
+          }
+          if (res.status === 503 && j.error === "availability_unavailable") {
+            setAvailSave({ key: draftKey(draft), kind: "unavailable" });
+            return;
+          }
           setErr(j.error ?? `Save failed (${res.status}).`);
           return;
         }
       }
       setDraft(null);
       setLongSave(null);
+      setAvailSave(null);
       router.refresh();
     } catch (e) {
       setErr((e as Error)?.message ?? "Network error.");
@@ -574,6 +610,7 @@ export default function ScheduleBoard({
           fmtTime={fmtTime}
           dayLabel={dayLabel}
           DAYS={DAYS}
+          availability={availability}
         />
       )}
 
@@ -677,215 +714,285 @@ export default function ScheduleBoard({
       )}
 
       {coverage && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setCoverage(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">
-              {coverage.kind !== "checks"
-                ? "Store coverage couldn't be checked"
-                : coverage.gaps.length === 0
+        <Modal onClose={() => setCoverage(null)} className="max-w-lg space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+            {coverage.kind !== "checks"
+              ? coverage.what === "availability"
+                ? "Availability couldn't be checked"
+                : "Store coverage couldn't be checked"
+              : coverage.gaps.length > 0
+                ? "Nobody is in the store"
+                : coverage.longShifts.length > 0
                   ? "Check this shift before publishing"
-                  : "Nobody is in the store"}
-            </h2>
-            {coverage.kind === "checks" ? (
-              <>
-                {coverage.gaps.length > 0 && (
-                  <>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      The store is open at these times this week, and no one is scheduled in store:
-                    </p>
-                    <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
-                      {coverage.gaps.map((g) => (
-                        <li key={`${g.date}-${g.from}-${g.to}`} className="text-sm text-amber-900 dark:text-amber-200">
-                          {describeGap(g)}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                {coverage.longShifts.length > 0 && (
-                  <>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      {coverage.longShifts.length === 1 ? "This shift is" : "These shifts are"} too long to be right:
-                    </p>
-                    <ul className="space-y-1 rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2">
-                      {coverage.longShifts.map((s, i) => (
-                        <li key={s.id ?? `${s.starts_at}-${i}`} className="text-sm text-rose-900 dark:text-rose-200">
-                          {describeLongShift(s)}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                {coverage.hoursNotSet.length > 0 && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
+                  : "Check who's scheduled before publishing"}
+          </h2>
+          {coverage.kind === "checks" ? (
+            <>
+              {coverage.gaps.length > 0 && (
+                <>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    The store is open at these times this week, and no one is scheduled in store:
                   </p>
-                )}
+                  <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
+                    {coverage.gaps.map((g) => (
+                      <li key={`${g.date}-${g.from}-${g.to}`} className="text-sm text-amber-900 dark:text-amber-200">
+                        {describeGap(g)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {coverage.longShifts.length > 0 && (
+                <>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    {coverage.longShifts.length === 1 ? "This shift is" : "These shifts are"} too long to be right:
+                  </p>
+                  <ul className="space-y-1 rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2">
+                    {coverage.longShifts.map((s, i) => (
+                      <li key={s.id ?? `${s.starts_at}-${i}`} className="text-sm text-rose-900 dark:text-rose-200">
+                        {describeLongShift(s)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {(() => {
+                const { conflicts, noAvailability } = groupMismatches(coverage.availability);
+                const nameOf = (m: AvailabilityMismatch & { employee_name?: string | null }) =>
+                  m.employee_name ?? nameById.get(m.employee_id) ?? null;
+                return (
+                  <>
+                    {conflicts.length > 0 && (
+                      <>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                          Scheduled outside their availability:
+                        </p>
+                        <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 max-h-48 overflow-y-auto">
+                          {conflicts.map((m, i) => (
+                            <li key={`a-${m.shift_id ?? i}`} className="text-sm text-amber-900 dark:text-amber-200">
+                              {describeMismatch(m, nameOf(m))}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {noAvailability.length > 0 && (
+                      <>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                          No availability on file (they haven&apos;t said whether they can work these):
+                        </p>
+                        <ul className="space-y-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 max-h-48 overflow-y-auto">
+                          {noAvailability.map((m, i) => (
+                            <li key={`n-${m.shift_id ?? i}`} className="text-sm text-slate-700 dark:text-slate-300">
+                              {describeMismatch(m, nameOf(m))}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
+              {coverage.hoursNotSet.length > 0 && (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Nothing has been published. Fix the shifts above, or publish anyway.
+                  Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
                 </p>
-              </>
-            ) : (
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Something went wrong reading the store hours, so we couldn&apos;t tell whether anyone is scheduled for
-                every open hour this week. Nothing has been published. Try again in a moment, or publish without the
-                check.
+              )}
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Nothing has been published. Fix the shifts above, or publish anyway.
               </p>
-            )}
-            <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => { setCoverage(null); publishWeek(true); }} disabled={copying} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
-                Publish anyway
-              </button>
-              <button
-                onClick={() => { if (coverage.kind === "unavailable") { setCoverage(null); publishWeek(); } else setCoverage(null); }}
-                disabled={copying}
-                className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50"
-              >
-                {coverage.kind === "checks" ? "Go back and fix" : "Try again"}
-              </button>
-            </div>
+            </>
+          ) : (
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              {coverage.what === "availability"
+                ? "Something went wrong reading the team's availability, so we couldn't tell whether everyone scheduled can work their shifts."
+                : "Something went wrong reading the store hours, so we couldn't tell whether anyone is scheduled for every open hour this week."}{" "}
+              Nothing has been published. Try again in a moment, or publish without the check.
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => { setCoverage(null); publishWeek(true); }} disabled={copying} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
+              Publish anyway
+            </button>
+            <button
+              onClick={() => { if (coverage.kind === "unavailable") { setCoverage(null); publishWeek(); } else setCoverage(null); }}
+              disabled={copying}
+              className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50"
+            >
+              {coverage.kind === "checks" ? "Go back and fix" : "Try again"}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {annDraft && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setAnnDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">Add annotation</h2>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Start date
-                <input type="date" value={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, start_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-              <label className="block text-xs text-slate-600 dark:text-slate-400">End date
-                <input type="date" value={annDraft.end_date} min={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, end_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-            </div>
-            <label className="block text-xs text-slate-600 dark:text-slate-400">Title
-              <input value={annDraft.title} onChange={(e) => setAnnDraft({ ...annDraft, title: e.target.value })} placeholder="Closed for July 4th, Big event…" className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+        <Modal onClose={() => setAnnDraft(null)} className="max-w-md space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">Add annotation</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Start date
+              <input type="date" value={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, start_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
             </label>
-            <label className="block text-xs text-slate-600 dark:text-slate-400">Message
-              <textarea value={annDraft.message} onChange={(e) => setAnnDraft({ ...annDraft, message: e.target.value })} rows={2} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+            <label className="block text-xs text-slate-600 dark:text-slate-400">End date
+              <input type="date" value={annDraft.end_date} min={annDraft.start_date} onChange={(e) => setAnnDraft({ ...annDraft, end_date: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
             </label>
-            <div className="flex items-center gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Color
-                <input type="color" value={annDraft.color} onChange={(e) => setAnnDraft({ ...annDraft, color: e.target.value })} className="ml-2 align-middle w-9 h-8 rounded border border-slate-300 dark:border-slate-700" />
-              </label>
-            </div>
-            <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.business_closed} onChange={(e) => setAnnDraft({ ...annDraft, business_closed: e.target.checked })} /> Business closed</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.no_time_off} onChange={(e) => setAnnDraft({ ...annDraft, no_time_off: e.target.checked })} /> Don&apos;t allow time off</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.announcement} onChange={(e) => setAnnDraft({ ...annDraft, announcement: e.target.checked })} /> Announcement</label>
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => setAnnDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-              <button onClick={saveAnnotation} disabled={busy || !annDraft.title} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Save</button>
-            </div>
           </div>
-        </div>
+          <label className="block text-xs text-slate-600 dark:text-slate-400">Title
+            <input value={annDraft.title} onChange={(e) => setAnnDraft({ ...annDraft, title: e.target.value })} placeholder="Closed for July 4th, Big event…" className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+          </label>
+          <label className="block text-xs text-slate-600 dark:text-slate-400">Message
+            <textarea value={annDraft.message} onChange={(e) => setAnnDraft({ ...annDraft, message: e.target.value })} rows={2} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+          </label>
+          <div className="flex items-center gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Color
+              <input type="color" value={annDraft.color} onChange={(e) => setAnnDraft({ ...annDraft, color: e.target.value })} className="ml-2 align-middle w-9 h-8 rounded border border-slate-300 dark:border-slate-700" />
+            </label>
+          </div>
+          <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
+            <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.business_closed} onChange={(e) => setAnnDraft({ ...annDraft, business_closed: e.target.checked })} /> Business closed</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.no_time_off} onChange={(e) => setAnnDraft({ ...annDraft, no_time_off: e.target.checked })} /> Don&apos;t allow time off</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={annDraft.announcement} onChange={(e) => setAnnDraft({ ...annDraft, announcement: e.target.checked })} /> Announcement</label>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => setAnnDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+            <button onClick={saveAnnotation} disabled={busy || !annDraft.title} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Save</button>
+          </div>
+        </Modal>
       )}
 
       {draft && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit shift" : "New shift"}</h2>
+        <Modal onClose={() => setDraft(null)} className="max-w-md space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit shift" : "New shift"}</h2>
 
-            {/* Suggestions: shift types with default times */}
-            {!draft.id && shiftTypes.some((t) => t.default_start && t.default_end) && (
-              <div>
-                <div className="text-xs text-slate-500 mb-1">Suggestions</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {shiftTypes.filter((t) => t.default_start && t.default_end).map((t) => {
-                    const d = draft.starts_at.slice(0, 10);
-                    return (
-                      <button
-                        key={t.id}
-                        onClick={() => setDraft({ ...draft, position: t.name, starts_at: `${d}T${t.default_start!.slice(0, 5)}`, ends_at: `${d}T${t.default_end!.slice(0, 5)}` })}
-                        style={{ borderLeft: `4px solid ${t.color}` }}
-                        className="text-left text-xs rounded-md border border-slate-300 dark:border-slate-700 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
-                      >
-                        <div className="font-medium text-slate-800 dark:text-slate-200">{fmtT(t.default_start)}–{fmtT(t.default_end)}</div>
-                        <div className="text-slate-500">{t.name}</div>
-                      </button>
-                    );
-                  })}
-                </div>
+          {/* Suggestions: shift types with default times */}
+          {!draft.id && shiftTypes.some((t) => t.default_start && t.default_end) && (
+            <div>
+              <div className="text-xs text-slate-500 mb-1">Suggestions</div>
+              <div className="grid grid-cols-2 gap-2">
+                {shiftTypes.filter((t) => t.default_start && t.default_end).map((t) => {
+                  const d = draft.starts_at.slice(0, 10);
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setDraft({ ...draft, position: t.name, starts_at: `${d}T${t.default_start!.slice(0, 5)}`, ends_at: `${d}T${t.default_end!.slice(0, 5)}` })}
+                      style={{ borderLeft: `4px solid ${t.color}` }}
+                      className="text-left text-xs rounded-md border border-slate-300 dark:border-slate-700 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      <div className="font-medium text-slate-800 dark:text-slate-200">{fmtT(t.default_start)}–{fmtT(t.default_end)}</div>
+                      <div className="text-slate-500">{t.name}</div>
+                    </button>
+                  );
+                })}
               </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
-                <select value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
-                  <option value="">Open (unassigned)</option>
-                  {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
-                </select>
-              </label>
-              {!draft.id && !draft.employee_id && (
-                <label className="block text-xs text-slate-600 dark:text-slate-400">How many
-                  <input type="number" min={1} max={20} value={howMany} onChange={(e) => setHowMany(Number(e.target.value))} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-                </label>
-              )}
             </div>
-            {draft.employee_id && draft.starts_at && (() => {
-              const { timeOff, blocks } = availFor(draft.employee_id, draft.starts_at.slice(0, 10));
-              const by = (p: string) => blocks.filter((b) => (b.preference ?? "available") === p);
-              const pref = by("preferred"), avail = by("available"), unavail = by("unavailable");
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
+              <select value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
+                <option value="">Open (unassigned)</option>
+                {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
+              </select>
+            </label>
+            {!draft.id && !draft.employee_id && (
+              <label className="block text-xs text-slate-600 dark:text-slate-400">How many
+                <input type="number" min={1} max={20} value={howMany} onChange={(e) => setHowMany(Number(e.target.value))} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+              </label>
+            )}
+          </div>
+          {draft.employee_id && draft.starts_at && (() => {
+            // Same resolver as the save/publish checks: dated rows, then the
+            // weekly pattern, time off on top.
+            const day = resolveDay(draft.employee_id, draft.starts_at.slice(0, 10), availability);
+            const spans = (kind: string) =>
+              day.blocks
+                .filter((b) => b.kind === kind)
+                .map((b) => `${b.source === "weekly" ? "↻ " : ""}${formatSpan(b.from, b.to)}`)
+                .join(", ");
+            const pref = spans("preferred"), avail = spans("available"), unavail = spans("unavailable");
+            return (
+              <div className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/40 px-3 py-2 text-xs space-y-1">
+                <div className="text-slate-600 dark:text-slate-400">Availability that day</div>
+                {day.timeOff && (
+                  <div className="text-rose-500 dark:text-rose-300">
+                    {day.timeOff === "pending" ? "Time-off request pending" : "Time off (approved)"}
+                  </div>
+                )}
+                {pref && <div className="text-sky-600 dark:text-sky-300">Prefers: {pref}</div>}
+                {avail && <div className="text-emerald-600 dark:text-emerald-300">Available: {avail}</div>}
+                {unavail && <div className="text-rose-500 dark:text-rose-300">Can&apos;t work: {unavail}</div>}
+                {!day.timeOff && day.blocks.length === 0 && <div className="text-slate-500">No availability submitted.</div>}
+              </div>
+            );
+          })()}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Start
+              <input type="datetime-local" value={draft.starts_at} onChange={(e) => setDraft({ ...draft, starts_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+            </label>
+            <label className="block text-xs text-slate-600 dark:text-slate-400">End
+              <input type="datetime-local" value={draft.ends_at} onChange={(e) => setDraft({ ...draft, ends_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+            </label>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Shift type
+              <select value={draft.position} onChange={(e) => setDraft({ ...draft, position: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
+                <option value="">—</option>
+                {shiftTypes.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Location
+              <select value={draft.location_id} onChange={(e) => setDraft({ ...draft, location_id: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
+                <option value="">—</option>
+                {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="block text-xs text-slate-600 dark:text-slate-400">Notes
+            <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+          </label>
+          {err && <div className="text-sm text-rose-300">{err}</div>}
+          {longSave !== null && (
+            <div className="rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2 text-sm text-rose-900 dark:text-rose-200">
+              This shift is {formatHours(longSave)} hours long. Save anyway?
+            </div>
+          )}
+          {availConfirmed && availSave && (() => {
+            if (availSave.kind === "unavailable") {
               return (
-                <div className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/40 px-3 py-2 text-xs space-y-1">
-                  <div className="text-slate-600 dark:text-slate-400">Availability that day</div>
-                  {timeOff && (
-                    <div className="text-rose-300">Time off ({timeOff.status})</div>
-                  )}
-                  {pref.length > 0 && <div className="text-sky-300">Prefers: {pref.map((b) => `${fmtT(b.start_time)}–${fmtT(b.end_time)}`).join(", ")}</div>}
-                  {avail.length > 0 && <div className="text-emerald-300">Available: {avail.map((b) => `${fmtT(b.start_time)}–${fmtT(b.end_time)}`).join(", ")}</div>}
-                  {unavail.length > 0 && <div className="text-rose-300">Can&apos;t work: {unavail.map((b) => `${fmtT(b.start_time)}–${fmtT(b.end_time)}`).join(", ")}</div>}
-                  {!timeOff && blocks.length === 0 && <div className="text-slate-500">No availability submitted.</div>}
+                <div className="rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+                  Couldn&apos;t read {nameById.get(draft.employee_id) ?? "this person"}&apos;s availability, so we
+                  can&apos;t tell whether they can work this. Try again, or save anyway.
                 </div>
               );
-            })()}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Start
-                <input type="datetime-local" value={draft.starts_at} onChange={(e) => setDraft({ ...draft, starts_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-              <label className="block text-xs text-slate-600 dark:text-slate-400">End
-                <input type="datetime-local" value={draft.ends_at} onChange={(e) => setDraft({ ...draft, ends_at: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Shift type
-                <select value={draft.position} onChange={(e) => setDraft({ ...draft, position: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
-                  <option value="">—</option>
-                  {shiftTypes.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-                </select>
-              </label>
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Location
-                <select value={draft.location_id} onChange={(e) => setDraft({ ...draft, location_id: e.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100">
-                  <option value="">—</option>
-                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
-              </label>
-            </div>
-            <label className="block text-xs text-slate-600 dark:text-slate-400">Notes
-              <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-            </label>
-            {err && <div className="text-sm text-rose-300">{err}</div>}
-            {longSave !== null && (
-              <div className="rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2 text-sm text-rose-900 dark:text-rose-200">
-                This shift is {formatHours(longSave)} hours long. Save anyway?
+            }
+            const { title, lines } = describeForSave(availSave.mismatch, nameById.get(draft.employee_id));
+            const noneOnFile = availSave.mismatch.reasons.every((r) => r.kind === "no_availability");
+            return (
+              <div
+                className={`rounded-md border px-3 py-2 text-sm space-y-0.5 ${
+                  noneOnFile
+                    ? "border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-800 dark:text-slate-200"
+                    : "border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200"
+                }`}
+              >
+                <div className="font-medium">{title}</div>
+                {lines.map((l, i) => (
+                  <div key={i}>{l}</div>
+                ))}
               </div>
-            )}
-            <div className="flex items-center justify-between pt-2">
-              {draft.id ? (
-                <button onClick={remove} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
-              ) : <span />}
-              <div className="flex gap-2">
-                <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-                <button onClick={() => save(longSave !== null)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
-                  {busy ? "Submitting…" : longSave !== null ? "Save anyway" : "Submit"}
-                </button>
-              </div>
+            );
+          })()}
+          <div className="flex items-center justify-between pt-2">
+            {draft.id ? (
+              <button onClick={remove} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
+            ) : <span />}
+            <div className="flex gap-2">
+              <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+              <button onClick={() => save(longSave !== null, availConfirmed)} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
+                {busy ? "Submitting…" : longSave !== null || availConfirmed ? "Save anyway" : "Submit"}
+              </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -905,6 +1012,7 @@ function ManagerMatrix({
   fmtTime,
   dayLabel,
   DAYS,
+  availability,
 }: {
   dates: string[];
   employees: Profile[];
@@ -916,6 +1024,7 @@ function ManagerMatrix({
   fmtTime: (iso: string | null) => string;
   dayLabel: (d: string) => string;
   DAYS: string[];
+  availability: AvailabilityRow[];
 }) {
   function cellShifts(date: string, employeeId: string | null) {
     return shiftsForDay(date).filter((s) =>
@@ -929,7 +1038,10 @@ function ManagerMatrix({
     );
   }
 
-  const cols = `170px repeat(7, minmax(150px, 1fr))`;
+  // Seven equal day columns that share whatever width the page has. The
+  // wrapper's min-width is the point below which the grid scrolls sideways
+  // instead (tablet and phone); every laptop and desktop width fits.
+  const cols = `160px repeat(7, minmax(0, 1fr))`;
 
   function Chip({ s }: { s: ShiftWithEmployee }) {
     const color = s.position ? colorByType.get(s.position) : undefined;
@@ -943,11 +1055,11 @@ function ManagerMatrix({
             : "bg-slate-100/60 dark:bg-slate-800/30 border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
         }`}
       >
-        <div className="font-medium whitespace-nowrap">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
+        <div className="font-medium whitespace-nowrap truncate">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
         {s.position && <div className="text-slate-500 truncate">{s.position}</div>}
-        {!s.published && <div className="text-amber-500">draft</div>}
+        {!s.published && <div className="text-amber-500 truncate">draft</div>}
         {s.published && s.employee_id && (
-          <div className={s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}>
+          <div className={`truncate ${s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}`}>
             {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
           </div>
         )}
@@ -964,12 +1076,15 @@ function ManagerMatrix({
         </div>
         {dates.map((d, i) => {
           const cs = cellShifts(d, id);
+          // Open shifts belong to nobody, so they have no availability.
+          const avail = id === null ? null : availabilityCell(resolveDay(id, d, availability));
           return (
-            <div key={i} className={`px-1.5 py-1.5 border-r border-slate-200 dark:border-slate-800 min-h-[56px] ${tint ? "bg-emerald-50/40 dark:bg-emerald-950/10" : ""}`}>
+            <div key={i} className={`min-w-0 px-1.5 py-1.5 border-r border-slate-200 dark:border-slate-800 min-h-[56px] ${tint ? "bg-emerald-50/40 dark:bg-emerald-950/10" : avail ? CELL_BG[avail.state] : ""}`}>
+              {avail && <AvailabilityNote a={avail} />}
               {cs.map((s) => <Chip key={s.id} s={s} />)}
               <button
                 onClick={() => newShift(d, id ?? "")}
-                className="w-full text-[11px] text-slate-400 hover:text-emerald-500 border border-dashed border-slate-300 dark:border-slate-700 rounded-md py-1"
+                className="w-full text-[11px] text-slate-400 hover:text-emerald-500 border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/50 rounded-md py-1"
               >
                 + Add
               </button>
@@ -982,6 +1097,7 @@ function ManagerMatrix({
 
   return (
     <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+      <div className="min-w-[1180px]">
       {/* Header */}
       <div className="grid bg-slate-100 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800" style={{ gridTemplateColumns: cols }}>
         <div className="px-3 py-2 sticky left-0 bg-slate-100 dark:bg-slate-800/60 z-10 text-xs font-medium text-slate-500">Staff</div>
@@ -1000,6 +1116,53 @@ function ManagerMatrix({
       {employees.map((e) => (
         <Row key={e.id} id={e.id} label={e.full_name ?? e.id} sub={`${weekHoursFor(e.id).toFixed(1)}h`} />
       ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Availability in a grid cell (lib/availabilityCell.ts decides the words).
+// Full-day states shade the whole cell; hours are one or two faint lines so
+// the shift cards stay the focus; nothing on file is a faint marker that must
+// not read as unavailable.
+// ---------------------------------------------------------------------------
+// Grey with a faint hatch, so a day off reads at a glance in either theme.
+const CELL_OFF =
+  "bg-slate-100 dark:bg-slate-800/70 bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(100,116,139,0.12)_6px_12px)]";
+const CELL_BG: Record<CellAvailability["state"], string> = {
+  time_off: CELL_OFF,
+  unavailable: CELL_OFF,
+  time_off_pending: "bg-amber-50 dark:bg-amber-950/25",
+  hours: "",
+  none: "",
+};
+
+const LINE_TEXT: Record<CellLine["kind"], string> = {
+  unavailable: "text-rose-600/90 dark:text-rose-300/80",
+  preferred: "text-sky-700/90 dark:text-sky-300/80",
+  available: "text-emerald-700/90 dark:text-emerald-400/80",
+};
+
+function AvailabilityNote({ a }: { a: CellAvailability }) {
+  if (a.state === "hours") {
+    return (
+      <div title={a.title} className="mb-1 px-0.5 text-[10px] leading-tight">
+        {a.lines.map((l) => (
+          <div key={l.kind} className={`truncate ${LINE_TEXT[l.kind]}`}>{l.text}</div>
+        ))}
+      </div>
+    );
+  }
+  const text =
+    a.state === "none"
+      ? "text-slate-400 dark:text-slate-600 italic font-normal normal-case tracking-normal"
+      : a.state === "time_off_pending"
+        ? "text-amber-700 dark:text-amber-300"
+        : "text-slate-500 dark:text-slate-400";
+  return (
+    <div title={a.title} className={`mb-1 px-0.5 text-[10px] leading-tight font-semibold uppercase tracking-wide truncate ${text}`}>
+      {a.label}
     </div>
   );
 }

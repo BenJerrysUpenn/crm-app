@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { defaultExtraQuantity, EXTRA_BY_LABEL } from "@/lib/menuOptions";
 import {
   belowMinimum,
@@ -10,6 +10,7 @@ import {
   DEAL_SOURCE,
   EMPTY_DEAL_FORM_PAYLOAD,
   hasErrors,
+  isRequiredField,
   shouldSuggestCakes,
   validateDealPayload,
   type DealFormErrors,
@@ -22,6 +23,23 @@ import {
   type DedupeMatch,
   type DedupeResponse,
 } from "@/lib/dealIntake";
+import {
+  AUTOFILL_FIELDS,
+  applyAutofillPatch,
+  autofillFromMatches,
+  autofillLookupKeys,
+  clearAutofill,
+  describeSource,
+  EMPTY_AUTOFILL,
+  isAutofilled,
+  pickAutofill,
+  sameSource,
+  splitName,
+  type AutofillField,
+  type AutofillResult,
+  type AutofillSource,
+  type AutofillState,
+} from "@/lib/dealAutofill";
 import {
   defaultQuantityForExtra,
   type DealFormExtraOption,
@@ -96,12 +114,16 @@ function Field({
   required,
   error,
   hint,
+  autofilled,
   children,
 }: {
   label: string;
   required?: boolean;
   error?: string;
   hint?: string;
+  /** Set while the field holds a value autofill put there: where it came
+   *  from, so staff can check it. See lib/dealAutofill.ts. */
+  autofilled?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -113,6 +135,9 @@ function Field({
       {children}
       {hint && !error && (
         <span className="text-xs text-slate-500">{hint}</span>
+      )}
+      {autofilled && !error && (
+        <span className="text-xs text-sky-400">{autofilled}</span>
       )}
       {error && <span className="text-xs text-rose-400">{error}</span>}
     </label>
@@ -230,10 +255,16 @@ function DuplicateWarning({
   matches,
   acknowledged,
   onAcknowledge,
+  filledFrom,
+  onFill,
 }: {
   matches: DedupeMatch[];
   acknowledged: boolean;
   onAcknowledge: (next: boolean) => void;
+  /** The match the form's autofilled fields came from, if any. */
+  filledFrom: AutofillSource | null;
+  /** Fill the form's empty fields from this match instead. */
+  onFill: (match: DedupeMatch) => void;
 }) {
   return (
     <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-4 mb-4">
@@ -265,6 +296,19 @@ function DuplicateWarning({
               )}
               matched on {m.matched.join(" and ") || "—"}
             </div>
+            {sameSource(m, filledFrom) ? (
+              <p className="text-xs text-sky-300 mt-1">
+                The form is filled from this one.
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onFill(m)}
+                className="mt-1 text-xs text-sky-300 underline underline-offset-2 hover:text-sky-200"
+              >
+                Fill the form from this one
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -331,20 +375,17 @@ export default function GenerateDealForm({
 }) {
   const mode: DealFormMode = prospect ? "call_desk" : "manual";
   const manual = mode === "manual";
-  /** Whether a field the call desk insists on should show its asterisk. */
-  const strictReq = !manual;
 
   const [options, setOptions] = useState<DealFormOptionsResponse | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [form, setForm] = useState<DealFormPayload>(() => {
-    const full = (prospect?.name ?? "").trim();
-    const space = full.indexOf(" ");
+    const { first, last } = splitName(prospect?.name);
     return {
       ...EMPTY_DEAL_FORM_PAYLOAD,
-      contact_first_name: space === -1 ? full : full.slice(0, space),
-      contact_last_name: space === -1 ? "" : full.slice(space + 1).trim(),
+      contact_first_name: first,
+      contact_last_name: last,
       company: prospect?.company ?? "",
       contact_email: prospect?.email ?? "",
       contact_phone: prospect?.phone ?? "",
@@ -358,6 +399,39 @@ export default function GenerateDealForm({
   // have seen the list before the deal is written.
   const [duplicates, setDuplicates] = useState<DedupeMatch[]>([]);
   const [dupeAcknowledged, setDupeAcknowledged] = useState(false);
+  // Autofill from the best duplicate match (manual intake only). It fills
+  // EMPTY contact and venue fields, never event fields, never anything the
+  // human typed; the rules are in lib/dealAutofill.ts.
+  const [autofill, setAutofill] = useState<AutofillState>(EMPTY_AUTOFILL);
+  // The dedupe answer arrives asynchronously, so autofill is computed against
+  // the latest rendered form and state, and the patch then skips any field
+  // the human changed in the meantime (applyAutofillPatch).
+  const latest = useRef({ form, autofill });
+  latest.current = { form, autofill };
+  const commitAutofill = useCallback(
+    (
+      compute: (
+        form: DealFormPayload,
+        state: AutofillState,
+      ) => AutofillResult | null,
+    ) => {
+      const { form: base, autofill: state } = latest.current;
+      const result = compute(base, state);
+      if (!result) return;
+      setForm((now) => applyAutofillPatch(now, base, result.patch));
+      setAutofill(result.state);
+      const patched = Object.keys(result.patch);
+      if (patched.length > 0) {
+        setErrors((prev) => {
+          if (!patched.some((k) => k in prev)) return prev;
+          const next = { ...prev };
+          for (const k of patched) delete next[k as keyof DealFormErrors];
+          return next;
+        });
+      }
+    },
+    [],
+  );
   // Extras are held as name → quantity and flattened to the repeated-name list
   // the DB stores only at submit time.
   const [extraQty, setExtraQty] = useState<Record<string, number>>({});
@@ -398,13 +472,18 @@ export default function GenerateDealForm({
   // prospect, so of course that prospect matches, and warning about it would
   // be noise. Debounced because it fires while somebody is typing an email
   // address one character at a time.
-  const email = form.contact_email;
-  const phone = form.contact_phone;
+  //
+  // Only what the human typed is looked up: an email or phone autofill put in
+  // is left out, so it cannot keep an old match alive once they type somebody
+  // else's number.
+  const { email, phone } = autofillLookupKeys(form, autofill);
   useEffect(() => {
     if (!manual) return;
     const hasKeys = email.trim() !== "" || phone.trim() !== "";
     if (!hasKeys) {
       setDuplicates([]);
+      // Nobody to match any more: take back out whatever autofill put in.
+      commitAutofill((f, st) => autofillFromMatches(f, st, []));
       return;
     }
     let cancelled = false;
@@ -419,8 +498,10 @@ export default function GenerateDealForm({
           if (!res.ok || cancelled) return;
           const body = (await res.json()) as DedupeResponse;
           if (cancelled) return;
-          setDuplicates(body.matches ?? []);
+          const matches = body.matches ?? [];
+          setDuplicates(matches);
           setDupeAcknowledged(false);
+          commitAutofill((f, st) => autofillFromMatches(f, st, matches));
         } catch {
           // A duplicate check that cannot run must never stop somebody
           // writing down a customer standing at the counter. Stay silent.
@@ -431,7 +512,17 @@ export default function GenerateDealForm({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [manual, email, phone]);
+  }, [manual, email, phone, commitAutofill]);
+
+  /** Under an autofilled field: where the value came from. */
+  function filledHint(field: AutofillField): string | undefined {
+    if (!manual || !autofill.source) return undefined;
+    if (!isAutofilled(form, autofill, field)) return undefined;
+    return `Filled from ${describeSource(autofill.source)}. Change it if it is wrong.`;
+  }
+  const filledNow = AUTOFILL_FIELDS.filter((f) =>
+    isAutofilled(form, autofill, f),
+  );
 
   const set = useCallback(
     <K extends keyof DealFormPayload>(key: K, value: DealFormPayload[K]) => {
@@ -696,6 +787,8 @@ export default function GenerateDealForm({
               matches={duplicates}
               acknowledged={dupeAcknowledged}
               onAcknowledge={setDupeAcknowledged}
+              filledFrom={filledNow.length > 0 ? autofill.source : null}
+              onFill={(m) => commitAutofill((f, st) => pickAutofill(f, st, m))}
             />
           )}
 
@@ -703,7 +796,7 @@ export default function GenerateDealForm({
             <Section step={0} title="Where it came from">
               <Field
                 label="Source"
-                required
+                required={isRequiredField("source", mode)}
                 error={errors.source}
                 hint="Recorded on the deal for attribution, and it is what tells Salesforce there is no corporate lead for this one."
               >
@@ -724,11 +817,29 @@ export default function GenerateDealForm({
           )}
 
           <Section step={1} title="Contact">
+            {manual && autofill.source && filledNow.length > 0 && (
+              <div className="rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-100 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  Filled {filledNow.length}{" "}
+                  {filledNow.length === 1 ? "field" : "fields"} from{" "}
+                  {describeSource(autofill.source)}. Anything you typed was
+                  kept.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => commitAutofill(clearAutofill)}
+                  className="text-xs text-sky-300 underline underline-offset-2 hover:text-sky-200"
+                >
+                  Undo autofill
+                </button>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field
                 label="First name"
-                required
+                required={isRequiredField("contact_first_name", mode)}
                 error={errors.contact_first_name}
+                autofilled={filledHint("contact_first_name")}
               >
                 <input
                   className={INPUT}
@@ -736,7 +847,10 @@ export default function GenerateDealForm({
                   onChange={(e) => set("contact_first_name", e.target.value)}
                 />
               </Field>
-              <Field label="Last name">
+              <Field
+                label="Last name"
+                autofilled={filledHint("contact_last_name")}
+              >
                 <input
                   className={INPUT}
                   value={form.contact_last_name}
@@ -746,9 +860,10 @@ export default function GenerateDealForm({
             </div>
             <Field
               label="Email"
-              required={strictReq}
+              required={isRequiredField("contact_email", mode)}
               error={errors.contact_email}
               hint={manual ? "Email or phone — one of the two." : undefined}
+              autofilled={filledHint("contact_email")}
             >
               <input
                 className={INPUT}
@@ -761,9 +876,10 @@ export default function GenerateDealForm({
             </Field>
             <Field
               label="Phone"
-              required={strictReq}
+              required={isRequiredField("contact_phone", mode)}
               error={errors.contact_phone}
               hint={manual ? "Email or phone — one of the two." : undefined}
+              autofilled={filledHint("contact_phone")}
             >
               <input
                 className={INPUT}
@@ -773,7 +889,7 @@ export default function GenerateDealForm({
                 onChange={(e) => set("contact_phone", e.target.value)}
               />
             </Field>
-            <Field label="Company">
+            <Field label="Company" autofilled={filledHint("company")}>
               <input
                 className={INPUT}
                 value={form.company}
@@ -813,7 +929,7 @@ export default function GenerateDealForm({
           <Section step={3} title="Event">
             <Field
               label="Event type"
-              required={strictReq}
+              required={isRequiredField("event_type", mode)}
               error={errors.event_type}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -842,7 +958,11 @@ export default function GenerateDealForm({
                 placeholder="e.g. Sarah's 40th"
               />
             </Field>
-            <Field label="Date" required={strictReq} error={errors.event_date}>
+            <Field
+              label="Date"
+              required={isRequiredField("event_date", mode)}
+              error={errors.event_date}
+            >
               <input
                 className={INPUT}
                 type="date"
@@ -851,7 +971,11 @@ export default function GenerateDealForm({
               />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Start" required={strictReq} error={errors.event_start_time}>
+              <Field
+                label="Start"
+                required={isRequiredField("event_start_time", mode)}
+                error={errors.event_start_time}
+              >
                 <input
                   className={INPUT}
                   type="time"
@@ -859,7 +983,11 @@ export default function GenerateDealForm({
                   onChange={(e) => set("event_start_time", e.target.value)}
                 />
               </Field>
-              <Field label="End" required={strictReq} error={errors.event_end_time}>
+              <Field
+                label="End"
+                required={isRequiredField("event_end_time", mode)}
+                error={errors.event_end_time}
+              >
                 <input
                   className={INPUT}
                   type="time"
@@ -868,7 +996,7 @@ export default function GenerateDealForm({
                 />
               </Field>
             </div>
-            <Field label="Venue name">
+            <Field label="Venue name" autofilled={filledHint("venue_name")}>
               <input
                 className={INPUT}
                 value={form.venue_name}
@@ -877,9 +1005,14 @@ export default function GenerateDealForm({
             </Field>
             <Field
               label="Venue address"
-              required
+              required={isRequiredField("venue_address", mode)}
               error={errors.venue_address}
-              hint="Street, city, state — the worker measures drive time from it."
+              autofilled={filledHint("venue_address")}
+              hint={
+                manual
+                  ? "Optional here. Street, city, state — needed before the deal can be quoted."
+                  : "Street, city, state — the worker measures drive time from it."
+              }
             >
               <textarea
                 className={`${INPUT} min-h-[72px]`}
@@ -887,7 +1020,11 @@ export default function GenerateDealForm({
                 onChange={(e) => set("venue_address", e.target.value)}
               />
             </Field>
-            <Field label="Guest count" required={strictReq} error={errors.guest_count}>
+            <Field
+              label="Guest count"
+              required={isRequiredField("guest_count", mode)}
+              error={errors.guest_count}
+            >
               <input
                 className={INPUT}
                 type="number"
