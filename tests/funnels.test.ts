@@ -220,6 +220,30 @@ describe("outreach funnel activity join", () => {
     expect(warm.sent + cold.sent).toBe(3); // prospect 4 has no engine
   });
 
+  it("measures attribution from a prospect's first mail in the window", () => {
+    const followUp: OutreachEventRow[] = [
+      ...events,
+      // Prospect 3 mailed again after its deal was last touched: the deal still
+      // followed the FIRST mail (09-16), so it attributes.
+      { prospect_id: 3, event: "sequenced", occurred_at: "2026-09-20T09:00:00Z" },
+    ];
+    const touched: DealRow[] = [
+      { ...deals[1], id: 12, updated_at: "2026-09-18T09:00:00Z" },
+    ];
+    const [warm] = computeOutreachFunnel(followUp, prospects, touched, START);
+    expect(warm.sent).toBe(2);
+    expect(warm.deal).toBe(1);
+  });
+
+  it("joins a prospect to its deal regardless of email case and padding", () => {
+    const shouty: ProspectRow[] = [
+      { id: 1, email: "  Warm@ACME.com ", engine: "warm", status: "handed_off" },
+    ];
+    const [warm] = computeOutreachFunnel(events, shouty, [deals[0]], START);
+    expect(warm.deal).toBe(1);
+    expect(warm.booked).toBe(1);
+  });
+
   it("drops mails outside the window", () => {
     const tightStart = Date.parse("2026-09-15T12:00:00Z");
     const [warm] = computeOutreachFunnel(events, prospects, deals, tightStart);
