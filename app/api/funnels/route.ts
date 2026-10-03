@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchExceptionQueue, fetchFunnelPayload, fetchLoopStatus } from "@/lib/funnels/queries";
 import { parseWindow } from "@/lib/funnels/windows";
+import { isMigrationMissing } from "@/lib/supabase/migrationMissing";
 
 export const dynamic = "force-dynamic";
 
@@ -35,14 +36,11 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     // Until a human has run supabase/crm/001_call_desk.sql the outreach tables
     // are unreachable to the signed-in manager; distinguish that from a real
-    // failure so the UI can explain it (same contract as the call-desk queue).
+    // failure so the UI can explain it. Same predicate as the call-desk queue
+    // route, shared from lib/supabase/migrationMissing.ts.
     const msg = error?.message ?? String(error);
     const code = error?.code ?? null;
-    const missing =
-      code === "42P01" ||
-      code === "42501" ||
-      code === "PGRST205" ||
-      /does not exist|schema cache|permission denied/i.test(msg);
+    const missing = isMigrationMissing(error);
     return NextResponse.json(
       { error: msg, code, migration_missing: missing },
       { status: missing ? 503 : 500 },

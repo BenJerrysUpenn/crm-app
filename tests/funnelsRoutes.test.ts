@@ -215,7 +215,7 @@ describe("GET /api/funnels", () => {
       last_activity_at: "2026-09-25T15:00:00Z",
     });
     expect(loop.cold).toEqual({ gate_passed: true, gate_date: "2026-09-24", queued: 1 });
-    expect(loop.quote_jobs).toEqual({ pending: 1, running: 0, error: 1, done_recent: 0 });
+    expect(loop.quote_jobs).toEqual({ pending: 1, running: 0, error: 1 });
     expect(loop.suppression).toEqual({ total: 1, opt_out_events: 1, prospects_total: 3 });
   });
 

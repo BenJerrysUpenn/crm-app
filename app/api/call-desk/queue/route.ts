@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { CallDeskRow } from "@/lib/callDesk/types";
+import { isMigrationMissing } from "@/lib/supabase/migrationMissing";
 
 export const dynamic = "force-dynamic";
 
@@ -28,12 +29,8 @@ export async function GET() {
     // Until a human runs supabase/crm/001_call_desk.sql the view does not
     // exist / is not reachable. Say so with a distinguishable code so the
     // UI can render the "migration not applied" state instead of a scary
-    // generic failure.
-    const missing =
-      error.code === "42P01" || // undefined_table
-      error.code === "42501" || // insufficient_privilege
-      error.code === "PGRST205" || // PostgREST: table not in schema cache
-      /does not exist|schema cache|permission denied/i.test(error.message);
+    // generic failure. Shared predicate: lib/supabase/migrationMissing.ts.
+    const missing = isMigrationMissing(error);
     return NextResponse.json(
       {
         error: error.message,

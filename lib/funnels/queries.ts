@@ -13,7 +13,7 @@
 // rather than pushing aggregation into a view we are not allowed to create yet.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { easternTodayYmd } from "@/lib/dateFormat";
+import { easternTodayYmd, easternWallTimeToUTCISO } from "@/lib/dateFormat";
 import {
   computeBelowMin,
   computeDealFunnel,
@@ -54,7 +54,6 @@ export type LoopStatus = {
     pending: number;
     running: number;
     error: number;
-    done_recent: number;
   };
   suppression: {
     total: number;
@@ -86,16 +85,14 @@ async function count(
 
 /** Start of "today" in America/New_York as an ISO instant. */
 export function easternDayStartISO(now: Date): string {
-  // Take today's ET calendar date, then shift its midnight by ET's offset at
-  // this instant (UTC-4 under DST, UTC-5 otherwise). Good enough for a
-  // "sends today" counter.
-  const asUTC = Date.parse(`${easternTodayYmd(now)}T00:00:00Z`);
-  const etNow = new Date(
-    now.toLocaleString("en-US", { timeZone: "America/New_York" }),
-  );
-  const localNow = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }));
-  const offsetMs = localNow.getTime() - etNow.getTime();
-  return new Date(asUTC + offsetMs).toISOString();
+  // Midnight of today's Eastern calendar date, resolved with the offset in
+  // force AT THAT MIDNIGHT (not at `now`), so the "sends today" boundary is
+  // right even on a DST-change day. The rule lives once in lib/dateFormat.ts;
+  // the catering shift windows read the same function. A parse failure is not
+  // reachable (easternTodayYmd always yields YYYY-MM-DD) but is guarded.
+  const iso = easternWallTimeToUTCISO(easternTodayYmd(now), "00:00");
+  if (!iso) throw new Error("easternDayStartISO: could not resolve today");
+  return iso;
 }
 
 // --- panel 1 + 4: loop status & health --------------------------------------
@@ -137,12 +134,17 @@ export async function fetchLoopStatus(
   ]);
 
   // Last engine activity: newest outreach event that is not the initial import.
-  const { data: lastEvt } = await supabase
+  // Throw on error like every other read here: on a supervision view a silent
+  // `null` renders as "Last engine activity never", a false all-clear if the
+  // read actually failed (RLS / missing table). Fail loudly so the GET surfaces
+  // 503/500 and the UI shows the error state instead (CODING_STANDARDS.md:10).
+  const { data: lastEvt, error: lastEvtError } = await supabase
     .from("outreach_events")
     .select("occurred_at")
     .neq("event", "added")
     .order("occurred_at", { ascending: false })
     .limit(1);
+  if (lastEvtError) throw lastEvtError;
 
   return {
     warm: {
@@ -160,7 +162,6 @@ export async function fetchLoopStatus(
       pending: jobsPending,
       running: jobsRunning,
       error: jobsError,
-      done_recent: 0,
     },
     suppression: {
       total: suppressionTotal,

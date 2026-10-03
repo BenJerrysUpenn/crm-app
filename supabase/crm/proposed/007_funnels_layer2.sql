@@ -37,6 +37,18 @@ ALTER TABLE public.deals ADD COLUMN IF NOT EXISTS profile_source TEXT
   CHECK (profile_source IN ('derived', 'human'));
 
 -- Pure SQL mirror of deriveProfile(event_type, contact_email).
+--
+-- SOURCE-OF-TRUTH RESOLUTION (asked at review, recorded here so it is settled
+-- before 007 is applied): this function is a ONE-TIME BACKFILL SEED, not a
+-- second live definition of the profile. Once 007 lands, the runtime source of
+-- truth is the durable `deals.profile` column (human-overridable via
+-- profile_source='human'); the Funnels tab reads that column and the TypeScript
+-- `deriveProfile` is kept only to seed `profile_source='derived'` rows (the
+-- backfill below and any new-row default), never to re-derive at read time. So
+-- there is exactly one live definition — the column — and this function stops
+-- mattering the moment the backfill completes. It does NOT need a standing
+-- parity test against the TS, because it is not evaluated after backfill; if a
+-- re-backfill is ever run, `profile_source='human'` rows are left untouched.
 CREATE OR REPLACE FUNCTION public.funnels_derive_profile(p_event_type text, p_email text)
 RETURNS text
 LANGUAGE sql IMMUTABLE

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { easternWallTimeToUTCISO } from "@/lib/dateFormat";
 
 // Auto-creates open "draft" shifts in the time-app when a catering deal is
 // booked. A draft shift is simply published=false + employee_id=null, which the
@@ -91,50 +92,9 @@ export function isCartEvent(value: unknown): boolean {
   return false;
 }
 
-// Minutes that America/New_York is offset from UTC at the given instant
-// (handles EST/EDT automatically). Returns a negative number (e.g. -240 in
-// summer, -300 in winter).
-function nyOffsetMinutes(at: Date): number {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-  const p = dtf.formatToParts(at).reduce<Record<string, string>>((a, x) => {
-    a[x.type] = x.value;
-    return a;
-  }, {});
-  // `24` shows up at midnight in some runtimes; normalise to 0.
-  const hour = p.hour === "24" ? "0" : p.hour;
-  const asUTC = Date.UTC(
-    +p.year,
-    +p.month - 1,
-    +p.day,
-    +hour,
-    +p.minute,
-    +p.second,
-  );
-  return (asUTC - at.getTime()) / 60000;
-}
-
-// Interpret a NY wall-clock date+time ("YYYY-MM-DD", "HH:MM") as a real instant
-// and return its UTC ISO string. Two-step: guess the instant as if the wall
-// time were UTC, look up NY's offset at that guess, then correct.
-function nyWallTimeToUTCISO(dateStr: string, timeStr: string): string | null {
-  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
-  const tm = /^(\d{1,2}):(\d{2})/.exec(timeStr.trim());
-  if (!dm || !tm) return null;
-  const [, y, mo, d] = dm;
-  const [, hh, mm] = tm;
-  const guess = Date.UTC(+y, +mo - 1, +d, +hh, +mm);
-  const offset = nyOffsetMinutes(new Date(guess));
-  return new Date(guess - offset * 60000).toISOString();
-}
+// The Eastern wall-clock-to-UTC rule lives in lib/dateFormat.ts
+// (easternWallTimeToUTCISO) so there is one definition of it; the Funnels
+// "today" counter reads the same function.
 
 // Work out the shift's UTC start/end from the deal. Requires departure_time,
 // which the catering automation only sets once a picklist has been generated —
@@ -160,7 +120,7 @@ export function computeShiftWindow(deal: DealTimes): {
   const departure = (deal.departure_time ?? "").trim();
   if (!date || !departure) return null;
 
-  const baseISO = nyWallTimeToUTCISO(date, departure);
+  const baseISO = easternWallTimeToUTCISO(date, departure);
   if (!baseISO) return null;
 
   const laborHours =
