@@ -47,6 +47,7 @@ describe("profile derivation", () => {
     expect(emailDomain("A@Wharton.UPenn.edu")).toBe("wharton.upenn.edu");
     expect(isPennDomain("wharton.upenn.edu")).toBe(true);
     expect(isPennDomain("penn.edu")).toBe(false);
+    expect(isPennDomain("notupenn.edu")).toBe(false);
     expect(isBusinessDomain("acme.com")).toBe(true);
     expect(isBusinessDomain("gmail.com")).toBe(false);
     expect(isBusinessDomain("")).toBe(false);
@@ -59,6 +60,8 @@ describe("profile derivation", () => {
     // Occasion wins over the Penn channel (wedding/mitzvah/office before penn).
     expect(deriveProfile("Wedding", "dev@upenn.edu")).toBe("wedding");
     expect(deriveProfile("Corporate", "x@seas.upenn.edu")).toBe("office_admin");
+    // The Penn channel wins over a family occasion (penn before family).
+    expect(deriveProfile("Birthday Party", "dev@upenn.edu")).toBe("penn_account");
   });
 
   it("maps wedding / mitzvah / family event types", () => {
@@ -200,6 +203,22 @@ describe("outreach funnel activity join", () => {
     expect(cold.deal).toBe(0);
   });
 
+  it("counts an interested reply as replied, and ignores engine-less prospects", () => {
+    const more: ProspectRow[] = [
+      ...prospects,
+      { id: 4, email: "nobody@gamma.com", engine: null, status: "sequenced" },
+    ];
+    const moreEvents: OutreachEventRow[] = [
+      { prospect_id: 2, event: "interested", occurred_at: "2026-09-16T09:00:00Z" },
+      { prospect_id: 4, event: "sequenced", occurred_at: "2026-09-16T09:00:00Z" },
+      { prospect_id: null, event: "sequenced", occurred_at: "2026-09-16T09:00:00Z" },
+      ...events,
+    ];
+    const [warm, cold] = computeOutreachFunnel(moreEvents, more, deals, START);
+    expect(cold.replied).toBe(1);
+    expect(warm.sent + cold.sent).toBe(3); // prospect 4 has no engine
+  });
+
   it("drops mails outside the window", () => {
     const tightStart = Date.parse("2026-09-15T12:00:00Z");
     const [warm] = computeOutreachFunnel(events, prospects, deals, tightStart);
@@ -258,12 +277,62 @@ describe("quote latency", () => {
         { created_at: "2026-09-11T00:00:00Z", quote_sent_at: "2026-09-11T06:00:00Z" }, // 6h
         { created_at: "2026-09-12T00:00:00Z", quote_sent_at: "2026-09-11T00:00:00Z" }, // negative -> dropped
         { created_at: "bad", quote_sent_at: "2026-09-11T00:00:00Z" }, // unparseable -> dropped
+        { created_at: "2026-08-20T00:00:00Z", quote_sent_at: "2026-08-20T09:00:00Z" }, // before window -> dropped
       ],
       START,
     );
     expect(r.count).toBe(2);
     expect(r.median_hours).toBe(4);
-    expect(r.trend.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("trends the median by the Monday-UTC week the deal was created in", () => {
+    const r = computeQuoteLatency(
+      [
+        // Week of Mon 2026-09-07: 2h and 6h -> median 4.
+        { created_at: "2026-09-10T00:00:00Z", quote_sent_at: "2026-09-10T02:00:00Z" },
+        { created_at: "2026-09-11T00:00:00Z", quote_sent_at: "2026-09-11T06:00:00Z" },
+        // Week of Mon 2026-09-14: one 1.25h quote -> rounds to 1.3.
+        { created_at: "2026-09-14T00:00:00Z", quote_sent_at: "2026-09-14T01:15:00Z" },
+      ],
+      START,
+    );
+    expect(r.trend).toEqual([
+      { week_start: "2026-09-07T00:00:00.000Z", median_hours: 4, count: 2 },
+      { week_start: "2026-09-14T00:00:00.000Z", median_hours: 1.3, count: 1 },
+    ]);
+    expect(r.median_hours).toBe(2);
+  });
+
+  it("reports no median when nothing is in the window", () => {
+    const r = computeQuoteLatency([], START);
+    expect(r).toEqual({ median_hours: null, count: 0, trend: [] });
+  });
+});
+
+describe("deal value precedence", () => {
+  const START = Date.parse("2026-09-01T00:00:00Z");
+  const base = mkDeal(1, "Booked Paid", "a@acme.com", "Corporate", "2026-09-05", 0);
+
+  it("values a booked deal by its signed contract, then total, then subtotal", () => {
+    const deals: DealRow[] = [
+      { ...base, id: 1, signed_contract_total: 1000, total_with_tax: 900, subtotal_pretax: 800 },
+      { ...base, id: 2, signed_contract_total: null, total_with_tax: 500, subtotal_pretax: 400 },
+      { ...base, id: 3, signed_contract_total: null, total_with_tax: null, subtotal_pretax: 70 },
+      { ...base, id: 4, signed_contract_total: null, total_with_tax: null, subtotal_pretax: null },
+    ];
+    const all = computeDealFunnel(deals, START).find((r) => r.profile === "__all__")!;
+    expect(all.booked_value).toBe(1570);
+    expect(all.quoted_value).toBe(1570);
+  });
+
+  it("does not count a quote that never booked in booked $", () => {
+    const deals: DealRow[] = [
+      { ...base, id: 1, stage: "Sent Quote", signed_contract_total: 300 },
+      { ...base, id: 2, stage: "Booked Unpaid", signed_contract_total: 200 },
+    ];
+    const all = computeDealFunnel(deals, START).find((r) => r.profile === "__all__")!;
+    expect(all.quoted_value).toBe(500);
+    expect(all.booked_value).toBe(200);
   });
 });
 
