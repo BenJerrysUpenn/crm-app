@@ -43,8 +43,3 @@ export function windowStart(window: WindowKey, now: Date): Date {
   const days = Number(window);
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 }
-
-/** ISO string for the window start — what queries compare against. */
-export function windowStartISO(window: WindowKey, now: Date): string {
-  return windowStart(window, now).toISOString();
-}
