@@ -173,6 +173,7 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
       const r = await press(id);
       expect(r).toMatchObject({ opted_in: true, already: false });
       expect((await row(id)).opt_in_source).toBe("explicit_yes");
+      expect(await counts(id)).toEqual({ consents: 1, events: 1, email_supp: 0 });
     });
   });
 
@@ -207,6 +208,11 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
       expect(await counts(id)).toEqual({ consents: 1, events: 1, email_supp: 0 });
 
       const [consent] = await sql`SELECT * FROM public.outreach_offer_consents WHERE prospect_id = ${id}`;
+      // The press is now the basis for mailing them, so its proof is on the row.
+      expect(consent).toMatchObject({
+        email: EMAIL, method: "offers_button", consent_text: "I agree.",
+        page_version: "offers-v1", ip: "203.0.113.9", user_agent: "probe",
+      });
       expect(consent.lifted_suppression).toMatchObject({
         reason: "unsubscribe", channel: "email", phone_kept: false,
         status_before: "suppressed", status_after: "sequenced",
@@ -248,8 +254,9 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
     });
 
     // The explicit set is exactly explicit_yes and signup_form (EXPLICIT_OPT_IN_SOURCES
-    // in lib/emailCampaignsPrototype/model.ts); every other source is upgraded.
-    it.each(["booked", "import"])("still upgrades an opt_in_source=%s opt-in to explicit_yes with a consent row", async (source) => {
+    // in lib/emailCampaignsPrototype/model.ts); every other source, and a flag
+    // with no source at all, is upgraded.
+    it.each(["booked", "import", null])("still upgrades an opt_in_source=%s opt-in to explicit_yes with a consent row", async (source) => {
       const id = await prospect({ marketing_opt_in: true, opt_in_source: source, opt_in_at: FORM_DATE });
       expect(await press(id)).toMatchObject({ opted_in: true, already: false, lifted: false });
       expect((await row(id)).opt_in_source).toBe("explicit_yes");
