@@ -236,41 +236,29 @@ export function computeDealFunnel(
 
 // --- Below-min counter -------------------------------------------------------
 
+/**
+ * Share of in-window deals that closed below minimum, overall and per profile.
+ * Read off the deal funnel's tally (created = in-window deals, below_min =
+ * Closed Below Min), so the window filter and profile derivation live once.
+ */
 export function computeBelowMin(
   deals: DealRow[],
   windowStartMs: number,
 ): BelowMinResult {
-  let overallBelow = 0;
-  let overallTotal = 0;
-  const per = new Map<Profile, { below_min: number; total: number }>();
-  for (const p of PROFILES) per.set(p, { below_min: 0, total: 0 });
-
-  for (const d of deals) {
-    if (!inWindow(d.created_at, windowStartMs)) continue;
-    const profile = deriveProfile(d.event_type, d.contact_email);
-    overallTotal += 1;
-    per.get(profile)!.total += 1;
-    if (d.stage === BELOW_MIN_STAGE) {
-      overallBelow += 1;
-      per.get(profile)!.below_min += 1;
-    }
-  }
-
+  const rows = new Map(
+    computeDealFunnel(deals, windowStartMs).map((r) => [r.profile, r]),
+  );
+  const share = (r: DealFunnelRow) => ({
+    below_min: r.below_min,
+    total: r.created,
+    share: pct(r.below_min, r.created),
+  });
   return {
-    overall: {
-      below_min: overallBelow,
-      total: overallTotal,
-      share: pct(overallBelow, overallTotal),
-    },
-    by_profile: PROFILES.map((profile) => {
-      const v = per.get(profile)!;
-      return {
-        profile,
-        below_min: v.below_min,
-        total: v.total,
-        share: pct(v.below_min, v.total),
-      };
-    }),
+    overall: share(rows.get("__all__")!),
+    by_profile: PROFILES.map((profile) => ({
+      profile,
+      ...share(rows.get(profile)!),
+    })),
   };
 }
 
