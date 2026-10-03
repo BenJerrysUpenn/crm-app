@@ -276,5 +276,24 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
         anon: false, authenticated: false, service_role: true, public: false,
       });
     });
+
+    // CREATE OR REPLACE keeps whatever ACL the function already has, so the
+    // test above passes on 007's grants alone. This one scrambles the ACL
+    // first: only 008's own REVOKE and GRANT can put it back.
+    it("leaves EXECUTE service_role-only whatever ACL the function had before", async () => {
+      const fn = "public.outreach_offers_opt_in(bigint, text, text, text, text)";
+      await sql.unsafe(`GRANT EXECUTE ON FUNCTION ${fn} TO PUBLIC, anon, authenticated;
+                        REVOKE EXECUTE ON FUNCTION ${fn} FROM service_role;`);
+      await sql.unsafe(migration("008_offers_opt_in_signup_form.sql"));
+
+      const [f] = await sql`
+        SELECT has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
+               has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
+               has_function_privilege('service_role', p.oid, 'EXECUTE') AS service_role,
+               EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0) AS public
+          FROM pg_proc p
+         WHERE p.oid = ${fn}::regprocedure`;
+      expect(f).toEqual({ anon: false, authenticated: false, service_role: true, public: false });
+    });
   });
 });
