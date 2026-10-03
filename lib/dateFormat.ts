@@ -71,6 +71,59 @@ export function easternTodayYmd(now: Date = new Date()): string {
   }).format(now);
 }
 
+// Minutes that Eastern (America/New_York) is offset from UTC at the given
+// instant, handling EST/EDT automatically. Negative (e.g. -240 under DST,
+// -300 otherwise). The single home for the Eastern wall-clock rule — both the
+// catering shift windows and the Funnels "today" counter read it from here so
+// the offset is looked up once, in one place.
+function nyOffsetMinutes(at: Date): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const p = dtf.formatToParts(at).reduce<Record<string, string>>((a, x) => {
+    a[x.type] = x.value;
+    return a;
+  }, {});
+  // `24` shows up at midnight in some runtimes; normalise to 0.
+  const hour = p.hour === "24" ? "0" : p.hour;
+  const asUTC = Date.UTC(
+    +p.year,
+    +p.month - 1,
+    +p.day,
+    +hour,
+    +p.minute,
+    +p.second,
+  );
+  return (asUTC - at.getTime()) / 60000;
+}
+
+// Interpret an Eastern wall-clock date+time ("YYYY-MM-DD", "HH:MM") as a real
+// instant and return its UTC ISO string, or null when either input is
+// unparseable. Two-step: guess the instant as if the wall time were UTC, look
+// up Eastern's offset AT THAT GUESS, then correct — so the offset is the one
+// in force at the target wall time, not at some other "now". That is what
+// keeps it right across a DST boundary.
+export function easternWallTimeToUTCISO(
+  dateStr: string,
+  timeStr: string,
+): string | null {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  const tm = /^(\d{1,2}):(\d{2})/.exec(timeStr.trim());
+  if (!dm || !tm) return null;
+  const [, y, mo, d] = dm;
+  const [, hh, mm] = tm;
+  const guess = Date.UTC(+y, +mo - 1, +d, +hh, +mm);
+  const offset = nyOffsetMinutes(new Date(guess));
+  return new Date(guess - offset * 60000).toISOString();
+}
+
 // Calendar days from today (Eastern) to the event_date. Negative if past.
 // Returns null when the input isn't a parseable YYYY-MM-DD.
 export function daysUntilEvent(
