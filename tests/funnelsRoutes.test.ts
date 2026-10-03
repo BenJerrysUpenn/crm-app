@@ -375,6 +375,16 @@ describe("POST /api/funnels/suppress", () => {
     },
   );
 
+  it.each(["null", "42", "[]", '"10"'])(
+    "answers a JSON body that is not an object with the same 400 as a missing id: %s",
+    async (raw) => {
+      const res = await post(raw);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "prospect_id required" });
+      expect(db.state.rpcCalls).toEqual([]);
+    },
+  );
+
   it("suppresses through the call desk's do-not-call RPC", async () => {
     const res = await post(JSON.stringify({ prospect_id: 10 }));
     expect(res.status).toBe(200);
