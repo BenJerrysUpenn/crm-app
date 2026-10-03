@@ -13,6 +13,7 @@
 // rather than pushing aggregation into a view we are not allowed to create yet.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { easternTodayYmd } from "@/lib/dateFormat";
 import {
   computeBelowMin,
   computeDealFunnel,
@@ -85,19 +86,10 @@ async function count(
 
 /** Start of "today" in America/New_York as an ISO instant. */
 export function easternDayStartISO(now: Date): string {
-  // Format the date parts in ET, then reinterpret midnight ET as UTC by
-  // measuring the offset. Good enough for a "sends today" counter.
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const y = parts.find((p) => p.type === "year")!.value;
-  const m = parts.find((p) => p.type === "month")!.value;
-  const d = parts.find((p) => p.type === "day")!.value;
-  // ET is UTC-4 (DST) or UTC-5. Compute the offset for this instant.
-  const asUTC = Date.parse(`${y}-${m}-${d}T00:00:00Z`);
+  // Take today's ET calendar date, then shift its midnight by ET's offset at
+  // this instant (UTC-4 under DST, UTC-5 otherwise). Good enough for a
+  // "sends today" counter.
+  const asUTC = Date.parse(`${easternTodayYmd(now)}T00:00:00Z`);
   const etNow = new Date(
     now.toLocaleString("en-US", { timeZone: "America/New_York" }),
   );
