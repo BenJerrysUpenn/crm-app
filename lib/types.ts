@@ -42,6 +42,17 @@ export type Deal = {
   archived: number;
   tax_exempt: number;
   is_outdoor: number | null;
+  // COI (certificate of insurance) — see lib/coi.ts and Catering-Manager
+  // health/conformance.sql `revive.coi_required_unsent`. Both columns already
+  // exist on deals; they were simply absent from this type.
+  coi_required: number | null;
+  coi_sent_at: string | null;
+  // Billing address — the certificate-holder fallback when venue_address is
+  // blank (lib/coi.ts composeBillingAddress).
+  billing_street: string | null;
+  billing_city: string | null;
+  billing_state: string | null;
+  billing_zip: string | null;
   notes: string | null;
   picklist_notes: string | null;
   lead_source: string | null;
