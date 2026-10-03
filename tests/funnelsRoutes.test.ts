@@ -293,6 +293,35 @@ describe("GET /api/funnels", () => {
     ]);
   });
 
+  it("leaves a suppressed prospect's reply out of the queue", async () => {
+    db.state.tables.outreach_prospects.push(
+      { id: 13, name: "Sue", company: null, email: "sue@eps.com", engine: "warm", status: "suppressed" },
+    );
+    db.state.tables.outreach_events.push(
+      { prospect_id: 13, event: "replied", occurred_at: "2026-09-25T12:00:00Z" },
+    );
+    const { exceptions } = await (await get()).json();
+    expect(exceptions.replies_awaiting_handling.map((r: Row) => r.prospect_id)).toEqual([10]);
+  });
+
+  it("lists the longest-waiting reply first, aged from its newest reply", async () => {
+    db.state.tables.outreach_prospects.push(
+      { id: 14, name: "Raj", company: null, email: "raj@zeta.com", engine: "cold", status: "sequenced" },
+    );
+    db.state.tables.outreach_events.push(
+      // An "interested" reply queues like a plain one.
+      { prospect_id: 14, event: "interested", occurred_at: "2026-09-20T16:00:00Z" },
+      { prospect_id: 14, event: "interested", occurred_at: "2026-09-23T16:00:00Z" },
+    );
+    const { exceptions } = await (await get()).json();
+    expect(
+      exceptions.replies_awaiting_handling.map((r: Row) => [r.prospect_id, r.age_hours]),
+    ).toEqual([
+      [14, 48],
+      [10, 1],
+    ]);
+  });
+
   it.each([
     { message: "undefined table", code: "42P01" },
     { message: "insufficient privilege", code: "42501" },
