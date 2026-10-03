@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PROFILE_LABELS, type Profile } from "@/lib/funnels/profile";
-import { WINDOWS, WINDOW_LABELS, type WindowKey } from "@/lib/funnels/windows";
+import {
+  DEFAULT_WINDOW,
+  WINDOWS,
+  WINDOW_LABELS,
+  type WindowKey,
+} from "@/lib/funnels/windows";
 import type { FunnelPayload } from "@/lib/funnels/types";
 import { pct } from "@/lib/funnels/compute";
 import type { ExceptionQueue, LoopStatus } from "@/lib/funnels/queries";
@@ -17,7 +22,7 @@ type ApiResponse = {
 const DISMISS_KEY = "funnels.dismissed.v1";
 
 export default function Funnels() {
-  const [windowKey, setWindowKey] = useState<WindowKey>("30");
+  const [windowKey, setWindowKey] = useState<WindowKey>(DEFAULT_WINDOW);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ message: string; migration: boolean } | null>(null);
