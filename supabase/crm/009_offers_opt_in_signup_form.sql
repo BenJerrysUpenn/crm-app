@@ -2,9 +2,6 @@
 -- Withers CRM — migration crm/009: a signup_form opt-in is already explicit
 -- bj-finance #425
 --
--- Numbered 009, not 008: origin/main already has crm/008 (the Hot Chocolate
--- Float Party migration, #57), so this file takes the next free number.
---
 -- Run once in the Supabase SQL editor, or:
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/crm/009_offers_opt_in_signup_form.sql
 -- Idempotent: CREATE OR REPLACE of one function, plus its comment and grants.
