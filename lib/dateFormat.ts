@@ -76,7 +76,7 @@ export function easternTodayYmd(now: Date = new Date()): string {
 // -300 otherwise). The single home for the Eastern wall-clock rule — both the
 // catering shift windows and the Funnels "today" counter read it from here so
 // the offset is looked up once, in one place.
-export function nyOffsetMinutes(at: Date): number {
+function nyOffsetMinutes(at: Date): number {
   const dtf = new Intl.DateTimeFormat("en-US", {
     timeZone: TZ,
     year: "numeric",
