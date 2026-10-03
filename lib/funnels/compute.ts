@@ -11,6 +11,7 @@
 // contacts reuse deal rows, so created_at would credit the machine for deals it
 // never touched. See attributeDeals().
 
+import type { Stage } from "@/lib/stages";
 import { deriveProfile, PROFILES, type Profile } from "./profile";
 import type {
   BelowMinResult,
@@ -25,23 +26,27 @@ import type {
   QuoteLatencyTrendPoint,
 } from "./types";
 
-// --- Stage vocabulary (mirrors lib/stages.ts, verbatim per spec) -------------
+// --- Stage vocabulary (typed against lib/stages.ts, so a renamed stage fails tsc)
 
-const QUOTED_STAGES = new Set([
+const QUOTED_STAGES: ReadonlySet<Stage> = new Set<Stage>([
   "Sent Quote",
   "Booked Unpaid",
   "Booked Paid",
   "Event Complete",
 ]);
-const BOOKED_STAGES = new Set(["Booked Unpaid", "Booked Paid", "Event Complete"]);
-const COMPLETE_STAGE = "Event Complete";
-const BELOW_MIN_STAGE = "Closed Below Min";
+const BOOKED_STAGES: ReadonlySet<Stage> = new Set<Stage>([
+  "Booked Unpaid",
+  "Booked Paid",
+  "Event Complete",
+]);
+const COMPLETE_STAGE: Stage = "Event Complete";
+const BELOW_MIN_STAGE: Stage = "Closed Below Min";
 
 export function reachedQuoted(stage: string): boolean {
-  return QUOTED_STAGES.has(stage);
+  return QUOTED_STAGES.has(stage as Stage);
 }
 export function reachedBooked(stage: string): boolean {
-  return BOOKED_STAGES.has(stage);
+  return BOOKED_STAGES.has(stage as Stage);
 }
 
 // --- Small helpers -----------------------------------------------------------
