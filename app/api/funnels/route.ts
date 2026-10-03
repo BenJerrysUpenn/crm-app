@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { fetchExceptionQueue, fetchFunnelPayload, fetchLoopStatus, resolveWindow } from "@/lib/funnels/queries";
+import { fetchExceptionQueue, fetchFunnelPayload, fetchLoopStatus } from "@/lib/funnels/queries";
+import { parseWindow } from "@/lib/funnels/windows";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
   if (!user)
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const windowKey = resolveWindow(req.nextUrl.searchParams.get("window"));
+  const windowKey = parseWindow(req.nextUrl.searchParams.get("window"));
   const now = new Date();
 
   try {

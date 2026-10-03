@@ -28,7 +28,7 @@ import type {
   ProspectRow,
   QuoteLatencyPair,
 } from "./types";
-import { parseWindow, windowStart, type WindowKey } from "./windows";
+import { windowStart, type WindowKey } from "./windows";
 
 // Page size for range reads; deals and non-added events are both well under a
 // couple thousand rows, so a single 5000-row page covers them.
@@ -384,8 +384,4 @@ export async function fetchExceptionQueue(
       "Deferred exception types (no data source yet): boomerang drafts (public.deals has no boomerang_reason column — only the guardrail test schemas do), non-form candidates and manual-outbound-without-ref (both surfaced by the catering sweep, whose telemetry is not persisted — the proposed sweep_runs table lands them here).",
     ],
   };
-}
-
-export function resolveWindow(searchParam: string | null | undefined): WindowKey {
-  return parseWindow(searchParam);
 }
