@@ -48,17 +48,22 @@ const STATUS_UI: Record<
 
 /** One labelled value with its own copy button. */
 function CopyRow({ label, value }: { label: string; value: string | null }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "blocked">(
+    "idle",
+  );
   async function copy() {
     if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopyState("copied");
     } catch {
-      // Clipboard blocked (insecure origin / no permission). The value is on
-      // screen to read either way.
+      // Clipboard refused (insecure origin / denied permission). Say so rather
+      // than swallow it (CODING_STANDARDS.md:10): a silent miss could let the
+      // human paste whatever was already on the clipboard into the certificate
+      // request. The value stays on screen to select by hand.
+      setCopyState("blocked");
     }
+    setTimeout(() => setCopyState("idle"), 2000);
   }
   return (
     <div className="py-1.5 border-b border-slate-800">
@@ -72,7 +77,11 @@ function CopyRow({ label, value }: { label: string; value: string | null }) {
             onClick={copy}
             className="text-[11px] text-sky-300 underline underline-offset-2 hover:text-sky-200"
           >
-            {copied ? "Copied" : "Copy"}
+            {copyState === "copied"
+              ? "Copied"
+              : copyState === "blocked"
+                ? "Copy blocked — select the text"
+                : "Copy"}
           </button>
         )}
       </div>
@@ -93,7 +102,9 @@ export default function CoiPanel({
   const supabase = useMemo(() => createClient(), []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copiedAll, setCopiedAll] = useState(false);
+  const [copyAllState, setCopyAllState] = useState<
+    "idle" | "copied" | "blocked"
+  >("idle");
 
   const today = easternTodayYmd();
   const status = useMemo(() => coiStatus(deal, today), [deal, today]);
@@ -134,11 +145,13 @@ export default function CoiPanel({
   async function copyAll() {
     try {
       await navigator.clipboard.writeText(request.fullText);
-      setCopiedAll(true);
-      setTimeout(() => setCopiedAll(false), 2000);
+      setCopyAllState("copied");
     } catch {
-      /* clipboard blocked — the pack is on screen to read */
+      // Same as CopyRow: surface the refusal instead of swallowing it
+      // (CODING_STANDARDS.md:10). The whole pack is on screen to select by hand.
+      setCopyAllState("blocked");
     }
+    setTimeout(() => setCopyAllState("idle"), 2000);
   }
 
   return (
@@ -226,7 +239,11 @@ export default function CoiPanel({
               onClick={copyAll}
               className="text-xs bg-sky-500/20 text-sky-100 border border-sky-500/40 rounded px-3 py-1.5 hover:bg-sky-500/30"
             >
-              {copiedAll ? "Copied whole request" : "Copy whole request"}
+              {copyAllState === "copied"
+                ? "Copied whole request"
+                : copyAllState === "blocked"
+                  ? "Copy blocked — select the text"
+                  : "Copy whole request"}
             </button>
             <a
               href={HARTFORD_PORTAL_URL}
