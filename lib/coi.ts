@@ -71,11 +71,19 @@ export function daysUntil(
   return Math.round((ev - now) / MS);
 }
 
+/** The stored calendar-date shape: a leading "YYYY-MM-DD", as its digit
+ *  groups. */
+function matchYmd(
+  s: string | null | undefined,
+): [year: string, month: string, day: string] | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec((s ?? "").trim());
+  return m ? [m[1], m[2], m[3]] : null;
+}
+
 function parseYmd(s: string | null | undefined): number | null {
-  if (!s) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.trim());
-  if (!m) return null;
-  const [, y, mo, d] = m;
+  const ymd = matchYmd(s);
+  if (!ymd) return null;
+  const [y, mo, d] = ymd;
   const t = Date.UTC(Number(y), Number(mo) - 1, Number(d));
   return Number.isNaN(t) ? null : t;
 }
@@ -249,9 +257,9 @@ const MONTHS = [
 
 /** "2026-09-25" -> "September 25, 2026", no timezone shift. */
 export function formatEventDate(s: string | null | undefined): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec((s ?? "").trim());
-  if (!m) return null;
-  const [, y, mo, d] = m;
+  const ymd = matchYmd(s);
+  if (!ymd) return null;
+  const [y, mo, d] = ymd;
   const mi = Number(mo) - 1;
   if (mi < 0 || mi > 11) return null;
   return `${MONTHS[mi]} ${Number(d)}, ${y}`;
