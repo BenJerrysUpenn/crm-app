@@ -91,6 +91,14 @@ if the write fails.
 The board loads `archived = 0` rows only. Archived deals (9.5k+ historical rows)
 stay hidden. Within each column, cards sort by `event_date` ascending.
 
+## COI panel (deal drawer)
+`components/CoiPanel.tsx` renders on deals with `coi_required = 1` and assembles the
+Hartford certificate request from the deal (`buildCoiRequest` in `lib/coi.ts`). It never
+submits to The Hartford; the human sends. Its only write is `coi_sent_at` plus
+`updated_at` in one `deals` update (it never touches `stage`). A COI is urgent when
+required, unsent and the event is 0 to 14 days out (`COI_URGENT_WINDOW_DAYS`), the
+same window as Catering-Manager `revive.coi_required_unsent`.
+
 ## Local dev (optional)
 ```
 npm install
