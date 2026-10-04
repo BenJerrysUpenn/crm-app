@@ -13,6 +13,7 @@ import {
   coiStatus,
   COI_URGENT_WINDOW_DAYS,
   daysUntil,
+  easternToday,
   formatEventDate,
   formatTimeRange,
 } from "@/lib/coi";
@@ -211,6 +212,56 @@ describe("buildCoiRequest", () => {
   });
 });
 
+describe("easternToday", () => {
+  it("is still yesterday in Philadelphia late in the evening (UTC already tomorrow)", () => {
+    // 02:30 UTC on Sep 26 is 10:30 PM EDT on Sep 25.
+    expect(easternToday(new Date("2026-09-26T02:30:00Z"))).toBe("2026-09-25");
+  });
+  it("rolls over at Eastern midnight, not UTC midnight", () => {
+    // 04:30 UTC on Sep 26 is 12:30 AM EDT on Sep 26.
+    expect(easternToday(new Date("2026-09-26T04:30:00Z"))).toBe("2026-09-26");
+  });
+});
+
+describe("coiStatus window edges", () => {
+  it("drops out of urgent the day after the event", () => {
+    const yesterday = mkDeal({ coi_required: 1, event_date: "2026-09-24" });
+    expect(coiStatus(yesterday, TODAY)).toBe("needed");
+  });
+});
+
+describe("buildCoiRequest billing fallback", () => {
+  it("composes a partial billing address without dangling separators", () => {
+    const r = buildCoiRequest(
+      mkDeal({
+        coi_required: 1,
+        company: "Example Holder Co",
+        billing_street: null,
+        billing_city: "Philadelphia",
+        billing_state: "PA",
+        billing_zip: null,
+        event_date: "2026-11-01",
+      }),
+    );
+    expect(r.certificateHolderAddress).toBe("Philadelphia, PA");
+  });
+
+  it("prefers the venue address over billing when both exist", () => {
+    const r = buildCoiRequest(
+      mkDeal({
+        coi_required: 1,
+        venue_name: "Example Hall",
+        venue_address: "1 Example Way, Philadelphia, PA 19104",
+        billing_street: "99 Other St",
+        billing_city: "Camden",
+        billing_state: "NJ",
+        billing_zip: "08101",
+      }),
+    );
+    expect(r.certificateHolderAddress).toBe("1 Example Way, Philadelphia, PA 19104");
+  });
+});
+
 describe("formatters", () => {
   it("formats a calendar date with no timezone shift", () => {
     expect(formatEventDate("2026-01-01")).toBe("January 1, 2026");
@@ -224,5 +275,14 @@ describe("formatters", () => {
     expect(formatTimeRange("09:15", null)).toBe("9:15 AM");
     expect(formatTimeRange("00:00", null)).toBe("12:00 AM");
     expect(formatTimeRange(null, null)).toBeNull();
+  });
+
+  it("shows the end time alone when only the end is known", () => {
+    expect(formatTimeRange(null, "20:00")).toBe("8:00 PM");
+  });
+
+  it("rejects an out-of-range hour or month", () => {
+    expect(formatTimeRange("25:00", null)).toBeNull();
+    expect(formatEventDate("2026-13-01")).toBeNull();
   });
 });
