@@ -105,6 +105,62 @@ test("a day the board marks Business closed needs no cover", async () => {
   assert.deepEqual(body.gaps, []);
 });
 
+test("a shift running in from Saturday evening covers Sunday's opening", async () => {
+  // 18:00 New York on Saturday is 22:00 UTC, before the week starts even in UTC:
+  // only the query's lead-in days can see it.
+  const shifts = fullyCoveredWeek().filter((s) => s.starts_at !== edt(WEEK, "12:00"));
+  seed([...shifts, shift("2026-10-03", "18:00", "17:00", { ends_at: edt(WEEK, "17:00") })]);
+  const { status, body } = await run();
+  assert.equal(status, 200);
+  assert.deepEqual(body.gaps, []);
+});
+
+test("a weekday with no store hours is listed as not set, not as a gap", async () => {
+  const shifts = fullyCoveredWeek().filter((s) => !s.starts_at.startsWith(TUE));
+  seed(shifts);
+  db.tables.store_hours = db.tables.store_hours.filter((h) => h.weekday !== 2);
+  const { status, body } = await run();
+  assert.equal(status, 200);
+  assert.deepEqual(body, { gaps: [], hoursNotSet: [{ date: TUE, weekday: 2 }] });
+});
+
+test("before the store-hours migration the answer is store_hours_not_set_up", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(new Request(input, init).url);
+    if (url.pathname === "/rest/v1/store_hours") {
+      return new Response(
+        JSON.stringify({ code: "PGRST205", message: "Could not find the table 'public.store_hours' in the schema cache" }),
+        { status: 404 },
+      );
+    }
+    return realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const { status, body } = await run();
+    assert.equal(status, 503);
+    assert.equal(body.error, "store_hours_not_set_up");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("a failed Business-closed read still runs the check", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(new Request(input, init).url);
+    if (url.pathname === "/rest/v1/annotations") return new Response(JSON.stringify({ message: "timeout" }), { status: 500 });
+    return realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const { status, body } = await run();
+    assert.equal(status, 200);
+    assert.deepEqual(body, { gaps: [], hoursNotSet: [] });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("the check is read-only: no writes and no notifications", async () => {
   // Record attempted writes rather than throwing: a throw would surface as a
   // failed request the check swallows, leaving the tables untouched and the
