@@ -86,6 +86,43 @@ language_notes: >-
   sentence is written in bj-finance docs/agents/system-bom.md, not here, so it is NOT in
   this repo's ground truth and cannot be cited against a diff here.
 
+documentation_map:
+  # Which standalone docs describe which code, for the review pass's documentation
+  # lens. Standalone documents only: inline comments and docstrings are never mapped
+  # (the diff checks already cover them). A path no entry matches falls back to the
+  # lens's own discovery. Brackets in route folders ([id], [token]) are glob classes,
+  # so those segments are written as `*`.
+  - paths: [lib/dealUpdate.ts, lib/stages.ts, components/KanbanBoard.tsx, app/page.tsx, package.json, .env.example]
+    docs: [README.md]
+  - paths: [middleware.ts]
+    docs: [README.md, docs/unsubscribe.md]
+  - paths: ["app/money/**", "app/dial/**", "app/safe/**", "lib/pf/**", "components/pf/**", fixtures/pf_data.sample.json]
+    docs: [README.md]
+  - paths: [scripts/reconcile-catering-shifts.ts, lib/reconcileCli.ts, lib/cateringShifts.ts, lib/cateringShiftsPg.ts, lib/cronAuth.ts, "app/api/cron/catering-shifts/**", "app/api/deals/*/booked-shifts/**"]
+    docs: [README.md]
+  - paths: ["app/api/unsubscribe/**", lib/outreach/unsubscribeToken.ts, lib/outreach/unsubscribePage.ts, supabase/crm/005_unsubscribe.sql]
+    docs: [docs/unsubscribe.md, README.md]
+  - paths: ["app/call-desk/**", "app/api/call-desk/**", "components/callDesk/**", "lib/callDesk/**", lib/dealUpdate.ts, "supabase/crm/001_*.sql", "supabase/crm/002_*.sql", "supabase/crm/003_*.sql", "supabase/crm/004_*.sql"]
+    docs: [docs/call-desk.md]
+  - paths: [lib/callDesk/compliance.ts, "app/api/call-desk/prospects/*/calls/**", "app/call-desk/dnc-import/**", components/callDesk/DncImportForm.tsx, "app/api/call-desk/dnc/import/**", components/callDesk/DispositionSheet.tsx, "app/api/call-desk/calls/*/recording-url/**", components/callDesk/RecordingUploader.tsx, "supabase/crm/003_*.sql"]
+    docs: [docs/call-desk-do-not-call-policy.md]
+  - paths: [lib/dealIntake.ts, lib/callDesk/dealForm.ts, lib/callDesk/dealCreate.ts, lib/callDesk/dealRequest.ts, lib/dealDedupe.ts, lib/dealAutofill.ts, components/callDesk/GenerateDealForm.tsx, "app/deals/new/**", components/NewDealForm.tsx, components/TopBar.tsx, app/api/deals/route.ts, "app/api/deals/dedupe/**", "supabase/crm/006_*.sql", tests/dealIntake.test.ts, tests/dealFormRequired.test.ts, tests/dealAutofill.test.ts, tests/manualDealRoutes.test.ts]
+    docs: [docs/manual-deal-intake.md]
+  - paths: ["time-app/lib/payroll/**", "time-app/app/api/payroll/**", "time-app/app/payroll/**", time-app/components/finance/PayrollVerify.tsx, time-app/components/finance/SoloCloseSelect.tsx, time-app/components/finance/choiceApi.ts, time-app/components/SoloCloseNights.tsx, "time-app/supabase/migration_25*.sql", "time-app/supabase/migration_26*.sql", "time-app/supabase/migration_27*.sql", "time-app/supabase/migration_28*.sql"]
+    docs: [docs/payroll-verify.md]
+  - paths: [time-app/lib/hosts.ts, time-app/middleware.ts, time-app/lib/financeAccess.ts, time-app/vercel.json, time-app/.env.example, time-app/supabase/migration.sql]
+    docs: [time-app/SETUP-GUIDE.md]
+  - paths: [time-app/components/TeamAdmin.tsx, "time-app/app/team/**", "time-app/app/api/profiles/**", "time-app/app/auth/**", "time-app/app/api/auth/**", time-app/lib/authLinks.ts, time-app/lib/email.ts, time-app/lib/notify.ts, time-app/lib/geo.ts, "time-app/app/api/locations/**", "time-app/app/api/clock/**", "time-app/app/api/shift-types/**"]
+    docs: [time-app/SETUP-GUIDE.md]
+  - paths: [time-app/lib/clockinReminders.ts, time-app/components/ClockinRemindersAdmin.tsx, time-app/components/ClockInReminderModal.tsx, "time-app/app/api/clockin-reminders/**", time-app/supabase/migration_19.sql, time-app/lib/clockoutReminder.ts, time-app/components/ClockOutReminderBanner.tsx, "time-app/app/api/time-entries/*/clockout-reminder/**", time-app/supabase/migration_20.sql, time-app/supabase/migration_22.sql]
+    docs: [time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/app/api/cron/missed-clockins/**"]
+    docs: [time-app/SETUP-GUIDE.md, time-app/ALEX-CRON-SETUP.md]
+  - paths: [indeed-cv-downloader/indeed_downloader.py, indeed-cv-downloader/requirements.txt, indeed-cv-downloader/.env.example]
+    docs: [indeed-cv-downloader/README.md]
+  - paths: ["supabase/crm/backfills/*.py"]
+    docs: [supabase/crm/backfills/README.md]
+
 exclusions:
   - path: docs/unsubscribe.md
     why: >-
@@ -93,8 +130,6 @@ exclusions:
       ground truth, since one-click unsubscribe is a legal obligation — but #496 named
       three documents and a reviewer never widens its own closed set. Promoting it is a
       human's edit to this file.
-  - path: CATERING-CRON-SETUP.md
-    why: A one-time operator setup guide.
   - path: time-app/SETUP-GUIDE.md
     why: A one-time operator setup guide for a separate application in this repo.
   - path: time-app/ALEX-CRON-SETUP.md
