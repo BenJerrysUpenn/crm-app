@@ -203,6 +203,41 @@ describe("buildCoiRequest", () => {
     expect(r.fullText).toContain("venue name missing");
   });
 
+  it("emits a pasteable block with placeholders when the deal has no venue or date", () => {
+    // Worked example: with nothing to name, the description stops at the
+    // event label (no "at ...", no additional-insured sentence) and every
+    // holder slot in the copy-all block tells the human what to fill.
+    const r = buildCoiRequest(mkDeal({ coi_required: 1 }));
+    const description =
+      "Ice cream catering service provided by Withers Ventures LLC " +
+      "(dba Ben & Jerry's — University City) for Ice cream catering.";
+    expect(r.descriptionOfOperations).toBe(description);
+    expect(r.additionalInsured).toBeNull();
+    expect(r.fullText).toBe(
+      [
+        "CERTIFICATE HOLDER",
+        "(venue name missing — fill on the deal)",
+        "(venue address missing — fill on the deal)",
+        "",
+        "DESCRIPTION OF OPERATIONS / EVENT",
+        description,
+        "",
+        "ADDITIONAL INSURED",
+        "(add the venue as additional insured)",
+        "",
+        "NAMED INSURED (on policy — the portal auto-fills this)",
+        "Withers Ventures LLC (dba Ben & Jerry's — University City)",
+      ].join("\n"),
+    );
+  });
+
+  it("skips a blank venue name and falls back to the company", () => {
+    const r = buildCoiRequest(
+      mkDeal({ coi_required: 1, venue_name: "   ", company: "Example Holder Co" }),
+    );
+    expect(r.certificateHolderName).toBe("Example Holder Co");
+  });
+
   it("uses event_type when there is no event_name, and a default otherwise", () => {
     expect(buildCoiRequest(mkDeal({ coi_required: 1, event_type: "Wedding" })).eventLabel).toBe(
       "Wedding",
