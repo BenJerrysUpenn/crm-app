@@ -89,8 +89,11 @@ describe("coiStatus", () => {
   });
 
   it("is needed_urgent inside the 14-day window (matches the prod check)", () => {
+    // The prod check's window is 14 days, written here as the spec's literal:
+    // comparing against COI_URGENT_WINDOW_DAYS would move with the constant
+    // and could never catch the CRM drifting from the instrument.
+    expect(COI_URGENT_WINDOW_DAYS).toBe(14);
     const edge = mkDeal({ coi_required: 1, event_date: "2026-10-09" }); // +14d
-    expect(daysUntil("2026-10-09", TODAY)).toBe(COI_URGENT_WINDOW_DAYS);
     expect(coiStatus(edge, TODAY)).toBe("needed_urgent");
     const today = mkDeal({ coi_required: 1, event_date: TODAY });
     expect(coiStatus(today, TODAY)).toBe("needed_urgent");
@@ -123,16 +126,48 @@ describe("buildCoiRequest", () => {
     expect(r.certificateHolderAddress).toBe("3401 Spruce St, Philadelphia, PA 19104");
     expect(r.additionalInsured).toBe("Irvine Auditorium");
     expect(r.missing).toHaveLength(0);
-    expect(r.descriptionOfOperations).toContain("Alumni Reception");
-    expect(r.descriptionOfOperations).toContain("October 5, 2026");
-    expect(r.descriptionOfOperations).toContain("120 guests");
-    expect(r.descriptionOfOperations).toContain("additional insured");
-    expect(r.descriptionOfOperations).toContain("Withers Ventures LLC");
-    // The one-click block carries every ACORD-shaped field.
-    expect(r.fullText).toContain("CERTIFICATE HOLDER");
-    expect(r.fullText).toContain("DESCRIPTION OF OPERATIONS");
-    expect(r.fullText).toContain("ADDITIONAL INSURED");
-    expect(r.fullText).toContain("NAMED INSURED");
+    // Worked example: the exact line the human pastes into the ACORD
+    // "Description of Operations" box, time range included.
+    const description =
+      "Ice cream catering service provided by Withers Ventures LLC " +
+      "(dba Ben & Jerry's — University City) for Alumni Reception on " +
+      "October 5, 2026, 5:00 PM–8:00 PM for approximately 120 guests at " +
+      "Irvine Auditorium, 3401 Spruce St, Philadelphia, PA 19104. " +
+      "Irvine Auditorium is included as an additional insured with respect " +
+      "to this event.";
+    expect(r.descriptionOfOperations).toBe(description);
+  });
+
+  it("puts each field's value under its heading in the copy-all block", () => {
+    const r = buildCoiRequest(
+      mkDeal({
+        coi_required: 1,
+        venue_name: "Irvine Auditorium",
+        venue_address: "3401 Spruce St, Philadelphia, PA 19104",
+        event_name: "Alumni Reception",
+        event_date: "2026-10-05",
+      }),
+    );
+    expect(r.fullText).toBe(
+      [
+        "CERTIFICATE HOLDER",
+        "Irvine Auditorium",
+        "3401 Spruce St, Philadelphia, PA 19104",
+        "",
+        "DESCRIPTION OF OPERATIONS / EVENT",
+        "Ice cream catering service provided by Withers Ventures LLC " +
+          "(dba Ben & Jerry's — University City) for Alumni Reception on " +
+          "October 5, 2026 at Irvine Auditorium, 3401 Spruce St, " +
+          "Philadelphia, PA 19104. Irvine Auditorium is included as an " +
+          "additional insured with respect to this event.",
+        "",
+        "ADDITIONAL INSURED",
+        "Irvine Auditorium — add as additional insured for this event",
+        "",
+        "NAMED INSURED (on policy — the portal auto-fills this)",
+        "Withers Ventures LLC (dba Ben & Jerry's — University City)",
+      ].join("\n"),
+    );
   });
 
   it("falls back to company for the holder and billing_* for the address", () => {
