@@ -112,7 +112,7 @@ a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
 ## Catering-shift reconciler (local command)
-Creates the manager-only draft shifts for booked catering deals that have a
+Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
 (`reconcileShifts` in `lib/cateringShifts.ts`: cart events start 120 min
 before departure, 15h+ shifts are flagged CHECK HOURS), run straight against

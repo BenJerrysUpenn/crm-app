@@ -2,8 +2,7 @@
 //
 // lib/availabilityCheck.test.ts proves the rules. These prove the routes ask
 // them: that saving a shift for someone who can't work it stops for a yes,
-// that publish-week lists every mismatch in its one 409 and force overrides
-// it, that auto-fill picks by the same rules, and that weekly ("repeats every
+// that auto-fill picks by the same rules, and that weekly ("repeats every
 // …") rows are read at all — the bug that made everyone on a weekly pattern
 // look like they had nothing on file.
 //
@@ -21,7 +20,6 @@ type Handler = (request: Request, ctx: { params: { id: string } }) => Promise<Re
 
 const shifts = await loadAppModule<{ POST: Handler }>("app/api/shifts/route.ts");
 const shiftById = await loadAppModule<{ PATCH: Handler }>("app/api/shifts/[id]/route.ts");
-const publishWeek = await loadAppModule<{ POST: Handler }>("app/api/shifts/publish-week/route.ts");
 const autoFill = await loadAppModule<{ POST: Handler }>("app/api/schedule/auto-fill/route.ts");
 
 const MANAGER = "00000000-0000-0000-0000-00000000000a";
@@ -107,37 +105,6 @@ test("editing only the notes of a shift does not re-ask; moving it to someone of
   assert.equal(db.rows("shifts")[0].employee_id, SAM);
 });
 
-// ---- publish ------------------------------------------------------------------
-
-test("publish-week lists every availability mismatch in the one 409, and force publishes", async () => {
-  db.tables.availability.push(weekly(SAM, 2, "12:00:00", "17:00:00"));
-  db.tables.shifts.push(
-    { id: 1, employee_id: SAM, starts_at: edt(TUE, "12:00"), ends_at: edt(TUE, "22:00"), position: "PENN Closer", published: false },
-    { id: 2, employee_id: JO, starts_at: edt(TUE, "12:00"), ends_at: edt(TUE, "17:00"), position: "Catering", published: false },
-    { id: 3, employee_id: null, starts_at: edt(TUE, "12:00"), ends_at: edt(TUE, "17:00"), position: null, published: false },
-  );
-
-  const refused = await publishWeek.POST(req("POST", { weekStart: WEEK }), noParams);
-  assert.equal(refused.status, 409);
-  const j = await refused.json();
-  assert.equal(j.error, "schedule_checks");
-  assert.deepEqual(
-    j.availability.map((m: { shift_id: number; employee_name: string; reasons: { kind: string }[] }) => [m.shift_id, m.employee_name, m.reasons.map((r) => r.kind)]),
-    [
-      [1, "Sam Lee", ["outside_available_hours"]],
-      [2, "Jo Park", ["no_availability"]],
-    ],
-  );
-  assert.ok(db.rows("shifts").every((s) => s.published === false));
-
-  // Publishing notifies each person; without a service key the email lookup
-  // is skipped instead of reaching for an auth admin endpoint the fake lacks.
-  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const forced = await publishWeek.POST(req("POST", { weekStart: WEEK, force: true }), noParams);
-  assert.equal(forced.status, 200);
-  assert.ok(db.rows("shifts").every((s) => s.published === true));
-});
-
 // ---- auto-fill ------------------------------------------------------------------
 
 test("auto-fill assigns by the shared rules: weekly hours count, pending time off does not", async () => {
@@ -152,6 +119,11 @@ test("auto-fill assigns by the shared rules: weekly hours count, pending time of
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { ok: true, assigned: 1, left: 0 });
   assert.equal(db.rows("shifts")[0].employee_id, JO);
+  // The shift is live, so the person it went to is told, as publishing used to.
+  assert.deepEqual(
+    db.rows("notifications").map((n) => [n.user_id, n.type]),
+    [[JO, "shift_published"]],
+  );
 });
 
 // ---- loader ---------------------------------------------------------------------

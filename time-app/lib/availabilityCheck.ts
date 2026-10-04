@@ -19,8 +19,9 @@
 // catering included.
 //
 // This is the one definition of "is this person available for this shift".
-// Auto-fill uses it to pick candidates, the create/edit routes use it to ask
-// before saving, and publish-week uses it before anything goes live.
+// Auto-fill uses it to pick candidates, and the create/edit routes use it to
+// ask before saving. (Publish-week used it too, until drafts were removed; the
+// whole-week helpers below are kept for a week-at-once check.)
 //
 // Pure and dependency-free like lib/coverage.ts, so `node --test` runs it.
 //
@@ -400,7 +401,7 @@ export function prefersShift(shift: ShiftForAvailability, rows: AvailabilityRow[
   });
 }
 
-/** Mismatches split for the publish dialog: real conflicts, and "nothing on file". */
+/** Mismatches split for a week-at-once check: real conflicts, and "nothing on file". */
 export function groupMismatches(mismatches: AvailabilityMismatch[]): {
   conflicts: AvailabilityMismatch[];
   noAvailability: AvailabilityMismatch[];
@@ -480,7 +481,7 @@ function shiftSegmentsSafe(startsAt: string, endsAt: string) {
 }
 
 /**
- * One line for the publish dialog:
+ * One line for a week-at-once check:
  * "Sam Lee, Catering Tue Sep 29, 5:00 PM to 10:00 PM: not available 5:00 PM to
  * 10:00 PM on Tue Sep 29 (availability: prefers 12:00 PM to 5:00 PM)".
  */

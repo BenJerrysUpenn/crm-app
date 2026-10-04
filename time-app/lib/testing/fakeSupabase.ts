@@ -200,6 +200,11 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     if (caller.kind !== "user") return json(401, { code: 401, error_code: "bad_jwt", msg: "invalid JWT" });
     return json(200, { id: caller.id, aud: "authenticated", role: "authenticated", email: `${caller.id}@example.test` });
   }
+  // emailForUser's auth-admin lookup (lib/notify.ts): nobody has an email
+  // here, so a notification is the in-app row alone.
+  if (url.pathname.startsWith("/auth/v1/admin/users/")) {
+    return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+  }
   const table = url.pathname.match(/^\/rest\/v1\/(\w+)$/)?.[1];
   if (!table) throw new Error(`fake Supabase: unexpected ${method} ${url.pathname}`);
   const caller = callerOf(headers);

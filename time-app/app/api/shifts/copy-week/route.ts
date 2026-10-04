@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { notify, emailForUser } from "@/lib/notify";
+import { fmtDate, fmtTime } from "@/lib/format";
 import { NextResponse } from "next/server";
 
 const TZ = "America/New_York";
@@ -12,7 +14,10 @@ function nyDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
 }
 
-// Copy all shifts from the previous week into the given week (as drafts).
+// Copy all shifts from the previous week into the given week. There are no
+// drafts: the copies are live as soon as they are written, and each assigned
+// employee gets the same "New shift posted" message creating the shift by hand
+// sends (and that publishing the week used to send).
 // Body: { weekStart: "YYYY-MM-DD" }  -> source is weekStart - 7 days.
 export async function POST(request: Request) {
   const profile = await getProfile();
@@ -49,9 +54,33 @@ export async function POST(request: Request) {
     ends_at: new Date(new Date(s.ends_at as string).getTime() + 7 * 86400000).toISOString(),
     position: s.position,
     notes: s.notes,
-    published: false,
+    published: true,
   }));
-  const { error: insErr } = await supabase.from("shifts").insert(rows);
+  const { data: inserted, error: insErr } = await supabase
+    .from("shifts")
+    .insert(rows)
+    .select("employee_id, starts_at, ends_at, position");
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
+
+  const copies = (inserted ?? []) as { employee_id: string | null; starts_at: string; ends_at: string; position: string | null }[];
+  const ids = Array.from(new Set(copies.map((s) => s.employee_id).filter((id): id is string => !!id)));
+  const phoneById = new Map<string, string | null>();
+  if (ids.length) {
+    const { data: people } = await supabase.from("profiles").select("id, phone").in("id", ids);
+    for (const p of (people ?? []) as { id: string; phone: string | null }[]) phoneById.set(p.id, p.phone);
+  }
+  for (const s of copies) {
+    if (!s.employee_id) continue;
+    const email = await emailForUser(s.employee_id);
+    await notify({
+      userId: s.employee_id,
+      type: "shift_published",
+      title: "New shift posted",
+      body: `${fmtDate(s.starts_at)} · ${fmtTime(s.starts_at)}–${fmtTime(s.ends_at)}${s.position ? " · " + s.position : ""}`,
+      phone: phoneById.get(s.employee_id) ?? null,
+      email,
+    }).catch(() => {});
+  }
+
   return NextResponse.json({ ok: true, copied: rows.length });
 }

@@ -1,4 +1,4 @@
-// The two web routes that create catering draft shifts, end to end against a
+// The two web routes that create catering shifts, end to end against a
 // stand-in Supabase whose shifts table follows Postgres's ON CONFLICT rule
 // (crm-app #35).
 //
@@ -304,13 +304,13 @@ describe("POST /api/deals/:id/booked-shifts", () => {
     });
   }
 
-  it("creates one draft shift per crew member once migration 29 is in", async () => {
+  it("creates one live open shift per crew member once migration 29 is in", async () => {
     const response = await post(DEAL.id);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, created: 2 });
     expect(db.state.shifts).toHaveLength(2);
-    expect(db.state.shifts.every((s) => s.published === false && s.employee_id === null)).toBe(true);
+    expect(db.state.shifts.every((s) => s.published === true && s.employee_id === null)).toBe(true);
   });
 
   it("creates nothing the second time", async () => {
