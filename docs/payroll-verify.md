@@ -184,7 +184,7 @@ Notes on the ones that surprise people:
   who changed it (ruled 2026-09-27).
 - **1.8 and 1.9 read `store_hours`.** For 1.8 a day whose hours nobody has set is
   reported, never judged — hours-not-set is deliberately different from closed,
-  the same distinction `lib/coverage.ts` draws for the publish check.
+  the same distinction `lib/coverage.ts` draws for the store-coverage check.
 - **Catering and Marketing shifts are off-site.** They never cover the store and
   can never be the night's closer.
 
