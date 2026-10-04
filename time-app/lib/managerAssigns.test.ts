@@ -76,6 +76,15 @@ test("staff cannot request a catering shift either: 403 and no request is filed"
   assert.deepEqual(notified(), []);
 });
 
+test("a manager cannot file a pickup request on a catering shift: they assign it instead", async () => {
+  db.signIn(MANAGER);
+  const res = await requestPickup.POST(req("POST", {}), id(1));
+  assert.equal(res.status, 403);
+  assert.deepEqual(await res.json(), { error: MANAGER_ASSIGNS_ERROR });
+  assert.deepEqual(db.rows("shift_requests"), []);
+  assert.deepEqual(notified(), []);
+});
+
 test("an ordinary open shift can still be requested and claimed", async () => {
   db.signIn(SAM);
   const asked = await requestPickup.POST(req("POST", {}), id(2));
