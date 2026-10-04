@@ -68,12 +68,23 @@ describe("daysUntil", () => {
     expect(daysUntil(null, TODAY)).toBeNull();
     expect(daysUntil("soon", TODAY)).toBeNull();
   });
+  it("returns null when today itself is unparseable, not a day count", () => {
+    expect(daysUntil("2026-09-30", "")).toBeNull();
+    expect(daysUntil("2026-09-30", "not-a-date")).toBeNull();
+  });
 });
 
 describe("coiStatus", () => {
   it("is not_required when the flag is unset", () => {
     expect(coiStatus(mkDeal({ coi_required: null }), TODAY)).toBe("not_required");
     expect(coiStatus(mkDeal({ coi_required: 0 }), TODAY)).toBe("not_required");
+  });
+
+  it("counts only coi_required = 1 as required, as the prod check does", () => {
+    // The prod check reads `coi_required = 1`; any other stored value is not a
+    // requirement there, so it must not raise a badge here either.
+    const d = mkDeal({ coi_required: 2, event_date: "2026-09-26" });
+    expect(coiStatus(d, TODAY)).toBe("not_required");
   });
 
   it("is sent once coi_sent_at is stamped, whatever the date", () => {
