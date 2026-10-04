@@ -24,7 +24,6 @@
 //   event_* / guest_count — the description of operations
 
 import type { Deal } from "@/lib/types";
-import { easternTodayYmd } from "@/lib/dateFormat";
 
 /** How close an event has to be for an unsent-COI to count as urgent. Kept
  *  identical to the prod conformance window so the CRM and the instrument
@@ -75,8 +74,9 @@ function parseYmd(s: string | null | undefined): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-/** Where this deal stands on its COI. `today` defaults to Eastern today. */
-export function coiStatus(deal: Deal, today: string = easternTodayYmd()): CoiStatus {
+/** Where this deal stands on its COI, measured from `today` ("YYYY-MM-DD",
+ *  Eastern — the caller reads the clock). */
+export function coiStatus(deal: Deal, today: string): CoiStatus {
   if (deal.coi_required !== 1) return "not_required";
   if (deal.coi_sent_at && deal.coi_sent_at.trim() !== "") return "sent";
   const d = daysUntil(deal.event_date, today);

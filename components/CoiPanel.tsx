@@ -94,11 +94,12 @@ export default function CoiPanel({
   const [error, setError] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
 
-  const status = useMemo(() => coiStatus(deal), [deal]);
+  const today = easternTodayYmd();
+  const status = useMemo(() => coiStatus(deal, today), [deal, today]);
   const request = useMemo(() => buildCoiRequest(deal), [deal]);
   const dUntil = useMemo(
-    () => daysUntil(deal.event_date, easternTodayYmd()),
-    [deal.event_date],
+    () => daysUntil(deal.event_date, today),
+    [deal.event_date, today],
   );
 
   // Deals that never need a COI don't get a panel at all — the drawer already
