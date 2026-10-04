@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import { NextResponse } from "next/server";
@@ -55,10 +56,16 @@ export async function POST(
     patch = { clockout_reminder_dismissed_at: new Date(now).toISOString() };
   }
 
-  const { data, error } = await supabase
+  // Service role: employees have no update on time_entries through their own
+  // session (migration 30). The ownership check above is the gate, and the
+  // patch is only ever the two reminder columns built here.
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .from("time_entries")
     .update(patch)
     .eq("id", params.id)
+    .eq("employee_id", (entry as TimeEntry).employee_id)
+    .eq("status", "open")
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

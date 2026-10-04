@@ -1,16 +1,27 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { notify, emailForUser } from "@/lib/notify";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
+import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
+import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
 
 // POST: create a shift (manager only). Body: employee_id, starts_at, ends_at,
-// position, notes, location_id, published, confirmLong.
+// position, notes, location_id, confirmLong.
+//
+// There are no drafts: every shift is written live (published = true) and an
+// assigned employee is told about it straight away. A `published` field in
+// the body, from a page loaded before drafts were removed, is ignored.
 //
 // A shift of 15+ hours is refused with 409 unless the body carries
 // confirmLong: true. Nobody works a 26-hour shift on purpose, and one reached
 // the published schedule from a catering deal because no layer ever asked.
+//
+// A shift assigned to someone whose availability does not cover it (time off,
+// a "can't work" block, hours outside what they gave, or nothing on file) is
+// refused with 409 "availability_mismatch" unless the body carries
+// confirmAvailability: true. If availability cannot be read it is 503
+// "availability_unavailable" — never a silent pass. See lib/availabilityCheck.ts.
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -31,6 +42,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "long_shift", hours: shiftHours(startsAt, endsAt) }, { status: 409 });
 
   const supabase = createClient();
+
+  if (body.employee_id && body.confirmAvailability !== true) {
+    const candidate = { employee_id: String(body.employee_id), position: body.position ?? null, starts_at: startsAt, ends_at: endsAt };
+    const range = availabilityDateRange([candidate]);
+    if (range) {
+      const load = await loadAvailabilityRows(supabase, range, [candidate.employee_id]);
+      if (!load.ok) return NextResponse.json({ error: "availability_unavailable" }, { status: 503 });
+      const mismatch = checkShiftAvailability(candidate, load.rows);
+      if (mismatch) return NextResponse.json({ error: "availability_mismatch", mismatch }, { status: 409 });
+    }
+  }
+
   const { data, error } = await supabase
     .from("shifts")
     .insert({
@@ -40,23 +63,15 @@ export async function POST(request: Request) {
       ends_at: body.ends_at,
       position: body.position ?? null,
       notes: body.notes ?? null,
-      published: !!body.published,
+      published: true,
     })
     .select("*, profiles(id, full_name, phone)")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  if (body.published && data && body.employee_id) {
+  if (data && body.employee_id) {
     const emp = (data as any).profiles;
-    const email = await emailForUser(body.employee_id);
-    await notify({
-      userId: body.employee_id,
-      type: "shift_published",
-      title: "New shift posted",
-      body: `${fmtDate(data.starts_at)} · ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}`,
-      phone: emp?.phone ?? null,
-      email,
-    }).catch(() => {});
+    await tellEmployeeAboutShift("posted", { ...data, employee_id: body.employee_id }, emp?.phone ?? null);
   }
   return NextResponse.json({ shift: data });
 }

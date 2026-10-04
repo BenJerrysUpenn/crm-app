@@ -185,7 +185,7 @@ export default function CalendarView() {
       );
       setError(`Could not move deal: ${error.message}`);
     } else if (newStage === "Booked Unpaid" || newStage === "Booked Paid") {
-      // Deal just booked (unpaid or paid): spin up manager-only draft shifts in
+      // Deal just booked (unpaid or paid): spin up open crew shifts in
       // the time-app. Idempotent server-side, so an unpaid→paid move that
       // already made shifts is a harmless no-op.
       requestBookedShifts(deal.id);
