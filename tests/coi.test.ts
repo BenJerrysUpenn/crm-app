@@ -238,12 +238,17 @@ describe("buildCoiRequest", () => {
     expect(r.certificateHolderName).toBe("Example Holder Co");
   });
 
-  it("uses event_type when there is no event_name, and a default otherwise", () => {
-    expect(buildCoiRequest(mkDeal({ coi_required: 1, event_type: "Wedding" })).eventLabel).toBe(
-      "Wedding",
+  it("names the event by event_type when there is no event_name, and a default otherwise", () => {
+    expect(
+      buildCoiRequest(mkDeal({ coi_required: 1, event_type: "Wedding" }))
+        .descriptionOfOperations,
+    ).toBe(
+      "Ice cream catering service provided by Withers Ventures LLC " +
+        "(dba Ben & Jerry's — University City) for Wedding.",
     );
-    expect(buildCoiRequest(mkDeal({ coi_required: 1 })).eventLabel).toBe(
-      "Ice cream catering",
+    expect(buildCoiRequest(mkDeal({ coi_required: 1 })).descriptionOfOperations).toBe(
+      "Ice cream catering service provided by Withers Ventures LLC " +
+        "(dba Ben & Jerry's — University City) for Ice cream catering.",
     );
   });
 });

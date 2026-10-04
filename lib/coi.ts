@@ -115,11 +115,6 @@ export type CoiRequest = {
   additionalInsured: string | null;
   /** Free-text ACORD "Description of Operations / Locations" line. */
   descriptionOfOperations: string;
-  /** Deal-derived event facts, already formatted for reading. */
-  eventLabel: string;
-  eventDateText: string | null;
-  eventTimeText: string | null;
-  guestCount: number | null;
   /** Fields a COI request cannot go out without that this deal is missing. */
   missing: string[];
   /** The whole request as one labeled block, for a single copy action. */
@@ -168,10 +163,6 @@ export function buildCoiRequest(deal: Deal): CoiRequest {
     certificateHolderAddress: holderAddress,
     additionalInsured: holderName,
     descriptionOfOperations,
-    eventLabel,
-    eventDateText,
-    eventTimeText,
-    guestCount,
     missing,
     fullText,
   };
