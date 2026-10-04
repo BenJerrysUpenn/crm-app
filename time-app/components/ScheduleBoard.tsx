@@ -13,6 +13,7 @@ import {
   type AvailabilityRow,
 } from "@/lib/availabilityCheck";
 import { availabilityCell, type CellAvailability, type CellLine } from "@/lib/availabilityCell";
+import { managerAssignsOnly } from "@/lib/managerAssigns";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
@@ -594,7 +595,9 @@ export default function ScheduleBoard({
                     </div>
                   )}
                   {!isManager && !s.employee_id && (
-                    myPendingPickups.has(s.id) ? (
+                    managerAssignsOnly(s) ? (
+                      <div className="mt-2 text-slate-600 dark:text-slate-400" title="A manager adds people to catering shifts">Manager assigns</div>
+                    ) : myPendingPickups.has(s.id) ? (
                       <div className="mt-2 text-amber-400">Pickup requested</div>
                     ) : (
                       <button
