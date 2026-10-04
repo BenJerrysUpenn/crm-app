@@ -13,10 +13,10 @@ import {
   coiStatus,
   COI_URGENT_WINDOW_DAYS,
   daysUntil,
-  easternToday,
   formatEventDate,
   formatTimeRange,
 } from "@/lib/coi";
+import { easternTodayYmd } from "@/lib/dateFormat";
 
 // A deal with everything nulled — override only what a test cares about.
 function mkDeal(overrides: Partial<Deal> = {}): Deal {
@@ -212,14 +212,14 @@ describe("buildCoiRequest", () => {
   });
 });
 
-describe("easternToday", () => {
+describe("easternTodayYmd, the today COI status is measured from", () => {
   it("is still yesterday in Philadelphia late in the evening (UTC already tomorrow)", () => {
     // 02:30 UTC on Sep 26 is 10:30 PM EDT on Sep 25.
-    expect(easternToday(new Date("2026-09-26T02:30:00Z"))).toBe("2026-09-25");
+    expect(easternTodayYmd(new Date("2026-09-26T02:30:00Z"))).toBe("2026-09-25");
   });
   it("rolls over at Eastern midnight, not UTC midnight", () => {
     // 04:30 UTC on Sep 26 is 12:30 AM EDT on Sep 26.
-    expect(easternToday(new Date("2026-09-26T04:30:00Z"))).toBe("2026-09-26");
+    expect(easternTodayYmd(new Date("2026-09-26T04:30:00Z"))).toBe("2026-09-26");
   });
 });
 

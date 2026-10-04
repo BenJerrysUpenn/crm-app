@@ -3,12 +3,11 @@
 import { useMemo, useState } from "react";
 import type { Deal } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
-import { fmtEasternDateTime } from "@/lib/dateFormat";
+import { easternTodayYmd, fmtEasternDateTime } from "@/lib/dateFormat";
 import {
   buildCoiRequest,
   coiStatus,
   daysUntil,
-  easternToday,
   NAMED_INSURED,
   type CoiStatus,
 } from "@/lib/coi";
@@ -98,7 +97,7 @@ export default function CoiPanel({
   const status = useMemo(() => coiStatus(deal), [deal]);
   const request = useMemo(() => buildCoiRequest(deal), [deal]);
   const dUntil = useMemo(
-    () => daysUntil(deal.event_date, easternToday()),
+    () => daysUntil(deal.event_date, easternTodayYmd()),
     [deal.event_date],
   );
 

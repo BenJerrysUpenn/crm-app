@@ -24,6 +24,7 @@
 //   event_* / guest_count — the description of operations
 
 import type { Deal } from "@/lib/types";
+import { easternTodayYmd } from "@/lib/dateFormat";
 
 /** How close an event has to be for an unsent-COI to count as urgent. Kept
  *  identical to the prod conformance window so the CRM and the instrument
@@ -74,20 +75,8 @@ function parseYmd(s: string | null | undefined): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-/** Today as "YYYY-MM-DD" in America/New_York — the same zone every date in
- *  the catering DB is stored in. */
-export function easternToday(now: Date = new Date()): string {
-  // en-CA gives ISO-shaped YYYY-MM-DD.
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-}
-
 /** Where this deal stands on its COI. `today` defaults to Eastern today. */
-export function coiStatus(deal: Deal, today: string = easternToday()): CoiStatus {
+export function coiStatus(deal: Deal, today: string = easternTodayYmd()): CoiStatus {
   if (deal.coi_required !== 1) return "not_required";
   if (deal.coi_sent_at && deal.coi_sent_at.trim() !== "") return "sent";
   const d = daysUntil(deal.event_date, today);
