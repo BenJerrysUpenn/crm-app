@@ -138,7 +138,6 @@ export function buildCoiRequest(deal: Deal): CoiRequest {
     holderName,
     holderAddress,
     descriptionOfOperations,
-    additionalInsured: holderName,
   });
 
   return {
@@ -188,7 +187,6 @@ function composeFullText(p: {
   holderName: string | null;
   holderAddress: string | null;
   descriptionOfOperations: string;
-  additionalInsured: string | null;
 }): string {
   const lines: string[] = [];
   lines.push("CERTIFICATE HOLDER");
@@ -200,8 +198,8 @@ function composeFullText(p: {
   lines.push("");
   lines.push("ADDITIONAL INSURED");
   lines.push(
-    p.additionalInsured
-      ? `${p.additionalInsured} — add as additional insured for this event`
+    p.holderName
+      ? `${p.holderName} — add as additional insured for this event`
       : "(add the venue as additional insured)",
   );
   lines.push("");
