@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { notify, emailForUser } from "@/lib/notify";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
@@ -100,27 +99,11 @@ export async function PATCH(
   const newToThem = before?.published === false || (before?.employee_id ?? null) !== (data?.employee_id ?? null);
   if (newToThem && data?.employee_id) {
     const emp = (data as any).profiles;
-    const email = await emailForUser(data.employee_id);
-    await notify({
-      userId: data.employee_id,
-      type: "shift_published",
-      title: "New shift posted",
-      body: `${fmtDate(data.starts_at)} · ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}`,
-      phone: emp?.phone ?? null,
-      email,
-    }).catch(() => {});
+    await tellEmployeeAboutShift("posted", data, emp?.phone ?? null);
   } else if (data?.employee_id) {
     // An assigned shift was edited -> tell the employee.
     const emp = (data as any).profiles;
-    const email = await emailForUser(data.employee_id);
-    await notify({
-      userId: data.employee_id,
-      type: "schedule_change",
-      title: "Your shift was updated",
-      body: `${fmtDate(data.starts_at)} · ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}`,
-      phone: emp?.phone ?? null,
-      email,
-    }).catch(() => {});
+    await tellEmployeeAboutShift("changed", data, emp?.phone ?? null);
   }
   return NextResponse.json({ shift: data });
 }

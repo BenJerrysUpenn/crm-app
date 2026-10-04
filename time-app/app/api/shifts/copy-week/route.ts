@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { notify, emailForUser } from "@/lib/notify";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
 import { NextResponse } from "next/server";
 
 const TZ = "America/New_York";
@@ -71,15 +70,7 @@ export async function POST(request: Request) {
   }
   for (const s of copies) {
     if (!s.employee_id) continue;
-    const email = await emailForUser(s.employee_id);
-    await notify({
-      userId: s.employee_id,
-      type: "shift_published",
-      title: "New shift posted",
-      body: `${fmtDate(s.starts_at)} · ${fmtTime(s.starts_at)}–${fmtTime(s.ends_at)}${s.position ? " · " + s.position : ""}`,
-      phone: phoneById.get(s.employee_id) ?? null,
-      email,
-    }).catch(() => {});
+    await tellEmployeeAboutShift("posted", { ...s, employee_id: s.employee_id }, phoneById.get(s.employee_id) ?? null);
   }
 
   return NextResponse.json({ ok: true, copied: rows.length });

@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { notify, emailForUser } from "@/lib/notify";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
@@ -72,15 +71,7 @@ export async function POST(request: Request) {
 
   if (data && body.employee_id) {
     const emp = (data as any).profiles;
-    const email = await emailForUser(body.employee_id);
-    await notify({
-      userId: body.employee_id,
-      type: "shift_published",
-      title: "New shift posted",
-      body: `${fmtDate(data.starts_at)} · ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}`,
-      phone: emp?.phone ?? null,
-      email,
-    }).catch(() => {});
+    await tellEmployeeAboutShift("posted", { ...data, employee_id: body.employee_id }, emp?.phone ?? null);
   }
   return NextResponse.json({ shift: data });
 }
