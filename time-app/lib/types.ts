@@ -47,6 +47,9 @@ export type Shift = {
   acknowledged_at: string | null;
   created_at: string;
   updated_at: string;
+  // Set on the shifts the CRM writes for a booked catering deal; a manager
+  // assigns those (lib/managerAssigns.ts).
+  deal_id?: number | null;
 };
 
 export type TimeEntry = {

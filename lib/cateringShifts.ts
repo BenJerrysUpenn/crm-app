@@ -2,8 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Auto-creates open shifts in the time-app when a catering deal is booked. An
 // open shift is employee_id=null; it is written live (published=true), like
-// every shift: the time-app has no drafts, so staff see it on the schedule and
-// can pick it up straight away. We create one shift per crew
+// every shift: the time-app has no drafts, so staff see it on the schedule.
+// They cannot claim or request it: the deal_id stamped below marks it as one a
+// manager assigns (time-app lib/managerAssigns.ts). We create one shift per crew
 // member (staff_count), each running for the deal's labor_hours, starting ~1
 // hour before the crew's departure_time.
 //
