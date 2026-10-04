@@ -16,7 +16,7 @@
 // service role is not held to RLS. Every other table is readable by any signed-in caller.
 
 import * as nodeModule from "node:module";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -57,10 +57,31 @@ type ResolveHook = (
   context: { parentURL?: string },
   next: (specifier: string, context: { parentURL?: string }) => Resolved,
 ) => Resolved;
+type LoadHook = (
+  url: string,
+  context: object,
+  next: (url: string, context: object) => { format?: string; source?: unknown },
+) => { format?: string; source?: unknown; shortCircuit?: boolean };
 // module.registerHooks is in Node 22.15+, newer than the @types/node this app pins.
 const { registerHooks } = nodeModule as unknown as {
-  registerHooks: (hooks: { resolve: ResolveHook }) => void;
+  registerHooks: (hooks: { resolve: ResolveHook; load: LoadHook }) => void;
 };
+
+// Node strips TypeScript types itself but does not compile JSX, so a component
+// (.tsx) under test is transpiled with the app's own TypeScript on the way in.
+let typescript: typeof import("typescript") | null = null;
+function compileTsx(file: string): string {
+  typescript ??= nodeModule.createRequire(import.meta.url)("typescript") as typeof import("typescript");
+  return typescript.transpileModule(readFileSync(file, "utf8"), {
+    fileName: file,
+    compilerOptions: {
+      jsx: typescript.JsxEmit.ReactJSX,
+      module: typescript.ModuleKind.ESNext,
+      target: typescript.ScriptTarget.ES2022,
+      verbatimModuleSyntax: false,
+    },
+  }).outputText;
+}
 
 function asTsFile(base: string): string | null {
   for (const candidate of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
@@ -90,6 +111,12 @@ function registerResolveHooks() {
         if (file) return { url: pathToFileURL(file).href, shortCircuit: true };
       }
       return next(specifier, context);
+    },
+    load(url, context, next) {
+      if (url.startsWith("file:") && url.endsWith(".tsx")) {
+        return { format: "module", source: compileTsx(fileURLToPath(url)), shortCircuit: true };
+      }
+      return next(url, context);
     },
   });
 }

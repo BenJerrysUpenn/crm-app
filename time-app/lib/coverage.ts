@@ -298,6 +298,22 @@ export function uncovered(opens: number, closes: number, merged: { from: number;
   return gaps.filter((g) => g.to > g.from);
 }
 
+/**
+ * The shifts whose New York span touches the week at all. Callers query a
+ * padded window; this trims it to what can matter. Wider than "starts in the
+ * week" on purpose: a shift starting Saturday evening and running into Sunday
+ * morning is standing in the store, and a check that could not see it would
+ * invent a gap at Sunday open.
+ */
+export function shiftsTouchingWeek<T extends { starts_at: string; ends_at: string }>(shifts: T[], weekStart: string): T[] {
+  const weekEnd = addDays(weekStart, 7);
+  return shifts.filter((shift) => {
+    const startDate = nyWallClock(shift.starts_at).date;
+    const endDate = nyWallClock(shift.ends_at).date;
+    return startDate < weekEnd && endDate >= weekStart;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // The check
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
+import CheckWeekButton from "./CheckWeekButton";
 import { fmtTime } from "@/lib/format";
 import { formatHours } from "@/lib/shiftChecks";
 import {
@@ -393,6 +394,7 @@ export default function ScheduleBoard({
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Schedule</h1>
         <div className="flex flex-wrap items-center gap-2">
+          <CheckWeekButton isManager={isManager} weekStart={weekStart} />
           {isManager && (
             <>
               <button onClick={autoFill} disabled={copying} className="px-2.5 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
