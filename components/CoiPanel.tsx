@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { easternTodayYmd, fmtEasternDateTime } from "@/lib/dateFormat";
 import {
   buildCoiRequest,
+  buildCoiSentPatch,
   coiStatus,
   daysUntil,
   NAMED_INSURED,
@@ -117,17 +118,17 @@ export default function CoiPanel({
     }
     setSaving(true);
     setError(null);
-    const now = new Date().toISOString();
+    const patch = buildCoiSentPatch(value, new Date().toISOString());
     const { error } = await supabase
       .from("deals")
-      .update({ coi_sent_at: value, updated_at: now })
+      .update(patch)
       .eq("id", deal.id);
     setSaving(false);
     if (error) {
       setError(error.message);
       return;
     }
-    onDealUpdate?.({ ...deal, coi_sent_at: value, updated_at: now });
+    onDealUpdate?.({ ...deal, ...patch });
   }
 
   async function copyAll() {

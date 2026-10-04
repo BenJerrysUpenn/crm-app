@@ -53,7 +53,13 @@ export type CoiStatus =
 /** Parse a stored "YYYY-MM-DD" event_date into whole days from `today`
  *  (also "YYYY-MM-DD"). Both are treated as calendar dates in the same zone —
  *  the stored value is already Eastern-local — so this is pure date
- *  arithmetic with no timezone shift. Returns null when either is unparseable. */
+ *  arithmetic with no timezone shift. Returns null when either is unparseable.
+ *
+ *  Deliberately separate from lib/dateFormat.ts `daysUntilEvent`: that one reads
+ *  the clock itself (takes a `Date now`), while this takes `today` as a required
+ *  argument so the COI decision has no clock dependency of its own — the panel
+ *  reads Eastern-today once and hands the same value to both this and the status.
+ *  Keeping that contract is why the two are not merged. */
 export function daysUntil(
   eventDate: string | null | undefined,
   today: string,
@@ -82,6 +88,23 @@ export function coiStatus(deal: Deal, today: string): CoiStatus {
   const d = daysUntil(deal.event_date, today);
   if (d !== null && d >= 0 && d <= COI_URGENT_WINDOW_DAYS) return "needed_urgent";
   return "needed";
+}
+
+/** The exact patch written to `deals` when a COI is marked sent, and when that
+ *  mark is cleared (Undo). `value` is the ISO timestamp to stamp into
+ *  coi_sent_at, or null to clear it; `now` is the write time for updated_at.
+ *  Extracted from the panel so the write contract is unit-testable and the DB
+ *  update and the optimistic local echo cannot drift — one source for both
+ *  (the same shape as buildStagePatch in lib/dealUpdate.ts). Stamping a value
+ *  clears the prod conformance red `revive.coi_required_unsent`; clearing it
+ *  (null) re-opens that red. */
+export type CoiSentPatch = { coi_sent_at: string | null; updated_at: string };
+
+export function buildCoiSentPatch(
+  value: string | null,
+  now: string,
+): CoiSentPatch {
+  return { coi_sent_at: value, updated_at: now };
 }
 
 export type CoiRequest = {
@@ -219,6 +242,15 @@ function composeBillingAddress(deal: Deal): string | null {
   return full || null;
 }
 
+// Certificate formatters, deliberately separate from lib/dateFormat.ts.
+// dateFormat.ts is the single source for UI display — it renders the compact
+// Eastern style ("Sep 25, 2026", "5:47 PM") the drawer and board use. The
+// Hartford certificate is a formal document with its own format: a full month
+// name ("September 25, 2026") and an explicit start–end range. These read the
+// already-Eastern calendar strings with no timezone math, so they share no clock
+// dependency with dateFormat.ts; they are a different output, not a drifted copy.
+// Unifying them would mean adding style parameters to dateFormat.ts that no
+// other caller needs.
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
