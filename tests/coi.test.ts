@@ -289,36 +289,20 @@ describe("formatters", () => {
 });
 
 describe("buildCoiSentPatch — the write contract the panel applies", () => {
-  it("stamps coi_sent_at and updated_at when marking sent", () => {
-    const now = "2026-10-04T15:30:00.000Z";
-    const sentAt = "2026-10-04T15:30:00.000Z";
-    expect(buildCoiSentPatch(sentAt, now)).toEqual({
-      coi_sent_at: sentAt,
-      updated_at: now,
+  it("stamps coi_sent_at with the sent time and updated_at with the write time", () => {
+    // Distinct instants, so a patch that swapped the two arguments fails.
+    expect(
+      buildCoiSentPatch("2026-10-04T15:30:00.000Z", "2026-10-04T15:31:07.000Z"),
+    ).toEqual({
+      coi_sent_at: "2026-10-04T15:30:00.000Z",
+      updated_at: "2026-10-04T15:31:07.000Z",
     });
   });
 
   it("clears coi_sent_at to null on Undo while still stamping updated_at", () => {
-    const now = "2026-10-04T16:00:00.000Z";
-    expect(buildCoiSentPatch(null, now)).toEqual({
+    expect(buildCoiSentPatch(null, "2026-10-04T16:00:00.000Z")).toEqual({
       coi_sent_at: null,
-      updated_at: now,
+      updated_at: "2026-10-04T16:00:00.000Z",
     });
-  });
-
-  it("writes exactly two columns — no stray fields reach deals", () => {
-    const patch = buildCoiSentPatch("2026-10-04T15:30:00.000Z", "2026-10-04T15:30:00.000Z");
-    expect(Object.keys(patch).sort()).toEqual(["coi_sent_at", "updated_at"]);
-  });
-
-  it("gives the DB write and the optimistic local echo the same values", () => {
-    // The panel spreads this patch into both the supabase update and the
-    // onDealUpdate echo, so a reader sees exactly what was written.
-    const now = "2026-10-04T15:30:00.000Z";
-    const patch = buildCoiSentPatch(now, now);
-    const deal = { id: 1, coi_sent_at: null, updated_at: "old" } as unknown as Deal;
-    const echoed = { ...deal, ...patch };
-    expect(echoed.coi_sent_at).toBe(patch.coi_sent_at);
-    expect(echoed.updated_at).toBe(patch.updated_at);
   });
 });
