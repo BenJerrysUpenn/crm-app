@@ -26,7 +26,7 @@ function overlaps(a: { starts_at: string; ends_at: string }, b: { starts_at: str
 // POST { weekStart: "YYYY-MM-DD" } — assign available employees to open shifts.
 // Shifts are live as soon as they are written (there are no drafts), so each
 // person assigned here gets the same "New shift posted" message assigning the
-// shift by hand sends (and that publishing the week used to send).
+// shift by hand sends.
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile || profile.role !== "manager")

@@ -11,7 +11,7 @@ import { NextResponse } from "next/server";
 //
 // There are no drafts: every shift is written live (published = true) and an
 // assigned employee is told about it straight away. A `published` field in
-// the body, from a page loaded before drafts were removed, is ignored.
+// the body is ignored.
 //
 // A shift of 15+ hours is refused with 409 unless the body carries
 // confirmLong: true. Nobody works a 26-hour shift on purpose, and one reached

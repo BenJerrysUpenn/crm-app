@@ -46,9 +46,8 @@ const CART_STORAGE_PICKUP_MIN = 120;
 //
 // We still create the shifts — the crew must not lose their slot over a bad
 // number, and guessing a "sensible" length would quietly hide the error. We
-// just refuse to do it silently. There is no publish step to stop it any more
-// (the time-app has no drafts), so the shift goes live carrying the marker in
-// its note, and the warning goes back to the route, cron or CLI that made it.
+// just refuse to do it silently. The shift goes live carrying the marker in its
+// note, and the warning goes back to the route, cron or CLI that made it.
 //
 // The time-app repeats this number in time-app/lib/shiftChecks.ts. The two are
 // separate Next apps (the root tsconfig excludes time-app/), so they cannot

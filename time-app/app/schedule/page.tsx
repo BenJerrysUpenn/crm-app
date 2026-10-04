@@ -48,8 +48,8 @@ export default async function SchedulePage({
     .lt("starts_at", qEnd)
     .order("starts_at", { ascending: true });
   // Employees see their own shifts plus any open (unassigned) ones. Every shift
-  // is written published (there are no drafts); the filter stays so a shift
-  // left over from before drafts were removed is still never shown half-made.
+  // is written published (there are no drafts); the filter keeps any row that
+  // is still unpublished hidden from staff.
   if (!isManager)
     q = q.eq("published", true).or(`employee_id.eq.${profile.id},employee_id.is.null`);
   const { data: shifts } = await q;

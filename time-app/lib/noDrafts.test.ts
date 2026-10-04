@@ -1,8 +1,7 @@
 // There are no draft shifts. Managers filled in the week, saw it on their own
 // screen and took it as live, while staff saw nothing until somebody pressed
-// "Publish week". Every route that writes a shift now writes it live, and the
-// people on those shifts get the "New shift posted" message publishing used
-// to send.
+// "Publish week". Every route that writes a shift writes it live, and the
+// people on those shifts get the "New shift posted" message.
 //
 // Stand-in Supabase: lib/testing/fakeSupabase.ts.
 //

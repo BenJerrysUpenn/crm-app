@@ -20,8 +20,8 @@
 //
 // This is the one definition of "is this person available for this shift".
 // Auto-fill uses it to pick candidates, and the create/edit routes use it to
-// ask before saving. (Publish-week used it too, until drafts were removed; the
-// whole-week helpers below are kept for a week-at-once check.)
+// ask before saving. The whole-week helpers below check a full set of shifts at
+// once.
 //
 // Pure and dependency-free like lib/coverage.ts, so `node --test` runs it.
 //

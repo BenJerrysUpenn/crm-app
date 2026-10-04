@@ -35,7 +35,7 @@ export async function PATCH(
   const supabase = createClient();
 
   // The shift as it stands: the times the patch is applied on top of, and
-  // whether it was still a draft written before drafts were removed.
+  // whether it is still unpublished.
   const { data: before } = await supabase
     .from("shifts")
     .select("published, starts_at, ends_at, employee_id, position")
@@ -93,9 +93,9 @@ export async function PATCH(
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  // A shift that is new to this person (a leftover draft going live, or one
-  // just assigned to them) reads as a new shift, the message publishing the
-  // week used to send. Any other edit of an assigned shift is a change.
+  // A shift that is new to this person (an unpublished row going live, or one
+  // just assigned to them) reads as a new shift. Any other edit of an assigned
+  // shift is a change.
   const newToThem = before?.published === false || (before?.employee_id ?? null) !== (data?.employee_id ?? null);
   if (newToThem && data?.employee_id) {
     const emp = (data as any).profiles;

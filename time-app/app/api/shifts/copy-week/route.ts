@@ -16,7 +16,7 @@ function nyDate(iso: string) {
 // Copy all shifts from the previous week into the given week. There are no
 // drafts: the copies are live as soon as they are written, and each assigned
 // employee gets the same "New shift posted" message creating the shift by hand
-// sends (and that publishing the week used to send).
+// sends.
 // Body: { weekStart: "YYYY-MM-DD" }  -> source is weekStart - 7 days.
 export async function POST(request: Request) {
   const profile = await getProfile();
