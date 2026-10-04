@@ -27,6 +27,7 @@ const SAM = "00000000-0000-0000-0000-00000000000b";
 const JO = "00000000-0000-0000-0000-00000000000c";
 const WEEK = "2026-10-04"; // Sunday
 const LAST_TUE = "2026-09-29";
+const LAST_THU = "2026-10-01";
 
 function edt(date: string, hhmm: string) {
   return new Date(`${date}T${hhmm}:00-04:00`).toISOString();
@@ -104,15 +105,29 @@ test("copy last week writes live shifts and tells each person once per shift", a
   db.tables.shifts.push(
     { id: 1, employee_id: SAM, location_id: null, starts_at: edt(LAST_TUE, "12:00"), ends_at: edt(LAST_TUE, "17:00"), position: "PENN Opener", notes: null, published: true },
     { id: 2, employee_id: null, location_id: null, starts_at: edt(LAST_TUE, "17:00"), ends_at: edt(LAST_TUE, "22:00"), position: "PENN Closer", notes: null, published: true },
+    { id: 3, employee_id: SAM, location_id: null, starts_at: edt(LAST_THU, "12:00"), ends_at: edt(LAST_THU, "17:00"), position: "PENN Opener", notes: null, published: true },
   );
   const res = await copyWeek.POST(req("POST", { weekStart: WEEK }), noParams);
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true, copied: 2 });
+  assert.deepEqual(await res.json(), { ok: true, copied: 3 });
 
-  const copies = db.rows("shifts").slice(2);
-  assert.equal(copies.length, 2);
+  const copies = db.rows("shifts").slice(3);
+  assert.equal(copies.length, 3);
   assert.ok(copies.every((s) => s.published === true));
   assert.equal(copies[0].starts_at, edt("2026-10-06", "12:00"));
-  // The open copy has nobody to tell.
-  assert.deepEqual(notified(), [[SAM, "shift_published"]]);
+  assert.equal(copies[0].ends_at, edt("2026-10-06", "17:00"));
+  // Sam has two shifts and hears about each; the open copy has nobody to tell.
+  assert.deepEqual(notified(), [
+    [SAM, "shift_published"],
+    [SAM, "shift_published"],
+  ]);
+});
+
+test("taking someone off a shift messages nobody", async () => {
+  db.tables.shifts.push({ id: 1, employee_id: SAM, starts_at: edt("2026-10-06", "12:00"), ends_at: edt("2026-10-06", "17:00"), position: null, published: true });
+  const res = await shiftById.PATCH(req("PATCH", { employee_id: null }), { params: { id: "1" } });
+  assert.equal(res.status, 200);
+  assert.equal(db.rows("shifts")[0].employee_id, null);
+  assert.equal(db.rows("shifts")[0].published, true);
+  assert.deepEqual(notified(), []);
 });
