@@ -46,24 +46,36 @@ const STATUS_UI: Record<
   },
 };
 
-/** One labelled value with its own copy button. */
-function CopyRow({ label, value }: { label: string; value: string | null }) {
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "blocked">(
-    "idle",
-  );
-  async function copy() {
-    if (!value) return;
+type CopyState = "idle" | "copied" | "blocked";
+
+/** Shown on a copy button whose clipboard write was refused. */
+const COPY_BLOCKED_LABEL = "Copy blocked — select the text";
+
+/** Copy text to the clipboard and report how it went, resetting to "idle"
+ *  after two seconds. A refused write (insecure origin / denied permission)
+ *  becomes "blocked" rather than being swallowed (CODING_STANDARDS.md:10): a
+ *  silent miss could let the human paste whatever was already on the clipboard
+ *  into the certificate request. The value stays on screen to select by hand. */
+function useClipboardCopy(): [CopyState, (text: string) => Promise<void>] {
+  const [copyState, setCopyState] = useState<CopyState>("idle");
+  async function copy(text: string) {
     try {
-      await navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(text);
       setCopyState("copied");
     } catch {
-      // Clipboard refused (insecure origin / denied permission). Say so rather
-      // than swallow it (CODING_STANDARDS.md:10): a silent miss could let the
-      // human paste whatever was already on the clipboard into the certificate
-      // request. The value stays on screen to select by hand.
       setCopyState("blocked");
     }
     setTimeout(() => setCopyState("idle"), 2000);
+  }
+  return [copyState, copy];
+}
+
+/** One labelled value with its own copy button. */
+function CopyRow({ label, value }: { label: string; value: string | null }) {
+  const [copyState, copyText] = useClipboardCopy();
+  async function copy() {
+    if (!value) return;
+    await copyText(value);
   }
   return (
     <div className="py-1.5 border-b border-slate-800">
@@ -80,7 +92,7 @@ function CopyRow({ label, value }: { label: string; value: string | null }) {
             {copyState === "copied"
               ? "Copied"
               : copyState === "blocked"
-                ? "Copy blocked — select the text"
+                ? COPY_BLOCKED_LABEL
                 : "Copy"}
           </button>
         )}
@@ -102,9 +114,7 @@ export default function CoiPanel({
   const supabase = useMemo(() => createClient(), []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copyAllState, setCopyAllState] = useState<
-    "idle" | "copied" | "blocked"
-  >("idle");
+  const [copyAllState, copyText] = useClipboardCopy();
 
   const today = easternTodayYmd();
   const status = useMemo(() => coiStatus(deal, today), [deal, today]);
@@ -140,18 +150,6 @@ export default function CoiPanel({
       return;
     }
     onDealUpdate?.({ ...deal, ...patch });
-  }
-
-  async function copyAll() {
-    try {
-      await navigator.clipboard.writeText(request.fullText);
-      setCopyAllState("copied");
-    } catch {
-      // Same as CopyRow: surface the refusal instead of swallowing it
-      // (CODING_STANDARDS.md:10). The whole pack is on screen to select by hand.
-      setCopyAllState("blocked");
-    }
-    setTimeout(() => setCopyAllState("idle"), 2000);
   }
 
   return (
@@ -236,13 +234,13 @@ export default function CoiPanel({
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={copyAll}
+              onClick={() => copyText(request.fullText)}
               className="text-xs bg-sky-500/20 text-sky-100 border border-sky-500/40 rounded px-3 py-1.5 hover:bg-sky-500/30"
             >
               {copyAllState === "copied"
                 ? "Copied whole request"
                 : copyAllState === "blocked"
-                  ? "Copy blocked — select the text"
+                  ? COPY_BLOCKED_LABEL
                   : "Copy whole request"}
             </button>
             <a
