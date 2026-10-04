@@ -106,13 +106,18 @@ test("a day the board marks Business closed needs no cover", async () => {
 });
 
 test("the check is read-only: no writes and no notifications", async () => {
+  // Record attempted writes rather than throwing: a throw would surface as a
+  // failed request the check swallows, leaving the tables untouched and the
+  // test green even when the check does write.
   const before = structuredClone(db.tables);
+  const writes: string[] = [];
   db.beforeWrite = (table) => {
-    throw new Error(`check-week wrote to ${table}`);
+    writes.push(table);
   };
-  await run();
+  const { status } = await run();
+  assert.equal(status, 200);
+  assert.deepEqual(writes, []);
   assert.deepEqual(db.tables, before);
-  assert.equal(db.rows("notifications").length, 0);
 });
 
 test("managers only: an employee is refused", async () => {
