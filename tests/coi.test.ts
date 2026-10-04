@@ -298,6 +298,24 @@ describe("buildCoiRequest billing fallback", () => {
     expect(r.certificateHolderAddress).toBe("Philadelphia, PA");
   });
 
+  it("copies the holder and billing address without stray padding", () => {
+    // What the human pastes into the certificate request must not carry the
+    // whitespace a hand-typed deal field picked up.
+    const r = buildCoiRequest(
+      mkDeal({
+        coi_required: 1,
+        venue_name: "  Example Hall ",
+        billing_street: " 10 Example St ",
+        billing_city: " Philadelphia",
+        billing_state: "PA ",
+        billing_zip: " 19104 ",
+      }),
+    );
+    expect(r.certificateHolderName).toBe("Example Hall");
+    expect(r.additionalInsured).toBe("Example Hall");
+    expect(r.certificateHolderAddress).toBe("10 Example St, Philadelphia, PA 19104");
+  });
+
   it("prefers the venue address over billing when both exist", () => {
     const r = buildCoiRequest(
       mkDeal({
@@ -327,6 +345,15 @@ describe("formatters", () => {
     expect(formatTimeRange("09:15", null)).toBe("9:15 AM");
     expect(formatTimeRange("00:00", null)).toBe("12:00 AM");
     expect(formatTimeRange(null, null)).toBeNull();
+  });
+
+  it("puts noon and the 12 o'clock hour in the afternoon", () => {
+    expect(formatTimeRange("12:00", "12:45")).toBe("12:00 PM–12:45 PM");
+  });
+
+  it("reads the calendar date from a stored value with a time or padding after it", () => {
+    expect(formatEventDate("2026-09-25T00:00:00Z")).toBe("September 25, 2026");
+    expect(formatEventDate(" 2026-09-25 ")).toBe("September 25, 2026");
   });
 
   it("shows the end time alone when only the end is known", () => {
