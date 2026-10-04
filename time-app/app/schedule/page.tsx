@@ -47,7 +47,9 @@ export default async function SchedulePage({
     .gte("starts_at", qStart)
     .lt("starts_at", qEnd)
     .order("starts_at", { ascending: true });
-  // Employees see their own published shifts plus any published open (unassigned) shifts.
+  // Employees see their own shifts plus any open (unassigned) ones. Every shift
+  // is written published (there are no drafts); the filter stays so a shift
+  // left over from before drafts were removed is still never shown half-made.
   if (!isManager)
     q = q.eq("published", true).or(`employee_id.eq.${profile.id},employee_id.is.null`);
   const { data: shifts } = await q;
@@ -99,7 +101,7 @@ export default async function SchedulePage({
     employees = (emps as Profile[]) ?? [];
     const { data: locs } = await supabase.from("locations").select("*").order("id");
     locations = (locs as Location[]) ?? [];
-    // Everyone's availability + time off for the week, to show while drafting:
+    // Everyone's availability + time off for the week, to show while scheduling:
     // dated rows (padded a day each side for overnight shifts) AND weekly rows.
     // Weekly rows are what the "Repeats every …" toggle writes; reading only
     // dated rows made everyone on a weekly pattern look like they had nothing.
