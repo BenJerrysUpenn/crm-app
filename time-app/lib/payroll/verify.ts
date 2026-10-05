@@ -26,13 +26,20 @@
 //                   when the case needs it.
 //   needs_fix     — the data is wrong and no ruling can make it right: an open
 //                   punch has no end (§1.1), two overlapping punches double-pay
-//                   (§1.7), with no audit table nothing here is defensible at
-//                   all (§1.13), and — ruling D, 2026-09-22 — a runaway punch
-//                   with no scheduled shift (§1.4) or a punch under 25% of its
+//                   (§1.7), and — ruling D, 2026-09-22 — a runaway punch with
+//                   no scheduled shift (§1.4) or a punch under 25% of its
 //                   scheduled shift (§1.5). Those two have NO default and no
-//                   picker: the punch is corrected in Withers-time. All of
-//                   these clear by fixing the data and running Verify again,
-//                   and until then the run cannot be submitted.
+//                   picker: the punch is corrected in Withers-time. From the
+//                   period starting CREW_PUNCH_REQUIRED_FROM, a catering event
+//                   whose scheduled crew did not punch, or that has no crew
+//                   (§1.12, §3.5), is one too. All of these clear by fixing the
+//                   data and running Verify again, and until then the run
+//                   cannot be submitted.
+//
+// NOT REPORTED (Alina, 2026-10-05: "useless, kill these"): §0.1 pay window,
+// §1.10 cover punches, §1.13 deleted rows, §1.14 name hygiene. The window is
+// still computed (window.ts) and covers are still matched (buildPunchViews),
+// because pay depends on both; they are just not findings.
 //
 // Times. Punches are instants; opening hours are wall clock. Everything that
 // compares the two goes through lib/coverage.ts, which owns that conversion and
@@ -91,9 +98,25 @@ export const EVENT_DEAL_STAGES = ["Booked Unpaid", "Booked Paid", "Event Complet
  * §3.5 / §3.7 — who a crewless catering tip or a stranded Olo tip goes to when
  * no manager picks anybody else (Alina, 2026-09-22). Matched to a profile by
  * name words, in any order, because the default has to name a person before
- * anybody has picked one; the pick itself is stored by profile id.
+ * anybody has picked one; the pick itself is stored by profile id. For §3.5
+ * this applies only to periods starting before CREW_PUNCH_REQUIRED_FROM.
  */
 export const DEFAULT_TIP_PAYEE_NAME = "Sophia Malmgren";
+/**
+ * "Everyone should be punching" (Alina, 2026-10-05; the designated tip payee's
+ * last day was 2026-10-04). For a pay period starting on or after this date,
+ * a catering event whose scheduled crew did not punch, or that has no crew,
+ * is a needs_fix with no default, like §1.5: §3.5 has no crewless-tip payee
+ * and §1.12 no longer reports "scheduled but not crew" as a warning. Periods
+ * starting before it keep the old rules. Alina may move this date: it is the
+ * only place it is written.
+ */
+export const CREW_PUNCH_REQUIRED_FROM = "2026-10-05";
+
+/** Does this pay period require every catering crew member to punch? */
+export function crewPunchRequired(window: PayWindow): boolean {
+  return window.start >= CREW_PUNCH_REQUIRED_FROM;
+}
 
 // ---------------------------------------------------------------------------
 // Input rows. Deliberately the shapes the database returns, minus the columns
@@ -136,7 +159,7 @@ export type DealRow = {
   stage?: string | null;
 };
 
-/** One row of public.row_audit (migration 25), as §1.13 reads it. */
+/** One row of public.row_audit (migration 25), as §1.15 reads it. */
 export type AuditRow = {
   id: number;
   table_name: string;
@@ -147,7 +170,7 @@ export type AuditRow = {
   actor_role: string | null;
   db_role: string;
   before_image: Record<string, unknown> | null;
-  /** The row after the write. §1.15 reads it; §1.13 (deletions) never has one. */
+  /** The row after the write. A DELETE never has one. */
   after_image?: Record<string, unknown> | null;
 };
 
@@ -180,7 +203,7 @@ export type SubmittalRow = {
 
 export type VerifyInput = {
   window: PayWindow;
-  /** Today, YYYY-MM-DD in New York. Used only by §0.1 to refuse a future window. */
+  /** Today, YYYY-MM-DD in New York. A period that has not ended is never ready. */
   today?: string;
   punches: PunchRow[];
   shifts: ShiftRow[];
@@ -190,20 +213,6 @@ export type VerifyInput = {
   closedRanges?: ClosedDateRange[];
   profiles: ProfileRow[];
   deals?: DealRow[];
-  /**
-   * DELETE rows from the audit log. `null` means the audit table is not there
-   * — migration 25 has not been applied — which is NOT the same as "nothing was
-   * deleted" and must never read as a pass (§1.13).
-   */
-  auditDeletes?: AuditRow[] | null;
-  /**
-   * When auditing started: the `at` of the earliest row_audit row, or null
-   * when the table has no rows yet. The first row stands in exactly for the
-   * moment migration 25 ran, since any write in between would have been
-   * logged first. A window that starts before it cannot see deletions from
-   * before it (§1.13).
-   */
-  auditStartedAt?: string | null;
   /**
    * §1.15 — submitted runs that ended before this window, with when each was
    * submitted, and the row_audit rows for time_entries and shifts written
@@ -336,7 +345,7 @@ export type VerifyResult = {
     defaulted: number;
     needsFix: number;
   };
-  /** Nothing to fix, and every case answered by a recording or a default. */
+  /** Nothing to fix, every case answered by a recording or a default, and the period over. */
   ready: boolean;
   submittal: SubmittalRow | null;
   submittalState: SubmittalState;
@@ -347,10 +356,6 @@ export type VerifyResult = {
 // The rule text, verbatim from docs/specs/payroll-pipeline.md §0 and §1. Kept
 // in one place so the finding, the UI and the tests all quote the same words.
 const RULES: Record<string, { title: string; rule: string }> = {
-  "0.1": {
-    title: "Pay window",
-    rule: "period = the 14 days ending the most recent period-end Sunday (every other Sunday, on the cycle through 2026-09-20, ruled 2026-09-27); pay date = end + 3 (Wed). Never read upcoming_pay_periods[].pay_date (misaligned).",
-  },
   "0.6": {
     title: "store_hours age",
     rule: "warn if store_hours was last edited inside the window (coverage report would judge data with a younger baseline)",
@@ -379,23 +384,14 @@ const RULES: Record<string, { title: string; rule: string }> = {
     title: "No closing punch",
     rule: "solo-close eligible nights only: last in-store clock-out > 2h before store close (1.9), or a solo tail ≥ 4h with the closer out before 22:00 (2.4 qualifying) → a dropdown on the schedule: pay scheduled closer / pay unpunched manager / skip payment. Default = skip (ruled 2026-09-22). Flag a night where the manager paid is the one who changed the dropdown.",
   },
-  "1.10": {
-    title: "Cover punches",
-    rule: "blank shift_id: first join shifts by person+date; if none, join an unworked shift that day whose hours bracket the punch and show the swap",
-  },
   "1.11": {
     title: "Catering shift without deal_id",
     rule: "flag at scheduling time, not payroll time",
   },
   "1.12": {
     title: "Catering event under-punched",
-    rule: "deals.staff_count vs punched Catering shifts. Crew requires a punch: a person scheduled on the event who did not punch for it is not crew, and is listed by name; never a block (ruled 2026-09-27).",
+    rule: "deals.staff_count vs punched Catering shifts. Crew requires a punch: a person scheduled on the event who did not punch for it is not crew, and is listed by name (ruled 2026-09-27). From the period starting 2026-10-05 everyone punches: each one is a fix with no default, like 1.5 — add their punch on the Timesheets page, or take them off the shift if they did not work it (ruled 2026-10-05). Before then, never a block.",
   },
-  "1.13": {
-    title: "Deleted rows",
-    rule: "no audit table exists; ids 1270–1274 and ≥3 shifts vanished inside the window. Precondition for trusting anything above: add time_entries/shifts audit triggers (who, when, before-image).",
-  },
-  "1.14": { title: "Name hygiene", rule: "profiles.full_name containing '@' (invite-flow bug)" },
   "1.15": {
     title: "Changed after submittal",
     rule: "a punch or shift dated inside a submitted run, added, changed or deleted after that run was submitted, is reported to the next run with the punch, the person and who changed it. Never refused and never a block: the clock-in path must not fail, and Withers-time closes a forgotten clock-out at the next clock-in (ruled 2026-09-27).",
@@ -406,7 +402,7 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "3.5": {
     title: "Crewless catering event",
-    rule: "deal shift unassigned + nobody punched → a staff picker on the event, default the designated tip payee (ruled 2026-09-22). Flag a crewless tip paid to the person who submits the run. Upstream: the event needs its Catering shift added. Crew = a punch on the event's Catering shift by shift_id, or a manual punch (no shift_id) by the scheduled person on the same date overlapping it; scheduled with no punch is not crew (ruled 2026-09-27).",
+    rule: "Crew = a punch on the event's Catering shift by shift_id, or a manual punch (no shift_id) by the scheduled person on the same date overlapping it; scheduled with no punch is not crew (ruled 2026-09-27). From the period starting 2026-10-05 everyone punches: an event with no crew is a fix with no default, like 1.5 — add the event's Catering shift and the crew's punches (ruled 2026-10-05). Before then: a staff picker on the event, default the designated tip payee, flagged when paid to the person who submits the run (ruled 2026-09-22).",
   },
   "3.7": {
     title: "No bake shift worked",
@@ -415,8 +411,7 @@ const RULES: Record<string, { title: string; rule: string }> = {
 };
 
 const CHECK_ORDER = [
-  "0.1", "0.6", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.10", "1.11", "1.12", "1.13", "1.14",
-  "1.15", "3.4", "3.5", "3.7",
+  "0.6", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.11", "1.12", "1.15", "3.4", "3.5", "3.7",
 ];
 
 /**
@@ -512,7 +507,8 @@ function positionIsInStore(position: string | null | undefined, byName: Map<stri
 
 /**
  * Attach each punch to the shift it was worked against (§1.10), and work out
- * whether it counts as in-store.
+ * whether it counts as in-store. §1.10 is not reported as a finding any more
+ * (2026-10-05), but this matching is what 1.4, 1.5, 1.6, 1.8 and 1.9 read.
  *
  * The ladder is the spec's: an explicit shift_id, then this person's own shift
  * that day, then somebody else's unworked shift that brackets the punch — the
@@ -651,7 +647,9 @@ function finding(check: string, rest: Omit<Finding, "check" | "title" | "rule">)
 // ---------------------------------------------------------------------------
 
 /**
- * §0.1 and §0.6 — the preconditions this app can answer from its own data.
+ * §0.6 — the precondition this app can answer from its own data. §0.1, the
+ * pay window, is computed by window.ts and shown in the page header; it is not
+ * a finding (2026-10-05).
  *
  * The other four (§0.2–§0.5: Square coverage, Square session, QBO session, Olo
  * workbook) are about systems outside this app and belong with the hours-and-
@@ -661,30 +659,6 @@ function finding(check: string, rest: Omit<Finding, "check" | "title" | "rule">)
 function checkPreconditions(input: VerifyInput): Finding[] {
   const { window } = input;
   const out: Finding[] = [];
-
-  const summary = `Pay window ${window.start} → ${window.end}, pay date ${window.payDate}.`;
-  if (input.today && window.end > input.today) {
-    out.push(
-      finding("0.1", {
-        key: `0.1:${window.end}`,
-        status: "needs_fix",
-        severity: "error",
-        summary: `${summary} That period has not finished yet (today is ${input.today}).`,
-        evidence: { date: window.end },
-      }),
-    );
-  } else {
-    out.push(
-      finding("0.1", {
-        key: `0.1:${window.end}`,
-        status: "auto_resolved",
-        severity: "info",
-        summary,
-        resolution: "14 days ending on a period-end Sunday (every other Sunday from 2026-09-20); pay date = end + 3. Computed here, never read from QBO.",
-        evidence: { date: window.end },
-      }),
-    );
-  }
 
   const edited = input.storeHoursUpdatedAt ? nyWallClock(input.storeHoursUpdatedAt).date : null;
   if (edited && inWindow(edited, window)) {
@@ -1298,9 +1272,17 @@ export function eventCrew(deal: DealRow, shifts: ShiftRow[], punches: PunchRow[]
  * This app cannot see the tip itself (it arrives on a Square invoice), so it
  * asks about every crewless event; the payroll sheet applies the pick only to
  * an event that actually carries a tip.
+ *
+ * From the period starting CREW_PUNCH_REQUIRED_FROM (ruled 2026-10-05:
+ * "everyone should be punching") there is no picker and no default payee. An
+ * event with nobody on its schedule is a needs_fix: add the event's Catering
+ * shift and the crew's punches. An event whose scheduled people did not punch
+ * is fixed person by person in §1.12 (checkUnpunchedCrew), so it is not
+ * reported here a second time.
  */
 function checkCrewlessEvents(input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
   const out: Finding[] = [];
+  const required = crewPunchRequired(input.window);
   const candidates = staffCandidates(input, profiles);
   const defaultPayee = defaultTipPayee(input, profiles);
   for (const deal of eventDealsInWindow(input)) {
@@ -1308,6 +1290,21 @@ function checkCrewlessEvents(input: VerifyInput, profiles: Map<string, ProfileRo
     const crew = eventCrew(deal, input.shifts, input.punches);
     if (crew.crew.size > 0) continue;
     const label = deal.company?.trim() || `deal ${deal.id}`;
+    if (required) {
+      if (crew.shifts.length > 0) continue; // §1.12 names each unpunched person as a fix
+      out.push(
+        finding("3.5", {
+          key: `3.5:deal:${deal.id}`,
+          status: "needs_fix",
+          severity: "error",
+          summary: `${formatDayLabel(date)} ${label}: no crew on the schedule and nobody punched for it.`,
+          resolution:
+            "No default (everyone punches, ruled 2026-10-05). Add the event's Catering shift on the Schedule and the crew's punches on the Timesheets page, or fix the deal's stage if the event did not happen, then verify again.",
+          evidence: { date, deal_id: deal.id },
+        }),
+      );
+      continue;
+    }
     const scheduled = crew.unpunched.map((u) => nameOf(profiles, u.employeeId)).sort((a, b) => a.localeCompare(b));
     const summary =
       crew.shifts.length === 0
@@ -1442,51 +1439,6 @@ function checkUnmatchedTips(rows: HeldTipRow[]): Finding[] {
     });
 }
 
-/** §1.10 — how every blank shift_id was resolved, and the ones that were not. */
-function checkCoverPunches(views: PunchView[], window: PayWindow): Finding[] {
-  const out: Finding[] = [];
-  for (const v of views) {
-    if (!inWindow(v.date, window)) continue;
-    if (v.row.shift_id !== null) continue;
-
-    if (v.match === "person_date" && v.shift) {
-      out.push(
-        finding("1.10", {
-          key: `1.10:punch:${v.row.id}`,
-          status: "auto_resolved",
-          severity: "info",
-          summary: `${v.name} ${formatDayLabel(v.date)}: punch has no shift_id.`,
-          resolution: `Joined to their own shift ${v.shift.id} (${v.shift.position ?? "no position"}) by person and date.`,
-          evidence: { employee_id: v.employeeId, employee_name: v.name, date: v.date, punch_ids: [v.row.id], shift_ids: [v.shift.id] },
-        }),
-      );
-    } else if (v.match === "cover" && v.shift) {
-      out.push(
-        finding("1.10", {
-          key: `1.10:punch:${v.row.id}`,
-          status: "auto_resolved",
-          severity: "info",
-          summary: `${v.name} ${formatDayLabel(v.date)}: punch has no shift_id, and they had no shift of their own.`,
-          resolution: `Covered ${v.coverFor ?? "somebody"}'s shift ${v.shift.id} (${v.shift.position ?? "no position"}), whose hours bracket the punch.`,
-          evidence: { employee_id: v.employeeId, employee_name: v.name, date: v.date, punch_ids: [v.row.id], shift_ids: [v.shift.id] },
-        }),
-      );
-    } else {
-      out.push(
-        finding("1.10", {
-          key: `1.10:punch:${v.row.id}`,
-          status: "auto_resolved",
-          severity: "warn",
-          summary: `${v.name} ${formatDayLabel(v.date)}: punch has no shift_id and no shift was found for it.`,
-          resolution: "Left unscheduled. It is classified by 1.4 or 1.6 if its length calls for it, and paid as punched otherwise.",
-          evidence: { employee_id: v.employeeId, employee_name: v.name, date: v.date, punch_ids: [v.row.id] },
-        }),
-      );
-    }
-  }
-  return out;
-}
-
 /** §1.11 — a catering shift with no deal_id. A scheduling-time flag. */
 function checkCateringWithoutDeal(shifts: ShiftRow[], window: PayWindow, profiles: Map<string, ProfileRow>): Finding[] {
   const out: Finding[] = [];
@@ -1558,11 +1510,17 @@ function checkCateringUnderPunched(input: VerifyInput, deals: DealRow[]): Findin
 
 /**
  * §1.12 — each person scheduled on a catering event who did not punch for it
- * (ruled 2026-09-27). Not crew, so no share of the event's tip; reported by
- * name and never blocking. Covers every event this run looks at: the booked
- * events dated in the window (§3.5) and the deals the window's shifts point at.
+ * (ruled 2026-09-27). Not crew, so no share of the event's tip. Covers every
+ * event this run looks at: the booked events dated in the window (§3.5) and
+ * the deals the window's shifts point at.
+ *
+ * Before CREW_PUNCH_REQUIRED_FROM it is reported by name and never blocks.
+ * From then on everyone punches (ruled 2026-10-05): each one is a needs_fix
+ * with no default, like §1.5, cleared by adding their punch (or by taking them
+ * off the shift if they did not work it).
  */
 function checkUnpunchedCrew(input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
+  const required = crewPunchRequired(input.window);
   const events = new Map<number, DealRow>();
   for (const deal of eventDealsInWindow(input)) events.set(deal.id, deal);
   const linked = new Set(linkedDealIdsInWindow(input.shifts, input.window));
@@ -1583,11 +1541,12 @@ function checkUnpunchedCrew(input: VerifyInput, profiles: Map<string, ProfileRow
       out.push(
         finding("1.12", {
           key: `1.12:unpunched:deal:${deal.id}:${u.employeeId}`,
-          status: "auto_resolved",
-          severity: "warn",
+          status: required ? "needs_fix" : "auto_resolved",
+          severity: required ? "error" : "warn",
           summary: `${u.name} was scheduled on ${label} ${formatDayLabel(date)} and did not punch for it, so is not on its crew.`,
-          resolution:
-            "Reported, not blocking (ruled 2026-09-27: crew requires a punch). No hours and no share of the event's tip. If they worked it, add or fix their punch on the Timesheets page and verify again.",
+          resolution: required
+            ? "No default (everyone punches, ruled 2026-10-05). Add their punch for the event on the Timesheets page, or take them off the shift if they did not work it, then verify again."
+            : "Reported, not blocking (ruled 2026-09-27: crew requires a punch). No hours and no share of the event's tip. If they worked it, add or fix their punch on the Timesheets page and verify again.",
           evidence: {
             employee_id: u.employeeId,
             employee_name: u.name,
@@ -1602,102 +1561,11 @@ function checkUnpunchedCrew(input: VerifyInput, profiles: Map<string, ProfileRow
   return out;
 }
 
-/**
- * §1.13 — deleted rows.
- *
- * A null `auditDeletes` means migration 25 is not applied, and that is the one
- * finding in this module that blocks on absence rather than on evidence. The
- * spec is explicit that the audit trail is "a precondition for trusting
- * anything above": with no log, "nothing was deleted" and "we cannot see what
- * was deleted" look identical, and the second one is what the 2026-09-23 run
- * actually had.
- */
-function checkDeletedRows(input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
-  const { window } = input;
-  if (input.auditDeletes === null || input.auditDeletes === undefined) {
-    return [
-      finding("1.13", {
-        key: `1.13:no-audit-table`,
-        status: "needs_fix",
-        severity: "error",
-        summary: "There is no audit table, so a punch or shift deleted inside this window would leave no trace.",
-        evidence: { notes: ["Apply time-app/supabase/migration_25.sql, then run Verify again."] },
-      }),
-    ];
-  }
-
-  const out: Finding[] = [...checkAuditCoverage(input)];
-  for (const row of input.auditDeletes) {
-    if (row.op !== "DELETE" || !row.before_image) continue;
-    const image = row.before_image;
-    const stamp =
-      row.table_name === "time_entries"
-        ? (image.clock_in_at as string | undefined)
-        : (image.starts_at as string | undefined);
-    if (!stamp) continue;
-    const date = nyWallClock(stamp).date;
-    if (!inWindow(date, window)) continue;
-
-    const employeeId = image.employee_id as string | undefined;
-    const who = actorName(row, profiles);
-    const what = row.table_name === "time_entries" ? "punch" : "shift";
-
-    out.push(
-      finding("1.13", {
-        key: `1.13:${row.table_name}:${row.row_id ?? row.id}`,
-        status: "auto_resolved",
-        severity: "warn",
-        summary: `${what} ${row.row_id ?? "?"} for ${employeeId ? nameOf(profiles, employeeId) : "someone"} on ${formatDayLabel(date)} was deleted by ${who} on ${formatDayLabel(nyWallClock(row.at).date)}.`,
-        resolution: "Reported with its before-image. If it should not have gone, re-enter it and verify again.",
-        evidence: {
-          date,
-          employee_id: employeeId,
-          employee_name: employeeId ? nameOf(profiles, employeeId) : undefined,
-          punch_ids: row.table_name === "time_entries" && row.row_id ? [row.row_id] : undefined,
-          shift_ids: row.table_name === "shifts" && row.row_id ? [row.row_id] : undefined,
-          notes: [JSON.stringify(image)],
-        },
-      }),
-    );
-  }
-  return out;
-}
-
 /** Who made an audited write: the signed-in person, else the key, else the database role. */
 function actorName(row: AuditRow, profiles: Map<string, ProfileRow>): string {
   if (row.actor_uid) return nameOf(profiles, row.actor_uid);
   if (row.actor_role) return `the ${row.actor_role} key`;
   return `the database role ${row.db_role}`;
-}
-
-/**
- * §1.13 — how far back the log can see. Auditing started with the first
- * row_audit row (migration 25); a window that begins before that cannot see a
- * deletion from before it, and says so. A limit to report, not a blocker: the
- * first live run starts before auditing did.
- */
-function checkAuditCoverage(input: VerifyInput): Finding[] {
-  const { window } = input;
-  const started = input.auditStartedAt ?? null;
-  if (started) {
-    const s = nyWallClock(started);
-    // Covered only when auditing was running at the window's first midnight.
-    if (s.date < window.start || (s.date === window.start && s.minutes === 0)) return [];
-  }
-  const since = started
-    ? `Auditing started ${formatDayLabel(nyWallClock(started).date)} ${formatClock(formatMinutes(nyWallClock(started).minutes))}`
-    : "The audit log has no rows yet";
-  return [
-    finding("1.13", {
-      key: "1.13:coverage",
-      status: "auto_resolved",
-      severity: "warn",
-      summary: `${since}, and this window starts ${formatDayLabel(window.start)}. A punch or shift deleted before then cannot be seen.`,
-      resolution:
-        "Reported, not blocking. Deletions from before auditing started left no trace; check the Timesheets page against the schedule for those days.",
-      evidence: { date: window.start, notes: [started ? `First row_audit row: ${started}` : "row_audit is empty"] },
-    }),
-  ];
 }
 
 /** The day a time_entries or shifts image falls on, New York. */
@@ -1794,23 +1662,6 @@ function checkChangesAfterSubmittal(input: VerifyInput, profiles: Map<string, Pr
   return out;
 }
 
-/** §1.14 — a full_name that is really an email address (the invite-flow bug). */
-function checkNameHygiene(profiles: ProfileRow[]): Finding[] {
-  return profiles
-    .filter((p) => (p.full_name ?? "").includes("@"))
-    .map((p) =>
-      finding("1.14", {
-        key: `1.14:profile:${p.id}`,
-        status: "auto_resolved",
-        severity: "warn",
-        summary: `${p.full_name} is a login email, not a name.`,
-        resolution:
-          "Cosmetic for pay — the QBO join is on qbo_employee_id, never a name (2.5) — but fix it on the Team page so the run summary reads properly.",
-        evidence: { employee_id: p.id, employee_name: p.full_name ?? undefined },
-      }),
-    );
-}
-
 // ---------------------------------------------------------------------------
 // The whole check
 // ---------------------------------------------------------------------------
@@ -1864,12 +1715,9 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
     ...checkOverlaps(views, window),
     ...checkCoverageGaps(views, input),
     ...checkClosingPunch(views, input, profiles),
-    ...checkCoverPunches(views, window),
     ...checkCateringWithoutDeal(input.shifts, window, profiles),
     ...checkCateringUnderPunched(input, input.deals ?? []),
     ...checkUnpunchedCrew(input, profiles),
-    ...checkDeletedRows(input, profiles),
-    ...checkNameHygiene(input.profiles),
     ...checkChangesAfterSubmittal(input, profiles),
     ...checkCrewlessEvents(input, profiles),
     ...checkBakeShifts(views, input, profiles),
@@ -1915,7 +1763,9 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
       defaulted: defaulted.length,
       needsFix: needsFix.length,
     },
-    ready: needsFix.length === 0 && needsRuling.every(isAnswered),
+    // A period that has not ended is never ready, though nothing in it needs
+    // fixing: the submit route and migration 27 refuse it too.
+    ready: needsFix.length === 0 && needsRuling.every(isAnswered) && !(input.today && window.end > input.today),
     submittal,
     submittalState: submittal ? "submitted" : "not_submitted",
     flags: findings.flatMap((f) => (f.flags ?? []).map((message) => ({ key: f.key, message }))),

@@ -132,7 +132,7 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
           A period is 14 days ending on a period-end Sunday. Periods end every
           other Sunday (2026-09-20, 10-04, 10-18 and so on), the default is the
           last one that has ended, and the pay date is the Wednesday three days
-          after it (spec 0.1). Nothing here reads
+          after it. Nothing here reads
           QuickBooks&rsquo; own period list, which is misaligned with the periods
           this business runs.
         </p>
@@ -166,10 +166,13 @@ function ReadyBadge({ result }: { result: ApiResult }) {
       </span>
     );
   }
+  const unanswered = result.counts.needsRuling - result.counts.ruled - result.counts.defaulted;
   const waiting =
     result.counts.needsFix > 0
       ? `${result.counts.needsFix} to fix`
-      : `${result.counts.needsRuling - result.counts.ruled - result.counts.defaulted} to answer`;
+      : unanswered > 0
+        ? `${unanswered} to answer`
+        : "the period has not ended";
   return (
     <span className="rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-sm px-3 py-2">
       Not verified — {waiting}
@@ -375,7 +378,9 @@ function FindingRow({
           <div className="mt-1 text-xs text-rose-500">
             {finding.check === "1.4" || finding.check === "1.5"
               ? "Correct this punch on the Timesheets page, then verify again. There is no default, and the run cannot be submitted until it is fixed."
-              : "Fix this in the app, then verify again. No ruling can stand in for it."}
+              : finding.check === "1.12" || finding.check === "3.5"
+                ? "Everyone punches: add the missing punch on the Timesheets page, then verify again. There is no default, and the run cannot be submitted until it is fixed."
+                : "Fix this in the app, then verify again. No ruling can stand in for it."}
           </div>
         )}
 

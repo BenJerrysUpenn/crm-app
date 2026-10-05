@@ -1,5 +1,5 @@
 // Unit tests for the timesheet rulebook (payroll spec §0 preconditions and
-// §1.1 – §1.14, bj-finance #519).
+// §1, bj-finance #519).
 //
 //   npm test        (node --test — Node runs TypeScript directly)
 //
@@ -16,8 +16,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  CREW_PUNCH_REQUIRED_FROM,
   DEFAULT_TIP_PAYEE_NAME,
   RULING_CHOICES,
+  buildPunchViews,
   caseDate,
   choicePays,
   eventCrew,
@@ -112,11 +114,6 @@ function run(over: Partial<VerifyInput> = {}) {
     shiftTypes: SHIFT_TYPES,
     profiles: PROFILES,
     storeHours: ALL_CLOSED,
-    // An empty list means "the log is there and nothing was deleted"; null
-    // means there is no log at all, which 1.13 treats very differently.
-    auditDeletes: [],
-    // The first audit row: long before this window, so 1.13 can see all of it.
-    auditStartedAt: "2026-01-05T09:00:00-05:00",
     // The §3.5/§3.7 default payee, by name words, as production matches it.
     defaultTipPayeeName: "Pat Example",
     ...over,
@@ -129,18 +126,38 @@ function only(findings: Finding[], check: string): Finding[] {
 
 // --- §0 preconditions -------------------------------------------------------
 
-test("0.1: the window is reported, computed here and not read from QBO", () => {
-  const f = only(run().findings, "0.1")[0];
-  assert.equal(f.status, "auto_resolved");
-  assert.match(f.summary, /2026-09-07 → 2026-09-20/);
-  assert.match(f.summary, /pay date 2026-09-23/);
+// 0.1 (pay window), 1.10 (cover punches), 1.13 (deleted rows) and 1.14 (name
+// hygiene) are not findings any more (Alina, 2026-10-05: "useless, kill
+// these"). The window is still computed (window.ts) and covers are still
+// matched (buildPunchViews): only the cards are gone, and with them their
+// share of the summary counts.
+
+test("removed checks: 0.1, 1.10, 1.13 and 1.14 are never reported, and do not count", () => {
+  // Short enough that the 2.4 solo-tail question (1.9) does not arise.
+  const ownShift = shift({ employee_id: DREW, starts_at: at("2026-09-15", "11:00"), ends_at: at("2026-09-15", "14:00") });
+  const result = run({
+    shifts: [ownShift],
+    punches: [
+      // A blank shift_id joined to the person's own shift: once a 1.10 card.
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:02"), clock_out_at: at("2026-09-15", "14:05") }),
+    ],
+    // An email for a name: once a 1.14 card.
+    profiles: [...PROFILES, { id: "x", full_name: "someone@example.com", active: true }],
+  });
+  for (const check of ["0.1", "1.10", "1.13", "1.14"]) {
+    assert.deepEqual(only(result.findings, check), [], `${check} is not a finding`);
+    assert.equal(result.groups.some((g) => g.check === check), false, `${check} has no group`);
+  }
+  assert.deepEqual(result.counts, { total: 0, autoResolved: 0, needsRuling: 0, ruled: 0, defaulted: 0, needsFix: 0 });
+  assert.equal(result.ready, true);
 });
 
-test("0.1: a window that has not finished yet blocks the button", () => {
+test("removed checks: the pay window is not a finding, and an unfinished period is still not ready", () => {
   const result = run({ today: "2026-09-18" });
-  const f = only(result.findings, "0.1")[0];
-  assert.equal(f.status, "needs_fix");
-  assert.equal(result.ready, false);
+  assert.deepEqual(only(result.findings, "0.1"), []);
+  assert.equal(result.counts.needsFix, 0);
+  assert.equal(result.ready, false, "the period has not ended: nothing to fix, but not ready either");
+  assert.equal(run({ today: "2026-09-21" }).ready, true);
 });
 
 test("0.6: store hours edited inside the window are warned about", () => {
@@ -390,8 +407,9 @@ test("1.5: a short unscheduled punch that a cover GUESS joins to somebody else's
     clock_out_at: at("2026-09-16", "12:00"),
   });
   const result = run({ shifts: [caseysShift], punches: [drewsPunch] });
-  const cover = only(result.findings, "1.10")[0];
-  assert.match(cover.resolution ?? "", /Covered Bravo, Casey's shift/, "still paid as a cover");
+  const [view] = buildPunchViews({ punches: [drewsPunch], shifts: [caseysShift], shiftTypes: SHIFT_TYPES, profiles: PROFILES });
+  assert.equal(view.match, "cover", "still paid as a cover");
+  assert.equal(view.coverFor, "Bravo, Casey");
   assert.deepEqual(only(result.findings, "1.5"), []);
 });
 
@@ -429,8 +447,8 @@ test("1.5: a short punch on the person's OWN shift with no shift_id is still a s
   const f = only(result.findings, "1.5");
   assert.equal(f.length, 1);
   assert.equal(f[0].status, "needs_fix");
-  const join = only(result.findings, "1.10")[0];
-  assert.match(join.resolution ?? "", /Joined to their own shift/, "her own shift, not a cover");
+  const [view] = buildPunchViews({ punches: [drewsPunch], shifts: [drewsShift], shiftTypes: SHIFT_TYPES, profiles: PROFILES });
+  assert.equal(view.match, "person_date", "her own shift, not a cover");
 });
 
 // --- §1.6 test punch --------------------------------------------------------
@@ -877,7 +895,14 @@ test("1.9: a Catering punch is off-site and cannot be the night's closer", () =>
   assert.match(f.summary, /Sample, Drew at 6:00 PM/);
 });
 
-// --- §1.10 cover punches ----------------------------------------------------
+// --- §1.10 cover matching (no longer a finding) ---------------------------
+//
+// The ladder still decides which shift a blank-shift_id punch was worked
+// against, because 1.4, 1.5, 1.6, 1.8 and 1.9 read it. It is just not shown.
+
+function views(shifts: ShiftRow[], punches: PunchRow[]) {
+  return buildPunchViews({ punches, shifts, shiftTypes: SHIFT_TYPES, profiles: PROFILES });
+}
 
 test("1.10: a blank shift_id joins to that person's own shift that day first", () => {
   const own = shift({
@@ -886,15 +911,10 @@ test("1.10: a blank shift_id joins to that person's own shift that day first", (
     ends_at: at("2026-09-15", "19:00"),
     position: "PENN Opener",
   });
-  const result = run({
-    shifts: [own],
-    punches: [
-      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:02"), clock_out_at: at("2026-09-15", "19:05") }),
-    ],
-  });
-  const f = only(result.findings, "1.10")[0];
-  assert.match(f.resolution ?? "", new RegExp(`own shift ${own.id}`));
-  assert.deepEqual(f.evidence.shift_ids, [own.id]);
+  const p = punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:02"), clock_out_at: at("2026-09-15", "19:05") });
+  const [v] = views([own], [p]);
+  assert.equal(v.match, "person_date");
+  assert.equal(v.shift?.id, own.id);
 });
 
 test("1.10: with no shift of their own, the punch joins an unworked shift that brackets it, and names the swap", () => {
@@ -906,15 +926,11 @@ test("1.10: with no shift of their own, the punch joins an unworked shift that b
     ends_at: at("2026-09-15", "22:00"),
     position: "PENN Closer",
   });
-  const result = run({
-    shifts: [caseysShift],
-    punches: [
-      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "15:05"), clock_out_at: at("2026-09-15", "22:10") }),
-    ],
-  });
-  const f = only(result.findings, "1.10")[0];
-  assert.match(f.resolution ?? "", /Covered Bravo, Casey's shift/);
-  assert.deepEqual(f.evidence.shift_ids, [caseysShift.id]);
+  const p = punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "15:05"), clock_out_at: at("2026-09-15", "22:10") });
+  const [v] = views([caseysShift], [p]);
+  assert.equal(v.match, "cover");
+  assert.equal(v.coverFor, "Bravo, Casey");
+  assert.equal(v.shift?.id, caseysShift.id);
 });
 
 test("1.10: a shift its own person punched is not available to be covered", () => {
@@ -924,32 +940,25 @@ test("1.10: a shift its own person punched is not available to be covered", () =
     ends_at: at("2026-09-15", "22:00"),
     position: "PENN Closer",
   });
-  const result = run({
-    shifts: [caseysShift],
-    punches: [
-      punch({
-        employee_id: CASEY,
-        shift_id: caseysShift.id,
-        clock_in_at: at("2026-09-15", "15:00"),
-        clock_out_at: at("2026-09-15", "22:00"),
-      }),
-      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "15:05"), clock_out_at: at("2026-09-15", "22:10") }),
-    ],
+  const caseys = punch({
+    employee_id: CASEY,
+    shift_id: caseysShift.id,
+    clock_in_at: at("2026-09-15", "15:00"),
+    clock_out_at: at("2026-09-15", "22:00"),
   });
-  const drew = only(result.findings, "1.10")[0];
-  assert.match(drew.summary, /no shift was found for it/);
+  const drews = punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "15:05"), clock_out_at: at("2026-09-15", "22:10") });
+  const drew = views([caseysShift], [caseys, drews]).find((v) => v.row.id === drews.id)!;
+  assert.equal(drew.match, "none");
+  assert.equal(drew.shift, null);
 });
 
-test("1.10: a punch with no shift anywhere says so, and is paid as punched", () => {
-  const result = run({
-    punches: [
-      punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "17:00") }),
-    ],
-  });
-  const f = only(result.findings, "1.10")[0];
-  assert.equal(f.severity, "warn");
-  assert.match(f.resolution ?? "", /paid as punched/);
-  assert.equal(f.status, "auto_resolved");
+test("1.10: a punch with no shift anywhere is left unscheduled, and is paid as punched", () => {
+  const p = punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00"), clock_out_at: at("2026-09-15", "14:00") });
+  const [v] = views([], [p]);
+  assert.equal(v.match, "none");
+  const result = run({ punches: [p] });
+  assert.equal(result.findings.length, 0, "a 3h punch with no shift needs nothing");
+  assert.equal(result.ready, true);
 });
 
 // --- §1.11 / §1.12 catering -------------------------------------------------
@@ -1056,105 +1065,6 @@ test("1.12: a cover punch with no shift_id is not crew for the event it happened
   const found = only(result.findings, "1.12");
   assert.match(found[0].summary, /0 of 1 crew punched/);
   assert.equal(found[1].key, `1.12:unpunched:deal:25391:${JAMIE}`);
-});
-
-// --- §1.13 deleted rows -----------------------------------------------------
-
-test("1.13: no audit table blocks the button — 'nothing deleted' and 'we cannot see' are not the same answer", () => {
-  const result = run({ auditDeletes: null });
-  const f = only(result.findings, "1.13")[0];
-  assert.equal(f.status, "needs_fix");
-  assert.match(f.summary, /no audit table/);
-  assert.equal(result.ready, false);
-});
-
-test("1.13: a punch deleted from inside the window is reported with who took it", () => {
-  // Jamie's 2026-09-10 punch, the one that vanished.
-  const deletion: AuditRow = {
-    id: 9,
-    table_name: "time_entries",
-    row_id: 1271,
-    op: "DELETE",
-    at: at("2026-09-21", "09:12"),
-    actor_uid: PAT,
-    actor_role: "authenticated",
-    db_role: "authenticated",
-    before_image: {
-      id: 1271,
-      employee_id: JAMIE,
-      clock_in_at: at("2026-09-10", "10:00"),
-      clock_out_at: at("2026-09-10", "16:00"),
-    },
-  };
-  const result = run({ auditDeletes: [deletion] });
-  const f = only(result.findings, "1.13")[0];
-  assert.match(f.summary, /punch 1271 for Tester, Jamie/);
-  assert.match(f.summary, /deleted by Example, Pat/);
-  assert.deepEqual(f.evidence.punch_ids, [1271]);
-  assert.equal(f.status, "auto_resolved", "evidence, not a blocker: the manager decides what to do");
-});
-
-test("1.13: a deletion by the service-role key still names an actor", () => {
-  const deletion: AuditRow = {
-    id: 10,
-    table_name: "shifts",
-    row_id: 350,
-    op: "DELETE",
-    at: at("2026-09-21", "03:00"),
-    actor_uid: null,
-    actor_role: "service_role",
-    db_role: "service_role",
-    before_image: { id: 350, employee_id: CASEY, starts_at: at("2026-09-12", "13:30"), ends_at: at("2026-09-12", "18:00") },
-  };
-  const f = only(run({ auditDeletes: [deletion] }).findings, "1.13")[0];
-  assert.match(f.summary, /the service_role key/);
-  assert.deepEqual(f.evidence.shift_ids, [350]);
-});
-
-test("1.13: a deletion of a row dated outside the window is not this window's business", () => {
-  const deletion: AuditRow = {
-    id: 11,
-    table_name: "time_entries",
-    row_id: 900,
-    op: "DELETE",
-    at: at("2026-09-21", "09:00"),
-    actor_uid: PAT,
-    actor_role: "authenticated",
-    db_role: "authenticated",
-    before_image: { id: 900, employee_id: JAMIE, clock_in_at: at("2026-08-10", "10:00") },
-  };
-  assert.deepEqual(only(run({ auditDeletes: [deletion] }).findings, "1.13"), []);
-});
-
-test("1.13: a window that starts before auditing did says deletions before then cannot be seen", () => {
-  // Migration 25 goes live during the 09-21 to 10-04 period: its first days
-  // were never logged.
-  const result = run({ auditStartedAt: at("2026-09-28", "14:05") });
-  const f = only(result.findings, "1.13").find((x) => x.key === "1.13:coverage");
-  assert.ok(f, "the coverage limit is reported");
-  assert.equal(f.status, "auto_resolved", "a limit to report, not a blocker: the first live run starts before auditing");
-  assert.equal(f.severity, "warn");
-  assert.match(f.summary, /Auditing started Mon Sep 28/);
-  assert.match(f.summary, /deleted before then cannot be seen/);
-  assert.equal(result.ready, true);
-});
-
-test("1.13: auditing that started on the window's first day, after midnight, still leaves a gap", () => {
-  const f = only(run({ auditStartedAt: at("2026-09-07", "08:00") }).findings, "1.13");
-  assert.equal(f.length, 1);
-  assert.equal(f[0].key, "1.13:coverage");
-});
-
-test("1.13: a window that starts after auditing did has full coverage and says nothing about it", () => {
-  assert.deepEqual(only(run({ auditStartedAt: at("2026-09-06", "23:59") }).findings, "1.13"), []);
-});
-
-test("1.13: an audit table with no rows at all has recorded nothing yet, and says so", () => {
-  const f = only(run({ auditStartedAt: null }).findings, "1.13");
-  assert.equal(f.length, 1);
-  assert.equal(f[0].key, "1.13:coverage");
-  assert.match(f[0].summary, /no rows yet/);
-  assert.equal(f[0].status, "auto_resolved");
 });
 
 // --- §1.15 changes to a submitted run ---------------------------------------
@@ -1336,18 +1246,6 @@ test("1.15: once this run is submitted, later changes belong to the run after it
     auditChanges: [change],
   });
   assert.deepEqual(only(result.findings, "1.15"), []);
-});
-
-// --- §1.14 name hygiene -----------------------------------------------------
-
-test("1.14: a full_name containing '@' is the invite-flow bug, reported and not blocking", () => {
-  const result = run({
-    profiles: [...PROFILES, { id: "x", full_name: "someone@benjerryphilly.com", active: true }],
-  });
-  const f = only(result.findings, "1.14")[0];
-  assert.match(f.resolution ?? "", /qbo_employee_id, never a name/);
-  assert.equal(f.status, "auto_resolved");
-  assert.equal(result.ready, true);
 });
 
 // --- §3.5 crewless catering event -------------------------------------------
@@ -1574,6 +1472,120 @@ test("3.5: with no name passed in, the default is the one production is configur
   assert.equal(f.defaultPayee?.id, configured);
 });
 
+// --- everyone punches (Alina, 2026-10-05) ---------------------------------
+//
+// The designated tip payee's last day was 2026-10-04 and "everyone should be
+// punching". From the period starting CREW_PUNCH_REQUIRED_FROM, a catering
+// event whose scheduled crew did not punch, or that has no crew, is a fix
+// with no default, like 1.5: there is no crewless-tip payee and no "scheduled
+// but not crew" warning any more. Periods before it keep the old rules, so the
+// 09-21..10-04 run is paid exactly as it was.
+
+const FIRST_NEW: PayWindow = (() => {
+  const r = payWindowEnding("2026-10-18");
+  if (!r.ok) throw new Error(r.error);
+  return r.window;
+})();
+
+/** A booked event inside FIRST_NEW. */
+const GALA: DealRow = { id: 25300, event_date: "2026-10-07", staff_count: 2, company: "Example Gala", stage: "Booked Paid" };
+
+function galaShift(employeeId: string): ShiftRow {
+  return shift({
+    employee_id: employeeId,
+    starts_at: at("2026-10-07", "15:00"),
+    ends_at: at("2026-10-07", "18:00"),
+    position: "Catering",
+    deal_id: GALA.id,
+  });
+}
+
+function runAfter(over: Partial<VerifyInput> = {}) {
+  return run({ window: FIRST_NEW, today: "2026-10-19", windowDeals: [GALA], ...over });
+}
+
+test("everyone punches: the cutover is one date, and it is the period starting 2026-10-05", () => {
+  assert.equal(CREW_PUNCH_REQUIRED_FROM, "2026-10-05");
+  assert.equal(FIRST_NEW.start, CREW_PUNCH_REQUIRED_FROM);
+});
+
+test("everyone punches: an event with no crew on the schedule is a fix, with no default payee and no picker", () => {
+  const result = runAfter();
+  const f = only(result.findings, "3.5")[0];
+  assert.equal(f.key, "3.5:deal:25300");
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.severity, "error");
+  assert.equal(f.defaultChoice, undefined);
+  assert.equal(f.options, undefined);
+  assert.equal(f.candidates, undefined);
+  assert.equal(f.defaultPayee, undefined);
+  assert.equal(f.effective, undefined);
+  assert.match(f.summary, /Example Gala/);
+  assert.match(f.resolution ?? "", /Catering shift/);
+  assert.equal(result.counts.needsFix, 1);
+  assert.equal(result.counts.needsRuling, 0);
+  assert.equal(result.ready, false);
+});
+
+test("everyone punches: each scheduled person who did not punch for the event is a fix, by name", () => {
+  const casey = galaShift(CASEY);
+  const pat = galaShift(PAT);
+  const caseyPunch = punch({ employee_id: CASEY, shift_id: casey.id, clock_in_at: at("2026-10-07", "15:00"), clock_out_at: at("2026-10-07", "18:00") });
+  const result = runAfter({ shifts: [casey, pat], punches: [caseyPunch] });
+  const fixes = only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched"));
+  assert.deepEqual(fixes.map((f) => [f.key, f.status, f.severity]), [[`1.12:unpunched:deal:25300:${PAT}`, "needs_fix", "error"]]);
+  assert.equal(fixes[0].evidence.employee_id, PAT);
+  assert.deepEqual(fixes[0].evidence.shift_ids, [pat.id]);
+  assert.match(fixes[0].resolution ?? "", /Timesheets page/);
+  assert.deepEqual(only(result.findings, "3.5"), [], "the event has a crew: Casey punched");
+  assert.equal(result.ready, false);
+});
+
+test("everyone punches: an event whose scheduled crew nobody punched is fixed person by person, not twice", () => {
+  const pat = galaShift(PAT);
+  const result = runAfter({ shifts: [pat] });
+  assert.deepEqual(only(result.findings, "3.5"), [], "the 1.12 fix names the person; no second card for the event");
+  const fixes = only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched"));
+  assert.deepEqual(fixes.map((f) => f.status), ["needs_fix"]);
+  assert.equal(result.counts.needsFix, 1);
+  assert.equal(result.ready, false);
+});
+
+test("everyone punches: adding the missing punch clears the fix", () => {
+  const pat = galaShift(PAT);
+  const added = punch({ employee_id: PAT, shift_id: pat.id, clock_in_at: at("2026-10-07", "15:00"), clock_out_at: at("2026-10-07", "18:00") });
+  const result = runAfter({ shifts: [pat, galaShift(CASEY)], punches: [added, punch({ employee_id: CASEY, clock_in_at: at("2026-10-07", "15:00"), clock_out_at: at("2026-10-07", "18:00") })] });
+  assert.equal(result.counts.needsFix, 0);
+  assert.equal(result.ready, true);
+});
+
+test("everyone punches: a recorded choice cannot answer the fix", () => {
+  const result = runAfter({ rulings: [{ check_id: "3.5", finding_key: "3.5:deal:25300", choice: "staff", payee_id: PAT }] });
+  const f = only(result.findings, "3.5")[0];
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.ruling, undefined);
+  assert.equal(result.ready, false);
+});
+
+test("everyone punches: the 09-21..10-04 run keeps today's rules — crewless events default to the tip payee", () => {
+  assert.ok(NEXT.start < CREW_PUNCH_REQUIRED_FROM);
+  const event: DealRow = { id: 25200, event_date: "2026-09-30", staff_count: 1, company: "Example Lunch", stage: "Booked Paid" };
+  const scheduled = shift({
+    employee_id: CASEY,
+    starts_at: at("2026-09-30", "11:00"),
+    ends_at: at("2026-09-30", "14:00"),
+    position: "Catering",
+    deal_id: event.id,
+  });
+  const result = run({ window: NEXT, today: "2026-10-05", windowDeals: [event, { ...event, id: 25201, event_date: "2026-10-01", company: "Example Brunch" }], shifts: [scheduled] });
+  const crewless = only(result.findings, "3.5");
+  assert.deepEqual(crewless.map((f) => [f.key, f.status]), [["3.5:deal:25200", "needs_ruling"], ["3.5:deal:25201", "needs_ruling"]]);
+  for (const f of crewless) assert.deepEqual(f.effective?.payee, { id: PAT, name: "Example, Pat" });
+  const unpunched = only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched"));
+  assert.deepEqual(unpunched.map((f) => f.status), ["auto_resolved"]);
+  assert.equal(result.ready, true);
+});
+
 // --- §3.7 no bake shift ----------------------------------------------------
 
 test("3.7: an open period with no Pastry Opener shift worked is a schedule anomaly with a picker", () => {
@@ -1676,8 +1688,8 @@ test("§1: findings are grouped by check, in spec order, and only non-empty grou
     punches: [punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00") })],
   });
   // An open punch with no shift: 1.1 detects it, 1.4 blocks it (ruled 2026-09-27).
-  assert.deepEqual(result.groups.map((g) => g.check), ["0.1", "1.1", "1.4", "1.10"]);
-  assert.equal(result.groups[1].rule, "clock_out IS NULL inside window");
+  assert.deepEqual(result.groups.map((g) => g.check), ["1.1", "1.4"]);
+  assert.equal(result.groups[0].rule, "clock_out IS NULL inside window");
 });
 
 test("§1: every option a finding offers is in the API's ruling vocabulary", () => {
