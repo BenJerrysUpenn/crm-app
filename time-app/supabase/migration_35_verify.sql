@@ -9,11 +9,18 @@
 --
 -- WHAT IS CHECKED
 --   1. A short punch with no shift_id, inside somebody else's unpunched shift
---      (a 1.10 cover), is not a 1.5 blocker.
+--      (a 1.10 cover), is not a 1.5 blocker. The person punches again the next
+--      day, so this check does not lean on change b: in migration 27 the same
+--      punch IS a 1.5 blocker.
 --   2. The same punch with that shift as its shift_id is a 1.5 blocker.
 --   3. A short punch inside the person's own shift that day, no shift_id, is
 --      still a 1.5 blocker.
---   4. The function is still not executable by any API role.
+--   4. The same punch as the person's latest punch (no next punch) is still a
+--      1.5 blocker: a missing next punch is not a runaway.
+--   5. 1.4 still counts a cover as a match: a closed runaway punch (next punch
+--      within 5 seconds of its clock-out) inside somebody else's unpunched
+--      shift is not a 1.4 blocker.
+--   6. The function is still not executable by any API role.
 -- ============================================================================
 
 begin;
@@ -27,6 +34,7 @@ declare
   v_punch  bigint;
   v_shift  bigint;
   v_own    bigint;
+  v_next   bigint;
   n        integer;
   r        text;
 begin
@@ -49,6 +57,12 @@ begin
                (v_day + time '13:00') at time zone 'America/New_York', 'closed')
   returning id into v_punch;
 
+  -- The person punches again the next day, so v_punch is not their latest.
+  insert into public.time_entries (employee_id, clock_in_at, clock_out_at, status)
+  values (emp, (v_day + 1 + time '12:00') at time zone 'America/New_York',
+               (v_day + 1 + time '14:00') at time zone 'America/New_York', 'closed')
+  returning id into v_next;
+
   -- ---- 1. a cover is not a short punch -----------------------------------------
   select count(*) into n from public.payroll_punch_blockers(v_end) b
    where b.check_id = '1.5' and b.punch_id = v_punch;
@@ -70,7 +84,22 @@ begin
    where b.check_id = '1.5' and b.punch_id = v_punch;
   if n <> 1 then raise exception 'a short punch inside the person''s own shift is not a 1.5 blocker'; end if;
 
-  -- ---- 4. still not callable from the API --------------------------------------
+  -- ---- 4. the person's latest punch is tested too -----------------------------
+  delete from public.time_entries where id = v_next;
+  select count(*) into n from public.payroll_punch_blockers(v_end) b
+   where b.check_id = '1.5' and b.punch_id = v_punch;
+  if n <> 1 then raise exception 'a short punch that is the person''s latest is not a 1.5 blocker'; end if;
+
+  -- ---- 5. 1.4 still matches a runaway punch to a cover ------------------------
+  delete from public.shifts where id = v_own;
+  insert into public.time_entries (employee_id, clock_in_at, clock_out_at, status)
+  values (emp, (v_day + time '13:00:03') at time zone 'America/New_York',
+               (v_day + time '15:00') at time zone 'America/New_York', 'closed');
+  select count(*) into n from public.payroll_punch_blockers(v_end) b
+   where b.check_id = '1.4' and b.punch_id = v_punch;
+  if n <> 0 then raise exception 'a runaway punch matched only as a cover is a 1.4 blocker'; end if;
+
+  -- ---- 6. still not callable from the API --------------------------------------
   foreach r in array array['anon', 'authenticated', 'service_role'] loop
     if has_function_privilege(r, 'public.payroll_punch_blockers(date)', 'execute') then
       raise exception '% can execute payroll_punch_blockers(date)', r;
