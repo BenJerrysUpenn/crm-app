@@ -58,7 +58,8 @@ Every finding is one of:
 - **Needs a fix** — the data is wrong and no choice can make it right. Fix it in
   the app and press Verify again. This includes **1.4** (a runaway punch with no
   scheduled shift, or an open punch with no scheduled shift, ruled 2026-09-27)
-  and **1.5** (a punch under 25% of its scheduled shift): they
+  and **1.5** (a punch under 25% of its scheduled shift, meaning the person's
+  own shift or the one its `shift_id` names, never a 1.10 cover guess): they
   have **no default and no picker** (ruled 2026-09-22, ruling D). The punch is
   corrected on the Timesheets page.
 
@@ -130,7 +131,7 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 | 1.3 | Clock-out within 5s of the same person's next clock-in | rule → 1.4 |
 | 1.4 | Truncation — with a shift, cut to the scheduled end | rule |
 | 1.4 | Truncation — with **no** shift, or an open punch with no shift | **fix**: correct the punch (no default) |
-| 1.5 | Punch under 25% of its scheduled shift | **fix**: correct the punch (no default) |
+| 1.5 | Punch under 25% of its scheduled shift (the person's own shift, or the one its `shift_id` names; never a guessed cover) | **fix**: correct the punch (no default) |
 | 1.6 | Under 5 min with nothing scheduled | rule: 0 hours, listed |
 | 1.7 | Same person, overlapping punches | **fix** |
 | 1.8 | Opening hours with no in-store punch running, ≥15 min | rule, warning |

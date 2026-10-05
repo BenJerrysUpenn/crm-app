@@ -367,7 +367,7 @@ const RULES: Record<string, { title: string; rule: string }> = {
   },
   "1.5": {
     title: "Short punch on a scheduled shift",
-    rule: "punch < 25% of scheduled length → no default: correct the punch in Withers-time. The run cannot be submitted until it is fixed (ruled 2026-09-22).",
+    rule: "punch < 25% of scheduled length, on the person's own shift or the shift its shift_id names → no default: correct the punch in Withers-time. The run cannot be submitted until it is fixed (ruled 2026-09-22). A cover the 1.10 ladder only guessed is never a short punch: it is paid as punched (2026-10-05).",
   },
   "1.6": { title: "Test punch", rule: "< 5 min AND no scheduled shift → 0h, listed" },
   "1.7": { title: "Overlaps", rule: "same person, overlapping intervals" },
@@ -853,12 +853,19 @@ function checkTruncation(runaways: PunchView[], reasons: Map<number, string[]>):
  * default — the two answers differ by nearly a full shift's pay — and no
  * picker either (ruling D, 2026-09-22): the punch is corrected in
  * Withers-time, and until it is the run cannot be submitted.
+ *
+ * Only the person's own shift (match "person_date") or the shift the punch's
+ * shift_id names (match "explicit") is a basis. A "cover" match is the 1.10
+ * ladder's guess at a shift the punch might have filled; a short unscheduled
+ * punch it happens to bracket was never meant to fill that shift, so it is
+ * paid as punched and never blocks (2026-10-05 pay run: four false blockers).
  */
 function checkShortPunches(views: PunchView[], window: PayWindow, runawayIds: Set<number>): Finding[] {
   const out: Finding[] = [];
   for (const v of views) {
     if (!inWindow(v.date, window)) continue;
     if (v.hours === null || !v.shift) continue;
+    if (v.match !== "explicit" && v.match !== "person_date") continue; // a cover is a guess, not a schedule
     if (runawayIds.has(v.row.id)) continue; // a long punch is not also a short one
     const scheduled = scheduledHours(v.shift);
     if (scheduled <= 0) continue;

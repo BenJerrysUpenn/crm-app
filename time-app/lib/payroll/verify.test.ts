@@ -374,6 +374,65 @@ test("1.5: a short punch with NOTHING scheduled is not a short punch — there i
   assert.deepEqual(only(result.findings, "1.5"), []);
 });
 
+test("1.5: a short unscheduled punch that a cover GUESS joins to somebody else's shift is not a short punch", () => {
+  // 2026-09-23 live run: an off-site worker with no shifts punched 2.6h, and
+  // the 1.10 ladder guessed it covered a colleague's unpunched 10.5h Catering
+  // shift. She was never meant to fill it; her punch is paid as punched.
+  const caseysShift = shift({
+    employee_id: CASEY,
+    starts_at: at("2026-09-16", "08:00"),
+    ends_at: at("2026-09-16", "18:30"),
+    position: "Catering",
+  });
+  const drewsPunch = punch({
+    employee_id: DREW,
+    clock_in_at: at("2026-09-16", "09:23"),
+    clock_out_at: at("2026-09-16", "12:00"),
+  });
+  const result = run({ shifts: [caseysShift], punches: [drewsPunch] });
+  const cover = only(result.findings, "1.10")[0];
+  assert.match(cover.resolution ?? "", /Covered Bravo, Casey's shift/, "still paid as a cover");
+  assert.deepEqual(only(result.findings, "1.5"), []);
+});
+
+test("1.5: the same short punch WITH an explicit shift_id on that shift is still a short punch", () => {
+  const caseysShift = shift({
+    employee_id: CASEY,
+    starts_at: at("2026-09-16", "08:00"),
+    ends_at: at("2026-09-16", "18:30"),
+    position: "Catering",
+  });
+  const drewsPunch = punch({
+    employee_id: DREW,
+    shift_id: caseysShift.id,
+    clock_in_at: at("2026-09-16", "09:23"),
+    clock_out_at: at("2026-09-16", "12:00"),
+  });
+  const result = run({ shifts: [caseysShift], punches: [drewsPunch] });
+  const f = only(result.findings, "1.5");
+  assert.equal(f.length, 1);
+  assert.equal(f[0].status, "needs_fix");
+});
+
+test("1.5: a short punch on the person's OWN shift with no shift_id is still a short punch", () => {
+  const drewsShift = shift({
+    employee_id: DREW,
+    starts_at: at("2026-09-16", "08:00"),
+    ends_at: at("2026-09-16", "18:30"),
+  });
+  const drewsPunch = punch({
+    employee_id: DREW,
+    clock_in_at: at("2026-09-16", "09:23"),
+    clock_out_at: at("2026-09-16", "10:00"), // 37m of a 10.5h shift
+  });
+  const result = run({ shifts: [drewsShift], punches: [drewsPunch] });
+  const f = only(result.findings, "1.5");
+  assert.equal(f.length, 1);
+  assert.equal(f[0].status, "needs_fix");
+  const join = only(result.findings, "1.10")[0];
+  assert.match(join.resolution ?? "", /Joined to their own shift/, "her own shift, not a cover");
+});
+
 // --- §1.6 test punch --------------------------------------------------------
 
 test("1.6: under 5 minutes with nothing scheduled is 0 hours, and listed", () => {
