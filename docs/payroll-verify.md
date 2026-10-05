@@ -73,7 +73,7 @@ manager** can give it (`POST /api/payroll/submit`, the button on the Finance
 tab). It is refused until the button above is green. While any 1.4 or 1.5
 punch is uncorrected, Submit is disabled and the reason names each punch; the
 submit route refuses it (409), and migration 27's trigger refuses it in the
-database (`payroll_punch_blockers()`). It stores a snapshot of
+database (`payroll_punch_blockers()`, as migration 35 redefines it). It stores a snapshot of
 every case's effective choice, defaults included, in `payroll_run_submittals`.
 The payroll sheet (bj-finance `modules/payroll_sheet.py`) will not produce a
 keyable sheet until the run is submitted.
