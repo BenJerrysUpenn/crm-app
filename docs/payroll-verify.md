@@ -14,7 +14,7 @@ the person, with both options costed before they are shown.
 | Piece | Path |
 | --- | --- |
 | The rulebook (pure, tested) | `time-app/lib/payroll/verify.ts` |
-| The pay window (§0.1) | `time-app/lib/payroll/window.ts` |
+| The pay window | `time-app/lib/payroll/window.ts` |
 | Choice rules, submittal snapshot (pure, tested) | `time-app/lib/payroll/choices.ts` |
 | Loader shared by the routes | `time-app/lib/payroll/loadVerify.ts` |
 | Findings endpoint | `GET /api/payroll/verify?window_end=YYYY-MM-DD` |
@@ -61,7 +61,11 @@ Every finding is one of:
   and **1.5** (a punch under 25% of its scheduled shift, meaning the person's
   own shift or the one its `shift_id` names, never a 1.10 cover guess): they
   have **no default and no picker** (ruled 2026-09-22, ruling D). The punch is
-  corrected on the Timesheets page.
+  corrected on the Timesheets page. From the pay period starting
+  **2026-10-05** this also includes **1.12** (a person scheduled on a catering
+  event who did not punch for it) and **3.5** (a booked event with no crew on
+  the schedule): everyone punches (ruled 2026-10-05), so there is no default
+  payee for those either.
 
 **The button is green when there is nothing to fix and every case is answered
 by a recorded choice or its default.**
@@ -108,8 +112,9 @@ migration 27).
 **Flags** never block; they are shown to the submitter and on the sheet:
 
 - 1.9 — a night paid to the manager who changed its dropdown.
-- 3.5 / 3.7 — a crewless catering tip or stranded Olo tip paid to the manager
-  who submitted the run, whether by default or by a change.
+- 3.5 / 3.7 — a crewless catering tip (periods before 2026-10-05 only) or
+  stranded Olo tip paid to the manager who submitted the run, whether by
+  default or by a change.
 - 3.4 — an invoice tip that joins to no deal, **from any point in history**
   (ruled 2026-09-22, ruling A). The Finance tab reads these from `held_tips`
   rows with no `deal_id` (migration 26); the payroll sheet lists every one it
@@ -123,7 +128,6 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 
 | # | Check | Outcome |
 | --- | --- | --- |
-| 0.1 | Pay window | rule (blocks if the period has not finished) |
 | 0.6 | `store_hours` edited inside the window | rule, warning |
 | 1.1 | Open punch (`clock_out IS NULL`) with a scheduled shift | **fix** |
 | 1.1 | Open punch with **no** scheduled shift | rule → 1.4 |
@@ -136,15 +140,31 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 | 1.7 | Same person, overlapping punches | **fix** |
 | 1.8 | Opening hours with no in-store punch running, ≥15 min | rule, warning |
 | 1.9 | Solo-close eligible nights only: last in-store clock-out >2h before close, or a solo tail ≥4h with the closer out before 10 PM (2.4 qualifying) | **choice on the schedule**: pay scheduled closer / pay unpunched manager / skip (**default: skip**) |
-| 1.10 | Blank `shift_id` — own shift, then a cover swap | rule |
 | 1.11 | Catering shift with no `deal_id` | rule (a scheduling-time flag) |
-| 1.12 | Fewer crew punched than `deals.staff_count`; each person scheduled on an event who did not punch for it, by name | rule, warning (never blocks) |
-| 1.13 | Rows deleted from inside the window | rule; **fix** when there is no audit table |
-| 1.14 | `full_name` containing `@` | rule, warning |
+| 1.12 | Fewer crew punched than `deals.staff_count` | rule, warning (never blocks) |
+| 1.12 | Each person scheduled on an event who did not punch for it, by name | periods starting **2026-10-05** on: **fix**, add their punch (no default). Before: rule, warning |
 | 1.15 | A punch or shift in a submitted run changed after its submittal | rule, warning (never blocks) |
 | 3.4 | Invoice tip with no deal, any date | rule, **flag** (never blocks) |
-| 3.5 | Booked event in the window that nobody punched for | **choice**: who is paid its tip (**default: the designated tip payee, `DEFAULT_TIP_PAYEE_NAME`**); also the upstream warning to add the shift |
+| 3.5 | Booked event in the window that nobody punched for | periods starting **2026-10-05** on: **fix** when the event has no crew on the schedule (add its Catering shift and punches; no default). An event whose scheduled crew did not punch is 1.12's fix instead. Before: **choice**: who is paid its tip (**default: the designated tip payee, `DEFAULT_TIP_PAYEE_NAME`**) |
 | 3.7 | No Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: the designated tip payee**); a schedule anomaly (norm ≥ 4 a period) |
+
+**Not reported** (Alina, 2026-10-05: "useless, kill these"): 0.1 pay window,
+1.10 cover punches, 1.13 deleted rows and 1.14 name hygiene. They are not
+findings and do not count in the summary. The window is still computed by
+`window.ts` and shown in the page header, and an unfinished period is still
+not ready and cannot be submitted. Blank-`shift_id` punches are still matched
+to their own shift or a cover (the 1.10 ladder), because pay depends on it.
+
+**Everyone punches** (ruled 2026-10-05). The designated tip payee's last day
+was 2026-10-04. For a pay period that **starts on or after
+`CREW_PUNCH_REQUIRED_FROM`** (`time-app/lib/payroll/verify.ts`, 2026-10-05) a
+catering event whose scheduled crew did not punch, or that has no crew, is a
+fix with no default, like 1.5. Each scheduled person with no punch is a 1.12
+fix; an event with nobody on its schedule is a 3.5 fix. The 2026-09-21 to
+10-04 run keeps the old rules: its crewless events still default to the tip
+payee. Moving the cutover is a one-line change to that constant. The database
+submittal trigger (migration 27) does not enforce this rule; the Submit button
+and route do.
 
 Notes on the ones that surprise people:
 
@@ -164,19 +184,15 @@ Notes on the ones that surprise people:
   event's crew only if they punched for it: a punch on the event's Catering
   shift by `shift_id`, or a manual punch (no `shift_id`) by the person
   scheduled on that shift, on the same date, overlapping it. Scheduled with no
-  punch is not crew: 1.12 names them (never a block), and an event nobody
-  punched for is 3.5's crewless case. The event's Catering shifts are the ones
+  punch is not crew: 1.12 names them (a block from the period starting
+  2026-10-05, never before), and an event nobody punched for is 3.5's
+  crewless case. The event's Catering shifts are the ones
   linked by `shifts.deal_id`, or when there are none, the Catering shifts on the
   event date. The payroll sheet in bj-finance uses the same definition for the
   tip split.
 - **3.5 cannot see the tip.** The tip arrives on a Square invoice, which this app
   does not read, so it asks about every crewless booked event; the payroll sheet
   applies the pick only where there is a tip.
-- **1.13 blocks when the audit table is missing.** "Nothing was deleted" and "a
-  deletion would have left no trace" are different answers, and the second is
-  what the 2026-09-23 run had. Auditing starts with the first `row_audit` row;
-  a window that begins before it gets a warning that deletions from before then
-  cannot be seen (not a block: the first live run starts before auditing).
 - **1.15 reports, it never refuses.** Writes to `time_entries` and `shifts` are
   never blocked, even for a submitted period: the clock-in path must not fail,
   and Withers-time closes a forgotten clock-out at the next clock-in. Every
@@ -193,7 +209,7 @@ Notes on the ones that surprise people:
 
 | Migration | What it is for |
 | --- | --- |
-| `time-app/supabase/migration_25.sql` | `row_audit` + triggers — 1.13 |
+| `time-app/supabase/migration_25.sql` | `row_audit` + triggers — 1.15 reads it |
 | `time-app/supabase/migration_26.sql` | `profiles.qbo_employee_id`, `profiles.pay_type`, `held_tips` — spec 2.5, 3.6 |
 | `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is submitted) and `payroll_run_submittals` (final; `status` is the §6 seam) |
 | `time-app/supabase/migration_28.sql` | extends migration 26's profile guard: an employee cannot change their own `hourly_rate` or `active` either (managers and the service role still can) |
@@ -202,7 +218,7 @@ All four are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_2N_verify.sql` to run afterwards (in a
 transaction that rolls back) and a `migration_2N_down.sql` that reverses it;
 the header of each down script says what data it loses. Roll back in reverse
-order: 28, then 27, then 26, then 25. Until 25 is applied, Verify reports 1.13 as a blocker; until 27
+order: 28, then 27, then 26, then 25. Until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 
 ## Not built yet
