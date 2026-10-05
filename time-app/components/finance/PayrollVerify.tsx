@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import type { CheckGroup, Finding } from "@/lib/payroll/verify";
+import type { CheckGroup, Finding, Person } from "@/lib/payroll/verify";
 import type { LoadedVerify } from "@/lib/payroll/loadVerify";
 import { submittalBlocker, paysSubmitter } from "@/lib/payroll/choices";
 import { recordChoice, resetChoice } from "./choiceApi";
 import SoloCloseNights from "@/components/SoloCloseNights";
+import PunchFixForm from "./PunchFixForm";
 
 // The Verify timesheets screen (bj-finance #519, payroll spec §1).
 //
@@ -27,6 +28,11 @@ import SoloCloseNights from "@/components/SoloCloseNights";
 // case is shown read-only. The QBO staging script (§6) is not built, so the
 // screen says what does happen: the run is submitted and locked, and the pay
 // run is then keyed in QBO by hand (ruled 2026-09-27).
+//
+// A finding a punch can fix (1.1, 1.4, 1.5 edit a punch; 1.8, 1.12, 3.5 add
+// one) carries a fix form (PunchFixForm, 2026-10-05). It writes through the
+// Timesheets routes and then verifies again, so the page never patches a
+// finding itself.
 
 type ApiResult = LoadedVerify;
 
@@ -150,7 +156,15 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
             onSaved={() => verify(result.window.end)}
           />
           {result.groups.map((group) => (
-            <GroupCard key={group.check} group={group} busy={busy} onRule={rule} onClear={unrule} />
+            <GroupCard
+              key={group.check}
+              group={group}
+              busy={busy}
+              staff={result.staff}
+              onRule={rule}
+              onClear={unrule}
+              onFixed={() => verify(result.window.end)}
+            />
           ))}
         </>
       )}
@@ -315,13 +329,17 @@ function SubmitPanel({
 function GroupCard({
   group,
   busy,
+  staff,
   onRule,
   onClear,
+  onFixed,
 }: {
   group: CheckGroup;
   busy: boolean;
+  staff: Person[];
   onRule: (finding: Finding, choice: string, payeeId: string | null, note: string) => void;
   onClear: (finding: Finding) => void;
+  onFixed: () => Promise<void>;
 }) {
   return (
     <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
@@ -337,7 +355,7 @@ function GroupCard({
       <ul className="divide-y divide-slate-200 dark:divide-slate-800">
         {group.findings.map((f) => (
           <li key={f.key} className="px-4 py-3">
-            <FindingRow finding={f} busy={busy} onRule={onRule} onClear={onClear} />
+            <FindingRow finding={f} busy={busy} staff={staff} onRule={onRule} onClear={onClear} onFixed={onFixed} />
           </li>
         ))}
       </ul>
@@ -348,13 +366,17 @@ function GroupCard({
 function FindingRow({
   finding,
   busy,
+  staff,
   onRule,
   onClear,
+  onFixed,
 }: {
   finding: Finding;
   busy: boolean;
+  staff: Person[];
   onRule: (finding: Finding, choice: string, payeeId: string | null, note: string) => void;
   onClear: (finding: Finding) => void;
+  onFixed: () => Promise<void>;
 }) {
   const hasDefault = !!finding.defaultChoice;
 
@@ -377,11 +399,15 @@ function FindingRow({
         {finding.status === "needs_fix" && (
           <div className="mt-1 text-xs text-rose-500">
             {finding.check === "1.4" || finding.check === "1.5"
-              ? "Correct this punch on the Timesheets page, then verify again. There is no default, and the run cannot be submitted until it is fixed."
+              ? "Correct this punch below or on the Timesheets page. There is no default, and the run cannot be submitted until it is fixed."
               : finding.check === "1.12" || finding.check === "3.5"
-                ? "Everyone punches: add the missing punch on the Timesheets page, then verify again. There is no default, and the run cannot be submitted until it is fixed."
+                ? "Everyone punches: add the missing punch below or on the Timesheets page. There is no default, and the run cannot be submitted until it is fixed."
                 : "Fix this in the app, then verify again. No ruling can stand in for it."}
           </div>
+        )}
+
+        {finding.fix && (
+          <PunchFixForm key={finding.key} fix={finding.fix} staff={staff} busy={busy} onFixed={onFixed} />
         )}
 
         {finding.check === "3.4" && (

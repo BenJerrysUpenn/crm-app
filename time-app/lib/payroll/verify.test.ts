@@ -26,6 +26,8 @@ import {
   lockingWindow,
   sameNameWords,
   verifyTimesheets,
+  nyInputToIso,
+  wallClockInput,
   type SubmittalRow,
   type AuditRow,
   type DealRow,
@@ -1732,4 +1734,113 @@ test("§1: every option a finding offers is in the API's ruling vocabulary", () 
     }
     if (f.defaultChoice) assert.ok(allowed.includes(f.defaultChoice));
   }
+});
+
+// --- inline punch fixes (Alina, 2026-10-05) ---------------------------------
+//
+// A finding that needs a punch fixed carries what the page needs to fix it in
+// place: the punch to edit, or the punch to add (who, when, which shift). The
+// page writes through the Timesheets routes and runs Verify again; nothing
+// here writes. Times are New York wall clock, as datetime-local values.
+
+test("fix: an open punch with no shift (1.4) is fixed by editing that punch", () => {
+  const open = punch({ employee_id: DREW, clock_in_at: at("2026-09-15", "11:00") });
+  const f = only(run({ punches: [open] }).findings, "1.4")[0];
+  assert.deepEqual(f.fix, {
+    kind: "edit",
+    punch: { id: open.id, employee_id: DREW, employee_name: "Sample, Drew", clock_in: "2026-09-15T11:00", clock_out: null },
+  });
+});
+
+test("fix: an open punch with a shift (1.1) and a runaway with no shift (1.4) are edits too", () => {
+  const scheduled = shift({ employee_id: CASEY, starts_at: at("2026-09-16", "11:00"), ends_at: at("2026-09-16", "17:00") });
+  const open = punch({ employee_id: CASEY, shift_id: scheduled.id, clock_in_at: at("2026-09-16", "11:00") });
+  const runaway = punch({ employee_id: DREW, clock_in_at: at("2026-09-14", "11:00"), clock_out_at: at("2026-09-15", "06:00") });
+  const result = run({ shifts: [scheduled], punches: [open, runaway] });
+  assert.equal(only(result.findings, "1.1")[0].fix?.kind, "edit");
+  const r = only(result.findings, "1.4").find((x) => x.status === "needs_fix")!;
+  assert.deepEqual(r.fix, {
+    kind: "edit",
+    punch: { id: runaway.id, employee_id: DREW, employee_name: "Sample, Drew", clock_in: "2026-09-14T11:00", clock_out: "2026-09-15T06:00" },
+  });
+});
+
+test("fix: a short punch (1.5) is fixed by editing it; a truncation by rule needs no fix", () => {
+  const scheduled = shift({ employee_id: CASEY, starts_at: at("2026-09-18", "15:00"), ends_at: at("2026-09-18", "22:00"), position: "PENN Closer" });
+  const short = punch({ employee_id: CASEY, shift_id: scheduled.id, clock_in_at: at("2026-09-18", "15:00"), clock_out_at: "2026-09-18T15:02:11-04:00" });
+  const long = shift({ employee_id: DREW, starts_at: at("2026-09-10", "08:00"), ends_at: at("2026-09-10", "16:00") });
+  const runaway = punch({ employee_id: DREW, shift_id: long.id, clock_in_at: at("2026-09-10", "08:00"), clock_out_at: at("2026-09-11", "02:00") });
+  const result = run({ shifts: [scheduled, long], punches: [short, runaway] });
+  assert.deepEqual(only(result.findings, "1.5")[0].fix, {
+    kind: "edit",
+    punch: { id: short.id, employee_id: CASEY, employee_name: "Bravo, Casey", clock_in: "2026-09-18T15:00", clock_out: "2026-09-18T15:02" },
+  });
+  const truncated = only(result.findings, "1.4")[0];
+  assert.equal(truncated.status, "auto_resolved");
+  assert.equal(truncated.fix, undefined);
+});
+
+test("fix: a coverage gap (1.8) is fixed by adding a punch over it, with that day's shifts to pick from", () => {
+  const closer = shift({ employee_id: CASEY, starts_at: at("2026-09-09", "15:00"), ends_at: at("2026-09-09", "22:00"), position: "PENN Closer" });
+  const result = run({
+    ...WED_ONLY,
+    shifts: [closer],
+    punches: [
+      punch({ employee_id: DREW, clock_in_at: at("2026-09-09", "11:00"), clock_out_at: at("2026-09-09", "15:00") }),
+      punch({ employee_id: CASEY, shift_id: closer.id, clock_in_at: at("2026-09-09", "17:00"), clock_out_at: at("2026-09-09", "22:00") }),
+    ],
+  });
+  const gap = only(result.findings, "1.8").find((f) => f.evidence.interval)!;
+  assert.deepEqual(gap.fix, {
+    kind: "add",
+    date: "2026-09-09",
+    clock_in: "2026-09-09T15:00",
+    clock_out: "2026-09-09T17:00",
+    shifts: [{ id: closer.id, label: "Bravo, Casey · PENN Closer 3:00 PM–10:00 PM" }],
+  });
+});
+
+test("fix: a wall-clock time at or past 24:00 rolls into the next day", () => {
+  assert.equal(wallClockInput("2026-09-09", "17:30"), "2026-09-09T17:30");
+  assert.equal(wallClockInput("2026-09-09", "24:00"), "2026-09-10T00:00");
+  assert.equal(wallClockInput("2026-09-30", "25:15"), "2026-10-01T01:15");
+});
+
+test("fix: a New York wall-clock value is written as the right instant, in summer and winter", () => {
+  assert.equal(nyInputToIso("2026-09-15T11:00"), "2026-09-15T15:00:00.000Z");
+  assert.equal(nyInputToIso("2026-11-15T11:00"), "2026-11-15T16:00:00.000Z");
+  assert.equal(nyInputToIso("2026-10-07T23:30"), "2026-10-08T03:30:00.000Z");
+  assert.equal(nyInputToIso(""), null);
+  assert.equal(nyInputToIso("2026-10-07"), null);
+});
+
+test("fix: an unpunched catering crew member (1.12) is fixed by adding their punch on their shift", () => {
+  const pat = galaShift(PAT);
+  const result = runAfter({ shifts: [pat] });
+  const f = only(result.findings, "1.12").find((x) => x.key.startsWith("1.12:unpunched"))!;
+  assert.equal(f.status, "needs_fix");
+  assert.deepEqual(f.fix, {
+    kind: "add",
+    date: "2026-10-07",
+    employee_id: PAT,
+    shift_id: pat.id,
+    clock_in: "2026-10-07T15:00",
+    clock_out: "2026-10-07T18:00",
+    shifts: [{ id: pat.id, label: "Example, Pat · Catering 3:00 PM–6:00 PM" }],
+  });
+});
+
+test("fix: an event with no crew (3.5, from 2026-10-05) is fixed by adding a punch on the event date", () => {
+  const f = only(runAfter().findings, "3.5")[0];
+  assert.deepEqual(f.fix, { kind: "add", date: "2026-10-07", shifts: [] });
+});
+
+test("fix: a choice, a flag or a report carries no fix", () => {
+  const result = run({ windowDeals: [CONSULTING] });
+  assert.ok(result.findings.length > 0);
+  for (const f of result.findings) assert.equal(f.fix, undefined, f.key);
+});
+
+test("fix: the result lists active staff for the add-a-punch picker", () => {
+  assert.deepEqual(run().staff.map((p) => p.id), [CASEY, PAT, DREW]);
 });
