@@ -226,4 +226,87 @@ test("a manager, even one off the roster, still adds a manual punch through the 
   assert.equal(punch.employee_id, EMPLOYEE);
   assert.equal(punch.clock_in_at, "2026-09-27T08:00:00Z");
   assert.equal(punch.manual, true);
+  assert.equal(punch.shift_id, null, "no shift named, none stored");
+});
+
+// ---- the payroll page's inline fixes (2026-10-05) --------------------------
+//
+// The payroll page fixes a punch in place through these same routes, under the
+// same manager check and the same row_audit triggers. Adding the punch a
+// catering crew member owes names the shift it was worked against, so the
+// verifier counts them as the event's crew.
+
+test("a manager adds a missing punch on a named shift", async () => {
+  db.signIn(MANAGER);
+
+  const res = await timesheet.POST(
+    post({ employee_id: EMPLOYEE, clock_in_at: "2026-10-07T19:00:00Z", clock_out_at: "2026-10-07T22:00:00Z", shift_id: 412 }),
+    noParams,
+  );
+
+  assert.equal(res.status, 200);
+  const [punch] = db.rows("time_entries");
+  assert.equal(punch.shift_id, 412);
+  assert.equal(punch.status, "closed");
+  assert.equal(punch.manual, true);
+});
+
+test("a shift that is not a whole number is refused, and no punch is written", async () => {
+  db.signIn(MANAGER);
+
+  for (const shift_id of ["412", 4.5, -1]) {
+    const res = await timesheet.POST(
+      post({ employee_id: EMPLOYEE, clock_in_at: "2026-10-07T19:00:00Z", clock_out_at: "2026-10-07T22:00:00Z", shift_id }),
+      noParams,
+    );
+    assert.equal(res.status, 400, `shift_id ${JSON.stringify(shift_id)}`);
+  }
+  assert.deepEqual(db.rows("time_entries"), []);
+});
+
+test("an employee cannot add a punch on a shift either", async () => {
+  db.signIn(EMPLOYEE);
+
+  const res = await timesheet.POST(
+    post({ employee_id: EMPLOYEE, clock_in_at: "2026-10-07T19:00:00Z", clock_out_at: "2026-10-07T22:00:00Z", shift_id: 412 }),
+    noParams,
+  );
+
+  assert.equal(res.status, 403);
+  assert.deepEqual(db.rows("time_entries"), []);
+});
+
+test("a manager closes an open punch from the payroll page", async () => {
+  openEntry();
+  db.signIn(MANAGER);
+
+  const res = await timesheetEntry.PATCH(
+    new Request("http://time.test/api", {
+      method: "PATCH",
+      body: JSON.stringify({ clock_in_at: "2026-09-28T13:00:00.000Z", clock_out_at: "2026-09-28T21:00:00.000Z" }),
+    }),
+    { params: { id: "7" } },
+  );
+
+  assert.equal(res.status, 200);
+  const [punch] = db.rows("time_entries");
+  assert.equal(punch.clock_out_at, "2026-09-28T21:00:00.000Z");
+  assert.equal(punch.status, "closed");
+  assert.equal(punch.manual, true);
+});
+
+test("a fix that puts the clock-out before the clock-in is refused, and the punch is untouched", async () => {
+  openEntry();
+  db.signIn(MANAGER);
+
+  const res = await timesheetEntry.PATCH(
+    new Request("http://time.test/api", {
+      method: "PATCH",
+      body: JSON.stringify({ clock_in_at: "2026-09-28T13:00:00.000Z", clock_out_at: "2026-09-28T12:00:00.000Z" }),
+    }),
+    { params: { id: "7" } },
+  );
+
+  assert.equal(res.status, 400);
+  assert.equal(db.rows("time_entries")[0].clock_out_at, null);
 });

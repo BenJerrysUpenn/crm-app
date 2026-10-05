@@ -70,6 +70,18 @@ Every finding is one of:
 **The button is green when there is nothing to fix and every case is answered
 by a recorded choice or its default.**
 
+**Fixing a punch from the page** (2026-10-05). A finding a punch can fix
+carries a fix form on its card: **edit the punch** (1.1 open punch with a
+shift, 1.4 open or runaway punch with no shift, 1.5 short punch) or **add the
+missing punch** (1.8 coverage gap, 1.12 a scheduled catering person with no
+punch, 3.5 an event with no crew), with the employee, clock-in, clock-out and
+an optional shift prefilled from the finding. It saves through the Timesheets
+routes (`POST /api/time-entries`, which takes an optional `shift_id`, and
+`PATCH /api/time-entries/:id`), so the manager check, RLS and `row_audit`
+triggers are the same, and then runs Verify again. Times are New York wall
+clock whatever the browser's time zone (`nyInputToIso`). Adding a 1.12 punch
+on the person's shift makes them the event's crew.
+
 ## One submittal per run
 
 There is **one submittal for the whole pay run**, not one per case, and **any

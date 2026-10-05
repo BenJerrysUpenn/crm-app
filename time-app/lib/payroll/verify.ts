@@ -312,7 +312,34 @@ export type Finding = {
    * trigger): submittal is final.
    */
   lockedBy?: string | null;
+  /**
+   * How to fix this finding's punch in place on the payroll page (2026-10-05):
+   * edit an existing punch, or add a missing one. Only findings a punch can
+   * fix carry one. The page writes through the Timesheets routes, then runs
+   * Verify again; nothing here writes.
+   */
+  fix?: PunchFix;
 };
+
+/**
+ * A punch fix. Times are New York wall clock as datetime-local values
+ * ("2026-09-15T11:00"), the form the Timesheets page edits them in.
+ */
+export type PunchFix =
+  | {
+      kind: "edit";
+      punch: { id: number; employee_id: string; employee_name: string; clock_in: string; clock_out: string | null };
+    }
+  | {
+      kind: "add";
+      date: string;
+      employee_id?: string;
+      shift_id?: number;
+      clock_in?: string;
+      clock_out?: string;
+      /** The shifts on that date, any of which the new punch may be worked against. */
+      shifts: { id: number; label: string }[];
+    };
 
 export type Person = { id: string; name: string };
 
@@ -351,6 +378,8 @@ export type VerifyResult = {
   submittalState: SubmittalState;
   /** Every flag on every finding, for the submit panel. */
   flags: { key: string; message: string }[];
+  /** Active staff, by name: who an added punch may be for. */
+  staff: Person[];
 };
 
 // The rule text, verbatim from docs/specs/payroll-pipeline.md §0 and §1. Kept
@@ -1732,6 +1761,12 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
     ...(submittal ? [window.end] : []),
     ...(input.otherSubmittals ?? []).map((a) => a.window_end).filter((end): end is string => !!end),
   ];
+  const punchById = new Map(input.punches.map((p) => [p.id, p]));
+  for (const f of findings) {
+    const fix = punchFix(f, punchById, input.shifts, profiles);
+    if (fix) f.fix = fix;
+  }
+
   for (const f of findings) {
     if (f.status !== "needs_ruling") continue;
     f.ruling = rulings.get(`${f.check}|${f.key}`) ?? null;
@@ -1769,7 +1804,116 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
     submittal,
     submittalState: submittal ? "submitted" : "not_submitted",
     flags: findings.flatMap((f) => (f.flags ?? []).map((message) => ({ key: f.key, message }))),
+    staff: staffCandidates(input, profiles),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Inline punch fixes (2026-10-05)
+// ---------------------------------------------------------------------------
+
+/** A New York date and an "HH:MM" wall-clock time as a datetime-local value. 24:00 and later roll into the next day. */
+export function wallClockInput(date: string, hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const day = addDays(date, Math.floor(h / 24));
+  return `${day}T${String(h % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/**
+ * A New York datetime-local value ("2026-09-15T11:00") as an ISO instant, for
+ * writing a fixed punch. Whatever time zone the browser is in, the fix means
+ * New York wall clock, the same clock every finding is written in. Null when
+ * the value is not a datetime-local.
+ */
+export function nyInputToIso(local: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local)) return null;
+  const asUtc = Date.parse(`${local}:00Z`);
+  if (Number.isNaN(asUtc)) return null;
+  // New York's offset at an instant, as wall clock minus UTC.
+  const offsetAt = (ms: number) => {
+    const wall = nyWallClock(new Date(ms).toISOString());
+    return Date.parse(`${wall.date}T${formatMinutes(wall.minutes)}:00Z`) - ms;
+  };
+  let ms = asUtc - offsetAt(asUtc);
+  ms = asUtc - offsetAt(ms); // once more, for a value near a DST change
+  return new Date(ms).toISOString();
+}
+
+/** An instant as a New York datetime-local value. */
+function nyInput(iso: string): string {
+  const wall = nyWallClock(iso);
+  return `${wall.date}T${formatMinutes(wall.minutes)}`;
+}
+
+/** Every shift that starts on a New York date, labelled for a picker. */
+function shiftsOn(date: string, shifts: ShiftRow[], profiles: Map<string, ProfileRow>): { id: number; label: string }[] {
+  return shifts
+    .filter((s) => nyWallClock(s.starts_at).date === date)
+    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at) || a.id - b.id)
+    .map((s) => {
+      const who = s.employee_id ? nameOf(profiles, s.employee_id) : "Unassigned";
+      const from = formatClock(formatMinutes(nyWallClock(s.starts_at).minutes));
+      const to = formatClock(formatMinutes(nyWallClock(s.ends_at).minutes));
+      return { id: s.id, label: `${who} · ${s.position?.trim() || "no position"} ${from}–${to}` };
+    });
+}
+
+/**
+ * The punch fix for a finding, if a punch can fix it:
+ *   1.1, 1.4, 1.5 (needs_fix) — edit the punch: its clock-out, or its hours;
+ *   1.8 (a gap)               — add a punch over the gap;
+ *   1.12 (scheduled, unpunched) — add that person's punch on their shift;
+ *   3.5 (needs_fix, no crew)  — add a punch on the event date.
+ */
+function punchFix(
+  f: Finding,
+  punchById: Map<number, PunchRow>,
+  shifts: ShiftRow[],
+  profiles: Map<string, ProfileRow>,
+): PunchFix | null {
+  if (f.status === "needs_fix" && (f.check === "1.1" || f.check === "1.4" || f.check === "1.5")) {
+    const p = f.evidence.punch_ids?.length === 1 ? punchById.get(f.evidence.punch_ids[0]) : undefined;
+    if (!p) return null;
+    return {
+      kind: "edit",
+      punch: {
+        id: p.id,
+        employee_id: p.employee_id,
+        employee_name: nameOf(profiles, p.employee_id),
+        clock_in: nyInput(p.clock_in_at),
+        clock_out: p.clock_out_at ? nyInput(p.clock_out_at) : null,
+      },
+    };
+  }
+  const date = f.evidence.date?.slice(0, 10);
+  if (!date) return null;
+  if (f.check === "1.8" && f.evidence.interval) {
+    return {
+      kind: "add",
+      date,
+      clock_in: wallClockInput(date, f.evidence.interval.from),
+      clock_out: wallClockInput(date, f.evidence.interval.to),
+      shifts: shiftsOn(date, shifts, profiles),
+    };
+  }
+  if (f.check === "1.12" && f.key.startsWith("1.12:unpunched") && f.evidence.employee_id) {
+    const own = shifts.find((s) => s.id === f.evidence.shift_ids?.[0]);
+    if (!own) return null;
+    const shiftDate = nyWallClock(own.starts_at).date;
+    return {
+      kind: "add",
+      date: shiftDate,
+      employee_id: f.evidence.employee_id,
+      shift_id: own.id,
+      clock_in: nyInput(own.starts_at),
+      clock_out: nyInput(own.ends_at),
+      shifts: shiftsOn(shiftDate, shifts, profiles),
+    };
+  }
+  if (f.check === "3.5" && f.status === "needs_fix") {
+    return { kind: "add", date, shifts: shiftsOn(date, shifts, profiles) };
+  }
+  return null;
 }
 
 /**
