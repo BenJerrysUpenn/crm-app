@@ -89,7 +89,7 @@ manager** can give it (`POST /api/payroll/submit`, the button on the Finance
 tab). It is refused until the button above is green. While any 1.4 or 1.5
 punch is uncorrected, Submit is disabled and the reason names each punch; the
 submit route refuses it (409), and migration 27's trigger refuses it in the
-database (`payroll_punch_blockers()`). It stores a snapshot of
+database (`payroll_punch_blockers()`, as migration 35 redefines it). It stores a snapshot of
 every case's effective choice, defaults included, in `payroll_run_submittals`.
 The payroll sheet (bj-finance `modules/payroll_sheet.py`) will not produce a
 keyable sheet until the run is submitted.
@@ -225,6 +225,7 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_26.sql` | `profiles.qbo_employee_id`, `profiles.pay_type`, `held_tips` — spec 2.5, 3.6 |
 | `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is submitted) and `payroll_run_submittals` (final; `status` is the §6 seam) |
 | `time-app/supabase/migration_28.sql` | extends migration 26's profile guard: an employee cannot change their own `hourly_rate` or `active` either (managers and the service role still can) |
+| `time-app/supabase/migration_35.sql` | redefines `payroll_punch_blockers()`: 1.5 measures a punch only against its own shift (explicit or the person's that day), never a 1.10 cover; a person's latest punch is no longer skipped as a NULL runaway |
 
 All four are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_2N_verify.sql` to run afterwards (in a
