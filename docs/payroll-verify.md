@@ -20,6 +20,8 @@ the person, with both options costed before they are shown.
 | Findings endpoint | `GET /api/payroll/verify?window_end=YYYY-MM-DD` |
 | Choices endpoint | `POST` / `DELETE /api/payroll/rulings` |
 | Submittal endpoint | `POST /api/payroll/submit` |
+| Pay table: loader, formatting and submit-gate rules | `time-app/lib/payroll/loadPaySheet.ts`, `time-app/lib/payroll/paySheet.ts` |
+| Pay table endpoint | `GET` / `POST /api/payroll/sheet` |
 | Event shift + punch, one save (from 2026-10-05) | `POST /api/payroll/event-punch`, shape in `time-app/lib/payroll/eventShift.ts` |
 | The page | `https://finance.withers-ventures.com/payroll` (`/payroll` on localhost and previews), manager-only |
 | Solo-close dropdowns | the **Schedule** view, manager-only (`components/SoloCloseNights.tsx`) |
@@ -175,7 +177,8 @@ period, (c) it has zero open items, and (d) it was built after the latest
 change to a punch or shift (from the day before the period to 05:00 the day
 after) or a payroll choice for the period (`row_audit`, which migration 36
 extends to `payroll_rulings`). The submit route refuses (b)-(d) too, and so
-does migration 36's submittal guard.
+does migration 36's submittal guard. Before migration 36 is applied the page
+says the pay table needs it and Rebuild answers 503; the rest of the tab works.
 
 ## The checks
 
@@ -290,11 +293,11 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_35.sql` | redefines `payroll_punch_blockers()`: 1.5 measures a punch only against its own shift (explicit or the person's that day), never a 1.10 cover; a person's latest punch is no longer skipped as a NULL runaway |
 | `time-app/supabase/migration_36.sql` | `payroll_sheets` (every pay table build and Rebuild request; service-role writes, manager reads, built rows frozen), `payroll_rulings` audited in `row_audit`, and the submittal guard's pay-table condition |
 
-All four are applied by hand in the Supabase SQL editor, in order, and all are
-safe to re-run. Each has a `migration_2N_verify.sql` to run afterwards (in a
-transaction that rolls back) and a `migration_2N_down.sql` that reverses it;
+All six are applied by hand in the Supabase SQL editor, in order, and all are
+safe to re-run. Each has a `migration_N_verify.sql` to run afterwards (in a
+transaction that rolls back) and a `migration_N_down.sql` that reverses it;
 the header of each down script says what data it loses. Roll back in reverse
-order: 28, then 27, then 26, then 25. Until 27
+order: 36, 35, 28, 27, 26, then 25. Until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 
 ## Not built yet
