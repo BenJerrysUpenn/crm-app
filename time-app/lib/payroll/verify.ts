@@ -1652,8 +1652,8 @@ function unpunchedByName(crew: EventCrew, profiles: Map<string, ProfileRow>) {
  * Crew is a punch on the event's Catering shift (eventCrew). Once the punch
  * exists the tip splits by punches, so there is no payee to choose and no
  * default: the card is a needs_fix, and the run cannot be submitted until it
- * is cleared. The card replaces the per-event "1 of 2 crew punched" line and
- * the per-person lines; it is keyed like the old §3.5 case (3.5:deal:<id>).
+ * is cleared. The card's summary carries the event's "N of M crew punched"
+ * count and the names of the people with no punch; its key is 3.5:deal:<id>.
  *
  *   - Somebody scheduled on the event did not punch: the card names each one
  *     and carries their add-punch form, prefilled on their shift. A crew
