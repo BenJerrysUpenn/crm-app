@@ -406,7 +406,9 @@ function FindingRow({
               ? "Correct this punch below or on the Timesheets page. There is no default, and the run cannot be submitted until it is fixed."
               : finding.check === "1.12" || finding.check === "3.5"
                 ? "Everyone punches: add the missing punch below. Once it is in, the tip splits by punches. There is no default, and the run cannot be submitted until it is fixed."
-                : "Fix this in the app, then verify again. No ruling can stand in for it."}
+                : finding.check === "3.7"
+                  ? "Add the Pastry Opener punch below or on the Timesheets page. Once it is in, the Olo tips split by bake shifts. There is no default, and the run cannot be submitted until it is fixed."
+                  : "Fix this in the app, then verify again. No ruling can stand in for it."}
           </div>
         )}
 

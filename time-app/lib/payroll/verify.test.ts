@@ -23,6 +23,7 @@ import {
   caseDate,
   choicePays,
   eventCrew,
+  isPickupEvent,
   lockingWindow,
   sameNameWords,
   verifyTimesheets,
@@ -1698,7 +1699,7 @@ test("1.9 retired: from 2026-10-05 a night closed 2h+ early is 1.8's gap with a 
   assert.equal(gap.key, "1.8:2026-10-07:18:00-22:00");
   assert.equal(gap.fix?.kind, "add");
   assert.doesNotMatch(gap.resolution ?? "", /1\.9/);
-  assert.equal(result.counts.needsRuling, 1, "only the 3.7 bake-shift case is a choice");
+  assert.equal(result.counts.needsRuling, 0, "nothing is a choice from the cutover: 3.7 is a fix too");
 });
 
 test("1.9 retired: from 2026-10-05 a 4h+ solo tail out before 22:00 gets no dropdown either", () => {
@@ -1782,6 +1783,153 @@ test("3.7: one bake shift worked is enough to split over", () => {
 
 test("3.7: a period the store never opened is not asked about", () => {
   assert.deepEqual(only(run().findings, "3.7"), []);
+});
+
+// --- §3.7 from the cutover (Alina, 2026-10-05) ------------------------------
+//
+// "This should not happen and is an upstream time clock problem." From the
+// period starting CREW_PUNCH_REQUIRED_FROM a period with no Pastry Opener shift
+// worked has no default payee and no picker: it is a fix, and the run cannot be
+// submitted until the bake shift's punch is added. Then the Olo tips split by
+// the normal rule. Periods before it keep the picker exactly.
+
+/** A Pastry Opener shift on Wednesday 2026-10-07, inside FIRST_NEW. */
+function bakeAfter(employeeId: string): ShiftRow {
+  return shift({ employee_id: employeeId, starts_at: at("2026-10-07", "06:00"), ends_at: at("2026-10-07", "10:00"), position: "Pastry Opener" });
+}
+
+test("3.7 from the cutover: no bake shift worked is a fix, with no default payee and no picker", () => {
+  const bake = bakeAfter(CASEY);
+  const result = runAfter({ ...WED_AFTER, windowDeals: [], shifts: [bake] });
+  const f = only(result.findings, "3.7")[0];
+  assert.equal(f.key, "3.7:olo:2026-10-18");
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.severity, "error");
+  assert.equal(f.defaultChoice, undefined);
+  assert.equal(f.options, undefined);
+  assert.equal(f.candidates, undefined);
+  assert.equal(f.defaultPayee, undefined);
+  assert.equal(f.effective, undefined);
+  assert.match(f.summary, /No bake shift was worked in this period, so any Olo tips for it have nobody to go to/);
+  assert.match(f.resolution ?? "", /Add the Pastry Opener punch on the Timesheets page/);
+  assert.match(f.resolution ?? "", /verify again/);
+  assert.doesNotMatch(f.rule, /default the designated tip payee/);
+  assert.match(f.rule, /no default and no picker/);
+  assert.equal(result.ready, false);
+  assert.equal(result.counts.needsFix, 1);
+});
+
+test("3.7 from the cutover: the card carries the add-punch form for each unworked Pastry Opener shift", () => {
+  const bake = bakeAfter(CASEY);
+  const f = only(runAfter({ ...WED_AFTER, windowDeals: [], shifts: [bake] }).findings, "3.7")[0];
+  assert.equal(f.fix, undefined);
+  assert.equal(f.fixes?.length, 1);
+  const fix = f.fixes![0];
+  assert.equal(fix.kind, "add");
+  if (fix.kind !== "add") throw new Error("kind");
+  assert.equal(fix.employee_id, CASEY);
+  assert.equal(fix.shift_id, bake.id);
+  assert.equal(fix.date, "2026-10-07");
+  assert.equal(fix.clock_in, "2026-10-07T06:00");
+  assert.equal(fix.clock_out, "2026-10-07T10:00");
+  assert.match(fix.label ?? "", /Bravo, Casey/);
+});
+
+test("3.7 from the cutover: one form per assigned Pastry Opener shift in the period, earliest first, and none for any other shift", () => {
+  const thursday = shift({ employee_id: PAT, starts_at: at("2026-10-08", "06:00"), ends_at: at("2026-10-08", "10:00"), position: "Pastry Opener" });
+  const wednesday = bakeAfter(CASEY);
+  const notBake = shift({ employee_id: DREW, starts_at: at("2026-10-07", "11:00"), ends_at: at("2026-10-07", "15:00"), position: "PENN Opener" });
+  const nextPeriod = shift({ employee_id: DREW, starts_at: at("2026-10-20", "06:00"), ends_at: at("2026-10-20", "10:00"), position: "Pastry Opener" });
+  const unassigned = shift({ employee_id: null, starts_at: at("2026-10-09", "06:00"), ends_at: at("2026-10-09", "10:00"), position: "Pastry Opener" });
+  const f = only(runAfter({ ...WED_AFTER, windowDeals: [], shifts: [thursday, notBake, nextPeriod, unassigned, wednesday] }).findings, "3.7")[0];
+  assert.deepEqual(
+    f.fixes?.map((x) => (x.kind === "add" ? [x.employee_id, x.shift_id, x.date] : x.kind)),
+    [
+      [CASEY, wednesday.id, "2026-10-07"],
+      [PAT, thursday.id, "2026-10-08"],
+    ],
+  );
+});
+
+test("3.7 from the cutover: with no Pastry Opener shift on the schedule the card says to schedule it first", () => {
+  const f = only(runAfter({ ...WED_AFTER, windowDeals: [] }).findings, "3.7")[0];
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.fixes, undefined);
+  assert.match(f.resolution ?? "", /no Pastry Opener shift on the schedule/i);
+});
+
+test("3.7 from the cutover: adding the Pastry Opener punch clears it", () => {
+  const bake = bakeAfter(CASEY);
+  const result = runAfter({
+    ...WED_AFTER,
+    windowDeals: [],
+    shifts: [bake],
+    punches: [punch({ employee_id: CASEY, shift_id: bake.id, clock_in_at: at("2026-10-07", "06:00"), clock_out_at: at("2026-10-07", "10:00") })],
+  });
+  assert.deepEqual(only(result.findings, "3.7"), []);
+});
+
+test("3.7 from the cutover: a recorded choice cannot answer it", () => {
+  const result = runAfter({
+    ...WED_AFTER,
+    windowDeals: [],
+    rulings: [{ check_id: "3.7", finding_key: "3.7:olo:2026-10-18", choice: "staff", payee_id: PAT }],
+  });
+  const f = only(result.findings, "3.7")[0];
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.ruling, undefined);
+  assert.equal(result.ready, false);
+});
+
+test("3.7 before the cutover: the 09-21..10-04 run keeps the picker and the default payee exactly", () => {
+  const result = run({
+    window: NEXT,
+    today: "2026-10-05",
+    storeHours: openOn(3),
+    storeHoursExceptions: [{ date: "2026-09-30", label: "closed for this fixture", is_closed: true }],
+  });
+  const f = only(result.findings, "3.7")[0];
+  assert.equal(f.key, "3.7:olo:2026-10-04");
+  assert.equal(f.status, "needs_ruling");
+  assert.equal(f.severity, "warn");
+  assert.equal(f.defaultChoice, "staff");
+  assert.deepEqual(f.defaultPayee, { id: PAT, name: "Example, Pat" });
+  assert.deepEqual(f.effective, { choice: "staff", payee: { id: PAT, name: "Example, Pat" }, source: "default" });
+  assert.equal(f.fixes, undefined);
+  assert.match(f.rule, /default the designated tip payee/);
+  assert.equal(result.ready, true);
+});
+
+// --- pickup events are exempt from the crew punch (Alina, 2026-10-05) -------
+//
+// A pickup has no Catering shift by design: nobody goes out. Keyed on
+// deals.event_type, free text the CRM lets staff set.
+
+test("pickup: event_type 'Pickup', 'Pick up' and 'Pick-up' match, any case; nothing else does", () => {
+  for (const t of ["Pickup", "pickup", "PICKUP", "Pick up", "pick up", "Pick-up", " Pick-Up "]) assert.equal(isPickupEvent(t), true, t);
+  for (const t of ["Drop Off", "Delivery", "Corporate", "Pickup and delivery", "", null, undefined]) assert.equal(isPickupEvent(t), false, String(t));
+});
+
+test("pickup: from the cutover a pickup event gets no 'crew didn't punch' card", () => {
+  const pickup: DealRow = { ...GALA, event_type: "Pick-up" };
+  assert.deepEqual(only(runAfter({ windowDeals: [pickup] }).findings, "3.5"), []);
+  const scheduled = galaShift(CASEY);
+  const result = runAfter({ windowDeals: [pickup], deals: [pickup], shifts: [scheduled] });
+  assert.deepEqual(only(result.findings, "3.5"), []);
+  assert.equal(result.counts.needsFix, 0);
+});
+
+test("pickup: a drop-off event still needs its crew's punches", () => {
+  const dropOff: DealRow = { ...GALA, event_type: "Drop Off" };
+  const f = only(runAfter({ windowDeals: [dropOff] }).findings, "3.5")[0];
+  assert.equal(f.status, "needs_fix");
+});
+
+test("pickup: before the cutover a pickup event is asked about exactly as before", () => {
+  const event: DealRow = { id: 25200, event_date: "2026-09-30", staff_count: 1, company: "Example Lunch", stage: "Booked Paid", event_type: "Pickup" };
+  const f = only(run({ window: NEXT, today: "2026-10-05", windowDeals: [event] }).findings, "3.5")[0];
+  assert.equal(f.status, "needs_ruling");
+  assert.deepEqual(f.effective?.payee, { id: PAT, name: "Example, Pat" });
 });
 
 test("choices: the paying choices are exactly the ones that need a payee", () => {

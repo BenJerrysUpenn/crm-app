@@ -43,8 +43,9 @@ export function validateChoice(check: string, choice: string, payeeId: string | 
  * Is this choice gone for this pay period? From the period starting
  * CREW_PUNCH_REQUIRED_FROM (ruled 2026-10-05) the solo-close dropdown (1.9)
  * is not asked, because the bonus is paid from punches alone, and an event's
- * catering tip (3.5) splits by punches with no payee to pick. Returns the
- * refusal, or null when the choice still exists. §3.7 is unchanged.
+ * catering tip (3.5) splits by punches with no payee to pick, and stranded
+ * Olo tips (3.7) wait for the bake shift's punch. Returns the refusal, or null
+ * when the choice still exists.
  */
 export function retiredChoice(check: string, window: PayWindow): string | null {
   if (!crewPunchRequired(window)) return null;
@@ -52,6 +53,8 @@ export function retiredChoice(check: string, window: PayWindow): string | null {
     return `From ${CREW_PUNCH_REQUIRED_FROM} there is no solo-close dropdown: the $30 bonus is paid from punches alone (out at or after 10 PM, alone 4h or more). Add the missing punch instead.`;
   if (check === "3.5")
     return `From ${CREW_PUNCH_REQUIRED_FROM} a catering tip goes to whoever punched for the event: add the missing punch instead of picking a payee.`;
+  if (check === "3.7")
+    return `From ${CREW_PUNCH_REQUIRED_FROM} stranded Olo tips have no payee to pick: add the Pastry Opener punch on the Timesheets page, then the tips split by bake shifts.`;
   return null;
 }
 

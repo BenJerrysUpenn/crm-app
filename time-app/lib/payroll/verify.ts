@@ -24,8 +24,8 @@
 //                   2026-09-22, #519): skip, tip payee, tip payee. A default
 //                   satisfies the button on its own; a manager changes it only
 //                   when the case needs it. From the period starting
-//                   CREW_PUNCH_REQUIRED_FROM only §3.7 is left: §1.9 is not
-//                   asked and §3.5 is a fix (ruled 2026-10-05).
+//                   CREW_PUNCH_REQUIRED_FROM none is left: §1.9 is not
+//                   asked, and §3.5 and §3.7 are fixes (ruled 2026-10-05).
 //   needs_fix     — the data is wrong and no ruling can make it right: an open
 //                   punch has no end (§1.1), two overlapping punches double-pay
 //                   (§1.7), and — ruling D, 2026-09-22 — a runaway punch with
@@ -34,7 +34,8 @@
 //                   picker: the punch is corrected in Withers-time. From the
 //                   period starting CREW_PUNCH_REQUIRED_FROM, a catering event
 //                   whose crew did not punch is one too: ONE card per event,
-//                   §1.12 and §3.5 merged (ruled 2026-10-05). All of these
+//                   §1.12 and §3.5 merged (ruled 2026-10-05), and so is a
+//                   period with no bake shift worked (§3.7). All of these
 //                   clear by fixing the
 //                   data and running Verify again, and until then the run
 //                   cannot be submitted.
@@ -101,8 +102,8 @@ export const EVENT_DEAL_STAGES = ["Booked Unpaid", "Booked Paid", "Event Complet
  * §3.5 / §3.7 — who a crewless catering tip or a stranded Olo tip goes to when
  * no manager picks anybody else (Alina, 2026-09-22). Matched to a profile by
  * name words, in any order, because the default has to name a person before
- * anybody has picked one; the pick itself is stored by profile id. For §3.5
- * this applies only to periods starting before CREW_PUNCH_REQUIRED_FROM.
+ * anybody has picked one; the pick itself is stored by profile id. For both
+ * it applies only to periods starting before CREW_PUNCH_REQUIRED_FROM.
  */
 export const DEFAULT_TIP_PAYEE_NAME = "Sophia Malmgren";
 /**
@@ -114,6 +115,16 @@ export const DEFAULT_TIP_PAYEE_NAME = "Sophia Malmgren";
  *   punch is a needs_fix with no default, like §1.5, and §1.12 and §3.5 are
  *   ONE card per event, "crew didn't punch" (checkCrewDidNotPunch). There is
  *   no crewless-tip payee: once the punch exists the tip splits by punches.
+ *
+ *   §3.7 has no payee either (ruled 2026-10-05: "this should not happen and
+ *   is an upstream time clock problem"). A period with no Pastry Opener shift
+ *   worked is a needs_fix: add the bake shift's punch, then the Olo tips
+ *   split by the normal rule.
+ *
+ *   A PICKUP event (deals.event_type, isPickupEvent) is exempt from the crew
+ *   punch: it has no Catering shift by design, so it gets no "crew didn't
+ *   punch" card. Its tip, if any, goes to that day's in-store pool on the
+ *   payroll sheet (ruled 2026-10-05).
  *
  *   §1.9 is not asked (ruled 2026-10-05). The store never closes before
  *   10 PM and has no early half days (it is closed instead), so a last
@@ -129,6 +140,21 @@ export const CREW_PUNCH_REQUIRED_FROM = "2026-10-05";
 /** Does this pay period require every catering crew member to punch? */
 export function crewPunchRequired(window: PayWindow): boolean {
   return window.start >= CREW_PUNCH_REQUIRED_FROM;
+}
+
+/**
+ * The deals.event_type that marks a pickup: the customer collects, nobody goes
+ * out, so the event has no Catering shift and no crew by design (ruled
+ * 2026-10-05). Free text the CRM lets staff set, so "Pickup", "Pick up" and
+ * "Pick-up" all match, in any case. Nothing else does: "Drop Off" and delivery
+ * events still need their crew's punches. bj-finance modules/payroll_sheet.py
+ * (is_pickup_event) matches the same words.
+ */
+export const PICKUP_EVENT_TYPE = "pickup";
+
+/** Is this deals.event_type a pickup? Letters only, lower case, must equal PICKUP_EVENT_TYPE. */
+export function isPickupEvent(eventType: string | null | undefined): boolean {
+  return (eventType ?? "").toLowerCase().replace(/[^a-z]/g, "") === PICKUP_EVENT_TYPE;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +196,8 @@ export type DealRow = {
   staff_count: number | null;
   company?: string | null;
   stage?: string | null;
+  /** Free text; a pickup (isPickupEvent) is exempt from the crew punch from the cutover. */
+  event_type?: string | null;
 };
 
 /** One row of public.row_audit (migration 25), as §1.15 reads it. */
@@ -482,7 +510,11 @@ const RULES: Record<string, { title: string; rule: string }> = {
 const RULES_FROM_CUTOVER: Record<string, { title: string; rule: string }> = {
   "3.5": {
     title: "Catering crew didn't punch",
-    rule: "Crew = a punch on the event's Catering shift by shift_id, or a manual punch (no shift_id) by the scheduled person on the same date overlapping it. Once the punch exists the tip splits by punches, so there is no payee to choose. One card per event (1.12 and 3.5 merged, ruled 2026-10-05): each person scheduled on it with no punch, each with the punch to add; an event with no Catering shift gets a form that creates the shift and the punch in one save. A fix with no default, like 1.5: the run cannot be submitted until it is cleared.",
+    rule: "Crew = a punch on the event's Catering shift by shift_id, or a manual punch (no shift_id) by the scheduled person on the same date overlapping it. Once the punch exists the tip splits by punches, so there is no payee to choose. One card per event (1.12 and 3.5 merged, ruled 2026-10-05): each person scheduled on it with no punch, each with the punch to add; an event with no Catering shift gets a form that creates the shift and the punch in one save. A fix with no default, like 1.5: the run cannot be submitted until it is cleared. A pickup event (event_type Pickup / Pick up / Pick-up) is exempt: it has no Catering shift by design, and its tip goes to that day's in-store pool (ruled 2026-10-05).",
+  },
+  "3.7": {
+    title: "No bake shift worked",
+    rule: "a window with zero Pastry Opener shifts worked (scheduled AND punched) strands the Olo tips: no default and no picker (ruled 2026-10-05: an upstream time clock problem). A fix: add the Pastry Opener punch, then the Olo tips split by bake shifts as normal. The run cannot be submitted until it is cleared.",
   },
 };
 
@@ -1424,6 +1456,9 @@ function eventDealsInWindow(input: VerifyInput): DealRow[] {
  * picker for any stranded Olo money, default the designated tip payee (ruled 2026-09-22).
  *
  * A window in which the store never opened is not asked about.
+ *
+ * From the period starting CREW_PUNCH_REQUIRED_FROM there is no picker and no
+ * default (bakeShiftFix): the case is a fix.
  */
 function checkBakeShifts(views: PunchView[], input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
   const { window } = input;
@@ -1433,14 +1468,15 @@ function checkBakeShifts(views: PunchView[], input: VerifyInput, profiles: Map<s
     (date) => resolveOpenWindow(date, input.storeHours, exceptions, closedRanges).state === "open",
   );
   if (!anyOpen) return [];
-  const worked = input.shifts.filter(
-    (s) =>
-      s.position === PASTRY_POSITION &&
-      !!s.employee_id &&
-      inWindow(nyWallClock(s.starts_at).date, window) &&
-      views.some((v) => v.shift?.id === s.id && v.employeeId === s.employee_id),
+  const scheduled = input.shifts.filter(
+    (s) => s.position === PASTRY_POSITION && !!s.employee_id && inWindow(nyWallClock(s.starts_at).date, window),
   );
+  const worked = scheduled.filter((s) => views.some((v) => v.shift?.id === s.id && v.employeeId === s.employee_id));
   if (worked.length > 0) return [];
+  if (crewPunchRequired(window)) {
+    const unworked = scheduled.filter((s) => !views.some((v) => v.shift?.id === s.id));
+    return [bakeShiftFix(unworked, input, profiles)];
+  }
   return [
     finding("3.7", {
       key: `3.7:olo:${window.end}`,
@@ -1454,6 +1490,44 @@ function checkBakeShifts(views: PunchView[], input: VerifyInput, profiles: Map<s
       evidence: {},
     }),
   ];
+}
+
+/**
+ * §3.7 from the period starting CREW_PUNCH_REQUIRED_FROM (Alina, 2026-10-05:
+ * "this should not happen and is an upstream time clock problem"). No default
+ * payee and no picker: a needs_fix, so the run cannot be submitted until a
+ * Pastry Opener shift has its punch. Then the Olo tips split by bake shifts as
+ * normal. This app cannot see the Olo tips (they are on the Olo workbooks the
+ * payroll sheet reads), so it says "any"; the sheet names the amount.
+ *
+ * The card carries one add-punch form per Pastry Opener shift scheduled in the
+ * window that nobody worked (checkBakeShifts picks them from the same scheduled
+ * set it counts worked shifts in), prefilled on that shift. With none on the
+ * schedule there is nothing to punch against: the shift goes on the schedule
+ * first.
+ */
+function bakeShiftFix(unworkedShifts: ShiftRow[], input: VerifyInput, profiles: Map<string, ProfileRow>): Finding {
+  const { window } = input;
+  const unworked = [...unworkedShifts].sort(
+    (a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at) || a.id - b.id,
+  );
+  const fixes: PunchFix[] = unworked.map((s) => {
+    const form = addPunchOnShift(s, s.employee_id!, input.shifts, profiles);
+    return { ...form, label: `Add ${nameOf(profiles, s.employee_id!)}'s ${PASTRY_POSITION} punch (${formatDayLabel(form.date)})` };
+  });
+  const how =
+    fixes.length > 0
+      ? `Add the ${PASTRY_POSITION} punch on the Timesheets page, or with the form below, and verify again.`
+      : `There is no ${PASTRY_POSITION} shift on the schedule in this period: put the bake shift that was worked on the schedule, then add the ${PASTRY_POSITION} punch on the Timesheets page and verify again.`;
+  return finding("3.7", {
+    key: `3.7:olo:${window.end}`,
+    status: "needs_fix",
+    severity: "error",
+    summary: `No bake shift was worked in this period, so any Olo tips for it have nobody to go to (the norm is at least ${BAKE_SHIFT_NORM_PER_PERIOD} ${PASTRY_POSITION} shifts a period).`,
+    resolution: `No default and no picker from ${CREW_PUNCH_REQUIRED_FROM} (an upstream time clock problem, ruled 2026-10-05). ${how} Once the punch exists the Olo tips split by bake shifts as normal.`,
+    evidence: { shift_ids: unworked.length > 0 ? unworked.map((s) => s.id) : undefined },
+    ...(fixes.length > 0 ? { fixes } : {}),
+  });
 }
 
 /**
@@ -1664,15 +1738,17 @@ function unpunchedByName(crew: EventCrew, profiles: Map<string, ProfileRow>) {
  *     shift and the punch on it in one save. An unassigned Catering slot on
  *     the event, if there is one, prefills the times.
  *
- * Pickup events are meant to be exempt and delivery events are not (ruled
- * 2026-10-05), but `deals` records no pickup or delivery today, so every
- * event is checked. See docs/payroll-verify.md.
+ * A pickup event (isPickupEvent on deals.event_type) is exempt (ruled
+ * 2026-10-05): it has no Catering shift by design, so it gets no card. Its
+ * tip, if any, goes to that day's in-store pool on the payroll sheet. Every
+ * other event, "Drop Off" and delivery included, is checked.
  */
 function checkCrewDidNotPunch(input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
   if (!crewPunchRequired(input.window)) return [];
   const booked = new Set(eventDealsInWindow(input).map((d) => d.id));
   const out: Finding[] = [];
   for (const deal of eventsToCheck(input)) {
+    if (isPickupEvent(deal.event_type)) continue;
     const crew = eventCrew(deal, input.shifts, input.punches);
     const label = deal.company?.trim() || `deal ${deal.id}`;
     const resolution =
@@ -1722,17 +1798,7 @@ function checkCrewDidNotPunch(input: VerifyInput, profiles: Map<string, ProfileR
         evidence: { date, deal_id: deal.id, shift_ids: people.flatMap((p) => p.shiftIds) },
         fixes: people.map((p) => {
           const own = crew.shifts.find((sh) => sh.id === p.shiftIds[0])!;
-          const shiftDate = nyWallClock(own.starts_at).date;
-          return {
-            kind: "add" as const,
-            label: `Add ${p.name}'s punch`,
-            date: shiftDate,
-            employee_id: p.employeeId,
-            shift_id: own.id,
-            clock_in: nyInput(own.starts_at),
-            clock_out: nyInput(own.ends_at),
-            shifts: shiftsOn(shiftDate, input.shifts, profiles),
-          };
+          return { ...addPunchOnShift(own, p.employeeId, input.shifts, profiles), label: `Add ${p.name}'s punch` };
         }),
       }),
     );
@@ -1915,9 +1981,9 @@ export function verifyTimesheets(input: VerifyInput): VerifyResult {
   const cutover = crewPunchRequired(window);
   const punchById = new Map(input.punches.map((p) => [p.id, p]));
   for (const f of findings) {
-    // A check's words for this side of the cutover (only §3.5's differ).
+    // A check's words for this side of the cutover (§3.5's and §3.7's differ).
     Object.assign(f, ruleFor(f.check, cutover));
-    if (f.fixes) continue; // the crew card built its own forms
+    if (f.fixes) continue; // the crew and bake-shift cards built their own forms
     const fix = punchFix(f, punchById, input.shifts, profiles);
     if (fix) f.fix = fix;
   }
@@ -1999,6 +2065,28 @@ function nyInput(iso: string): string {
   return `${wall.date}T${formatMinutes(wall.minutes)}`;
 }
 
+/**
+ * The add-punch form for one person's punch on one scheduled shift, prefilled
+ * with the shift's date and times (1.12, the crew card and the bake-shift card).
+ */
+function addPunchOnShift(
+  shift: ShiftRow,
+  employeeId: string,
+  shifts: ShiftRow[],
+  profiles: Map<string, ProfileRow>,
+): Extract<PunchFix, { kind: "add" }> {
+  const date = nyWallClock(shift.starts_at).date;
+  return {
+    kind: "add",
+    date,
+    employee_id: employeeId,
+    shift_id: shift.id,
+    clock_in: nyInput(shift.starts_at),
+    clock_out: nyInput(shift.ends_at),
+    shifts: shiftsOn(date, shifts, profiles),
+  };
+}
+
 /** Every shift that starts on a New York date, labelled for a picker. */
 function shiftsOn(date: string, shifts: ShiftRow[], profiles: Map<string, ProfileRow>): { id: number; label: string }[] {
   return shifts
@@ -2019,7 +2107,8 @@ function shiftsOn(date: string, shifts: ShiftRow[], profiles: Map<string, Profil
  *   1.12 (scheduled, unpunched, before the cutover) — add that person's punch
  *                               on their shift.
  * The "crew didn't punch" card (§3.5 from the cutover) builds its own forms,
- * one per person (checkCrewDidNotPunch).
+ * one per person (checkCrewDidNotPunch), and so does §3.7 from the cutover
+ * (bakeShiftFix).
  */
 function punchFix(
   f: Finding,
@@ -2055,16 +2144,7 @@ function punchFix(
   if (f.check === "1.12" && f.key.startsWith("1.12:unpunched") && f.evidence.employee_id) {
     const own = shifts.find((s) => s.id === f.evidence.shift_ids?.[0]);
     if (!own) return null;
-    const shiftDate = nyWallClock(own.starts_at).date;
-    return {
-      kind: "add",
-      date: shiftDate,
-      employee_id: f.evidence.employee_id,
-      shift_id: own.id,
-      clock_in: nyInput(own.starts_at),
-      clock_out: nyInput(own.ends_at),
-      shifts: shiftsOn(shiftDate, shifts, profiles),
-    };
+    return addPunchOnShift(own, f.evidence.employee_id, shifts, profiles);
   }
   return null;
 }

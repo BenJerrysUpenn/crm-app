@@ -162,13 +162,14 @@ test("submitting would pay you: crewless and Olo cases only", () => {
   assert.deepEqual(paysSubmitter([mine, olo, night, theirs], "me"), [mine, olo]);
 });
 
-test("from 2026-10-05 the solo-close dropdown and the crewless-tip picker take no choice (ruled 2026-10-05)", () => {
+test("from 2026-10-05 the solo-close dropdown, the crewless-tip picker and the stranded-Olo picker take no choice (ruled 2026-10-05)", () => {
   const after = payWindowEnding("2026-10-18");
   const before = payWindowEnding("2026-10-04");
   if (!after.ok || !before.ok) throw new Error("window");
   assert.match(retiredChoice("1.9", after.window)!, /punches/);
   assert.match(retiredChoice("3.5", after.window)!, /punch/);
-  assert.equal(retiredChoice("3.7", after.window), null, "stranded Olo tips still go to a picker");
+  assert.match(retiredChoice("3.7", after.window)!, /Pastry Opener punch/);
+  assert.equal(retiredChoice("3.7", before.window), null, "before the cutover stranded Olo tips still go to a picker");
   assert.equal(retiredChoice("1.9", before.window), null);
   assert.equal(retiredChoice("3.5", before.window), null);
   assert.equal(retiredChoice("1.9", WINDOW), null);

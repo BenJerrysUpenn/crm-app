@@ -211,7 +211,7 @@ async function loadDeals(supabase: Supabase, shifts: ShiftRow[]): Promise<DealRo
   try {
     const { data, error } = await supabase
       .from("deals")
-      .select("id, event_date, staff_count, company")
+      .select("id, event_date, staff_count, company, event_type")
       .in("id", ids);
     if (error) return [];
     return (data ?? []) as DealRow[];
@@ -306,7 +306,7 @@ async function loadWindowDeals(supabase: Supabase, window: PayWindow): Promise<D
   try {
     const { data, error } = await supabase
       .from("deals")
-      .select("id, event_date, staff_count, company, stage")
+      .select("id, event_date, staff_count, company, stage, event_type")
       .gte("event_date", window.start)
       .lte("event_date", window.end + "T23:59:59")
       .in("stage", [...EVENT_DEAL_STAGES]);
