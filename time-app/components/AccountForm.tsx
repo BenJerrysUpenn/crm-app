@@ -80,13 +80,22 @@ export default function AccountForm({
     }
     setSavingProfile(true);
     setProfileMsg(null);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ full_name: checked.name, phone: phone || null })
-      .eq("id", profileId);
+    // Through the server (PATCH /api/account), not a direct browser write, so
+    // validateFullName runs on the server too — the browser check above is only
+    // for instant feedback. One source of truth for the name rule (#468).
+    const res = await fetch("/api/account", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ full_name: checked.name, phone: phone || null }),
+    });
+    const j = await res.json().catch(() => ({}));
     setSavingProfile(false);
-    setProfileMsg(error ? error.message : "Saved.");
-    if (!error) router.refresh();
+    if (!res.ok) {
+      setProfileMsg(j.error ?? "Couldn't save.");
+      return;
+    }
+    setProfileMsg("Saved.");
+    router.refresh();
   }
 
   async function savePassword(e: React.FormEvent) {

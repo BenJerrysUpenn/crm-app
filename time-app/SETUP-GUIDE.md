@@ -171,7 +171,7 @@ A few things you do once, from the app itself, as a manager.
 4. Links work once and expire after about an hour. If someone's link expired, click **Resend invite** on their row.
 5. Anyone who forgets their password can use the **Forgot password?** link on the sign-in page.
 
-Always add new hires from the Team page. If you ever create someone in the Supabase dashboard instead (**Authentication → Users → Add user → Create new user**, with **Auto Confirm User** ticked), that account has no name. Open the **Team** page right away: their row shows a **Name missing** badge next to their email. Type their full name in the Name box. Until you do, they show as "No name set" on the schedule, timesheets and alerts.
+Always add new hires from the Team page. If you ever create someone in the Supabase dashboard instead (**Authentication → Users → Add user → Create new user**, with **Auto Confirm User** ticked), that account has no name. Open the **Team** page right away: their row shows a **Name missing** badge next to their email. Type their full name in the Name box. Until you do, they show as "No name set" on the schedule and timesheets, and as "An employee" in alerts — never a blank and never their login email.
 
 #### Supabase URL configuration
 
