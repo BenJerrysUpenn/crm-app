@@ -25,7 +25,7 @@ test("an email sitting in the name is never shown as a name", () => {
   assert.equal(displayName("staff2@example.com"), "No name set");
 });
 
-test("a missing or blank name shows the neutral label and is flagged", () => {
+test("a missing or blank name shows the neutral label", () => {
   for (const none of [null, undefined, "", "   "]) {
     assert.equal(usableName(none), null, `usableName(${JSON.stringify(none)})`);
     assert.equal(displayName(none), "No name set", `displayName(${JSON.stringify(none)})`);
