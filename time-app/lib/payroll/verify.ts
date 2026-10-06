@@ -1512,17 +1512,8 @@ function bakeShiftFix(unworkedShifts: ShiftRow[], input: VerifyInput, profiles: 
     (a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at) || a.id - b.id,
   );
   const fixes: PunchFix[] = unworked.map((s) => {
-    const date = nyWallClock(s.starts_at).date;
-    return {
-      kind: "add",
-      label: `Add ${nameOf(profiles, s.employee_id!)}'s ${PASTRY_POSITION} punch (${formatDayLabel(date)})`,
-      date,
-      employee_id: s.employee_id!,
-      shift_id: s.id,
-      clock_in: nyInput(s.starts_at),
-      clock_out: nyInput(s.ends_at),
-      shifts: shiftsOn(date, input.shifts, profiles),
-    };
+    const form = addPunchOnShift(s, s.employee_id!, input.shifts, profiles);
+    return { ...form, label: `Add ${nameOf(profiles, s.employee_id!)}'s ${PASTRY_POSITION} punch (${formatDayLabel(form.date)})` };
   });
   const how =
     fixes.length > 0
@@ -1807,17 +1798,7 @@ function checkCrewDidNotPunch(input: VerifyInput, profiles: Map<string, ProfileR
         evidence: { date, deal_id: deal.id, shift_ids: people.flatMap((p) => p.shiftIds) },
         fixes: people.map((p) => {
           const own = crew.shifts.find((sh) => sh.id === p.shiftIds[0])!;
-          const shiftDate = nyWallClock(own.starts_at).date;
-          return {
-            kind: "add" as const,
-            label: `Add ${p.name}'s punch`,
-            date: shiftDate,
-            employee_id: p.employeeId,
-            shift_id: own.id,
-            clock_in: nyInput(own.starts_at),
-            clock_out: nyInput(own.ends_at),
-            shifts: shiftsOn(shiftDate, input.shifts, profiles),
-          };
+          return { ...addPunchOnShift(own, p.employeeId, input.shifts, profiles), label: `Add ${p.name}'s punch` };
         }),
       }),
     );
@@ -2084,6 +2065,28 @@ function nyInput(iso: string): string {
   return `${wall.date}T${formatMinutes(wall.minutes)}`;
 }
 
+/**
+ * The add-punch form for one person's punch on one scheduled shift, prefilled
+ * with the shift's date and times (1.12, the crew card and the bake-shift card).
+ */
+function addPunchOnShift(
+  shift: ShiftRow,
+  employeeId: string,
+  shifts: ShiftRow[],
+  profiles: Map<string, ProfileRow>,
+): Extract<PunchFix, { kind: "add" }> {
+  const date = nyWallClock(shift.starts_at).date;
+  return {
+    kind: "add",
+    date,
+    employee_id: employeeId,
+    shift_id: shift.id,
+    clock_in: nyInput(shift.starts_at),
+    clock_out: nyInput(shift.ends_at),
+    shifts: shiftsOn(date, shifts, profiles),
+  };
+}
+
 /** Every shift that starts on a New York date, labelled for a picker. */
 function shiftsOn(date: string, shifts: ShiftRow[], profiles: Map<string, ProfileRow>): { id: number; label: string }[] {
   return shifts
@@ -2141,16 +2144,7 @@ function punchFix(
   if (f.check === "1.12" && f.key.startsWith("1.12:unpunched") && f.evidence.employee_id) {
     const own = shifts.find((s) => s.id === f.evidence.shift_ids?.[0]);
     if (!own) return null;
-    const shiftDate = nyWallClock(own.starts_at).date;
-    return {
-      kind: "add",
-      date: shiftDate,
-      employee_id: f.evidence.employee_id,
-      shift_id: own.id,
-      clock_in: nyInput(own.starts_at),
-      clock_out: nyInput(own.ends_at),
-      shifts: shiftsOn(shiftDate, shifts, profiles),
-    };
+    return addPunchOnShift(own, f.evidence.employee_id, shifts, profiles);
   }
   return null;
 }
