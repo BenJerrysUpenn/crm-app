@@ -14,7 +14,6 @@ export const dynamic = "force-dynamic";
 
 type TimeOffRow = Availability & { profiles: Pick<Profile, "id" | "full_name"> };
 
-const TZ = "America/New_York";
 function addDays(d: string, n: number) {
   const x = new Date(d + "T00:00:00Z");
   x.setUTCDate(x.getUTCDate() + n);
@@ -120,7 +119,7 @@ export default async function AvailabilityPage({
   }
 
   // ---- Personal month calendar (employees, and managers' "My availability") ----
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+  const today = todayInNewYork(new Date());
   const monthKey = searchParams.month ?? today.slice(0, 7); // YYYY-MM
   const monthStart = monthKey + "-01";
   const gridStart = sundayOf(monthStart);

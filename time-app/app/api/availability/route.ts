@@ -5,10 +5,8 @@ import { fmtDate } from "@/lib/format";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { addDays } from "@/lib/coverage";
+import { todayInNewYork } from "@/lib/timeOff";
 
-function todayEastern() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-}
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -35,7 +33,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const today = todayEastern();
+    const today = todayInNewYork(new Date());
     const group = randomUUID();
     const rows: Record<string, unknown>[] = [];
     for (let d = start; d <= end; d = addDays(d, 1)) {
@@ -80,7 +78,7 @@ export async function POST(request: Request) {
   // optional time range, optional weekly repeat).
   // Block adding a preference for a past day.
   if (body.specific_date) {
-    if (body.specific_date < todayEastern()) {
+    if (body.specific_date < todayInNewYork(new Date())) {
       return NextResponse.json(
         { error: "You can't change availability for a day that's passed." },
         { status: 409 },
