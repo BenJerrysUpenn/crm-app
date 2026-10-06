@@ -149,6 +149,15 @@ test("event punch: a slot somebody fills between the read and the save is not ta
   assert.equal(db.rows("time_entries").length, 0);
 });
 
+test("event punch: when the shift cannot be made, nothing is written and the reason comes back", async () => {
+  db.missingColumns.shifts = ["deal_slot"];
+  const res = await route.POST(post(BODY), noParams);
+  assert.equal(res.status, 400);
+  assert.match(((await res.json()) as { error: string }).error, /deal_slot/);
+  assert.equal(db.rows("shifts").length, 0);
+  assert.equal(db.rows("time_entries").length, 0);
+});
+
 test("event punch: when the punch cannot be written, the shift it made is taken back out", async () => {
   db.missingColumns.time_entries = ["shift_id"];
   const res = await route.POST(post(BODY), noParams);
