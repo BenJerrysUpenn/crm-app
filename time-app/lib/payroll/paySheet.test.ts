@@ -172,6 +172,15 @@ test("an hourly row with no rate says so instead of a figure", () => {
   assert.equal(wagesCell(r), "no rate");
 });
 
+test("an hourly row with no overtime leaves the Overtime cell blank", () => {
+  assert.equal(qboCell(row({ overtime_hours: 0 }), "overtime"), "");
+});
+
+test("the wages cell follows the sheet's wages basis, not the rate alone", () => {
+  assert.equal(wagesCell(row({ wages_basis: "salary", wages_cents: null })), "salary");
+  assert.equal(wagesCell(row({ wages_basis: "no_rate", wages_cents: null })), "no rate");
+});
+
 test("flat amounts and premium lines show only when there is one", () => {
   const r = row({ premium_cents: 291, premium_ot_cents: 12, travel_cents: 4536, tips_cents: 0, solo_close_cents: 0 });
   assert.equal(qboCell(r, "premium"), "$2.91");
@@ -233,6 +242,13 @@ test("a choice made from the period or dated inside it bears on it, even when re
   const ruling = { window_end: "2026-10-04", case_date: "2026-09-30", decided_at: "2026-10-05T21:40:00+00:00", created_at: "2026-10-05T21:10:00+00:00" };
   assert.equal(inputsChangedAt(W, [reset], [ruling]), ruling.decided_at);
   assert.equal(inputsChangedAt(W, [], [{ ...ruling, window_end: "2026-10-18", case_date: "2026-10-08" }]), null);
+});
+
+test("a choice made from another period and dated before this one does not bear on it", () => {
+  const earlier = audit("payroll_rulings", "2026-10-05T21:20:00+00:00", { window_end: "2026-09-20", case_date: "2026-09-19" });
+  assert.equal(inputsChangedAt(W, [earlier]), null);
+  const ruling = { window_end: "2026-09-20", case_date: "2026-09-19", decided_at: "2026-10-05T21:40:00+00:00" };
+  assert.equal(inputsChangedAt(W, [], [ruling]), null);
 });
 
 test("microseconds order two writes Date would call equal", () => {
