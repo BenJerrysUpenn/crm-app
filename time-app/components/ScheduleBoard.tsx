@@ -15,7 +15,7 @@ import {
 } from "@/lib/availabilityCheck";
 import { availabilityCell, type CellAvailability, type CellLine } from "@/lib/availabilityCell";
 import { managerAssignsOnly } from "@/lib/managerAssigns";
-import { displayName, displayNameOrId } from "@/lib/profileName";
+import { displayName, displayNameOrId, UNNAMED_IN_ALERTS } from "@/lib/profileName";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
@@ -491,7 +491,7 @@ export default function ScheduleBoard({
               return (
                 <div key={r.id} className="flex items-center justify-between gap-3 text-sm border-b border-slate-200 dark:border-slate-800 pb-2 last:border-0">
                   <span className="text-slate-800 dark:text-slate-200">
-                    {displayName(r.profiles?.full_name, "Employee")} wants to pick up{" "}
+                    {displayName(r.profiles?.full_name, UNNAMED_IN_ALERTS)} wants to pick up{" "}
                     {s ? `${dayLabel(nyDate(s.starts_at))} ${fmtTime(s.starts_at)}–${fmtTime(s.ends_at)}` : "a shift"}
                     {r.note ? ` · ${r.note}` : ""}
                   </span>
@@ -519,7 +519,7 @@ export default function ScheduleBoard({
               return (
                 <div key={r.id} className="flex items-center justify-between gap-3 text-sm border-b border-slate-200 dark:border-slate-800 pb-2 last:border-0">
                   <span className="text-slate-800 dark:text-slate-200">
-                    {displayName(r.profiles?.full_name, "Employee")} wants to drop{" "}
+                    {displayName(r.profiles?.full_name, UNNAMED_IN_ALERTS)} wants to drop{" "}
                     {s ? `${dayLabel(nyDate(s.starts_at))} ${fmtTime(s.starts_at)}–${fmtTime(s.ends_at)}` : "a shift"}
                     {r.note ? ` · ${r.note}` : ""}
                   </span>
