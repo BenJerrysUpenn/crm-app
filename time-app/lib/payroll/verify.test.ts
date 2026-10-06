@@ -1638,6 +1638,30 @@ test("crew didn't punch: the group carries the merged card's title and rule", ()
   assert.match(g.rule, /one card per event/i);
 });
 
+test("crew didn't punch: the count is out of the deal's staff_count, else out of who was scheduled", () => {
+  const casey = galaShift(CASEY);
+  const pat = galaShift(PAT);
+  const caseyPunch = punch({ employee_id: CASEY, shift_id: casey.id, clock_in_at: at("2026-10-07", "15:00"), clock_out_at: at("2026-10-07", "18:00") });
+  const ofThree = runAfter({ windowDeals: [{ ...GALA, staff_count: 3 }], shifts: [casey, pat], punches: [caseyPunch] });
+  assert.match(only(ofThree.findings, "3.5")[0].summary, /1 of 3 crew punched/);
+  const unset = runAfter({ windowDeals: [{ ...GALA, staff_count: null }], shifts: [casey, pat], punches: [caseyPunch] });
+  assert.match(only(unset.findings, "3.5")[0].summary, /1 of 2 crew punched/);
+});
+
+test("crew didn't punch: of two open Catering slots on the event, the earlier one prefills the times", () => {
+  const late = shift({ employee_id: null, starts_at: at("2026-10-07", "16:00"), ends_at: at("2026-10-07", "20:00"), position: "Catering", deal_id: GALA.id });
+  const early = shift({ employee_id: null, starts_at: at("2026-10-07", "14:00"), ends_at: at("2026-10-07", "18:30"), position: "Catering", deal_id: GALA.id });
+  const fix = only(runAfter({ shifts: [late, early] }).findings, "3.5")[0].fixes![0];
+  assert.equal(fix.kind === "event_shift" && fix.clock_in, "2026-10-07T14:00");
+});
+
+test("crew didn't punch: a deal that is not a booked event, with only an open Catering slot, is no card", () => {
+  const quote: DealRow = { id: 25310, event_date: "2026-10-08", staff_count: 1, company: "Example Lunch", stage: "Sent Quote" };
+  const slot = shift({ employee_id: null, starts_at: at("2026-10-08", "11:00"), ends_at: at("2026-10-08", "13:00"), position: "Catering", deal_id: quote.id });
+  const result = runAfter({ windowDeals: [], deals: [quote], shifts: [slot] });
+  assert.deepEqual(only(result.findings, "3.5"), []);
+});
+
 test("everyone punches: adding the missing punch clears the fix", () => {
   const pat = galaShift(PAT);
   const added = punch({ employee_id: PAT, shift_id: pat.id, clock_in_at: at("2026-10-07", "15:00"), clock_out_at: at("2026-10-07", "18:00") });
