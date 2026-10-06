@@ -7,7 +7,7 @@ import StoreHoursAdmin from "@/components/StoreHoursAdmin";
 import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } from "@/lib/types";
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
-import { isNameMissing, usableName, validateFullName } from "@/lib/profileName";
+import { usableName, validateFullName } from "@/lib/profileName";
 import { PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/payroll/payType";
 import {
   ARCHIVE_NEEDS_MIGRATION,
@@ -510,8 +510,9 @@ function EmployeeRow({
 }) {
   // An email-like saved name is treated as no name: the box starts empty so
   // the manager types the real one.
-  const savedName = usableName(e.full_name) ?? "";
-  const nameMissing = isNameMissing(e.full_name);
+  const usable = usableName(e.full_name);
+  const savedName = usable ?? "";
+  const nameMissing = usable === null;
   const [name, setName] = useState(savedName);
   const [nameErr, setNameErr] = useState<string | null>(null);
   const [phone, setPhone] = useState(e.phone ?? "");

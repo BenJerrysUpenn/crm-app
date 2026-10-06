@@ -29,11 +29,6 @@ export function usableName(fullName: string | null | undefined): string | null {
   return t;
 }
 
-// True when the Team page should flag this profile as needing a name.
-export function isNameMissing(fullName: string | null | undefined): boolean {
-  return usableName(fullName) === null;
-}
-
 // What to render for a profile's name. Falls back to a neutral label, never to
 // the email. Pass a context-specific fallback where "No name set" reads badly
 // (e.g. "An employee" inside a notification sentence).

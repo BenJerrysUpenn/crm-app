@@ -11,7 +11,6 @@ import {
   displayName,
   displayNameOrId,
   firstName,
-  isNameMissing,
   usableName,
   validateFullName,
 } from "./profileName.ts";
@@ -19,20 +18,17 @@ import {
 test("a real name is shown trimmed", () => {
   assert.equal(usableName("  Sam Lee  "), "Sam Lee");
   assert.equal(displayName(" Sam Lee "), "Sam Lee");
-  assert.equal(isNameMissing("Sam Lee"), false);
 });
 
 test("an email sitting in the name is never shown as a name", () => {
   assert.equal(usableName("staff2@example.com"), null);
   assert.equal(displayName("staff2@example.com"), "No name set");
-  assert.equal(isNameMissing("staff2@example.com"), true);
 });
 
 test("a missing or blank name shows the neutral label and is flagged", () => {
   for (const none of [null, undefined, "", "   "]) {
     assert.equal(usableName(none), null, `usableName(${JSON.stringify(none)})`);
     assert.equal(displayName(none), "No name set", `displayName(${JSON.stringify(none)})`);
-    assert.equal(isNameMissing(none), true, `isNameMissing(${JSON.stringify(none)})`);
   }
 });
 
