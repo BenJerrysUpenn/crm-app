@@ -15,6 +15,7 @@ import {
   requestView,
   wagesCell,
   whenText,
+  type PaySheetBuild,
   type PaySheetJson,
   type PaySheetState,
   type SheetRow,
@@ -95,7 +96,7 @@ export default function PayTable({
         )}
       </header>
 
-      {built && <BuiltTable state={state as Extract<PaySheetState, { available: true }>} />}
+      {built && state?.available && <BuiltTable built={built} builds={state.builds} />}
 
       {state?.available && (
         <div
@@ -110,8 +111,7 @@ export default function PayTable({
   );
 }
 
-function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true }> }) {
-  const built = state.built!;
+function BuiltTable({ built, builds }: { built: PaySheetBuild; builds: number }) {
   const sheet = built.sheet;
   const [open, setOpen] = useState<Set<string>>(new Set());
   const toggle = (person: string) =>
@@ -129,7 +129,7 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
       <div className="px-4 py-2 text-[11px] text-slate-500 break-words">
         Built {whenText(built.built_at ?? built.started_at)} from the data as of {whenText(built.started_at)} ·{" "}
         {sheet.window.start} → {sheet.window.end}, pay date {sheet.window.pay_date} · {built.built_by ?? "built on the Mac"} ·{" "}
-        {state.builds} build{state.builds === 1 ? "" : "s"} kept · fingerprint {(built.source_fingerprint ?? "").slice(0, 10)}
+        {builds} build{builds === 1 ? "" : "s"} kept · fingerprint {(built.source_fingerprint ?? "").slice(0, 10)}
       </div>
       {(sheet.sheet_version ?? 1) < SHEET_VERSION && (
         <div className="px-4 pb-2 text-xs text-amber-700 dark:text-amber-500">
