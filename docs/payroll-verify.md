@@ -53,8 +53,8 @@ Every finding is one of:
   not hold the button.
 - **A choice** — code cannot decide. Alina ruled on 2026-09-22 (bj-finance #519)
   that these are **per-case choices made in the app, each with a preselected
-  default** (1.9, 3.5, 3.7). The default stands on its own; a manager changes
-  it only when the case needs it, and the change is recorded with who and when
+  default** (1.9, 3.5, 3.7; from 2026-10-05 only 3.7, see the cutover below).
+  The default stands on its own; a manager changes it only when the case needs it, and the change is recorded with who and when
   in `payroll_rulings`.
 - **Needs a fix** — the data is wrong and no choice can make it right. Fix it in
   the app and press Verify again. This includes **1.4** (a runaway punch with no
@@ -202,8 +202,7 @@ test). Moving the cutover is a one-line change to that constant.
   route refuses a 1.9 choice for these periods. 1.8 is unchanged.
 - **Pickup and delivery.** Pickup events are meant to be exempt from the crew
   punch and delivery events are not (staff may drive). `deals` has no column
-  that records pickup or delivery today, so every event is checked; see the
-  follow-up in the PR that added this.
+  that records pickup or delivery today, so every event is checked.
 
 The database submittal trigger (migration 27) does not enforce the catering
 rule; the Submit button and route do.
@@ -227,15 +226,17 @@ Notes on the ones that surprise people:
   event's crew only if they punched for it: a punch on the event's Catering
   shift by `shift_id`, or a manual punch (no `shift_id`) by the person
   scheduled on that shift, on the same date, overlapping it. Scheduled with no
-  punch is not crew: 1.12 names them (a block from the period starting
-  2026-10-05, never before), and an event nobody punched for is 3.5's
-  crewless case. The event's Catering shifts are the ones
+  punch is not crew: from the period starting 2026-10-05 the "Catering crew
+  didn't punch" card (3.5) names them and blocks the run; before it, 1.12
+  names them as a warning and an event nobody punched for is 3.5's crewless
+  choice. The event's Catering shifts are the ones
   linked by `shifts.deal_id`, or when there are none, the Catering shifts on the
   event date. The payroll sheet in bj-finance uses the same definition for the
   tip split.
 - **3.5 cannot see the tip.** The tip arrives on a Square invoice, which this app
-  does not read, so it asks about every crewless booked event; the payroll sheet
-  applies the pick only where there is a tip.
+  does not read, so before 2026-10-05 it asks about every crewless booked event
+  (the payroll sheet applies the pick only where there is a tip), and from
+  2026-10-05 the card asks for the missing punch whether or not there is a tip.
 - **1.15 reports, it never refuses.** Writes to `time_entries` and `shifts` are
   never blocked, even for a submitted period: the clock-in path must not fail,
   and Withers-time closes a forgotten clock-out at the next clock-in. Every
