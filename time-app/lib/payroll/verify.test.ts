@@ -1835,6 +1835,22 @@ test("3.7 from the cutover: the card carries the add-punch form for each unworke
   assert.match(fix.label ?? "", /Bravo, Casey/);
 });
 
+test("3.7 from the cutover: one form per assigned Pastry Opener shift in the period, earliest first, and none for any other shift", () => {
+  const thursday = shift({ employee_id: PAT, starts_at: at("2026-10-08", "06:00"), ends_at: at("2026-10-08", "10:00"), position: "Pastry Opener" });
+  const wednesday = bakeAfter(CASEY);
+  const notBake = shift({ employee_id: DREW, starts_at: at("2026-10-07", "11:00"), ends_at: at("2026-10-07", "15:00"), position: "PENN Opener" });
+  const nextPeriod = shift({ employee_id: DREW, starts_at: at("2026-10-20", "06:00"), ends_at: at("2026-10-20", "10:00"), position: "Pastry Opener" });
+  const unassigned = shift({ employee_id: null, starts_at: at("2026-10-09", "06:00"), ends_at: at("2026-10-09", "10:00"), position: "Pastry Opener" });
+  const f = only(runAfter({ ...WED_AFTER, windowDeals: [], shifts: [thursday, notBake, nextPeriod, unassigned, wednesday] }).findings, "3.7")[0];
+  assert.deepEqual(
+    f.fixes?.map((x) => (x.kind === "add" ? [x.employee_id, x.shift_id, x.date] : x.kind)),
+    [
+      [CASEY, wednesday.id, "2026-10-07"],
+      [PAT, thursday.id, "2026-10-08"],
+    ],
+  );
+});
+
 test("3.7 from the cutover: with no Pastry Opener shift on the schedule the card says to schedule it first", () => {
   const f = only(runAfter({ ...WED_AFTER, windowDeals: [] }).findings, "3.7")[0];
   assert.equal(f.status, "needs_fix");
