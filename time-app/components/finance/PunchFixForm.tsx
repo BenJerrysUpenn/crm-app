@@ -4,13 +4,29 @@ import { useState } from "react";
 import { nyInputToIso, type Person, type PunchFix } from "@/lib/payroll/verify";
 
 // Fix a punch in place on the payroll page (2026-10-05). The finding says what
-// to fix (lib/payroll/verify.ts, `fix`); this writes it through the same
-// routes the Timesheets page uses, under the same manager check and the same
-// row_audit triggers, then hands back so the page runs Verify again. Times
-// are New York wall clock, like every finding on the page.
+// to fix (lib/payroll/verify.ts, `fix` / `fixes`); this writes it through the
+// same routes the Timesheets page uses, under the same manager check and the
+// same row_audit triggers, then hands back so the page runs Verify again.
+// Times are New York wall clock, like every finding on the page.
+//
+// Three kinds: edit a punch, add one (optionally on a shift), and, for a
+// catering event with no Catering shift on the schedule, add one together
+// with the event's Catering shift (POST /api/payroll/event-punch).
 
 const INPUT =
   "mt-1 w-full min-w-0 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-slate-900 dark:text-slate-100";
+
+function buttonLabel(fix: PunchFix): string {
+  if (fix.kind === "edit") return `Fix punch ${fix.punch.id}`;
+  if (fix.kind === "event_shift") return "Add a punch (and the event's Catering shift)";
+  return fix.label ?? "Add the missing punch";
+}
+
+function heading(fix: PunchFix): string {
+  if (fix.kind === "edit") return `Punch ${fix.punch.id} · ${fix.punch.employee_name}`;
+  if (fix.kind === "event_shift") return `Add a punch · ${fix.event} · ${fix.date}`;
+  return `Add a punch · ${fix.date}`;
+}
 
 export default function PunchFixForm({
   fix,
@@ -26,7 +42,9 @@ export default function PunchFixForm({
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [employeeId, setEmployeeId] = useState(fix.kind === "edit" ? fix.punch.employee_id : (fix.employee_id ?? ""));
+  const [employeeId, setEmployeeId] = useState(
+    fix.kind === "edit" ? fix.punch.employee_id : fix.kind === "add" ? (fix.employee_id ?? "") : "",
+  );
   const [clockIn, setClockIn] = useState(
     fix.kind === "edit" ? fix.punch.clock_in : (fix.clock_in ?? `${fix.date}T`),
   );
@@ -41,9 +59,9 @@ export default function PunchFixForm({
         type="button"
         disabled={busy}
         onClick={() => setOpen(true)}
-        className="mt-2 rounded-md border border-slate-300 dark:border-slate-700 text-xs font-medium px-3 py-1.5 text-slate-800 dark:text-slate-200 hover:border-emerald-500 disabled:opacity-50"
+        className="mt-2 mr-2 rounded-md border border-slate-300 dark:border-slate-700 text-xs font-medium px-3 py-1.5 text-slate-800 dark:text-slate-200 hover:border-emerald-500 disabled:opacity-50"
       >
-        {fix.kind === "edit" ? `Fix punch ${fix.punch.id}` : "Add the missing punch"}
+        {buttonLabel(fix)}
       </button>
     );
   }
@@ -53,8 +71,8 @@ export default function PunchFixForm({
     const outIso = clockOut ? nyInputToIso(clockOut) : null;
     if (!inIso) return setErr("Enter the clock-in date and time.");
     if (clockOut && !outIso) return setErr("Enter the clock-out date and time, or leave it blank.");
-    if (fix.kind === "add" && !employeeId) return setErr("Pick who the punch is for.");
-    if (fix.kind === "add" && !outIso) return setErr("Enter the clock-out: a punch added after the fact has an end.");
+    if (fix.kind !== "edit" && !employeeId) return setErr("Pick who the punch is for.");
+    if (fix.kind !== "edit" && !outIso) return setErr("Enter the clock-out: a punch added after the fact has an end.");
     setSaving(true);
     setErr(null);
     const res =
@@ -64,16 +82,22 @@ export default function PunchFixForm({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ clock_in_at: inIso, clock_out_at: outIso }),
           })
-        : await fetch("/api/time-entries", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              employee_id: employeeId,
-              clock_in_at: inIso,
-              clock_out_at: outIso,
-              shift_id: shiftId ? Number(shiftId) : null,
-            }),
-          });
+        : fix.kind === "event_shift"
+          ? await fetch("/api/payroll/event-punch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ deal_id: fix.deal_id, employee_id: employeeId, clock_in_at: inIso, clock_out_at: outIso }),
+            })
+          : await fetch("/api/time-entries", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                employee_id: employeeId,
+                clock_in_at: inIso,
+                clock_out_at: outIso,
+                shift_id: shiftId ? Number(shiftId) : null,
+              }),
+            });
     if (!res.ok) {
       setSaving(false);
       setErr((await res.json().catch(() => ({}))).error ?? `Could not save (${res.status}).`);
@@ -87,10 +111,8 @@ export default function PunchFixForm({
   const disabled = busy || saving;
   return (
     <div className="mt-2 rounded-md border border-slate-200 dark:border-slate-700 p-3 text-xs space-y-2 max-w-xl">
-      <div className="font-medium text-slate-800 dark:text-slate-200">
-        {fix.kind === "edit" ? `Punch ${fix.punch.id} · ${fix.punch.employee_name}` : `Add a punch · ${fix.date}`}
-      </div>
-      {fix.kind === "add" && (
+      <div className="font-medium text-slate-800 dark:text-slate-200">{heading(fix)}</div>
+      {fix.kind !== "edit" && (
         <label className="block">
           <span className="text-slate-500">Employee</span>
           <select value={employeeId} disabled={disabled} onChange={(e) => setEmployeeId(e.target.value)} className={INPUT}>
@@ -125,6 +147,12 @@ export default function PunchFixForm({
             ))}
           </select>
         </label>
+      )}
+      {fix.kind === "event_shift" && (
+        <p className="text-slate-500">
+          Saving also puts them on the event&rsquo;s Catering shift (an open slot on it if there is one, else a new
+          shift over these hours), so they are its crew and its tip splits by punches.
+        </p>
       )}
       {err && <div className="text-rose-500">{err}</div>}
       <div className="flex flex-wrap gap-2">

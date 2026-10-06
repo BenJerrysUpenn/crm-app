@@ -20,6 +20,7 @@ the person, with both options costed before they are shown.
 | Findings endpoint | `GET /api/payroll/verify?window_end=YYYY-MM-DD` |
 | Choices endpoint | `POST` / `DELETE /api/payroll/rulings` |
 | Submittal endpoint | `POST /api/payroll/submit` |
+| Event shift + punch, one save (from 2026-10-05) | `POST /api/payroll/event-punch`, shape in `time-app/lib/payroll/eventShift.ts` |
 | The page | `https://finance.withers-ventures.com/payroll` (`/payroll` on localhost and previews), manager-only |
 | Solo-close dropdowns | the **Schedule** view, manager-only (`components/SoloCloseNights.tsx`) |
 | Tests | `time-app/lib/payroll/*.test.ts` — `npm test` |
@@ -62,10 +63,9 @@ Every finding is one of:
   own shift or the one its `shift_id` names, never a 1.10 cover guess): they
   have **no default and no picker** (ruled 2026-09-22, ruling D). The punch is
   corrected on the Timesheets page. From the pay period starting
-  **2026-10-05** this also includes **1.12** (a person scheduled on a catering
-  event who did not punch for it) and **3.5** (a booked event with no crew on
-  the schedule): everyone punches (ruled 2026-10-05), so there is no default
-  payee for those either.
+  **2026-10-05** this also includes a catering event whose crew did not
+  punch: one **"Catering crew didn't punch"** card per event (1.12 and 3.5
+  merged, ruled 2026-10-05), with no default payee.
 
 **The button is green when there is nothing to fix and every case is answered
 by a recorded choice or its default.**
@@ -74,13 +74,23 @@ by a recorded choice or its default.**
 carries a fix form on its card: **edit the punch** (1.1 open punch with a
 shift, 1.4 open or runaway punch with no shift, 1.5 short punch) or **add the
 missing punch** (1.8 coverage gap, 1.12 a scheduled catering person with no
-punch, 3.5 an event with no crew), with the employee, clock-in, clock-out and
-an optional shift prefilled from the finding. It saves through the Timesheets
-routes (`POST /api/time-entries`, which takes an optional `shift_id`, and
+punch), with the employee, clock-in, clock-out and an optional shift
+prefilled from the finding. It saves through the Timesheets routes
+(`POST /api/time-entries`, which takes an optional `shift_id`, and
 `PATCH /api/time-entries/:id`), so the manager check, RLS and `row_audit`
 triggers are the same, and then runs Verify again. Times are New York wall
-clock whatever the browser's time zone (`nyInputToIso`). Adding a 1.12 punch
-on the person's shift makes them the event's crew.
+clock whatever the browser's time zone (`nyInputToIso`). Adding a punch on the
+person's Catering shift makes them the event's crew.
+
+The "Catering crew didn't punch" card (from 2026-10-05) carries **one form
+per scheduled person with no punch**, each prefilled on their own shift. For
+an event with **no Catering shift** on the schedule, its one form saves the
+punch **and the event's Catering shift** together (`POST
+/api/payroll/event-punch`, `lib/payroll/eventShift.ts`): an unassigned
+Catering slot the CRM already made for the deal is filled, otherwise a new
+shift is made over the punch's hours in the shape the CRM's catering shift
+writer uses (`position = 'Catering'`, `deal_id`, the next `deal_slot`, live).
+If the punch is refused, the shift write is undone. Nobody is texted about it.
 
 ## One submittal per run
 
@@ -151,13 +161,14 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 | 1.6 | Under 5 min with nothing scheduled | rule: 0 hours, listed |
 | 1.7 | Same person, overlapping punches | **fix** |
 | 1.8 | Opening hours with no in-store punch running, ≥15 min | rule, warning |
-| 1.9 | Solo-close eligible nights only: last in-store clock-out >2h before close, or a solo tail ≥4h with the closer out before 10 PM (2.4 qualifying) | **choice on the schedule**: pay scheduled closer / pay unpunched manager / skip (**default: skip**) |
+| 1.9 | Solo-close eligible nights only: last in-store clock-out >2h before close, or a solo tail ≥4h with the closer out before 10 PM (2.4 qualifying) | periods before **2026-10-05** only: **choice on the schedule**: pay scheduled closer / pay unpunched manager / skip (**default: skip**). From 2026-10-05: **not asked** (see below) |
 | 1.11 | Catering shift with no `deal_id` | rule (a scheduling-time flag) |
-| 1.12 | Fewer crew punched than `deals.staff_count` | rule, warning (never blocks) |
-| 1.12 | Each person scheduled on an event who did not punch for it, by name | periods starting **2026-10-05** on: **fix**, add their punch (no default). Before: rule, warning |
+| 1.12 | Fewer crew punched than `deals.staff_count` | periods before 2026-10-05: rule, warning (never blocks). From 2026-10-05: a line on the 3.5 card |
+| 1.12 | Each person scheduled on an event who did not punch for it, by name | periods before 2026-10-05: rule, warning. From 2026-10-05: on the 3.5 card |
 | 1.15 | A punch or shift in a submitted run changed after its submittal | rule, warning (never blocks) |
 | 3.4 | Invoice tip with no deal, any date | rule, **flag** (never blocks) |
-| 3.5 | Booked event in the window that nobody punched for | periods starting **2026-10-05** on: **fix** when the event has no crew on the schedule (add its Catering shift and punches; no default). An event whose scheduled crew did not punch is 1.12's fix instead. Before: **choice**: who is paid its tip (**default: the designated tip payee, `DEFAULT_TIP_PAYEE_NAME`**) |
+| 3.5 | Periods starting **2026-10-05** on, **"Catering crew didn't punch"**: one card per event (a booked event dated in the window, or a deal the window's shifts point at) where somebody scheduled did not punch, or a booked event with no Catering shift at all | **fix**, no default: add each missing punch on the card (or the shift and punch together). Once the punch exists the tip splits by punches. A crew smaller than `staff_count` with nobody unpunched is not a card |
+| 3.5 | Periods before 2026-10-05: booked event in the window that nobody punched for | **choice**: who is paid its tip (**default: the designated tip payee, `DEFAULT_TIP_PAYEE_NAME`**) |
 | 3.7 | No Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: the designated tip payee**); a schedule anomaly (norm ≥ 4 a period) |
 
 **Not reported** (Alina, 2026-10-05: "useless, kill these"): 0.1 pay window,
@@ -167,23 +178,43 @@ findings and do not count in the summary. The window is still computed by
 not ready and cannot be submitted. Blank-`shift_id` punches are still matched
 to their own shift or a cover (the 1.10 ladder), because pay depends on it.
 
-**Everyone punches** (ruled 2026-10-05). The designated tip payee's last day
-was 2026-10-04. For a pay period that **starts on or after
-`CREW_PUNCH_REQUIRED_FROM`** (`time-app/lib/payroll/verify.ts`, 2026-10-05) a
-catering event whose scheduled crew did not punch, or that has no crew, is a
-fix with no default, like 1.5. Each scheduled person with no punch is a 1.12
-fix; an event with nobody on its schedule is a 3.5 fix. The 2026-09-21 to
-10-04 run keeps the old rules: its crewless events still default to the tip
-payee. Moving the cutover is a one-line change to that constant. The database
-submittal trigger (migration 27) does not enforce this rule; the Submit button
-and route do.
+**The 2026-10-05 cutover** (Alina's rulings of 2026-10-05). For a pay period
+that **starts on or after `CREW_PUNCH_REQUIRED_FROM`**
+(`time-app/lib/payroll/verify.ts`, 2026-10-05; bj-finance
+`modules/payroll_sheet.py` uses the same date). Periods before it keep the old
+rules exactly, so the 2026-09-21 to 10-04 run is paid as it was (pinned by a
+test). Moving the cutover is a one-line change to that constant.
+
+- **Everyone punches.** The designated tip payee's last day was 2026-10-04. A
+  catering event whose crew did not punch is a fix with no default, like 1.5,
+  shown as **one card per event**, "Catering crew didn't punch" (key
+  `3.5:deal:<id>`), replacing the per-event "1 of 2 crew punched" line and the
+  per-person 1.12 lines. Crew is a punch on the event's Catering shift; once
+  the punch exists the tip splits by punches, so there is no payee to pick.
+  The crewless-tip picker is gone and `POST /api/payroll/rulings` refuses a
+  3.5 choice for these periods.
+- **No 1.9.** The store never closes before 10 PM and has no early half days
+  (it is closed instead), so a last in-store clock-out before 22:00 is always
+  a gap before close: 1.8 reports it and its add-punch form fixes it. The $30
+  solo-close bonus is **alone 4h or more and clocked out at or after 22:00**,
+  computed from punches only by the payroll sheet. No dropdown and no manager
+  pick: the solo-close card on the payroll page stays empty and the rulings
+  route refuses a 1.9 choice for these periods. 1.8 is unchanged.
+- **Pickup and delivery.** Pickup events are meant to be exempt from the crew
+  punch and delivery events are not (staff may drive). `deals` has no column
+  that records pickup or delivery today, so every event is checked; see the
+  follow-up in the PR that added this.
+
+The database submittal trigger (migration 27) does not enforce the catering
+rule; the Submit button and route do.
 
 Notes on the ones that surprise people:
 
 - **1.5 is the only check that can make a day longer.** Every other rule here
   shortens a runaway. An employee's 09-18 punch was 2m 11s against a 7h
   shift because the manager closed for her.
-- **1.9's default is skip** (ruled 2026-09-22): no solo-close bonus unless a
+- **1.9's default is skip** (ruled 2026-09-22; periods before 2026-10-05
+  only): no solo-close bonus unless a
   manager picks the scheduled closer or a manager who closed without punching.
   The dropdown is on the schedule, next to the week it happened in. It appears
   **only on solo-close eligible nights** (ruled 2026-09-22, ruling C): the last

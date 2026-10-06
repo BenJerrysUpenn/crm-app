@@ -29,10 +29,14 @@ import PunchFixForm from "./PunchFixForm";
 // screen says what does happen: the run is submitted and locked, and the pay
 // run is then keyed in QBO by hand (ruled 2026-09-27).
 //
-// A finding a punch can fix (1.1, 1.4, 1.5 edit a punch; 1.8, 1.12, 3.5 add
-// one) carries a fix form (PunchFixForm, 2026-10-05). It writes through the
-// Timesheets routes and then verifies again, so the page never patches a
-// finding itself.
+// A finding a punch can fix (1.1, 1.4, 1.5 edit a punch; 1.8, 1.12 add one)
+// carries a fix form (PunchFixForm, 2026-10-05). From the period starting
+// 2026-10-05 a catering event whose crew did not punch is one card (3.5,
+// "Catering crew didn't punch") with a form per missing person, or one that
+// adds the event's Catering shift with the punch; and there is no 1.9, so the
+// solo-close card stays empty. Forms write through the Timesheets routes (or
+// /api/payroll/event-punch) and then verify again, so the page never patches
+// a finding itself.
 
 type ApiResult = LoadedVerify;
 
@@ -401,13 +405,20 @@ function FindingRow({
             {finding.check === "1.4" || finding.check === "1.5"
               ? "Correct this punch below or on the Timesheets page. There is no default, and the run cannot be submitted until it is fixed."
               : finding.check === "1.12" || finding.check === "3.5"
-                ? "Everyone punches: add the missing punch below or on the Timesheets page. There is no default, and the run cannot be submitted until it is fixed."
+                ? "Everyone punches: add the missing punch below. Once it is in, the tip splits by punches. There is no default, and the run cannot be submitted until it is fixed."
                 : "Fix this in the app, then verify again. No ruling can stand in for it."}
           </div>
         )}
 
         {finding.fix && (
           <PunchFixForm key={finding.key} fix={finding.fix} staff={staff} busy={busy} onFixed={onFixed} />
+        )}
+        {finding.fixes && (
+          <div>
+            {finding.fixes.map((fix, i) => (
+              <PunchFixForm key={`${finding.key}:${i}`} fix={fix} staff={staff} busy={busy} onFixed={onFixed} />
+            ))}
+          </div>
         )}
 
         {finding.check === "3.4" && (
