@@ -1468,15 +1468,15 @@ function checkBakeShifts(views: PunchView[], input: VerifyInput, profiles: Map<s
     (date) => resolveOpenWindow(date, input.storeHours, exceptions, closedRanges).state === "open",
   );
   if (!anyOpen) return [];
-  const worked = input.shifts.filter(
-    (s) =>
-      s.position === PASTRY_POSITION &&
-      !!s.employee_id &&
-      inWindow(nyWallClock(s.starts_at).date, window) &&
-      views.some((v) => v.shift?.id === s.id && v.employeeId === s.employee_id),
+  const scheduled = input.shifts.filter(
+    (s) => s.position === PASTRY_POSITION && !!s.employee_id && inWindow(nyWallClock(s.starts_at).date, window),
   );
+  const worked = scheduled.filter((s) => views.some((v) => v.shift?.id === s.id && v.employeeId === s.employee_id));
   if (worked.length > 0) return [];
-  if (crewPunchRequired(window)) return [bakeShiftFix(views, input, profiles)];
+  if (crewPunchRequired(window)) {
+    const unworked = scheduled.filter((s) => !views.some((v) => v.shift?.id === s.id));
+    return [bakeShiftFix(unworked, input, profiles)];
+  }
   return [
     finding("3.7", {
       key: `3.7:olo:${window.end}`,
@@ -1501,21 +1501,16 @@ function checkBakeShifts(views: PunchView[], input: VerifyInput, profiles: Map<s
  * payroll sheet reads), so it says "any"; the sheet names the amount.
  *
  * The card carries one add-punch form per Pastry Opener shift scheduled in the
- * window that nobody worked, prefilled on that shift. With none on the
+ * window that nobody worked (checkBakeShifts picks them from the same scheduled
+ * set it counts worked shifts in), prefilled on that shift. With none on the
  * schedule there is nothing to punch against: the shift goes on the schedule
  * first.
  */
-function bakeShiftFix(views: PunchView[], input: VerifyInput, profiles: Map<string, ProfileRow>): Finding {
+function bakeShiftFix(unworkedShifts: ShiftRow[], input: VerifyInput, profiles: Map<string, ProfileRow>): Finding {
   const { window } = input;
-  const unworked = input.shifts
-    .filter(
-      (s) =>
-        s.position === PASTRY_POSITION &&
-        !!s.employee_id &&
-        inWindow(nyWallClock(s.starts_at).date, window) &&
-        !views.some((v) => v.shift?.id === s.id),
-    )
-    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at) || a.id - b.id);
+  const unworked = [...unworkedShifts].sort(
+    (a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at) || a.id - b.id,
+  );
   const fixes: PunchFix[] = unworked.map((s) => {
     const date = nyWallClock(s.starts_at).date;
     return {
