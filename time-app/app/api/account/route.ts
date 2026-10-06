@@ -5,21 +5,14 @@ import { NextResponse } from "next/server";
 
 // PATCH /api/account
 //
-// The signed-in person edits their own profile from the /account page: their
-// display name and phone, nothing else. The name rule is the same one POST
-// /api/profiles and PATCH /api/profiles/[id] enforce (validateFullName): a
-// non-empty, non-email name.
-//
-// The Account page validates in the browser too, for instant feedback, but the
-// rule has to hold on the server as well: a browser Supabase session can write
-// profiles.full_name directly, so a signed-in person could store a blank or
-// email-like name by going around the form and then show up on the Team page
-// as "Name missing". The page saves through here so validateFullName is the one
-// source of truth for the name rule on every write path (bj-finance #468).
-//
-// Scoped to the caller's own row (id = me.id): it can never touch anyone else,
-// and it carries none of the manager-only fields (role, pay, active, archive)
-// that PATCH /api/profiles/[id] guards. Any id in the body is ignored.
+// The signed-in person edits their own display name and phone, nothing else,
+// and only their own row (id = me.id; any id in the body is ignored). The name
+// goes through validateFullName, the same rule POST /api/profiles and PATCH
+// /api/profiles/[id] enforce, so the /account page cannot save a blank or
+// email-like name (bj-finance #468). A direct browser write to profiles still
+// could; this route is the checked path. It carries none of the
+// manager-only fields (role, pay, active, archive) that PATCH
+// /api/profiles/[id] guards.
 export async function PATCH(request: Request) {
   const me = await getProfile();
   if (!me) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
