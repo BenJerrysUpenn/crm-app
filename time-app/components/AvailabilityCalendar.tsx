@@ -48,8 +48,6 @@ export default function AvailabilityCalendar({
   specific,
   recurring,
   timeOff,
-  lockedDays,
-  postedThrough,
   today,
   navView,
 }: {
@@ -58,13 +56,10 @@ export default function AvailabilityCalendar({
   specific: Availability[];
   recurring: Availability[];
   timeOff: Availability[];
-  lockedDays: string[];
-  postedThrough: string | null;
   today: string;
   navView?: string;
 }) {
   const router = useRouter();
-  const lockedSet = new Set(lockedDays);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [viewing, setViewing] = useState<Availability | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,9 +75,9 @@ export default function AvailabilityCalendar({
     return { s, r, off };
   }
 
-  // A day is locked if it's in the past, or on/before the latest posted day.
+  // A day is locked only if it's in the past.
   function isLocked(date: string) {
-    return date < today || (postedThrough !== null && date <= postedThrough);
+    return date < today;
   }
 
   function openAdd(date: string) {
@@ -155,7 +150,7 @@ export default function AvailabilityCalendar({
         <button onClick={() => gotoMonth(1)} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">›</button>
       </div>
       <p className="text-sm text-slate-600 dark:text-slate-400">
-        Click a day to add a preference. <span className="text-rose-500">✕ unavailable</span>, <span className="text-sky-500">★ prefer to work</span>, ↻ repeats weekly. Tap a chip to see it or remove it. Posted days are locked.
+        Click a day to add a preference. <span className="text-rose-500">✕ unavailable</span>, <span className="text-sky-500">★ prefer to work</span>, ↻ repeats weekly. Tap a chip to see it or remove it.
       </p>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
@@ -166,7 +161,6 @@ export default function AvailabilityCalendar({
           {days.map((date) => {
             const inMonth = date.slice(0, 7) === monthKey;
             const past = date < today;
-            const posted = lockedSet.has(date);
             const locked = isLocked(date);
             const { s, r, off } = prefsFor(date);
             return (
@@ -181,7 +175,6 @@ export default function AvailabilityCalendar({
                   <span className={`text-[11px] ${date === today ? "bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center" : past ? "text-slate-400 dark:text-slate-600" : inMonth ? "text-slate-700 dark:text-slate-300" : "text-slate-400 dark:text-slate-600"}`}>
                     {Number(date.slice(8, 10))}
                   </span>
-                  {posted && <span className="text-[10px]">🔒</span>}
                 </div>
                 <div className="mt-1" onClick={(e) => e.stopPropagation()}>
                   {off.map((a) => (
@@ -316,7 +309,7 @@ function TimeOffSection({ timeOff }: { timeOff: Availability[] }) {
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
       <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Time-off requests</div>
-      <p className="text-xs text-slate-500">A manager approves these. You can&apos;t request off once that day&apos;s schedule is posted.</p>
+      <p className="text-xs text-slate-500">A manager approves these.</p>
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-slate-600 dark:text-slate-400">From
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ml-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1 text-slate-900 dark:text-slate-100" />

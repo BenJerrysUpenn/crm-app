@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import AvailabilityCalendar from "@/components/AvailabilityCalendar";
@@ -150,31 +149,6 @@ export default async function AvailabilityPage({
     .eq("is_available", false)
     .order("specific_date", { ascending: true });
 
-  // IMPORTANT: use the admin client so we see EVERY published shift, not just
-  // this user's (row-level security would otherwise hide other people's
-  // shifts and the day wouldn't lock).
-  const admin = createAdminClient();
-  const { data: pub } = await admin
-    .from("shifts")
-    .select("starts_at")
-    .eq("published", true)
-    .gte("starts_at", gridStart + "T00:00:00Z")
-    .lt("starts_at", gridEnd + "T00:00:00Z");
-  const lockedDays = Array.from(
-    new Set((pub ?? []).map((s) => new Date(s.starts_at as string).toLocaleDateString("en-CA", { timeZone: TZ }))),
-  );
-
-  // The latest published shift date anywhere; everything on/before it is locked.
-  const { data: lastPub } = await admin
-    .from("shifts")
-    .select("starts_at")
-    .eq("published", true)
-    .order("starts_at", { ascending: false })
-    .limit(1);
-  const postedThrough = lastPub?.[0]
-    ? new Date(lastPub[0].starts_at as string).toLocaleDateString("en-CA", { timeZone: TZ })
-    : null;
-
   return (
     <div className="min-h-screen flex flex-col">
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
@@ -187,8 +161,6 @@ export default async function AvailabilityPage({
             specific={(specific as Availability[]) ?? []}
             recurring={(recurring as Availability[]) ?? []}
             timeOff={(timeOff as Availability[]) ?? []}
-            lockedDays={lockedDays}
-            postedThrough={postedThrough}
             today={today}
             navView={isManager ? "mine" : undefined}
           />
