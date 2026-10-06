@@ -75,13 +75,8 @@ export default function AvailabilityCalendar({
     return { s, r, off };
   }
 
-  // A day is locked only if it's in the past.
-  function isLocked(date: string) {
-    return date < today;
-  }
-
   function openAdd(date: string) {
-    if (isLocked(date)) return;
+    if (date < today) return; // past days can't be changed
     setErr(null);
     setDraft({ date, kind: "unavailable", allDay: false, start: "09:00", end: "17:00", repeats: false, note: "" });
   }
@@ -161,14 +156,13 @@ export default function AvailabilityCalendar({
           {days.map((date) => {
             const inMonth = date.slice(0, 7) === monthKey;
             const past = date < today;
-            const locked = isLocked(date);
             const { s, r, off } = prefsFor(date);
             return (
               <div
                 key={date}
                 onClick={() => openAdd(date)}
                 className={`min-h-[92px] border-b border-r border-slate-200 dark:border-slate-800 p-1 ${
-                  locked ? "cursor-not-allowed bg-slate-50 dark:bg-slate-950/40" : "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  past ? "cursor-not-allowed bg-slate-50 dark:bg-slate-950/40" : "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 } ${inMonth ? "" : "bg-slate-50/60 dark:bg-slate-950/40"}`}
               >
                 <div className="flex items-center justify-between">
