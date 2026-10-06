@@ -28,7 +28,7 @@ export default function TopBar({
   name,
 }: {
   role: Role;
-  name: string;
+  name: string | null;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);

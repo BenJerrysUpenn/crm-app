@@ -99,7 +99,7 @@ export default async function TeamPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <TopBar role={profile.role} name={profile.full_name ?? ""} />
+      <TopBar role={profile.role} name={profile.full_name} />
       <main className="flex-1">
         {/* Full width here: TeamAdmin sizes the staff table to its content and
             keeps the other sections at their usual centred width. */}
