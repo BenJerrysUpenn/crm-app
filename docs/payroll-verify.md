@@ -55,7 +55,8 @@ Every finding is one of:
   that these are **per-case choices made in the app, each with a preselected
   default** (1.9, 3.5, 3.7). The default stands on its own; a manager changes
   it only when the case needs it, and the change is recorded with who and when
-  in `payroll_rulings`.
+  in `payroll_rulings`. From the pay period starting **2026-10-05** none of
+  the three is a choice any more: 1.9 is not asked, and 3.5 and 3.7 are fixes.
 - **Needs a fix** — the data is wrong and no choice can make it right. Fix it in
   the app and press Verify again. This includes **1.4** (a runaway punch with no
   scheduled shift, or an open punch with no scheduled shift, ruled 2026-09-27)
@@ -65,7 +66,8 @@ Every finding is one of:
   corrected on the Timesheets page. From the pay period starting
   **2026-10-05** this also includes a catering event whose crew did not
   punch: one **"Catering crew didn't punch"** card per event (1.12 and 3.5
-  merged, ruled 2026-10-05), with no default payee.
+  merged, ruled 2026-10-05), with no default payee, and a period with **no
+  bake shift worked** (3.7, ruled 2026-10-05), with no default payee either.
 
 **The button is green when there is nothing to fix and every case is answered
 by a recorded choice or its default.**
@@ -91,6 +93,12 @@ Catering slot the CRM already made for the deal is filled, otherwise a new
 shift is made over the punch's hours in the shape the CRM's catering shift
 writer uses (`position = 'Catering'`, `deal_id`, the next `deal_slot`, live).
 If the punch is refused, the shift write is undone. Nobody is texted about it.
+
+The "No bake shift worked" card (3.7, from 2026-10-05) carries **one add-punch
+form per Pastry Opener shift scheduled in the period that nobody worked**,
+prefilled on that shift. With no Pastry Opener shift on the schedule there is
+nothing to punch against, so the card says to put the bake shift on the
+schedule first and add the punch on the Timesheets page.
 
 ## One submittal per run
 
@@ -134,8 +142,8 @@ migration 27).
 **Flags** never block; they are shown to the submitter and on the sheet:
 
 - 1.9 — a night paid to the manager who changed its dropdown.
-- 3.5 / 3.7 — a crewless catering tip (periods before 2026-10-05 only) or
-  stranded Olo tip paid to the manager who submitted the run, whether by
+- 3.5 / 3.7 — a crewless catering tip or stranded Olo tip (periods before
+  2026-10-05 only) paid to the manager who submitted the run, whether by
   default or by a change.
 - 3.4 — an invoice tip that joins to no deal, **from any point in history**
   (ruled 2026-09-22, ruling A). The Finance tab reads these from `held_tips`
@@ -169,7 +177,8 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 | 3.4 | Invoice tip with no deal, any date | rule, **flag** (never blocks) |
 | 3.5 | Periods starting **2026-10-05** on, **"Catering crew didn't punch"**: one card per event (a booked event dated in the window, or a deal the window's shifts point at) where somebody scheduled did not punch, or a booked event with no Catering shift at all | **fix**, no default: add each missing punch on the card (or the shift and punch together). Once the punch exists the tip splits by punches. A crew smaller than `staff_count` with nobody unpunched is not a card |
 | 3.5 | Periods before 2026-10-05: booked event in the window that nobody punched for | **choice**: who is paid its tip (**default: the designated tip payee, `DEFAULT_TIP_PAYEE_NAME`**) |
-| 3.7 | No Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: the designated tip payee**); a schedule anomaly (norm ≥ 4 a period) |
+| 3.7 | Periods before 2026-10-05: no Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: the designated tip payee**); a schedule anomaly (norm ≥ 4 a period) |
+| 3.7 | Periods starting **2026-10-05** on, **"No bake shift worked"**: no Pastry Opener shift worked (scheduled AND punched) in an open period | **fix**, no default and no picker: add the Pastry Opener punch (on the card or the Timesheets page). Once it exists the Olo tips split by bake shifts |
 
 **Not reported** (Alina, 2026-10-05: "useless, kill these"): 0.1 pay window,
 1.10 cover punches, 1.13 deleted rows and 1.14 name hygiene. They are not
@@ -200,13 +209,24 @@ test). Moving the cutover is a one-line change to that constant.
   computed from punches only by the payroll sheet. No dropdown and no manager
   pick: the solo-close card on the payroll page stays empty and the rulings
   route refuses a 1.9 choice for these periods. 1.8 is unchanged.
-- **Pickup and delivery.** Pickup events are meant to be exempt from the crew
-  punch and delivery events are not (staff may drive). `deals` has no column
-  that records pickup or delivery today, so every event is checked; see the
-  follow-up in the PR that added this.
+- **No stranded-Olo payee.** "This should not happen and is an upstream time
+  clock problem" (Alina, 2026-10-05). A period with no Pastry Opener shift
+  worked is a fix with no default and no picker: the card says no bake shift
+  was worked, so any Olo tips for the period have nobody to go to, and asks
+  for the Pastry Opener punch. Once the punch exists the Olo tips split by
+  bake shifts as normal. This app cannot see the Olo tips (the payroll sheet
+  reads them from the Olo workbooks and names the amount), so it asks about
+  every open period with no bake shift worked. `POST /api/payroll/rulings`
+  refuses a 3.7 choice for these periods.
+- **Pickup events are exempt.** A catering event whose `deals.event_type` is
+  a pickup (`isPickupEvent`: "Pickup", "Pick up" or "Pick-up", any case) has
+  no Catering shift by design and gets no "Catering crew didn't punch" card.
+  Nothing else is exempt: "Drop Off" and delivery events still need their
+  crew's punches. A pickup's tip, if any, goes to that day's in-store pool
+  on the payroll sheet (ruled 2026-10-05); this app does not see tips.
 
 The database submittal trigger (migration 27) does not enforce the catering
-rule; the Submit button and route do.
+rule or 3.7; the Submit button and route do.
 
 Notes on the ones that surprise people:
 
