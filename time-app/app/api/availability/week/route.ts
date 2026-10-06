@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { displayName } from "@/lib/profileName";
+import { displayName, UNNAMED_IN_ALERTS } from "@/lib/profileName";
 import { notifyManagers } from "@/lib/notify";
 import { NextResponse } from "next/server";
 
@@ -76,7 +76,7 @@ export async function PUT(request: Request) {
   await notifyManagers({
     type: "availability_change",
     title: "Availability updated",
-    body: `${displayName(profile.full_name, "An employee")} updated their availability.`,
+    body: `${displayName(profile.full_name, UNNAMED_IN_ALERTS)} updated their availability.`,
   }).catch(() => {});
 
   return NextResponse.json({ ok: true, inserted: rows.length, lockedDays: Array.from(locked) });

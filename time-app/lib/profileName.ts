@@ -14,6 +14,10 @@
 // the email address.
 export const NO_NAME_LABEL = "No name set";
 
+// Who an unnamed person is inside a manager alert sentence ("An employee
+// wants to drop ..."), where "No name set" reads badly.
+export const UNNAMED_IN_ALERTS = "An employee";
+
 const NAME_MAX = 100;
 
 function isEmailLike(s: string): boolean {
@@ -31,7 +35,7 @@ export function usableName(fullName: string | null | undefined): string | null {
 
 // What to render for a profile's name. Falls back to a neutral label, never to
 // the email. Pass a context-specific fallback where "No name set" reads badly
-// (e.g. "An employee" inside a notification sentence).
+// (e.g. UNNAMED_IN_ALERTS inside a notification sentence).
 export function displayName(
   fullName: string | null | undefined,
   fallback: string = NO_NAME_LABEL,
