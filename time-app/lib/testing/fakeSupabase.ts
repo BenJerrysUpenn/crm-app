@@ -7,8 +7,8 @@
 // request's cookies (next/headers, which only exists inside Next's server).
 //
 // The fake speaks just enough PostgREST for the routes under test (eq / gte /
-// lte / is / in filters and not.<filter>, limit, single, maybeSingle, insert and update with
-// return=representation) and answers /auth/v1/user from the session cookie.
+// lte / is / in filters and not.<filter>, order, limit and offset, single, maybeSingle, a head
+// request's exact count, insert and update with return=representation) and answers /auth/v1/user from the session cookie.
 // Row Level Security is emulated for time_entries only, with the policies
 // migrations 12 and 30 install (supabase/migration_30_verify.sql proves those
 // against a real Postgres): anyone signed in reads their own punches, only a
@@ -40,6 +40,9 @@ export type FakeSupabase = {
   // refused as hosted PostgREST does (PGRST204, "schema cache"); seed the rows
   // without the column too, as select("*") would return them.
   missingColumns: Record<string, string[]>;
+  // Tables a migration has not created yet: every request to one is refused
+  // as hosted PostgREST does (PGRST205, "schema cache").
+  missingTables: string[];
   signIn(userId: string): void;
   // The Cookie header a browser with this session sends (for middleware).
   cookieHeader(): string;
@@ -202,6 +205,27 @@ function matches(row: Row, params: URLSearchParams): boolean {
   return true;
 }
 
+// order=col.desc,col2.asc (nulls last either way, as Postgres does for asc).
+function sortBy(rows: Row[], order: string): Row[] {
+  const keys = order.split(",").map((term) => {
+    const [col, dir] = term.split(".");
+    return { col, sign: dir === "desc" ? -1 : 1 };
+  });
+  return [...rows].sort((a, b) => {
+    for (const { col, sign } of keys) {
+      const x = a[col];
+      const y = b[col];
+      if (x == null || y == null) {
+        if (x == null && y == null) continue;
+        return x == null ? 1 : -1;
+      }
+      const c = typeof x === "number" && typeof y === "number" ? x - y : compare(x, String(y));
+      if (c !== 0) return sign * c;
+    }
+    return 0;
+  });
+}
+
 function represent(rows: Row[], headers: Headers, status: number): Response {
   if (headers.get("accept")?.startsWith("application/vnd.pgrst.object+json")) {
     if (rows.length !== 1) {
@@ -219,6 +243,8 @@ function represent(rows: Row[], headers: Headers, status: number): Response {
 
 const DEFAULTS: Record<string, () => Row> = {
   time_entries: () => ({ clock_in_at: DB_NOW, clock_out_at: null, status: "open", manual: false }),
+  // Migration 36's column defaults: a new pay table row is a queued request.
+  payroll_sheets: () => ({ status: "queued", requested_at: DB_NOW, started_at: null, built_at: null, built_by: null, source_fingerprint: null, open_items: null, error: null, sheet: null }),
 };
 
 async function handle(url: URL, method: string, headers: Headers, body: string | null): Promise<Response> {
@@ -234,13 +260,29 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
   }
   const table = url.pathname.match(/^\/rest\/v1\/(\w+)$/)?.[1];
   if (!table) throw new Error(`fake Supabase: unexpected ${method} ${url.pathname}`);
+  if (fake.missingTables.includes(table)) {
+    return json(404, {
+      code: "PGRST205",
+      details: null,
+      hint: null,
+      message: `Could not find the table 'public.${table}' in the schema cache`,
+    });
+  }
   const caller = callerOf(headers);
   const all = (fake.tables[table] ??= []);
 
-  if (method === "GET") {
+  if (method === "GET" || method === "HEAD") {
     let rows = all.filter((r) => canRead(table, caller, r) && matches(r, url.searchParams));
+    const order = url.searchParams.get("order");
+    if (order) rows = sortBy(rows, order);
+    const total = rows.length;
+    const offset = Number(url.searchParams.get("offset") ?? 0);
     const limit = url.searchParams.get("limit");
-    if (limit) rows = rows.slice(0, Number(limit));
+    rows = rows.slice(offset, limit ? offset + Number(limit) : undefined);
+    // select(..., { count: "exact", head: true }): no body, the count in Content-Range.
+    if (method === "HEAD") {
+      return new Response(null, { status: 200, headers: { "content-range": total ? `0-${total - 1}/${total}` : `*/${total}` } });
+    }
     return represent(rows, headers, 200);
   }
 
@@ -315,6 +357,7 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
     tables: structuredClone(tables),
     beforeWrite: null,
     missingColumns: {},
+    missingTables: [],
     signIn(userId) {
       const accessToken = `token-for-${userId}`;
       tokens.set(accessToken, userId);
