@@ -67,6 +67,13 @@ test("phone is saved trimmed, and a blank becomes null", async () => {
   assert.equal(row(SAM).phone, null);
 });
 
+test("a save that doesn't send a name changes the phone and leaves the name alone", async () => {
+  const res = await patch({ phone: "555-0100" });
+  assert.equal(res.status, 200);
+  assert.equal(row(SAM).phone, "555-0100");
+  assert.equal(row(SAM).full_name, "Sam Lee");
+});
+
 test("a body id is ignored; only the caller's own row is written", async () => {
   const res = await patch({ id: PAT, full_name: "Renamed" });
   assert.equal(res.status, 200);
