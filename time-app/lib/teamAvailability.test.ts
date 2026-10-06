@@ -70,6 +70,15 @@ test("every roster person gets a row, in roster order, even with nothing entered
   assert.equal(summaryLine(grid), "0 of 3 submitted availability this week");
 });
 
+test("an email sitting in a roster name is never shown in the grid (bj-finance #468)", () => {
+  const grid = buildTeamGrid(
+    [{ id: "d0e1f2a3-0000-4000-8000-000000000004", full_name: "staff2@example.com" }],
+    WEEK,
+    [],
+  );
+  assert.equal(grid.rows[0].name, "No name set (d0e1f2a3)");
+});
+
 test("people off the roster are left out", () => {
   const grid = buildTeamGrid(roster, WEEK, [row("zed", { weekday: 2 })]);
   assert.equal(grid.rows.length, 3);
