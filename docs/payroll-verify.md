@@ -146,6 +146,37 @@ Choices are keyed by case (`1.9:2026-09-18`, `3.5:deal:25188`,
 `3.7:olo:2026-09-20`), not by pay window, so the schedule
 (which shows calendar weeks) and the Finance tab write and read the same row.
 
+## The pay table (2026-10-05)
+
+Alina, the first live run: "I need a table that matches QBO for each person."
+Above Submit, the page shows the sheet bj-finance `modules/payroll_sheet.py`
+built on the Mac, published to `payroll_sheets` (migration 36) by
+`modules/payroll_publish.py`. The page computes no pay
+(`components/finance/PayTable.tsx`, `lib/payroll/paySheet.ts`):
+
+- one row per person, columns in QBO's Run Payroll order (Regular hours,
+  Overtime hours, Paycheck tips, Solo close, Catering premium, Catering
+  premium OT, Travel reimbursement), then the rate and the wages
+  (rate × regular + 1.5 × rate × OT, from the sheet; "salary"; or "no rate");
+  a totals row;
+- each row opens onto its punches (date, in, out, paid-to when cut back,
+  hours, the shift it is measured against), week 1 / week 2 hours, tips by
+  source (pool, each catering event, Olo) and the solo-close nights it earned;
+- the run's solo-close night table, open items and flags.
+
+**Rebuild pay table** (`POST /api/payroll/sheet`) inserts a `queued` row with
+the service-role key; the bj-finance runner daemon on the Mac builds it within
+a minute (`building`, then `built` or `failed` with the error), and the page
+looks again every 8 seconds until it lands. Every build is kept.
+
+**Submit gate.** Submit stays disabled, the first unmet condition shown, until
+(a) Verify has nothing to fix (as before), (b) a pay table is built for the
+period, (c) it has zero open items, and (d) it was built after the latest
+change to a punch or shift (from the day before the period to 05:00 the day
+after) or a payroll choice for the period (`row_audit`, which migration 36
+extends to `payroll_rulings`). The submit route refuses (b)-(d) too, and so
+does migration 36's submittal guard.
+
 ## The checks
 
 | # | Check | Outcome |
@@ -257,6 +288,7 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is submitted) and `payroll_run_submittals` (final; `status` is the §6 seam) |
 | `time-app/supabase/migration_28.sql` | extends migration 26's profile guard: an employee cannot change their own `hourly_rate` or `active` either (managers and the service role still can) |
 | `time-app/supabase/migration_35.sql` | redefines `payroll_punch_blockers()`: 1.5 measures a punch only against its own shift (explicit or the person's that day), never a 1.10 cover; a person's latest punch is no longer skipped as a NULL runaway |
+| `time-app/supabase/migration_36.sql` | `payroll_sheets` (every pay table build and Rebuild request; service-role writes, manager reads, built rows frozen), `payroll_rulings` audited in `row_audit`, and the submittal guard's pay-table condition |
 
 All four are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_2N_verify.sql` to run afterwards (in a
