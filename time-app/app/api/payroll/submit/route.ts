@@ -5,6 +5,8 @@ import { dayKey } from "@/lib/format";
 import { isMissingTable } from "@/lib/storeHours";
 import { loadVerify } from "@/lib/payroll/loadVerify";
 import { submittalBlocker, submittalSnapshot } from "@/lib/payroll/choices";
+import { loadPaySheet } from "@/lib/payroll/loadPaySheet";
+import { payTableBlocker } from "@/lib/payroll/paySheet";
 import { payWindowEnding } from "@/lib/payroll/window";
 import { NextResponse } from "next/server";
 
@@ -38,7 +40,9 @@ const RAISED_BY_TRIGGER = "P0001";
 //     staging script will consume.
 //
 // The run is re-verified here, on the server, and refused unless every case is
-// answered by a choice or its default and nothing needs fixing. The submittal
+// answered by a choice or its default and nothing needs fixing, and unless the
+// period's pay table is built, has no open items and is not older than the
+// latest change to the period (2026-10-05; lib/payroll/paySheet.ts). The submittal
 // stores a snapshot of every case's effective choice at that moment, defaults
 // included, so the record says what was submitted even after a default changes
 // in code. The payroll sheet (bj-finance modules/payroll_sheet.py) reads this
@@ -59,6 +63,12 @@ export async function POST(request: Request) {
 
   const blocker = submittalBlocker(loaded.result, loaded.result.migrations.submittals, today, loaded.result.otherSubmittals);
   if (blocker) return NextResponse.json({ error: blocker }, { status: 409 });
+
+  // The pay table (Alina, 2026-10-05): built for this period, no open items,
+  // and built after the latest change to its punches, shifts and choices.
+  // Migration 36's guard refuses the same in the database.
+  const payTable = payTableBlocker(await loadPaySheet(supabase, resolved.window));
+  if (payTable) return NextResponse.json({ error: payTable }, { status: 409 });
 
   const note = typeof body?.note === "string" ? body.note.trim().slice(0, MAX_NOTE) || null : null;
   // INSERT, never upsert: a second submittal of the same run is a conflict,

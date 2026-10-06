@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CheckGroup, Finding, Person } from "@/lib/payroll/verify";
 import type { LoadedVerify } from "@/lib/payroll/loadVerify";
 import { submittalBlocker, paysSubmitter } from "@/lib/payroll/choices";
+import { inFlight, payTableBlocker, type PaySheetState } from "@/lib/payroll/paySheet";
 import { recordChoice, resetChoice } from "./choiceApi";
 import SoloCloseNights from "@/components/SoloCloseNights";
 import PunchFixForm from "./PunchFixForm";
+import PayTable from "./PayTable";
 
 // The Verify timesheets screen (bj-finance #519, payroll spec §1).
 //
@@ -37,8 +39,18 @@ import PunchFixForm from "./PunchFixForm";
 // solo-close card stays empty. Forms write through the Timesheets routes (or
 // /api/payroll/event-punch) and then verify again, so the page never patches
 // a finding itself.
+//
+// The pay table (2026-10-05) sits above Submit: the sheet bj-finance built on
+// the Mac, per person, as QBO takes it (components/finance/PayTable.tsx). It is
+// read with every Verify, rebuilt on request, and looked at again every few
+// seconds while a build is queued or running. Submit stays disabled until the
+// pay table is built, has no open items, and is newer than the latest change
+// to the period (lib/payroll/paySheet.ts payTableBlocker).
 
 type ApiResult = LoadedVerify;
+
+/** How often the page looks again while a build is queued or running. */
+const BUILD_POLL_MS = 8000;
 
 const SEVERITY_DOT: Record<string, string> = {
   error: "bg-rose-500",
@@ -51,11 +63,21 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
   const [result, setResult] = useState<ApiResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<PaySheetState | null>(null);
+
+  async function loadSheet(end: string) {
+    const res = await fetch(`/api/payroll/sheet?window_end=${encodeURIComponent(end)}`);
+    const body = await res.json().catch(() => ({}));
+    setSheet(res.ok ? (body as PaySheetState) : { available: false, reason: body.error ?? `it could not be read (${res.status}).` });
+  }
 
   async function verify(end = windowEnd) {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/payroll/verify?window_end=${encodeURIComponent(end)}`);
+    const [res] = await Promise.all([
+      fetch(`/api/payroll/verify?window_end=${encodeURIComponent(end)}`),
+      loadSheet(end),
+    ]);
     const body = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
@@ -65,6 +87,30 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
     }
     setResult(body as ApiResult);
   }
+
+  async function rebuild() {
+    const end = result?.window.end ?? windowEnd;
+    setError(null);
+    const res = await fetch("/api/payroll/sheet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ window_end: end }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(body.error ?? `Could not ask for a rebuild (${res.status}).`);
+      return;
+    }
+    setSheet(body as PaySheetState);
+  }
+
+  // While a build is queued or running, look again shortly; stop once it lands.
+  const sheetEnd = result?.window.end;
+  useEffect(() => {
+    if (!sheet || !sheetEnd || !inFlight(sheet)) return;
+    const timer = setTimeout(() => void loadSheet(sheetEnd), BUILD_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [sheet, sheetEnd]);
 
   // A choice is recorded server-side and the whole window is then re-verified,
   // rather than the answer being patched into the findings here. Re-running is
@@ -153,7 +199,8 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
       {result && (
         <>
           <Summary result={result} />
-          <SubmitPanel result={result} meId={meId} busy={busy} onSubmit={submit} />
+          <PayTable state={sheet} busy={busy} onRebuild={rebuild} />
+          <SubmitPanel result={result} sheet={sheet} meId={meId} busy={busy} onSubmit={submit} />
           <SoloCloseNights
             from={result.window.start}
             to={result.window.end}
@@ -236,17 +283,23 @@ function Summary({ result }: { result: ApiResult }) {
  */
 function SubmitPanel({
   result,
+  sheet,
   meId,
   busy,
   onSubmit,
 }: {
   result: ApiResult;
+  sheet: PaySheetState | null;
   meId: string;
   busy: boolean;
   onSubmit: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const blocker = submittalBlocker(result, result.migrations.submittals, result.today, result.otherSubmittals);
+  // (a) Verify has nothing to fix, and the calendar allows it; then (b)-(d),
+  // the pay table. The first unmet condition is the one shown.
+  const blocker =
+    submittalBlocker(result, result.migrations.submittals, result.today, result.otherSubmittals) ??
+    (sheet ? payTableBlocker(sheet) : "Loading the pay table…");
   const wouldPayMe = paysSubmitter(result.findings, meId);
   const submitted = result.submittalState === "submitted";
   return (
