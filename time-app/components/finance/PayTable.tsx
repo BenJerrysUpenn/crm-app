@@ -6,6 +6,7 @@ import {
   QBO_COLUMNS,
   SHEET_VERSION,
   hoursText,
+  inFlight,
   money,
   payTableBlocker,
   qboCell,
@@ -58,7 +59,7 @@ export default function PayTable({
 }) {
   const view = state ? requestView(state) : { tone: "none", text: "Loading the pay table…" };
   const blocker = state ? payTableBlocker(state) : null;
-  const building = !!state && state.available && (state.latest?.status === "queued" || state.latest?.status === "building");
+  const building = !!state && inFlight(state);
   const built = state?.available ? state.built : null;
   // The build being shown already says when it was built, below.
   const showView = !(built && state?.available && state.latest?.id === built.id);
