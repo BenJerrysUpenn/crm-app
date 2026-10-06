@@ -290,23 +290,41 @@ function meta(over: Partial<PaySheetMeta>): PaySheetMeta {
   return { ...built(), ...over } as PaySheetMeta;
 }
 
-test("request state reads queued / building / built / failed", () => {
-  assert.equal(requestView({ available: false, reason: "x" }).tone, "none");
+test("before migration 36 there is no Rebuild state to show, and nothing is in flight", () => {
+  assert.deepEqual(requestView({ available: false, reason: "x" }), { tone: "none", text: "" });
+  assert.equal(inFlight({ available: false, reason: "x" }), false);
+});
+
+test("with no request for the period, the page says none has been built", () => {
   assert.match(requestView(state({ latest: null })).text, /No pay table has been built/);
+});
+
+test("a queued request is busy and in flight", () => {
   const queued = state({ latest: meta({ status: "queued", started_at: null, built_at: null }) });
+  assert.equal(requestView(queued).tone, "busy");
   assert.match(requestView(queued).text, /^Queued /);
   assert.equal(inFlight(queued), true);
+});
+
+test("a build in progress is busy and in flight, even before it records its start", () => {
   const building = state({ latest: meta({ status: "building", built_at: null }) });
+  assert.equal(requestView(building).tone, "busy");
   assert.match(requestView(building).text, /^Building since /);
   assert.equal(inFlight(building), true);
   const claimedNoStart = state({ latest: meta({ status: "building", started_at: null, built_at: null }) });
   assert.match(requestView(claimedNoStart).text, /^Building since /);
-  assert.match(requestView(state()).text, /^Built /);
+});
+
+test("a finished build reads as built and is no longer in flight", () => {
   assert.equal(requestView(state()).tone, "ok");
+  assert.match(requestView(state()).text, /^Built /);
   assert.equal(inFlight(state()), false);
   assert.match(requestView(state({ latest: meta({ status: "built", built_at: null }) })).text, /^Built /);
+});
+
+test("a failed build shows its recorded error, or says none was recorded", () => {
   const failed = state({ latest: meta({ status: "failed", error: "FileNotFoundError: Square Reports" }) });
   assert.deepEqual(requestView(failed), { tone: "error", text: "The last build failed: FileNotFoundError: Square Reports." });
+  assert.equal(inFlight(failed), false);
   assert.match(requestView(state({ latest: meta({ status: "failed", error: null }) })).text, /no error was recorded/);
-  assert.equal(inFlight({ available: false, reason: "x" }), false);
 });
