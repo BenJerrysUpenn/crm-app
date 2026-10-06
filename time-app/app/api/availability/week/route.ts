@@ -2,12 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { notifyManagers } from "@/lib/notify";
 import { NextResponse } from "next/server";
-
-function addDays(d: string, n: number) {
-  const x = new Date(d + "T00:00:00Z");
-  x.setUTCDate(x.getUTCDate() + n);
-  return x.toISOString().slice(0, 10);
-}
+import { addDays } from "@/lib/coverage";
 
 // Replace the employee's availability blocks for one week (date-based).
 // Body: { weekStart, blocks: [{date, start_time, end_time, preference}] }.

@@ -4,12 +4,8 @@ import { notifyManagers } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import { addDays } from "@/lib/coverage";
 
-function addDays(d: string, n: number) {
-  const x = new Date(d + "T00:00:00Z");
-  x.setUTCDate(x.getUTCDate() + n);
-  return x.toISOString().slice(0, 10);
-}
 function todayEastern() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
