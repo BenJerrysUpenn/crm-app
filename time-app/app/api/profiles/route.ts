@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { sendInvite, siteOrigin } from "@/lib/authLinks";
-import { usableName, validateFullName } from "@/lib/profileName";
+import { validateFullName } from "@/lib/profileName";
 import { NextResponse } from "next/server";
 
 // POST /api/profiles
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
   const invite = await sendInvite({
     email,
     fullName: full_name,
-    invitedBy: usableName(me.full_name),
+    invitedBy: me.full_name,
     origin: siteOrigin(request),
   });
   if ("error" in invite)
