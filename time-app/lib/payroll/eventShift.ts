@@ -10,7 +10,7 @@
 //
 // Pure, so the route test and this module agree on what is written.
 
-export const CATERING_POSITION = "Catering";
+import { CATERING_POSITION } from "./verify.ts";
 
 export type EventDeal = { id: number; company?: string | null; venue_name?: string | null; venue_address?: string | null };
 

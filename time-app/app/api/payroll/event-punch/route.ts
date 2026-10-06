@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { financeAccess } from "@/lib/financeAccess";
-import { CATERING_POSITION, planEventShift, type EventShiftRow } from "@/lib/payroll/eventShift";
+import { CATERING_POSITION } from "@/lib/payroll/verify";
+import { planEventShift, type EventShiftRow } from "@/lib/payroll/eventShift";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
