@@ -11,12 +11,11 @@ import { NextResponse } from "next/server";
 // non-empty, non-email name.
 //
 // The Account page validates in the browser too, for instant feedback, but the
-// rule has to hold on the server as well. Without this endpoint the self-edit
-// wrote profiles.full_name straight through the browser Supabase session, so a
-// signed-in person could still store a blank or email-like name by going around
-// the form and then show up on the Team page as "Name missing". Routing the
-// write through here makes validateFullName the one source of truth for the
-// name rule on every write path (bj-finance #468).
+// rule has to hold on the server as well: a browser Supabase session can write
+// profiles.full_name directly, so a signed-in person could store a blank or
+// email-like name by going around the form and then show up on the Team page
+// as "Name missing". The page saves through here so validateFullName is the one
+// source of truth for the name rule on every write path (bj-finance #468).
 //
 // Scoped to the caller's own row (id = me.id): it can never touch anyone else,
 // and it carries none of the manager-only fields (role, pay, active, archive)
