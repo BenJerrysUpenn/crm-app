@@ -13,7 +13,6 @@ import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "./testing/fakeSupabase.ts";
-import { planEventShift } from "./payroll/eventShift.ts";
 
 type Handler = (request: Request, ctx: { params: Record<string, string> }) => Promise<Response>;
 
@@ -86,25 +85,49 @@ test("event punch: an unassigned Catering slot on the event is filled, not dupli
   assert.equal(db.rows("time_entries")[0].shift_id, 50);
 });
 
-test("event punch: a new shift takes the next free slot", () => {
-  const plan = planEventShift({
-    deal: DEAL,
-    eventShifts: [
-      { id: 7, employee_id: "x", deal_slot: 1 },
-      { id: 8, employee_id: "y", deal_slot: 2 },
-    ],
-    employeeId: SAM,
-    clockInAt: BODY.clock_in_at,
-    clockOutAt: BODY.clock_out_at,
-  });
-  assert.equal(plan.action, "insert");
-  assert.equal(plan.action === "insert" && plan.row.deal_slot, 3);
+test("event punch: with every Catering slot on the event taken, the new shift takes the next slot", async () => {
+  const OTHER = "00000000-0000-0000-0000-00000000000c";
+  const ANOTHER = "00000000-0000-0000-0000-00000000000d";
+  db.tables.shifts.push(
+    { id: 50, employee_id: OTHER, position: "Catering", deal_id: DEAL.id, deal_slot: 1, published: true, starts_at: edt("2026-10-07", "14:00"), ends_at: edt("2026-10-07", "18:30") },
+    { id: 51, employee_id: ANOTHER, position: "Catering", deal_id: DEAL.id, deal_slot: 2, published: true, starts_at: edt("2026-10-07", "14:00"), ends_at: edt("2026-10-07", "18:30") },
+  );
+  const res = await route.POST(post(BODY), noParams);
+  assert.equal(res.status, 200, await res.clone().text());
+  const made = db.rows("shifts").filter((s) => s.employee_id === SAM);
+  assert.equal(made.length, 1);
+  assert.equal(made[0].deal_slot, 3);
+  assert.equal(db.rows("shifts").find((s) => s.id === 50)!.employee_id, OTHER, "a taken slot is not reassigned");
+  assert.equal(db.rows("time_entries")[0].shift_id, made[0].id);
+});
+
+test("event punch: an unassigned shift on the event that is not a Catering shift is left alone", async () => {
+  db.tables.shifts.push({ id: 60, employee_id: null, position: "PENN Opener", deal_id: DEAL.id, deal_slot: null, published: true, starts_at: edt("2026-10-07", "14:00"), ends_at: edt("2026-10-07", "18:30") });
+  const res = await route.POST(post(BODY), noParams);
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal(db.rows("shifts").find((s) => s.id === 60)!.employee_id, null);
+  const made = db.rows("shifts").find((s) => s.employee_id === SAM)!;
+  assert.equal(made.position, "Catering");
+  assert.equal(made.deal_slot, 1);
 });
 
 test("event punch: a punch needs a clock-out after its clock-in", async () => {
   assert.equal((await route.POST(post({ ...BODY, clock_out_at: null }), noParams)).status, 400);
   assert.equal((await route.POST(post({ ...BODY, clock_out_at: BODY.clock_in_at }), noParams)).status, 400);
+  assert.equal(db.rows("shifts").length, 0);
+  assert.equal(db.rows("time_entries").length, 0);
+});
+
+test("event punch: a punch needs who it is for", async () => {
   assert.equal((await route.POST(post({ ...BODY, employee_id: "" }), noParams)).status, 400);
+  assert.equal(db.rows("shifts").length, 0);
+});
+
+test("event punch: a deal_id that is not a deal's id is refused", async () => {
+  for (const deal_id of [0, -1, 1.5, "abc", null]) {
+    const res = await route.POST(post({ ...BODY, deal_id }), noParams);
+    assert.equal(res.status, 400, `deal_id ${JSON.stringify(deal_id)}`);
+  }
   assert.equal(db.rows("shifts").length, 0);
 });
 
@@ -112,6 +135,18 @@ test("event punch: an unknown deal is refused", async () => {
   const res = await route.POST(post({ ...BODY, deal_id: 99999 }), noParams);
   assert.equal(res.status, 404);
   assert.equal(db.rows("shifts").length, 0);
+});
+
+test("event punch: a slot somebody fills between the read and the save is not taken over", async () => {
+  const RIVAL = "00000000-0000-0000-0000-00000000000e";
+  db.tables.shifts.push({ id: 50, employee_id: null, position: "Catering", deal_id: DEAL.id, deal_slot: 1, published: true, starts_at: edt("2026-10-07", "14:00"), ends_at: edt("2026-10-07", "18:30") });
+  db.beforeWrite = (table) => {
+    if (table === "shifts") db.tables.shifts[0].employee_id = RIVAL;
+  };
+  const res = await route.POST(post(BODY), noParams);
+  assert.equal(res.status, 409);
+  assert.equal(db.rows("shifts")[0].employee_id, RIVAL);
+  assert.equal(db.rows("time_entries").length, 0);
 });
 
 test("event punch: when the punch cannot be written, the shift it made is taken back out", async () => {
