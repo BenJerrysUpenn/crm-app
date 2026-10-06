@@ -1529,28 +1529,113 @@ test("everyone punches: an event with no crew on the schedule is a fix, with no 
   assert.equal(result.ready, false);
 });
 
-test("everyone punches: each scheduled person who did not punch for the event is a fix, by name", () => {
+// Ruled 2026-10-05: from the cutover, 1.12 and 3.5 are ONE card per event,
+// "crew didn't punch". Crew is a punch on the event's Catering shift; once the
+// punch exists the tip splits by punches, so there is no payee to choose. The
+// card lists each scheduled person with no punch, each with its add-punch form.
+
+test("crew didn't punch: an event whose crew partly punched is one card, naming who did not, with their form", () => {
   const casey = galaShift(CASEY);
   const pat = galaShift(PAT);
   const caseyPunch = punch({ employee_id: CASEY, shift_id: casey.id, clock_in_at: at("2026-10-07", "15:00"), clock_out_at: at("2026-10-07", "18:00") });
   const result = runAfter({ shifts: [casey, pat], punches: [caseyPunch] });
-  const fixes = only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched"));
-  assert.deepEqual(fixes.map((f) => [f.key, f.status, f.severity]), [[`1.12:unpunched:deal:25300:${PAT}`, "needs_fix", "error"]]);
-  assert.equal(fixes[0].evidence.employee_id, PAT);
-  assert.deepEqual(fixes[0].evidence.shift_ids, [pat.id]);
-  assert.match(fixes[0].resolution ?? "", /Timesheets page/);
-  assert.deepEqual(only(result.findings, "3.5"), [], "the event has a crew: Casey punched");
+  assert.deepEqual(only(result.findings, "1.12"), [], "no per-event count line and no per-person line: one card");
+  const cards = only(result.findings, "3.5");
+  assert.deepEqual(cards.map((f) => [f.key, f.status, f.severity]), [["3.5:deal:25300", "needs_fix", "error"]]);
+  const f = cards[0];
+  assert.equal(f.title, "Catering crew didn't punch");
+  assert.match(f.summary, /Example Gala/);
+  assert.match(f.summary, /1 of 2 crew punched/);
+  assert.match(f.summary, /Example, Pat/);
+  assert.doesNotMatch(f.summary, /Bravo, Casey/);
+  assert.equal(f.defaultChoice, undefined);
+  assert.equal(f.candidates, undefined);
+  assert.equal(f.fix, undefined);
+  assert.deepEqual(f.fixes, [
+    {
+      kind: "add",
+      label: "Add Example, Pat's punch",
+      date: "2026-10-07",
+      employee_id: PAT,
+      shift_id: pat.id,
+      clock_in: "2026-10-07T15:00",
+      clock_out: "2026-10-07T18:00",
+      shifts: [
+        { id: casey.id, label: "Bravo, Casey · Catering 3:00 PM–6:00 PM" },
+        { id: pat.id, label: "Example, Pat · Catering 3:00 PM–6:00 PM" },
+      ],
+    },
+  ]);
+  assert.equal(result.counts.needsFix, 1);
   assert.equal(result.ready, false);
 });
 
-test("everyone punches: an event whose scheduled crew nobody punched is fixed person by person, not twice", () => {
+test("crew didn't punch: an event nobody on its schedule punched is one card with a form per person", () => {
+  const casey = galaShift(CASEY);
   const pat = galaShift(PAT);
-  const result = runAfter({ shifts: [pat] });
-  assert.deepEqual(only(result.findings, "3.5"), [], "the 1.12 fix names the person; no second card for the event");
-  const fixes = only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched"));
-  assert.deepEqual(fixes.map((f) => f.status), ["needs_fix"]);
-  assert.equal(result.counts.needsFix, 1);
-  assert.equal(result.ready, false);
+  const result = runAfter({ shifts: [casey, pat] });
+  assert.deepEqual(only(result.findings, "1.12"), []);
+  const cards = only(result.findings, "3.5");
+  assert.equal(cards.length, 1);
+  assert.match(cards[0].summary, /0 of 2 crew punched/);
+  assert.deepEqual(cards[0].fixes!.map((x) => x.kind === "add" && [x.employee_id, x.shift_id]), [
+    [CASEY, casey.id],
+    [PAT, pat.id],
+  ]);
+  assert.equal(result.counts.needsFix, 1, "one card, counted once");
+});
+
+test("crew didn't punch: an event with no Catering shift has a form that creates the shift and the punch", () => {
+  const f = only(runAfter().findings, "3.5")[0];
+  assert.deepEqual(f.fixes, [{ kind: "event_shift", deal_id: 25300, date: "2026-10-07", event: "Example Gala" }]);
+});
+
+test("crew didn't punch: an unassigned Catering slot on the event prefills the new punch's times", () => {
+  const slot = shift({
+    employee_id: null,
+    starts_at: at("2026-10-07", "14:00"),
+    ends_at: at("2026-10-07", "18:30"),
+    position: "Catering",
+    deal_id: GALA.id,
+  });
+  const f = only(runAfter({ shifts: [slot] }).findings, "3.5")[0];
+  assert.deepEqual(f.fixes, [
+    {
+      kind: "event_shift",
+      deal_id: 25300,
+      date: "2026-10-07",
+      event: "Example Gala",
+      clock_in: "2026-10-07T14:00",
+      clock_out: "2026-10-07T18:30",
+    },
+  ]);
+});
+
+test("crew didn't punch: a crew smaller than staff_count, with nobody scheduled unpunched, is no card", () => {
+  // staff_count 2, one person scheduled and punched. The crew is who punched;
+  // there is nobody to add, so nothing to fix and no count line either.
+  const casey = galaShift(CASEY);
+  const result = runAfter({
+    deals: [GALA],
+    shifts: [casey],
+    punches: [punch({ employee_id: CASEY, shift_id: casey.id, clock_in_at: at("2026-10-07", "15:00"), clock_out_at: at("2026-10-07", "18:00") })],
+  });
+  assert.deepEqual(only(result.findings, "1.12"), []);
+  assert.deepEqual(only(result.findings, "3.5"), []);
+  assert.equal(result.ready, true);
+});
+
+test("crew didn't punch: a deal the window's shifts point at is checked even when it is not a booked event", () => {
+  const lunch: DealRow = { id: 25310, event_date: "2026-10-08", staff_count: 1, company: "Example Lunch", stage: "Sent Quote" };
+  const s = shift({ employee_id: CASEY, starts_at: at("2026-10-08", "11:00"), ends_at: at("2026-10-08", "13:00"), position: "Catering", deal_id: lunch.id });
+  const result = runAfter({ windowDeals: [], deals: [lunch], shifts: [s] });
+  assert.deepEqual(only(result.findings, "3.5").map((f) => [f.key, f.status]), [["3.5:deal:25310", "needs_fix"]]);
+});
+
+test("crew didn't punch: the group carries the merged card's title and rule", () => {
+  const g = runAfter().groups.find((x) => x.check === "3.5")!;
+  assert.equal(g.title, "Catering crew didn't punch");
+  assert.match(g.rule, /one card per event/i);
 });
 
 test("everyone punches: adding the missing punch clears the fix", () => {
@@ -1586,6 +1671,80 @@ test("everyone punches: the 09-21..10-04 run keeps today's rules — crewless ev
   const unpunched = only(result.findings, "1.12").filter((f) => f.key.startsWith("1.12:unpunched"));
   assert.deepEqual(unpunched.map((f) => f.status), ["auto_resolved"]);
   assert.equal(result.ready, true);
+});
+
+// --- 1.9 retired from the cutover (Alina, 2026-10-05) ----------------------
+//
+// The store never closes before 10 PM and has no early half days (it closes
+// instead), so a last in-store clock-out before 22:00 is always a gap before
+// close: 1.8 reports it and its add-punch form fixes it. The $30 solo-close
+// bonus is "alone 4h or more and out at or after 22:00", from punches only, on
+// the payroll sheet. No dropdown and no manager pick.
+
+/** Wednesday 2026-10-07 open 11:00-22:00; 10-14 closed, so one day is judged. */
+const WED_AFTER = {
+  storeHours: openOn(3),
+  storeHoursExceptions: [{ date: "2026-10-14", label: "closed for this fixture", is_closed: true }],
+};
+
+test("1.9 retired: from 2026-10-05 a night closed 2h+ early is 1.8's gap with a punch to add, not a choice", () => {
+  const result = runAfter({
+    ...WED_AFTER,
+    windowDeals: [],
+    punches: [punch({ employee_id: CASEY, clock_in_at: at("2026-10-07", "11:00"), clock_out_at: at("2026-10-07", "18:00") })],
+  });
+  assert.deepEqual(only(result.findings, "1.9"), []);
+  const gap = only(result.findings, "1.8")[0];
+  assert.equal(gap.key, "1.8:2026-10-07:18:00-22:00");
+  assert.equal(gap.fix?.kind, "add");
+  assert.doesNotMatch(gap.resolution ?? "", /1\.9/);
+  assert.equal(result.counts.needsRuling, 1, "only the 3.7 bake-shift case is a choice");
+});
+
+test("1.9 retired: from 2026-10-05 a 4h+ solo tail out before 22:00 gets no dropdown either", () => {
+  const result = runAfter({
+    ...WED_AFTER,
+    windowDeals: [],
+    punches: [punch({ employee_id: CASEY, clock_in_at: at("2026-10-07", "11:00"), clock_out_at: at("2026-10-07", "20:30") })],
+  });
+  assert.deepEqual(only(result.findings, "1.9"), []);
+});
+
+test("before the cutover nothing changes: 1.9, 1.12 and 3.5 are the 09-21..10-04 run's cards exactly", () => {
+  // Pinned: the run before CREW_PUNCH_REQUIRED_FROM keeps the dropdown, the
+  // per-event count line, the per-person warning and the crewless picker.
+  const lunch: DealRow = { id: 25200, event_date: "2026-09-23", staff_count: 2, company: "Example Lunch", stage: "Booked Paid" };
+  const brunch: DealRow = { id: 25201, event_date: "2026-09-24", staff_count: 1, company: "Example Brunch", stage: "Booked Paid" };
+  const caseyShift = shift({ employee_id: CASEY, starts_at: at("2026-09-23", "11:00"), ends_at: at("2026-09-23", "14:00"), position: "Catering", deal_id: lunch.id });
+  const drewShift = shift({ employee_id: DREW, starts_at: at("2026-09-23", "11:00"), ends_at: at("2026-09-23", "14:00"), position: "Catering", deal_id: lunch.id });
+  const result = run({
+    window: NEXT,
+    today: "2026-10-05",
+    storeHours: openOn(3),
+    storeHoursExceptions: [{ date: "2026-09-30", label: "closed for this fixture", is_closed: true }],
+    windowDeals: [lunch, brunch],
+    deals: [lunch],
+    shifts: [caseyShift, drewShift],
+    punches: [
+      punch({ employee_id: CASEY, shift_id: caseyShift.id, clock_in_at: at("2026-09-23", "11:00"), clock_out_at: at("2026-09-23", "14:00") }),
+      punch({ employee_id: PAT, clock_in_at: at("2026-09-23", "11:00"), clock_out_at: at("2026-09-23", "18:00") }),
+    ],
+  });
+  const cards = result.findings
+    .filter((f) => ["1.9", "1.12", "3.5"].includes(f.check))
+    .map((f) => [f.key, f.status, f.title]);
+  assert.deepEqual(cards, [
+    ["1.9:2026-09-23", "needs_ruling", "No closing punch"],
+    ["1.12:deal:25200", "auto_resolved", "Catering event under-punched"],
+    [`1.12:unpunched:deal:25200:${DREW}`, "auto_resolved", "Catering event under-punched"],
+    ["3.5:deal:25201", "needs_ruling", "Crewless catering event"],
+  ]);
+  const crewless = only(result.findings, "3.5")[0];
+  assert.deepEqual(crewless.effective?.payee, { id: PAT, name: "Example, Pat" });
+  assert.equal(crewless.fixes, undefined);
+  assert.equal(only(result.findings, "1.9")[0].defaultChoice, "skip");
+  assert.match(only(result.findings, "1.8")[0].resolution ?? "", /1\.9/);
+  assert.equal(result.groups.find((g) => g.check === "3.5")!.title, "Crewless catering event");
 });
 
 // --- §3.7 no bake shift ----------------------------------------------------
@@ -1814,25 +1973,21 @@ test("fix: a New York wall-clock value is written as the right instant, in summe
   assert.equal(nyInputToIso("2026-10-07"), null);
 });
 
-test("fix: an unpunched catering crew member (1.12) is fixed by adding their punch on their shift", () => {
-  const pat = galaShift(PAT);
-  const result = runAfter({ shifts: [pat] });
+test("fix: before the cutover an unpunched catering crew member (1.12) still carries their add-punch form", () => {
+  const event: DealRow = { id: 25200, event_date: "2026-09-30", staff_count: 1, company: "Example Lunch", stage: "Booked Paid" };
+  const pat = shift({ employee_id: PAT, starts_at: at("2026-09-30", "15:00"), ends_at: at("2026-09-30", "18:00"), position: "Catering", deal_id: event.id });
+  const result = run({ window: NEXT, today: "2026-10-05", windowDeals: [event], shifts: [pat] });
   const f = only(result.findings, "1.12").find((x) => x.key.startsWith("1.12:unpunched"))!;
-  assert.equal(f.status, "needs_fix");
+  assert.equal(f.status, "auto_resolved");
   assert.deepEqual(f.fix, {
     kind: "add",
-    date: "2026-10-07",
+    date: "2026-09-30",
     employee_id: PAT,
     shift_id: pat.id,
-    clock_in: "2026-10-07T15:00",
-    clock_out: "2026-10-07T18:00",
+    clock_in: "2026-09-30T15:00",
+    clock_out: "2026-09-30T18:00",
     shifts: [{ id: pat.id, label: "Example, Pat · Catering 3:00 PM–6:00 PM" }],
   });
-});
-
-test("fix: an event with no crew (3.5, from 2026-10-05) is fixed by adding a punch on the event date", () => {
-  const f = only(runAfter().findings, "3.5")[0];
-  assert.deepEqual(f.fix, { kind: "add", date: "2026-10-07", shifts: [] });
 });
 
 test("fix: a choice, a flag or a report carries no fix", () => {
