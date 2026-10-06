@@ -91,6 +91,14 @@ if the write fails.
 The board loads `archived = 0` rows only. Archived deals (9.5k+ historical rows)
 stay hidden. Within each column, cards sort by `event_date` ascending.
 
+## COI panel (deal drawer)
+`components/CoiPanel.tsx` renders on deals with `coi_required = 1` and assembles the
+Hartford certificate request from the deal (`buildCoiRequest` in `lib/coi.ts`). It never
+submits to The Hartford; the human sends. Its only write is `coi_sent_at` plus
+`updated_at` in one `deals` update (it never touches `stage`). A COI is urgent when
+required, unsent and the event is 0 to 14 days out (`COI_URGENT_WINDOW_DAYS`), the
+same window as Catering-Manager `revive.coi_required_unsent`.
+
 ## Local dev (optional)
 ```
 npm install
@@ -101,4 +109,49 @@ Open http://localhost:3000.
 
 ## Deploy
 Push to GitHub, import the repo into Vercel, set the two env vars, deploy.
+
+Two Vercel projects build from this repo: `crm-app` (repo root; crm.withers-ventures.com,
+personal.withers-ventures.com) and `time` (`time-app/`; time.withers-ventures.com,
+finance.withers-ventures.com). `vercel.json` in each root limits automatic deploys to
+`main` (production) and branches named `preview/*` (preview URLs). Every other branch,
+including PR branches and review-pass commits, builds nothing on Vercel: the Hobby plan
+allows 100 deployments a day across the account. To get a preview URL for a prototype or
+a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
+
+## Catering-shift reconciler (local command)
+Creates the open crew shifts for booked catering deals that have a
+`departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
+(`reconcileShifts` in `lib/cateringShifts.ts`: cart events start 120 min
+before departure, 15h+ shifts are flagged CHECK HOURS), run straight against
+Postgres instead of over HTTP.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project. Never read from the Google Drive |
+
+```
+npm ci                                   # installs tsx and postgres (both runtime dependencies)
+npm run reconcile-shifts -- --dry-run    # read-only: reports what it would create
+npm run reconcile-shifts                 # creates the shifts
+```
+Prints one summary line. Exit 0 = ok, 1 = the sweep or a deal failed,
+2 = bad argument or `DATABASE_URL` missing. The dry run runs in a read-only
+transaction and EXPLAINs each insert it would make.
+
+Where it runs: on Alina's Mac, from a clean checkout of `main` at
+`~/systems/crm-app` (the same `~/systems/` convention as the catering
+automations), never from a dev clone or the Google Drive. This is the only
+thing that runs from that checkout. It is separate from Vercel, which serves
+the web app, and from the droplet's checkout of this repo, which runs nothing.
+
+The web routes that create the same shifts, `POST /api/deals/:id/booked-shifts`
+(signed-in) and `GET /api/cron/catering-shifts`, insert through supabase-js with
+`ON CONFLICT (deal_id, deal_slot) DO NOTHING`. That needs
+`shifts_deal_slot_uidx` to be a plain unique index
+(`time-app/supabase/migration_29.sql`); against the partial index of migration
+18 every insert is refused (crm-app #35). The cron route is exempt from the
+login gate (alongside the one-click-unsubscribe exemption), so it requires
+`CRON_SECRET` (Bearer header or
+`?secret=`): unset answers 503, wrong answers 401, and neither touches the
+database.

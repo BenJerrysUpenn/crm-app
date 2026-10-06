@@ -37,6 +37,7 @@ import {
 } from "./EditableField";
 import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
+import CoiPanel from "./CoiPanel";
 import { missingRequiredFields } from "@/lib/required";
 
 function ReadOnlyRow({
@@ -470,7 +471,7 @@ export default function DealDetailDrawer({
               onClick={() => requestJob("picklist")}
               disabled={quoteRequesting || jobInFlight}
               className="text-xs sm:text-sm bg-violet-500/20 text-violet-200 border border-violet-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-violet-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Render the picklist DOCX and draft an internal email to Sophia"
+              title="Render the picklist DOCX and draft an internal email to the store manager"
             >
               {jobKind === "picklist" && quoteRequesting
                 ? "Queueing…"
@@ -602,7 +603,7 @@ export default function DealDetailDrawer({
         {quoteJob?.status === "done" && (
           <div className="px-5 py-2 bg-emerald-950 border-b border-emerald-900 text-sm text-emerald-200">
             {jobKind === "picklist"
-              ? "Picklist drafted in Gmail to Sophia. Check your drafts folder to review and send."
+              ? "Picklist drafted in Gmail to the store manager. Check your drafts folder to review and send."
               : jobKind === "decline_below_min" ||
                 jobKind === "decline_too_far"
               ? "Decline drafted in Gmail. Check your drafts folder to review and send."
@@ -682,6 +683,11 @@ export default function DealDetailDrawer({
             }`}
           >
             <div className="px-5 py-4 space-y-5">
+              {/* COI panel (bj-finance #343). Renders only on deals whose
+                  coi_required is set; assembles the Hartford certificate
+                  request from the persisted deal and stamps coi_sent_at. */}
+              <CoiPanel deal={deal} onDealUpdate={onDealUpdate} />
+
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
                   Contact

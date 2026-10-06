@@ -141,6 +141,22 @@ Back in Vercel's Domains tab it checks for the record. A few minutes, occasional
 
 HTTPS matters here more than it did for the CRM: phone GPS only works over HTTPS, so once the domain is live, clock-in works from any phone.
 
+### 5d. The finance site (finance.withers-ventures.com)
+
+The manager-only finance pages are served by the same app on their own host (bj-finance #519, ruled 2026-09-27): `finance.withers-ventures.com/payroll` and `/metrics`, with `/` going to `/payroll`. Nothing new to deploy; it is one more domain on the same **time** project.
+
+1. In Vercel, open the **time** project, **Settings**, **Domains**, add `finance.withers-ventures.com`. Vercel shows a CNAME value.
+2. Where the `time` record lives, add **Type** CNAME, **Name** `finance`, **Value** the one Vercel showed (for `time` it is `9ac0daf55be63992.vercel-dns-017.com`).
+3. Once Vercel marks it valid, sign in at `https://finance.withers-ventures.com` with your usual email and password.
+
+How the two hosts split (the rules are in `lib/hosts.ts`, enforced by `middleware.ts`):
+
+- On `finance.`: only `/payroll`, `/metrics`, sign-in (`/login`, `/auth/*`) and the APIs those use (`/api/payroll/*`, `/api/auth/*`, `/api/logout`). A staff page such as `/schedule` redirects to the same path on `time.`; a staff API answers 404.
+- On `time.`: `/finance` is a permanent redirect to `https://finance.withers-ventures.com/payroll` (`/finance?tab=metrics` goes to `/metrics`). The **Finance** menu entry follows that redirect.
+- Sign-in is per host. The session cookie belongs to the host that set it, so signing in on `time.` does not sign you in on `finance.`, and a staff session is never sent to the finance host. Only active managers see any finance page or API; anyone else signed in gets a "managers only" page or a 403.
+
+Testing without the real domain: every other host serves both sites, so on `localhost:3000` or a Vercel preview URL open `/payroll` and `/metrics` directly (`/finance` redirects to `/payroll`). To try the host split itself locally, run `npm run dev` and open `http://finance.localhost:3000` and `http://time.localhost:3000`; those two names behave like the production hosts.
+
 ---
 
 ## Part 6: First-run setup inside the app
@@ -159,7 +175,7 @@ Always add new hires from the Team page. If you ever create someone in the Supab
 
 #### Supabase URL configuration
 
-In Supabase, **Authentication → URL Configuration**, set **Site URL** to `https://time.withers-ventures.com` and add `https://time.withers-ventures.com/auth/callback` to **Redirect URLs**. This only matters for links Supabase itself sends (the dashboard's **Invite user** / **Send password recovery**, or the fallback used when `RESEND_API_KEY` is unset) - the app's own emails link straight to `/auth/confirm` and don't depend on it.
+In Supabase, **Authentication → URL Configuration**, set **Site URL** to `https://time.withers-ventures.com` and add `https://time.withers-ventures.com/auth/callback` and `https://finance.withers-ventures.com/auth/callback` to **Redirect URLs**. (The finance one covers a manager who asks for a password reset from the finance sign-in page while the fallback is in use.) This only matters for links Supabase itself sends (the dashboard's **Invite user** / **Send password recovery**, or the fallback used when `RESEND_API_KEY` is unset) - the app's own emails link straight to `/auth/confirm` and don't depend on it.
 
 ### 6b. Set the store geofence
 
@@ -286,7 +302,7 @@ Not sure which plan you're on? Vercel → your account → **Settings → Billin
 1. Supabase: run `migration.sql`, make yourself a manager, grab URL + publishable key + service role key. (Part 1)
 2. Push the `time-app` folder to GitHub (it rides along in the existing repo). (Part 3)
 3. New Vercel project off the same repo, **Root Directory = `time-app`**, add the env vars, deploy, test on the `.vercel.app` address. (Part 4)
-4. Add the `time` subdomain in Vercel and your DNS. (Part 5)
+4. Add the `time` and `finance` subdomains in Vercel and your DNS. (Part 5)
 5. In the app: add employees, set their details, set the store geofence. (Part 6)
 6. Later, when you want them: text/email keys (Part 7) and confirm the missed-clock-in checker matches your plan (Part 8).
 

@@ -4,6 +4,7 @@ import { displayName } from "@/lib/profileName";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
+import { MANAGER_ASSIGNS_ERROR, managerAssignsOnly } from "@/lib/managerAssigns";
 import { NextResponse } from "next/server";
 
 // Employee requests to pick up an open (unassigned), published shift.
@@ -15,6 +16,9 @@ import { NextResponse } from "next/server";
 // Per Alina 2026-08-27: employees can't self-pick-up any more. This is the
 // replacement for the direct /api/shifts/:id/claim endpoint on the employee
 // side. That claim endpoint stays available for managers.
+//
+// A catering shift (one with a deal_id) cannot be requested: a manager
+// assigns those (lib/managerAssigns.ts).
 export async function POST(
   request: Request,
   { params }: { params: { id: string } },
@@ -29,11 +33,13 @@ export async function POST(
   const supabase = createClient();
   const { data: shift } = await supabase
     .from("shifts")
-    .select("id, employee_id, published, starts_at, ends_at, position")
+    .select("id, employee_id, published, starts_at, ends_at, position, deal_id")
     .eq("id", params.id)
     .maybeSingle();
   if (!shift)
     return NextResponse.json({ error: "Shift not found" }, { status: 404 });
+  if (managerAssignsOnly(shift))
+    return NextResponse.json({ error: MANAGER_ASSIGNS_ERROR }, { status: 403 });
   if (!shift.published)
     return NextResponse.json({ error: "Shift isn't published yet." }, { status: 409 });
   if (shift.employee_id)

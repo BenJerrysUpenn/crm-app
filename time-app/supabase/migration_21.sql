@@ -43,18 +43,25 @@ begin
 end;
 $$;
 
+-- REDACTED 2026-09-28: the version of this file applied to production used
+-- real staff names and email addresses below. They were replaced with
+-- placeholders because this repository is public, so this file is no longer
+-- a faithful replay for these rows: re-running the UPDATE matches nothing.
+--
 -- Backfill the one person whose real name we know. Guarded on the current
 -- value, so a re-run (or a name a manager has since corrected) is left alone.
 update public.profiles
-   set full_name = 'Davianna Shirdan'
+   set full_name = 'Staff Member One'
  where id = '28858f87-0cb6-477b-8e02-15a383cf6fb8'
-   and full_name = 'doshirdan05@gmail.com';
+   and full_name = 'staff1@example.com';
 
 -- Still holding an email as their name after this migration, all inactive.
 -- Their real names aren't on record, so they are NOT guessed here. A manager
--- sets each one on the Team page, where they show a "Name missing" badge:
---   56f2823b-66d6-4be0-9c1a-27740df214bc  chavi@withers-ventures.com
---   2bf58dbb-54d9-4765-b3e4-0a5e2bbb07e4  reylanas@icloud.com
---   e0474a0f-e2a0-41d6-b6ef-bf1249a05cba  josephpettine@gmail.com
+-- sets each one on the Team page, where they show a "Name missing" badge.
+-- Tracked as bj-finance #468 Withers-time name display and validation
+-- follow-ups (ids are stable; emails below are public-repo placeholders):
+--   56f2823b-66d6-4be0-9c1a-27740df214bc  staff2@example.com
+--   2bf58dbb-54d9-4765-b3e4-0a5e2bbb07e4  staff3@example.com
+--   e0474a0f-e2a0-41d6-b6ef-bf1249a05cba  staff4@example.com
 
 commit;

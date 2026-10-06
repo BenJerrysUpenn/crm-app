@@ -101,7 +101,9 @@ export default async function TeamPage() {
     <div className="min-h-screen flex flex-col">
       <TopBar role={profile.role} name={profile.full_name ?? ""} />
       <main className="flex-1">
-        <div className="mx-auto max-w-4xl px-4 py-6">
+        {/* Full width here: TeamAdmin sizes the staff table to its content and
+            keeps the other sections at their usual centred width. */}
+        <div className="px-4 py-6">
           <TeamAdmin
             employees={(emps as Profile[]) ?? []}
             locations={(locs as Location[]) ?? []}

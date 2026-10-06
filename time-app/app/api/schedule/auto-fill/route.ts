@@ -1,5 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
+import { checkShiftAvailability, prefersShift } from "@/lib/availabilityCheck";
+import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
 
 const TZ = "America/New_York";
@@ -13,23 +16,6 @@ function addDays(d: string, n: number) {
 function nyDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
 }
-// Minutes-of-day in Eastern for a timestamp.
-function nyMinutes(iso: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date(iso));
-  const h = Number(parts.find((p) => p.type === "hour")?.value ?? "0") % 24;
-  const m = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
-  return h * 60 + m;
-}
-function timeToMin(t: string | null) {
-  if (!t) return null;
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
 function minutes(s: { starts_at: string; ends_at: string }) {
   return (new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 60000;
 }
@@ -38,6 +24,9 @@ function overlaps(a: { starts_at: string; ends_at: string }, b: { starts_at: str
 }
 
 // POST { weekStart: "YYYY-MM-DD" } — assign available employees to open shifts.
+// Shifts are live as soon as they are written (there are no drafts), so each
+// person assigned here gets the same "New shift posted" message assigning the
+// shift by hand sends (and that publishing the week used to send).
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile || profile.role !== "manager")
@@ -54,7 +43,7 @@ export async function POST(request: Request) {
   // All shifts in the week window.
   const { data: allShifts } = await supabase
     .from("shifts")
-    .select("id, employee_id, starts_at, ends_at")
+    .select("id, employee_id, starts_at, ends_at, position")
     .gte("starts_at", qStart)
     .lt("starts_at", qEnd);
   const weekShifts = (allShifts ?? []).filter((s) => {
@@ -74,33 +63,16 @@ export async function POST(request: Request) {
     .eq("active", true);
   const employeeIds = (emps ?? []).map((e) => e.id);
 
-  // Approved availability (available windows) + approved time-off for the week.
-  const { data: avail } = await supabase
-    .from("availability")
-    .select("employee_id, specific_date, start_time, end_time, is_available, status, preference")
-    .not("specific_date", "is", null)
-    .gte("specific_date", weekStart)
-    .lt("specific_date", weekEnd);
-  const availableBlocks = new Map<string, { date: string; start: number; end: number; preferred: boolean }[]>();
-  const cantWork = new Map<string, { date: string; start: number; end: number }[]>();
-  const timeOff = new Set<string>(); // `${emp}|${date}`
-  for (const a of avail ?? []) {
-    if (a.is_available && a.start_time && a.end_time) {
-      const block = { date: a.specific_date as string, start: timeToMin(a.start_time)!, end: timeToMin(a.end_time)! };
-      if (a.preference === "unavailable") {
-        const arr = cantWork.get(a.employee_id) ?? [];
-        arr.push(block);
-        cantWork.set(a.employee_id, arr);
-      } else {
-        const arr = availableBlocks.get(a.employee_id) ?? [];
-        arr.push({ ...block, preferred: a.preference === "preferred" });
-        availableBlocks.set(a.employee_id, arr);
-      }
-    }
-    if (!a.is_available && a.status === "approved") {
-      timeOff.add(`${a.employee_id}|${a.specific_date}`);
-    }
-  }
+  // Availability, dated and weekly, resolved per person and date by
+  // lib/availabilityCheck.ts — the same definition the save check uses.
+  // A person is a candidate only when that check finds nothing wrong: no
+  // time off (approved or pending), no "can't work" overlap, every minute
+  // inside hours they gave. Nobody is auto-assigned on "no availability on file".
+  // A failed read stops here rather than reading as "nobody is available".
+  const load = await loadAvailabilityRows(supabase, { from: addDays(weekStart, -1), to: weekEnd }, employeeIds);
+  if (!load.ok)
+    return NextResponse.json({ error: "Couldn't read availability, so nothing was assigned. Try again." }, { status: 503 });
+  const availRows = load.rows;
 
   // Running per-employee state from already-assigned shifts this week.
   const assignedMin = new Map<string, number>();
@@ -117,24 +89,13 @@ export async function POST(request: Request) {
   }
 
   let assigned = 0;
+  const picked: { employee_id: string; starts_at: string; ends_at: string; position: string | null }[] = [];
   for (const shift of openShifts) {
-    const date = nyDate(shift.starts_at);
-    const sStart = nyMinutes(shift.starts_at);
-    const sEnd = nyMinutes(shift.ends_at);
     const dur = minutes(shift);
 
     const candidates = employeeIds.filter((id) => {
-      if (timeOff.has(`${id}|${date}`)) return false;
       if ((assignedMin.get(id) ?? 0) + dur > OT_THRESHOLD_MIN) return false;
-      // Reject if they marked any of this shift's time as "can't work".
-      const blocked = (cantWork.get(id) ?? []).some(
-        (b) => b.date === date && b.start < sEnd && sStart < b.end,
-      );
-      if (blocked) return false;
-      // Must have an availability block on this date that covers the shift.
-      const blocks = availableBlocks.get(id) ?? [];
-      const covered = blocks.some((b) => b.date === date && b.start <= sStart && b.end >= sEnd);
-      if (!covered) return false;
+      if (checkShiftAvailability({ ...shift, employee_id: id }, availRows) !== null) return false;
       // No overlap with an existing assignment.
       if ((busy.get(id) ?? []).some((b) => overlaps(b, shift))) return false;
       return true;
@@ -142,10 +103,7 @@ export async function POST(request: Request) {
     if (candidates.length === 0) continue;
 
     // Prefer people who marked this slot "preferred", then balance by fewest hours.
-    const prefers = (id: string) =>
-      (availableBlocks.get(id) ?? []).some(
-        (b) => b.preferred && b.date === date && b.start <= sStart && b.end >= sEnd,
-      );
+    const prefers = (id: string) => prefersShift({ ...shift, employee_id: id }, availRows);
     candidates.sort((a, b) => {
       const pa = prefers(a) ? 0 : 1;
       const pb = prefers(b) ? 0 : 1;
@@ -163,7 +121,17 @@ export async function POST(request: Request) {
 
     assignedMin.set(pick, (assignedMin.get(pick) ?? 0) + dur);
     busy.get(pick)!.push(shift);
+    picked.push({ employee_id: pick, starts_at: shift.starts_at, ends_at: shift.ends_at, position: shift.position ?? null });
     assigned++;
+  }
+
+  if (picked.length) {
+    const ids = Array.from(new Set(picked.map((p) => p.employee_id)));
+    const { data: people } = await supabase.from("profiles").select("id, phone").in("id", ids);
+    const phoneById = new Map(((people ?? []) as { id: string; phone: string | null }[]).map((p) => [p.id, p.phone]));
+    for (const p of picked) {
+      await tellEmployeeAboutShift("posted", p, phoneById.get(p.employee_id) ?? null);
+    }
   }
 
   return NextResponse.json({ ok: true, assigned, left: openShifts.length - assigned });

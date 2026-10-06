@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Modal from "./Modal";
 import { fmtDate, fmtTime, hoursBetween } from "@/lib/format";
 import { displayName, displayNameOrId } from "@/lib/profileName";
 import type { Profile, TimeEntryWithEmployee } from "@/lib/types";
@@ -249,37 +250,35 @@ export default function Timesheets({
       </div>
 
       {draft && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4" onClick={() => setDraft(null)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 w-full max-w-md space-y-3" onClick={(ev) => ev.stopPropagation()}>
-            <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit time entry" : "Add time entry"}</h2>
-            <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
-              <select value={draft.employee_id} onChange={(ev) => setDraft({ ...draft, employee_id: ev.target.value })} disabled={!!draft.id} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100 disabled:opacity-60">
-                {employees.map((x) => <option key={x.id} value={x.id}>{displayNameOrId(x.full_name, x.id)}</option>)}
-              </select>
+        <Modal onClose={() => setDraft(null)} className="max-w-md space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit time entry" : "Add time entry"}</h2>
+          <label className="block text-xs text-slate-600 dark:text-slate-400">Employee
+            <select value={draft.employee_id} onChange={(ev) => setDraft({ ...draft, employee_id: ev.target.value })} disabled={!!draft.id} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100 disabled:opacity-60">
+              {employees.map((x) => <option key={x.id} value={x.id}>{displayNameOrId(x.full_name, x.id)}</option>)}
+            </select>
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Clock in
+              <input type="datetime-local" value={draft.clock_in} onChange={(ev) => setDraft({ ...draft, clock_in: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Clock in
-                <input type="datetime-local" value={draft.clock_in} onChange={(ev) => setDraft({ ...draft, clock_in: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-              <label className="block text-xs text-slate-600 dark:text-slate-400">Clock out
-                <input type="datetime-local" value={draft.clock_out} onChange={(ev) => setDraft({ ...draft, clock_out: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
-              </label>
-            </div>
-            <p className="text-[11px] text-slate-600">Leave clock out blank to leave the shift open.</p>
-            {err && <div className="text-sm text-rose-300">{err}</div>}
-            <div className="flex items-center justify-between pt-2">
-              {draft.id ? (
-                <button onClick={deleteEntry} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
-              ) : <span />}
-              <div className="flex gap-2">
-                <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-400 dark:border-slate-600 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-                <button onClick={saveEntry} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
-                  {busy ? "Saving…" : "Save"}
-                </button>
-              </div>
+            <label className="block text-xs text-slate-600 dark:text-slate-400">Clock out
+              <input type="datetime-local" value={draft.clock_out} onChange={(ev) => setDraft({ ...draft, clock_out: ev.target.value })} className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
+            </label>
+          </div>
+          <p className="text-[11px] text-slate-600">Leave clock out blank to leave the shift open.</p>
+          {err && <div className="text-sm text-rose-300">{err}</div>}
+          <div className="flex items-center justify-between pt-2">
+            {draft.id ? (
+              <button onClick={deleteEntry} disabled={busy} className="text-sm text-rose-400 hover:text-rose-300">Delete</button>
+            ) : <span />}
+            <div className="flex gap-2">
+              <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-400 dark:border-slate-600 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+              <button onClick={saveEntry} disabled={busy} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">
+                {busy ? "Saving…" : "Save"}
+              </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -72,6 +72,8 @@ const PACKAGES_WITHOUT_TOPPINGS: ReadonlySet<string> = new Set([
   "Cup or Cone Party",
   "Waffle Cone Party",
   "DIY Ice Cream Social",
+  // Whipped cream and chocolate sauce, no dry toppings (crm/008).
+  "Hot Chocolate Float Party",
 ]);
 
 // Human-readable labels for the missing-field display.

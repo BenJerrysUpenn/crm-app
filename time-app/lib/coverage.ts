@@ -266,8 +266,13 @@ export function shiftSegments(shift: CoverageShift): DaySegment[] {
   return segments.filter((s) => s.to > s.from);
 }
 
-/** Sort and merge intervals, joining ones that touch as well as ones that overlap. */
-function mergeIntervals(intervals: { from: number; to: number }[]): { from: number; to: number }[] {
+/**
+ * Sort and merge intervals, joining ones that touch as well as ones that
+ * overlap. Exported because the payroll mid-day gap check (lib/payroll/verify.ts,
+ * spec 1.8) asks the same question of PUNCHES that this file asks of SHIFTS,
+ * and the two must not drift apart.
+ */
+export function mergeIntervals(intervals: { from: number; to: number }[]): { from: number; to: number }[] {
   const sorted = [...intervals].sort((a, b) => a.from - b.from || a.to - b.to);
   const merged: { from: number; to: number }[] = [];
   for (const interval of sorted) {
@@ -278,8 +283,8 @@ function mergeIntervals(intervals: { from: number; to: number }[]): { from: numb
   return merged;
 }
 
-/** The stretches of [opens, closes) that `merged` does not cover. */
-function uncovered(opens: number, closes: number, merged: { from: number; to: number }[]) {
+/** The stretches of [opens, closes) that `merged` does not cover. Exported for the same reason as mergeIntervals. */
+export function uncovered(opens: number, closes: number, merged: { from: number; to: number }[]) {
   const gaps: { from: number; to: number }[] = [];
   let cursor = opens;
   for (const interval of merged) {
@@ -294,33 +299,19 @@ function uncovered(opens: number, closes: number, merged: { from: number; to: nu
 }
 
 /**
- * Split a padded query window into the two sets "publish week" needs.
- *
- *  - `publishable` — the drafts this publish will flip live: unpublished, and
- *    starting inside the week in New York. Exactly the set the route has always
- *    published; widening the query window must never widen this.
- *  - `forCoverage` — everything whose New York span touches the week at all,
- *    published or not. Wider on purpose: a shift starting Saturday evening and
- *    running into Sunday morning is not publishable here but is certainly
- *    standing in the store, and a check that could not see it would invent a
- *    gap at Sunday open.
- *
- * Pure, so the distinction can be tested without a database.
+ * The shifts whose New York span touches the week at all. Callers query a
+ * padded window; this trims it to what can matter. Wider than "starts in the
+ * week" on purpose: a shift starting Saturday evening and running into Sunday
+ * morning is standing in the store, and a check that could not see it would
+ * invent a gap at Sunday open.
  */
-export function selectWeekShifts<T extends { starts_at: string; ends_at: string; published?: boolean | null }>(
-  shifts: T[],
-  weekStart: string,
-): { publishable: T[]; forCoverage: T[] } {
+export function shiftsTouchingWeek<T extends { starts_at: string; ends_at: string }>(shifts: T[], weekStart: string): T[] {
   const weekEnd = addDays(weekStart, 7);
-  const publishable: T[] = [];
-  const forCoverage: T[] = [];
-  for (const shift of shifts) {
+  return shifts.filter((shift) => {
     const startDate = nyWallClock(shift.starts_at).date;
     const endDate = nyWallClock(shift.ends_at).date;
-    if (!shift.published && startDate >= weekStart && startDate < weekEnd) publishable.push(shift);
-    if (startDate < weekEnd && endDate >= weekStart) forCoverage.push(shift);
-  }
-  return { publishable, forCoverage };
+    return startDate < weekEnd && endDate >= weekStart;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -378,7 +369,7 @@ export function checkWeekCoverage(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Plain-words formatting, for the publish dialog. Kept here (rather than in the
+// Plain-words formatting. Kept here (rather than in the
 // component) because it is pure and worth testing.
 // ---------------------------------------------------------------------------
 
