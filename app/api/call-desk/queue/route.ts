@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { CallDeskRow } from "@/lib/callDesk/types";
-import { isMigrationMissing } from "@/lib/supabase/migrationMissing";
+import { readFailureResponse } from "@/lib/supabase/migrationMissing";
 
 export const dynamic = "force-dynamic";
 
@@ -25,21 +25,11 @@ export async function GET() {
 
   const { data, error } = await supabase.from("call_desk_queue").select("*");
 
-  if (error) {
-    // Until a human runs supabase/crm/001_call_desk.sql the view does not
-    // exist / is not reachable. Say so with a distinguishable code so the
-    // UI can render the "migration not applied" state instead of a scary
-    // generic failure. Shared predicate: lib/supabase/migrationMissing.ts.
-    const missing = isMigrationMissing(error);
-    return NextResponse.json(
-      {
-        error: error.message,
-        code: error.code ?? null,
-        migration_missing: missing,
-      },
-      { status: missing ? 503 : 500 },
-    );
-  }
+  // Until a human runs supabase/crm/001_call_desk.sql the view does not
+  // exist / is not reachable; the shared response says so with a
+  // distinguishable code so the UI can render the "migration not applied"
+  // state instead of a scary generic failure.
+  if (error) return readFailureResponse(error);
 
   return NextResponse.json({ rows: (data ?? []) as CallDeskRow[] });
 }

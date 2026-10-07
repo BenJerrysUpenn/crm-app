@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchExceptionQueue, fetchFunnelPayload, fetchLoopStatus } from "@/lib/funnels/queries";
 import { parseWindow } from "@/lib/funnels/windows";
-import { isMigrationMissing } from "@/lib/supabase/migrationMissing";
+import { readFailureResponse } from "@/lib/supabase/migrationMissing";
 
 export const dynamic = "force-dynamic";
 
@@ -33,17 +33,10 @@ export async function GET(req: NextRequest) {
       fetchExceptionQueue(supabase, now),
     ]);
     return NextResponse.json({ loop, funnel, exceptions });
-  } catch (error: any) {
+  } catch (error) {
     // Until a human has run supabase/crm/001_call_desk.sql the outreach tables
-    // are unreachable to the signed-in manager; distinguish that from a real
-    // failure so the UI can explain it. Same predicate as the call-desk queue
-    // route, shared from lib/supabase/migrationMissing.ts.
-    const msg = error?.message ?? String(error);
-    const code = error?.code ?? null;
-    const missing = isMigrationMissing(error);
-    return NextResponse.json(
-      { error: msg, code, migration_missing: missing },
-      { status: missing ? 503 : 500 },
-    );
+    // are unreachable to the signed-in manager; the shared response tells that
+    // apart from a real failure so the UI can explain it.
+    return readFailureResponse(error);
   }
 }
