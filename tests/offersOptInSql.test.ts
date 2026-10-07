@@ -293,10 +293,13 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
       expect(await counts(id)).toEqual({ consents: 1, events: 1, email_supp: 0 });
     });
 
-    it("does not count a signup_form source whose flag is off as an opt-in", async () => {
-      const id = await prospect({ marketing_opt_in: false, opt_in_source: "signup_form" });
+    // Dated, so the flag is the only thing standing between this row and
+    // "already": an undated row would be upgraded by the date rule alone.
+    it("does not count a dated signup_form source whose flag is off as an opt-in", async () => {
+      const id = await prospect({ marketing_opt_in: false, opt_in_source: "signup_form", opt_in_at: FORM_DATE });
       expect(await press(id)).toMatchObject({ opted_in: true, already: false });
-      expect((await row(id)).opt_in_source).toBe("explicit_yes");
+      expect(await row(id)).toMatchObject({ marketing_opt_in: true, opt_in_source: "explicit_yes" });
+      expect(await counts(id)).toEqual({ consents: 1, events: 1, email_supp: 0 });
     });
 
     it("still refuses a dead row", async () => {
