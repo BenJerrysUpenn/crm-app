@@ -282,7 +282,10 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
     it.each(["booked", "import", null])("still upgrades an opt_in_source=%s opt-in to explicit_yes with a consent row", async (source) => {
       const id = await prospect({ marketing_opt_in: true, opt_in_source: source, opt_in_at: FORM_DATE });
       expect(await press(id)).toMatchObject({ opted_in: true, already: false, lifted: false });
-      expect((await row(id)).opt_in_source).toBe("explicit_yes");
+      const p = await row(id);
+      expect(p.opt_in_source).toBe("explicit_yes");
+      // The press is the new agreement, so its date replaces the old source's.
+      expect(p.opt_in_at.getTime()).toBeGreaterThan(new Date(FORM_DATE).getTime());
       expect(await counts(id)).toEqual({ consents: 1, events: 1, email_supp: 0 });
     });
 
