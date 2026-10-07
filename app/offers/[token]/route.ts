@@ -29,7 +29,8 @@ export const runtime = "nodejs";
 //       an opt-out is a real yes (owners' ruling 2026-09-27): the same
 //       transaction lifts the suppression and records what it lifted, and the
 //       person sees the same confirmation as anyone else. It writes nothing on
-//       a repeat press (an existing explicit_yes or signup_form opt-in), and
+//       a repeat press (a dated explicit_yes or signup_form opt-in, not opted
+//       out since; an undated one is re-recorded), and
 //       refuses only a 'dead' (test or invalid) row, which is a 404 like any
 //       other bad link.
 //
