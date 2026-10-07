@@ -9,11 +9,13 @@ const EMAIL = "Remy@Example.com";
 
 // A stand-in for the shared Supabase project, at the database boundary only.
 // The prospect lookup reads a table; the RPC answers with a canned outcome in
-// the exact shape supabase/crm/007_offers_opt_in.sql returns (its RETURN
-// jsonb_build_object lines). The SQL's own decisions (idempotency, lifting a
-// suppression, the booked -> explicit_yes upgrade) are not re-implemented
-// here: a TypeScript copy of them would only test itself. What is under test
-// is what the route does with each outcome the function can return.
+// the exact shape outreach_offers_opt_in returns (the RETURN
+// jsonb_build_object lines of supabase/crm/009_offers_opt_in_signup_form.sql,
+// unchanged from crm/007). The SQL's own decisions (idempotency, lifting a
+// suppression, the booked -> explicit_yes upgrade, signup_form as already
+// explicit) are not re-implemented here: a TypeScript copy of them would only
+// test itself; tests/offersOptInSql.test.ts tests them in Postgres. What is
+// under test is what the route does with each outcome the function can return.
 const OUTCOME = {
   firstYes: {
     opted_in: true, already: false, refused: null, email_present: true,
