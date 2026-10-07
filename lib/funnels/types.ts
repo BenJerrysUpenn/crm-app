@@ -143,3 +143,35 @@ export type ExceptionQueue = {
   generated_at: string;
   notes: string[];
 };
+
+export type LoopStatus = {
+  warm: {
+    sent_today: number;
+    daily_cap: number;
+    sequenced_active: number;
+    last_activity_at: string | null;
+  };
+  cold: {
+    gate_passed: boolean;
+    gate_date: string;
+    queued: number;
+  };
+  quote_jobs: {
+    pending: number;
+    running: number;
+    error: number;
+  };
+  suppression: {
+    total: number;
+    opt_out_events: number;
+    prospects_total: number;
+  };
+  generated_at: string;
+};
+
+/** The body GET /api/funnels answers with, and the Funnels tab reads. */
+export type FunnelsResponse = {
+  loop: LoopStatus;
+  funnel: FunnelPayload;
+  exceptions: ExceptionQueue;
+};

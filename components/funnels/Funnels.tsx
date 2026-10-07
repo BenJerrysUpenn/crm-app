@@ -8,22 +8,20 @@ import {
   WINDOW_LABELS,
   type WindowKey,
 } from "@/lib/funnels/windows";
-import type { ExceptionQueue, FunnelPayload } from "@/lib/funnels/types";
+import type {
+  ExceptionQueue,
+  FunnelPayload,
+  FunnelsResponse,
+  LoopStatus,
+} from "@/lib/funnels/types";
 import { pct } from "@/lib/funnels/compute";
-import type { LoopStatus } from "@/lib/funnels/queries";
 import { ageLabel, ago, gmailLink, money, pctLabel } from "./format";
-
-type ApiResponse = {
-  loop: LoopStatus;
-  funnel: FunnelPayload;
-  exceptions: ExceptionQueue;
-};
 
 const DISMISS_KEY = "funnels.dismissed.v1";
 
 export default function Funnels() {
   const [windowKey, setWindowKey] = useState<WindowKey>(DEFAULT_WINDOW);
-  const [data, setData] = useState<ApiResponse | null>(null);
+  const [data, setData] = useState<FunnelsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ message: string; migration: boolean } | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -63,7 +61,7 @@ export default function Funnels() {
         });
         setData(null);
       } else {
-        setData(json as ApiResponse);
+        setData(json as FunnelsResponse);
       }
     } catch (e: any) {
       setError({ message: e?.message ?? "Network error", migration: false });

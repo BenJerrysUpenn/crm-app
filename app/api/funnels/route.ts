@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchExceptionQueue, fetchFunnelPayload, fetchLoopStatus } from "@/lib/funnels/queries";
+import type { FunnelsResponse } from "@/lib/funnels/types";
 import { parseWindow } from "@/lib/funnels/windows";
 import { readFailureResponse } from "@/lib/supabase/migrationMissing";
 
@@ -32,7 +33,8 @@ export async function GET(req: NextRequest) {
       fetchFunnelPayload(supabase, windowKey, now),
       fetchExceptionQueue(supabase, now),
     ]);
-    return NextResponse.json({ loop, funnel, exceptions });
+    const body: FunnelsResponse = { loop, funnel, exceptions };
+    return NextResponse.json(body);
   } catch (error) {
     // Until a human has run supabase/crm/001_call_desk.sql the outreach tables
     // are unreachable to the signed-in manager; the shared response tells that

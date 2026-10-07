@@ -30,6 +30,7 @@ import type {
   DraftDealRow,
   ExceptionQueue,
   FunnelPayload,
+  LoopStatus,
   OutreachEventRow,
   ProspectRow,
   QuoteLatencyPair,
@@ -47,31 +48,6 @@ const DRAFT_AWAITING_SEND_STAGE: Stage = "Quote Review";
 
 const DEAL_COLUMNS =
   "id,stage,contact_email,event_type,created_at,updated_at,total_with_tax,subtotal_pretax,signed_contract_total";
-
-export type LoopStatus = {
-  warm: {
-    sent_today: number;
-    daily_cap: number;
-    sequenced_active: number;
-    last_activity_at: string | null;
-  };
-  cold: {
-    gate_passed: boolean;
-    gate_date: string;
-    queued: number;
-  };
-  quote_jobs: {
-    pending: number;
-    running: number;
-    error: number;
-  };
-  suppression: {
-    total: number;
-    opt_out_events: number;
-    prospects_total: number;
-  };
-  generated_at: string;
-};
 
 // The warm engine's configured daily cap (OUTREACH_DAILY_CAP on the droplet).
 // Surfaced as a constant with a note in the UI because Vercel cannot read the
