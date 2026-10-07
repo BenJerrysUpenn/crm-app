@@ -194,6 +194,25 @@ describe.skipIf(!ADMIN_URL)("outreach_offers_opt_in in Postgres", () => {
       expect(await counts(id)).toEqual({ consents: 0, events: 0, email_supp: 0 });
     });
 
+    it("upgrades an UNDATED signup_form opt-in instead of returning a dateless already", async () => {
+      // opt_in_at IS NULL (an import, or a form that recorded no date). The
+      // already branch returns opt_in_at as the agreement date, and there is
+      // none, so this is NOT a repeat: it is written as a real explicit_yes
+      // with a consent row and opt_in_at = now(). The confirmation then shows a
+      // true date with stored proof, not a fabricated today's date.
+      const before = Date.now();
+      const id = await prospect({ marketing_opt_in: true, opt_in_source: "signup_form", opt_in_at: null });
+      const r = await press(id);
+
+      expect(r).toMatchObject({ opted_in: true, already: false, refused: null, lifted: false });
+      expect(r.opted_in_at).not.toBeNull();
+      expect(new Date(r.opted_in_at as string).getTime()).toBeGreaterThanOrEqual(before);
+      const p = await row(id);
+      expect(p).toMatchObject({ marketing_opt_in: true, opt_in_source: "explicit_yes" });
+      expect(p.opt_in_at).not.toBeNull();
+      expect(await counts(id)).toEqual({ consents: 1, events: 1, email_supp: 0 });
+    });
+
     it("records a signup_form person's yes after an unsubscribe as a new explicit yes, and lifts it", async () => {
       const id = await prospect({
         status: "suppressed", marketing_opt_in: true, opt_in_source: "signup_form", opt_in_at: FORM_DATE,

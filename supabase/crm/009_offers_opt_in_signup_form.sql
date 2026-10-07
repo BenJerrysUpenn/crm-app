@@ -28,13 +28,22 @@
 --
 -- WHAT CHANGES
 -- ------------
--- One expression: v_explicit now uses the shared set. Everything else in the
--- body is crm/007's, line for line.
+-- One expression: v_explicit now uses the shared set AND requires a date.
+-- Everything else in the body is crm/007's, line for line.
 --
---   signup_form, not suppressed, status not 'suppressed'
+--   signup_form, DATED, not suppressed, status not 'suppressed'
 --       -> { already: true }. NOTHING is written: opt_in_source stays
 --          'signup_form', opt_in_at stays the form's date, no consent row, no
 --          event. The confirmation page shows the form's date as "Agreed ...".
+--
+--   signup_form, UNDATED (opt_in_at IS NULL: an import, a form that recorded
+--   no date), not suppressed
+--       -> NOT already. opt_in_at is the agreement date the already branch
+--          would return, and there is none to show, so this falls through to
+--          the write path: a real consent row, opt_in_source -> 'explicit_yes'
+--          and opt_in_at -> now(). The press itself becomes the dated proof,
+--          rather than the page fabricating today's date (CODING_STANDARDS.md
+--          :10, fail loudly: no silent default for missing data).
 --
 --   signup_form, then suppressed (unsubscribe, bounce, complaint, call-desk
 --   do-not-email) or status 'suppressed', then presses yes
@@ -93,8 +102,19 @@ BEGIN
   -- "Explicit" is the same set everywhere (crm/009): 'explicit_yes' (this
   -- button) or 'signup_form' (they opted in on a form). coalesce, because
   -- opt_in_source may be NULL and NULL IN (...) is NULL, not false.
+  --
+  -- opt_in_at IS NOT NULL is part of being "already explicit": the already
+  -- branch below returns opt_in_at as the agreement date the confirmation
+  -- page shows, so a dateless opt-in has no proof to show. opt_in_at is
+  -- nullable and nothing ties it to opt_in_source, so a signup_form row
+  -- without a date (an import, a form that recorded none) is NOT treated as
+  -- already; it falls through to the write path, which records a real consent
+  -- row and sets opt_in_at = now(), a true date with stored proof.
+  -- (explicit_yes rows are always written here with now(), so this only ever
+  -- bites a dateless signup_form row.)
   SELECT nullif(lower(btrim(p.email)), ''), p.status, p.opt_in_at,
          (p.marketing_opt_in
+          AND p.opt_in_at IS NOT NULL
           AND coalesce(p.opt_in_source IN ('explicit_yes', 'signup_form'), false)),
          p.last_outreach_at IS NOT NULL
     INTO v_email, v_status, v_opt_in_at, v_explicit, v_touched
@@ -126,9 +146,11 @@ BEGIN
      FOR UPDATE;
   v_has_supp := FOUND;
 
-  -- Already an explicit opt-in (this button, or a signup form), and nothing
-  -- has opted them out since. Nothing is written, so a signup_form person
-  -- keeps opt_in_source = 'signup_form' and their original opt_in_at.
+  -- Already an explicit opt-in (this button, or a dated signup form), and
+  -- nothing has opted them out since. Nothing is written, so a signup_form
+  -- person keeps opt_in_source = 'signup_form' and their original opt_in_at,
+  -- which this returns as the agreement date. (A dateless opt-in never
+  -- reaches here: v_explicit requires opt_in_at IS NOT NULL above.)
   IF v_explicit AND NOT v_has_supp AND v_status <> 'suppressed' THEN
     RETURN jsonb_build_object('opted_in', false, 'already', true,
                               'refused', NULL, 'email_present', true,
