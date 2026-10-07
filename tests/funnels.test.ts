@@ -46,6 +46,7 @@ describe("profile derivation", () => {
 
   it("reads the email domain, penn and business flags", () => {
     expect(emailDomain("A@Wharton.UPenn.edu")).toBe("wharton.upenn.edu");
+    expect(emailDomain("acme.com")).toBe(""); // no @, so no domain to trust
     expect(isPennDomain("wharton.upenn.edu")).toBe(true);
     expect(isPennDomain("penn.edu")).toBe(false);
     expect(isPennDomain("notupenn.edu")).toBe(false);
