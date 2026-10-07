@@ -110,8 +110,10 @@ BEGIN
   -- without a date (an import, a form that recorded none) is NOT treated as
   -- already; it falls through to the write path, which records a real consent
   -- row and sets opt_in_at = now(), a true date with stored proof.
-  -- (explicit_yes rows are always written here with now(), so this only ever
-  -- bites a dateless signup_form row.)
+  -- (The guard covers any dateless opt-in. This function only ever writes
+  -- explicit_yes with now(), so in practice the dateless row it catches is a
+  -- signup_form one; it does not assume no other writer could leave an
+  -- explicit_yes row undated.)
   SELECT nullif(lower(btrim(p.email)), ''), p.status, p.opt_in_at,
          (p.marketing_opt_in
           AND p.opt_in_at IS NOT NULL
