@@ -69,6 +69,12 @@ function notFound(): NextResponse {
   return text("Not found.\n", 404);
 }
 
+/** Identical for a failed lookup, a failed RPC, and an outcome the route
+ *  cannot confirm. */
+function failed(): NextResponse {
+  return text("Offers sign-up failed.\n", 500);
+}
+
 type Verified = { parsed: ParsedToken; email: string };
 
 /** Decode the token, look the prospect up, recompute the MAC over the stored
@@ -93,7 +99,7 @@ async function verify(
     .eq("id", parsed.prospectId)
     .maybeSingle();
 
-  if (error) return { ok: false, response: text("Offers sign-up failed.\n", 500) };
+  if (error) return { ok: false, response: failed() };
   const email = typeof data?.email === "string" ? data.email.trim() : "";
   if (!email) return { ok: false, response: notFound() };
   if (!verifyOffersToken(parsed, email, secret)) return { ok: false, response: notFound() };
@@ -158,7 +164,7 @@ export async function POST(
     p_user_agent: userAgent || null,
   });
 
-  if (error) return text("Offers sign-up failed.\n", 500);
+  if (error) return failed();
 
   const outcome = (data ?? {}) as OptInResult;
   // 'dead' is the only refusal left: a test or invalid row. Nobody real is
@@ -171,7 +177,7 @@ export async function POST(
   // route, not a person to confirm, so fail loudly rather than fabricate
   // today's date (CODING_STANDARDS.md:10). The date shown is the one the
   // stored proof carries — for a repeat, the date they first said yes.
-  if (!outcome.opted_in_at) return text("Offers sign-up failed.\n", 500);
+  if (!outcome.opted_in_at) return failed();
   const at = new Date(outcome.opted_in_at);
   return html(offersSignedUpHtml(at, result.value.email));
 }
