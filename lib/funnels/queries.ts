@@ -76,9 +76,9 @@ export type LoopStatus = {
 // The warm engine's configured daily cap (OUTREACH_DAILY_CAP on the droplet).
 // Surfaced as a constant with a note in the UI because Vercel cannot read the
 // droplet env — a proposed sweep_runs table would carry the live value.
-export const WARM_DAILY_CAP = 20;
+const WARM_DAILY_CAP = 20;
 // The cold-lane domain-age gate date (issue #422 reframe). Now in the past.
-export const COLD_GATE_DATE = "2026-09-24";
+const COLD_GATE_DATE = "2026-09-24";
 
 // --- helpers -----------------------------------------------------------------
 
@@ -94,7 +94,7 @@ async function count(
 }
 
 /** Start of "today" in America/New_York as an ISO instant. */
-export function easternDayStartISO(now: Date): string {
+function easternDayStartISO(now: Date): string {
   // Midnight of today's Eastern calendar date, resolved with the offset in
   // force AT THAT MIDNIGHT (not at `now`), so the "sends today" boundary is
   // right even on a DST-change day. The rule lives once in lib/dateFormat.ts;

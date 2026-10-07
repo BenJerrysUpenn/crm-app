@@ -46,13 +46,13 @@ const BELOW_MIN_STAGE: Stage = "Closed Below Min";
 // --- Small helpers -----------------------------------------------------------
 
 /** deals.created_at / updated_at are stored as ISO text; parse defensively. */
-export function parseTs(iso: string | null | undefined): number {
+function parseTs(iso: string | null | undefined): number {
   if (!iso) return NaN;
   const t = Date.parse(iso);
   return Number.isNaN(t) ? NaN : t;
 }
 
-export function dealValue(d: DealRow): number {
+function dealValue(d: DealRow): number {
   return (
     d.signed_contract_total ?? d.total_with_tax ?? d.subtotal_pretax ?? 0
   );
@@ -74,7 +74,7 @@ export function median(values: number[]): number | null {
 // --- Window filtering --------------------------------------------------------
 
 /** An instant (ms, NaN when unparseable) is inside a window that starts at `startMs`, inclusive. */
-export function inWindow(t: number, startMs: number): boolean {
+function inWindow(t: number, startMs: number): boolean {
   return !Number.isNaN(t) && t >= startMs;
 }
 

@@ -16,7 +16,7 @@ export const WINDOW_LABELS: Record<WindowKey, string> = {
 
 export const DEFAULT_WINDOW: WindowKey = "30";
 
-export function isWindowKey(v: string | null | undefined): v is WindowKey {
+function isWindowKey(v: string | null | undefined): v is WindowKey {
   return v != null && (WINDOWS as readonly string[]).includes(v);
 }
 
