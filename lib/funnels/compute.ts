@@ -21,13 +21,17 @@ import type {
   DealFunnelRow,
   DealRow,
   DoneQuoteJobRow,
+  DraftDealRow,
   Engine,
+  ExceptionItem,
+  ExceptionQueue,
   OutreachEventRow,
   OutreachFunnel,
   ProspectRow,
   QuoteLatencyPair,
   QuoteLatencyResult,
   QuoteLatencyTrendPoint,
+  ReplyProspectRow,
 } from "./types";
 
 // --- Stage vocabulary (typed against lib/stages.ts, so a renamed stage fails tsc)
@@ -339,4 +343,75 @@ export function computeQuoteLatency(
 function round1(v: number | null): number | null {
   if (v === null) return null;
   return Math.round(v * 10) / 10;
+}
+
+// --- Exception queue ---------------------------------------------------------
+
+function ageHours(iso: string | null | undefined, now: Date): number | null {
+  const t = parseTs(iso ?? undefined);
+  if (Number.isNaN(t)) return null;
+  return Math.round(((now.getTime() - t) / 3_600_000) * 10) / 10;
+}
+
+/**
+ * The exception queue from the rows its reads return: deals parked at Quote
+ * Review (oldest first, as read), and reply events (newest first, as read) with
+ * the prospects they name.
+ *
+ * Drafts awaiting send are an APPROXIMATION (Gmail drafts have no single DB
+ * source of truth); the UI says so. A reply waits on a human while its prospect
+ * is not already handed_off or suppressed (until the #285 reply->CRM bridge
+ * turns every reply into a deal), aged from that prospect's newest reply and
+ * listed longest-waiting first.
+ */
+export function buildExceptionQueue(
+  draftDeals: DraftDealRow[],
+  replyEvents: OutreachEventRow[],
+  replyProspects: ReplyProspectRow[],
+  now: Date,
+): ExceptionQueue {
+  const drafts: ExceptionItem[] = draftDeals.map((d) => ({
+    kind: "draft_awaiting_send",
+    id: `draft-${d.id}`,
+    deal_id: d.id,
+    title:
+      [d.contact_first_name, d.contact_last_name].filter(Boolean).join(" ") ||
+      d.company ||
+      d.contact_email ||
+      `Deal #${d.id}`,
+    subtitle: [d.event_type, d.company].filter(Boolean).join(" · ") || null,
+    age_hours: ageHours(d.updated_at, now),
+    gmail_thread_id: d.gmail_thread_id,
+    email: d.contact_email,
+  }));
+
+  const latestReply = new Map<number, string>();
+  for (const r of replyEvents) {
+    if (r.prospect_id == null) continue;
+    if (!latestReply.has(r.prospect_id)) latestReply.set(r.prospect_id, r.occurred_at);
+  }
+
+  const replies: ExceptionItem[] = replyProspects
+    .filter((p) => p.status !== "handed_off" && p.status !== "suppressed")
+    .map((p) => ({
+      kind: "reply_awaiting_handling" as const,
+      id: `reply-${p.id}`,
+      prospect_id: p.id,
+      title: p.name || p.company || p.email || `Prospect #${p.id}`,
+      subtitle: p.company || null,
+      age_hours: ageHours(latestReply.get(p.id), now),
+      email: p.email,
+    }))
+    .sort((a, b) => (b.age_hours ?? 0) - (a.age_hours ?? 0));
+
+  return {
+    drafts_awaiting_send: drafts,
+    replies_awaiting_handling: replies,
+    generated_at: now.toISOString(),
+    notes: [
+      "Drafts = deals parked at Quote Review; a proxy for Gmail drafts, which have no single DB source of truth.",
+      "Replies list clears automatically once the #285 reply→CRM bridge files each reply as a deal.",
+      "Deferred exception types (no data source yet): boomerang drafts (public.deals has no boomerang_reason column — only the guardrail test schemas do), non-form candidates and manual-outbound-without-ref (both surfaced by the catering sweep, whose telemetry is not persisted — the proposed sweep_runs table lands them here).",
+    ],
+  };
 }

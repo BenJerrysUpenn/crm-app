@@ -16,21 +16,24 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { easternTodayYmd, easternWallTimeToUTCISO } from "@/lib/dateFormat";
 import type { Stage } from "@/lib/stages";
 import {
+  buildExceptionQueue,
   computeBelowMin,
   computeDealFunnel,
   computeOutreachFunnel,
   computeQuoteLatency,
   pairQuoteLatency,
-  parseTs,
 } from "./compute";
 import { REPLY_EVENTS } from "./types";
 import type {
   DealRow,
   DoneQuoteJobRow,
+  DraftDealRow,
+  ExceptionQueue,
   FunnelPayload,
   OutreachEventRow,
   ProspectRow,
   QuoteLatencyPair,
+  ReplyProspectRow,
 } from "./types";
 import { windowStart, type WindowKey } from "./windows";
 
@@ -260,39 +263,12 @@ export async function fetchFunnelPayload(
 
 // --- panel 2: exception queue ------------------------------------------------
 
-export type ExceptionItem = {
-  kind: "draft_awaiting_send" | "reply_awaiting_handling";
-  id: string; // stable dom key
-  deal_id?: number;
-  prospect_id?: number;
-  title: string;
-  subtitle: string | null;
-  age_hours: number | null;
-  gmail_thread_id?: string | null;
-  email?: string | null;
-};
-
-export type ExceptionQueue = {
-  drafts_awaiting_send: ExceptionItem[];
-  replies_awaiting_handling: ExceptionItem[];
-  generated_at: string;
-  notes: string[];
-};
-
-function ageHours(iso: string | null | undefined, now: Date): number | null {
-  const t = parseTs(iso ?? undefined);
-  if (Number.isNaN(t)) return null;
-  return Math.round(((now.getTime() - t) / 3_600_000) * 10) / 10;
-}
-
 export async function fetchExceptionQueue(
   supabase: SupabaseClient,
   now: Date,
 ): Promise<ExceptionQueue> {
   // Drafts awaiting send: deals parked at Quote Review — the machine produced a
-  // quote/decline draft and is waiting on a human to actually send it. This is
-  // an APPROXIMATION (Gmail drafts have no single DB source of truth); the UI
-  // says so.
+  // quote/decline draft and is waiting on a human to actually send it.
   const { data: draftDeals, error: dErr } = await supabase
     .from("deals")
     .select("id,company,contact_first_name,contact_last_name,contact_email,event_type,stage,updated_at,last_outbound_at,gmail_thread_id")
@@ -302,24 +278,8 @@ export async function fetchExceptionQueue(
     .limit(200);
   if (dErr) throw dErr;
 
-  const drafts: ExceptionItem[] = (draftDeals ?? []).map((d: any) => ({
-    kind: "draft_awaiting_send",
-    id: `draft-${d.id}`,
-    deal_id: d.id,
-    title:
-      [d.contact_first_name, d.contact_last_name].filter(Boolean).join(" ") ||
-      d.company ||
-      d.contact_email ||
-      `Deal #${d.id}`,
-    subtitle: [d.event_type, d.company].filter(Boolean).join(" · ") || null,
-    age_hours: ageHours(d.updated_at, now),
-    gmail_thread_id: d.gmail_thread_id,
-    email: d.contact_email,
-  }));
-
-  // Replies awaiting handling: prospects with a recent replied/interested event
-  // whose status is not already handed_off or suppressed (until the #285
-  // reply->CRM bridge turns every reply into a deal, these need a human).
+  // Replies awaiting handling: the newest replied/interested events, newest
+  // first, then the prospects they name.
   const { data: replyRows, error: rErr } = await supabase
     .from("outreach_events")
     .select("prospect_id,event,occurred_at")
@@ -327,43 +287,27 @@ export async function fetchExceptionQueue(
     .order("occurred_at", { ascending: false })
     .limit(200);
   if (rErr) throw rErr;
+  const replyEvents = (replyRows ?? []) as OutreachEventRow[];
 
-  const latestReply = new Map<number, string>();
-  for (const r of (replyRows ?? []) as OutreachEventRow[]) {
-    if (r.prospect_id == null) continue;
-    if (!latestReply.has(r.prospect_id)) latestReply.set(r.prospect_id, r.occurred_at);
-  }
-
-  let replies: ExceptionItem[] = [];
-  const ids = Array.from(latestReply.keys());
+  const ids = Array.from(
+    new Set(
+      replyEvents.map((e) => e.prospect_id).filter((v): v is number => v != null),
+    ),
+  );
+  let replyProspects: ReplyProspectRow[] = [];
   if (ids.length) {
     const { data: pRows, error: pErr } = await supabase
       .from("outreach_prospects")
       .select("id,name,company,email,status")
       .in("id", ids);
     if (pErr) throw pErr;
-    replies = (pRows ?? [])
-      .filter((p: any) => p.status !== "handed_off" && p.status !== "suppressed")
-      .map((p: any) => ({
-        kind: "reply_awaiting_handling" as const,
-        id: `reply-${p.id}`,
-        prospect_id: p.id,
-        title: p.name || p.company || p.email || `Prospect #${p.id}`,
-        subtitle: p.company || null,
-        age_hours: ageHours(latestReply.get(p.id), now),
-        email: p.email,
-      }))
-      .sort((a, b) => (b.age_hours ?? 0) - (a.age_hours ?? 0));
+    replyProspects = (pRows ?? []) as ReplyProspectRow[];
   }
 
-  return {
-    drafts_awaiting_send: drafts,
-    replies_awaiting_handling: replies,
-    generated_at: now.toISOString(),
-    notes: [
-      "Drafts = deals parked at Quote Review; a proxy for Gmail drafts, which have no single DB source of truth.",
-      "Replies list clears automatically once the #285 reply→CRM bridge files each reply as a deal.",
-      "Deferred exception types (no data source yet): boomerang drafts (public.deals has no boomerang_reason column — only the guardrail test schemas do), non-form candidates and manual-outbound-without-ref (both surfaced by the catering sweep, whose telemetry is not persisted — the proposed sweep_runs table lands them here).",
-    ],
-  };
+  return buildExceptionQueue(
+    (draftDeals ?? []) as DraftDealRow[],
+    replyEvents,
+    replyProspects,
+    now,
+  );
 }

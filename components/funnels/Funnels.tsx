@@ -8,9 +8,9 @@ import {
   WINDOW_LABELS,
   type WindowKey,
 } from "@/lib/funnels/windows";
-import type { FunnelPayload } from "@/lib/funnels/types";
+import type { ExceptionQueue, FunnelPayload } from "@/lib/funnels/types";
 import { pct } from "@/lib/funnels/compute";
-import type { ExceptionQueue, LoopStatus } from "@/lib/funnels/queries";
+import type { LoopStatus } from "@/lib/funnels/queries";
 import { ageLabel, ago, gmailLink, money, pctLabel } from "./format";
 
 type ApiResponse = {

@@ -42,6 +42,27 @@ export type DealRow = {
   signed_contract_total: number | null;
 };
 
+/** A deal parked at Quote Review, as the exception queue reads it. */
+export type DraftDealRow = {
+  id: number;
+  company: string | null;
+  contact_first_name: string | null;
+  contact_last_name: string | null;
+  contact_email: string | null;
+  event_type: string | null;
+  updated_at: string | null; // ISO text
+  gmail_thread_id: string | null;
+};
+
+/** A prospect named by a reply event, as the exception queue reads it. */
+export type ReplyProspectRow = {
+  id: number;
+  name: string | null;
+  company: string | null;
+  email: string | null;
+  status: string | null;
+};
+
 /** A finished quote job: the deal it quoted and when it was produced (ISO text). */
 export type DoneQuoteJobRow = {
   deal_id: number;
@@ -102,4 +123,23 @@ export type FunnelPayload = {
   deal_funnel: DealFunnelRow[];
   below_min: BelowMinResult;
   quote_latency: QuoteLatencyResult;
+};
+
+export type ExceptionItem = {
+  kind: "draft_awaiting_send" | "reply_awaiting_handling";
+  id: string; // stable dom key
+  deal_id?: number;
+  prospect_id?: number;
+  title: string;
+  subtitle: string | null;
+  age_hours: number | null;
+  gmail_thread_id?: string | null;
+  email?: string | null;
+};
+
+export type ExceptionQueue = {
+  drafts_awaiting_send: ExceptionItem[];
+  replies_awaiting_handling: ExceptionItem[];
+  generated_at: string;
+  notes: string[];
 };
