@@ -235,6 +235,17 @@ describe("outreach funnel activity join", () => {
     expect(warm.deal).toBe(1);
   });
 
+  it("does not attribute a deal last touched at the very instant of the mail", () => {
+    // Prospect 1 was first mailed 2026-09-10T09:00Z; a deal touched at that same
+    // instant was not touched AFTER the mail, so it does not attribute.
+    const sameInstant: DealRow[] = [
+      { ...deals[0], id: 13, updated_at: "2026-09-10T09:00:00Z" },
+    ];
+    const [warm] = computeOutreachFunnel(events, prospects, sameInstant, START);
+    expect(warm.sent).toBe(2);
+    expect(warm.deal).toBe(0);
+  });
+
   it("joins a prospect to its deal regardless of email case and padding", () => {
     const shouty: ProspectRow[] = [
       { id: 1, email: "  Warm@ACME.com ", engine: "warm", status: "handed_off" },
