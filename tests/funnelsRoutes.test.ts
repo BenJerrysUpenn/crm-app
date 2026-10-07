@@ -290,6 +290,26 @@ describe("GET /api/funnels", () => {
     expect(semAll.created).toBe(3); // deals 1, 2 and 3; archived deal 4 never counts
   });
 
+  it("leaves an archived deal's quote out of the latency", async () => {
+    // Archived deal 4 was created 2026-09-24T12:00Z; a 2h quote on it would pull
+    // the 7-day median from 3h to 2.5h if it counted.
+    db.state.tables.quote_jobs.push(
+      { deal_id: 4, kind: "quote", status: "done", processed_at: "2026-09-24T14:00:00Z" },
+    );
+    const { funnel } = await (await get("7")).json();
+    expect(funnel.quote_latency).toMatchObject({ count: 1, median_hours: 3 });
+  });
+
+  it("skips a done quote whose processed time is unreadable instead of failing the tab", async () => {
+    db.state.tables.quote_jobs.push(
+      { deal_id: 2, kind: "quote", status: "done", processed_at: "not a date" },
+    );
+    const res = await get();
+    expect(res.status).toBe(200);
+    const { funnel } = await res.json();
+    expect(funnel.quote_latency).toMatchObject({ count: 1, median_hours: 3 });
+  });
+
   it("titles a queued item by the best name it has, down to the address", async () => {
     db.state.tables.deals.push(
       deal(5, { stage: "Quote Review", company: "Zeta LLC", event_type: null }),
