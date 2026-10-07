@@ -6,6 +6,8 @@
 //     tells "migration not run yet" (503) apart from a real failure (500).
 //   * POST /api/funnels/suppress validates the prospect id and suppresses it
 //     through the call desk's existing do-not-call RPC, surfacing its error.
+//   * GET /api/call-desk/queue, which this PR moved onto the shared
+//     migration-missing predicate, still answers 401 / 200 / 503 / 500 as before.
 //
 // Supabase is the system boundary: the stand-in below holds rows per table and
 // applies the filters a query chains, so the routes and lib/funnels run for real.
@@ -104,6 +106,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: () => db.client }));
 
 const { GET } = await import("@/app/api/funnels/route");
 const { POST: suppress } = await import("@/app/api/funnels/suppress/route");
+const { GET: callDeskQueue } = await import("@/app/api/call-desk/queue/route");
 
 const NOW = new Date("2026-09-25T16:00:00Z"); // Fri, noon in New York
 
@@ -266,6 +269,31 @@ describe("GET /api/funnels", () => {
     expect(month.outreach.find((r: Row) => r.engine === "warm").sent).toBe(2);
   });
 
+  it("computes semester-to-date from Aug 1 when the URL asks for the semester", async () => {
+    const sem = (await (await get("semester")).json()).funnel;
+    expect(sem.window).toBe("semester");
+    expect(sem.window_start).toBe("2026-08-01T00:00:00.000Z");
+    const semAll = sem.deal_funnel.find((r: Row) => r.profile === "__all__");
+    expect(semAll.created).toBe(3); // deals 1, 2 and 3; archived deal 4 never counts
+  });
+
+  it("titles a queued item by the best name it has, down to the address", async () => {
+    db.state.tables.deals.push(
+      deal(5, { stage: "Quote Review", company: "Zeta LLC", event_type: null }),
+    );
+    db.state.tables.outreach_prospects.push(
+      { id: 15, name: null, company: null, email: "anon@eta.com", engine: "warm", status: "sequenced" },
+    );
+    db.state.tables.outreach_events.push(
+      { prospect_id: 15, event: "replied", occurred_at: "2026-09-25T10:00:00Z" },
+    );
+    const { exceptions } = await (await get()).json();
+    const draft5 = exceptions.drafts_awaiting_send.find((d: Row) => d.deal_id === 5);
+    expect(draft5).toMatchObject({ title: "Zeta LLC", subtitle: "Zeta LLC" });
+    const reply15 = exceptions.replies_awaiting_handling.find((r: Row) => r.prospect_id === 15);
+    expect(reply15).toMatchObject({ title: "anon@eta.com", subtitle: null, age_hours: 6 });
+  });
+
   it("queues Quote Review drafts and unhandled replies, not handed-off ones", async () => {
     const { exceptions } = await (await get()).json();
     expect(exceptions.drafts_awaiting_send).toEqual([
@@ -401,6 +429,45 @@ describe("POST /api/funnels/suppress", () => {
     expect(await res.json()).toEqual({
       error: "permission denied for function",
       code: "42501",
+    });
+  });
+});
+
+// The call desk's queue route now reads the same "migration not applied"
+// predicate as the Funnels route (lib/supabase/migrationMissing.ts); these pin
+// that its answers did not move in the refactor.
+describe("GET /api/call-desk/queue", () => {
+  it("refuses a signed-out caller", async () => {
+    db.state.user = null;
+    expect((await callDeskQueue()).status).toBe(401);
+  });
+
+  it("returns the queue view's rows", async () => {
+    db.state.tables.call_desk_queue = [{ prospect_id: 10, phone: "555-0100" }];
+    const res = await callDeskQueue();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ rows: [{ prospect_id: 10, phone: "555-0100" }] });
+  });
+
+  it("answers 503 with migration_missing while the view is not there yet", async () => {
+    db.state.tableErrors.call_desk_queue = { message: "undefined table", code: "42P01" };
+    const res = await callDeskQueue();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: "undefined table",
+      code: "42P01",
+      migration_missing: true,
+    });
+  });
+
+  it("answers 500 without migration_missing on any other failure", async () => {
+    db.state.tableErrors.call_desk_queue = { message: "connection reset" };
+    const res = await callDeskQueue();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: "connection reset",
+      code: null,
+      migration_missing: false,
     });
   });
 });
