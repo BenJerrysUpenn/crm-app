@@ -310,6 +310,25 @@ describe("GET /api/funnels", () => {
     expect(funnel.quote_latency).toMatchObject({ count: 1, median_hours: 3 });
   });
 
+  it("falls back to the address, then the record number, for a queued item with no name", async () => {
+    db.state.tables.deals.push(
+      deal(6, { stage: "Quote Review" }),
+      deal(7, { stage: "Quote Review", contact_email: null, event_type: null }),
+    );
+    db.state.tables.outreach_prospects.push(
+      { id: 16, name: null, company: null, email: null, engine: "warm", status: "sequenced" },
+    );
+    db.state.tables.outreach_events.push(
+      { prospect_id: 16, event: "replied", occurred_at: "2026-09-25T10:00:00Z" },
+    );
+    const { exceptions } = await (await get()).json();
+    const draft = (id: number) => exceptions.drafts_awaiting_send.find((d: Row) => d.deal_id === id);
+    expect(draft(6)).toMatchObject({ title: "d6@acme.com", subtitle: "Corporate" });
+    expect(draft(7)).toMatchObject({ title: "Deal #7", subtitle: null });
+    const reply16 = exceptions.replies_awaiting_handling.find((r: Row) => r.prospect_id === 16);
+    expect(reply16).toMatchObject({ title: "Prospect #16", subtitle: null });
+  });
+
   it("titles a queued item by the best name it has, down to the address", async () => {
     db.state.tables.deals.push(
       deal(5, { stage: "Quote Review", company: "Zeta LLC", event_type: null }),
