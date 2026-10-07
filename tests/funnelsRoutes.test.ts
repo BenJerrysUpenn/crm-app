@@ -234,6 +234,19 @@ describe("GET /api/funnels", () => {
     expect(await res.json()).toMatchObject({ error: "connection reset", migration_missing: false });
   });
 
+  it.each([
+    ["the funnel's deals", "deals:id,stage,contact_email,event_type,created_at,updated_at,total_with_tax,subtotal_pretax,signed_contract_total"],
+    ["the funnel's prospects", "outreach_prospects:id,email,engine,status"],
+    ["the quote jobs", "quote_jobs:deal_id,processed_at"],
+    ["the drafts awaiting send", "deals:id,company,contact_first_name,contact_last_name,contact_email,event_type,stage,updated_at,last_outbound_at,gmail_thread_id"],
+    ["the replying prospects", "outreach_prospects:id,name,company,email,status"],
+  ])("fails loudly when %s read fails, rather than showing an empty panel", async (_what, read) => {
+    db.state.readErrors[read] = { message: "connection reset", code: "08006" };
+    const res = await get();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: "connection reset", migration_missing: false });
+  });
+
   it("reports the cold lane's domain-age gate as not passed before its date", async () => {
     vi.setSystemTime(new Date("2026-09-20T16:00:00Z"));
     const { loop } = await (await get()).json();
