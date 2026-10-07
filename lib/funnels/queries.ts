@@ -81,6 +81,13 @@ function easternDayStartISO(now: Date): string {
   return iso;
 }
 
+/** The distinct prospect ids a set of outreach events names, in first-seen order. */
+function prospectIdsNamedBy(events: OutreachEventRow[]): number[] {
+  return Array.from(
+    new Set(events.map((e) => e.prospect_id).filter((v): v is number => v != null)),
+  );
+}
+
 // --- panel 1 + 4: loop status & health --------------------------------------
 
 export async function fetchLoopStatus(
@@ -183,9 +190,7 @@ async function fetchOutreach(
   const events = (evRows ?? []) as OutreachEventRow[];
 
   // Only prospects referenced by a funnel event need their engine/email.
-  const ids = Array.from(
-    new Set(events.map((e) => e.prospect_id).filter((v): v is number => v != null)),
-  );
+  const ids = prospectIdsNamedBy(events);
   const prospects: ProspectRow[] = [];
   for (let i = 0; i < ids.length; i += 1000) {
     const chunk = ids.slice(i, i + 1000);
@@ -265,11 +270,7 @@ export async function fetchExceptionQueue(
   if (rErr) throw rErr;
   const replyEvents = (replyRows ?? []) as OutreachEventRow[];
 
-  const ids = Array.from(
-    new Set(
-      replyEvents.map((e) => e.prospect_id).filter((v): v is number => v != null),
-    ),
-  );
+  const ids = prospectIdsNamedBy(replyEvents);
   let replyProspects: ReplyProspectRow[] = [];
   if (ids.length) {
     const { data: pRows, error: pErr } = await supabase
