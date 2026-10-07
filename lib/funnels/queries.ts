@@ -20,11 +20,13 @@ import {
   computeDealFunnel,
   computeOutreachFunnel,
   computeQuoteLatency,
+  pairQuoteLatency,
   parseTs,
 } from "./compute";
 import { REPLY_EVENTS } from "./types";
 import type {
   DealRow,
+  DoneQuoteJobRow,
   FunnelPayload,
   OutreachEventRow,
   ProspectRow,
@@ -222,9 +224,7 @@ async function fetchQuoteLatencyPairs(
   supabase: SupabaseClient,
   deals: DealRow[],
 ): Promise<QuoteLatencyPair[]> {
-  // "Quote sent" proxy: the earliest DONE quote job per deal (the quote
-  // artifact was produced right before the human send step). Labelled as a
-  // proxy in the UI. quote_jobs.created_at/processed_at are ISO text.
+  // quote_jobs.created_at/processed_at are ISO text.
   const { data, error } = await supabase
     .from("quote_jobs")
     .select("deal_id,processed_at")
@@ -233,23 +233,7 @@ async function fetchQuoteLatencyPairs(
     .not("processed_at", "is", null)
     .limit(PAGE);
   if (error) throw error;
-
-  const earliestDone = new Map<number, number>();
-  for (const row of (data ?? []) as { deal_id: number; processed_at: string }[]) {
-    const t = parseTs(row.processed_at);
-    if (Number.isNaN(t)) continue;
-    const prev = earliestDone.get(row.deal_id);
-    if (prev === undefined || t < prev) earliestDone.set(row.deal_id, t);
-  }
-
-  const createdById = new Map(deals.map((d) => [d.id, d.created_at]));
-  const pairs: QuoteLatencyPair[] = [];
-  for (const [dealId, doneMs] of earliestDone) {
-    const created = createdById.get(dealId);
-    if (!created) continue;
-    pairs.push({ created_at: created, quote_sent_at: new Date(doneMs).toISOString() });
-  }
-  return pairs;
+  return pairQuoteLatency((data ?? []) as DoneQuoteJobRow[], deals);
 }
 
 export async function fetchFunnelPayload(

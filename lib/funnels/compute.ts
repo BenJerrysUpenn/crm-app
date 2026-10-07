@@ -20,6 +20,7 @@ import type {
   BelowMinResult,
   DealFunnelRow,
   DealRow,
+  DoneQuoteJobRow,
   Engine,
   OutreachEventRow,
   OutreachFunnel,
@@ -259,6 +260,34 @@ export function weekStartISO(ms: number): string {
     d.getUTCDate() - diff,
   );
   return new Date(monday).toISOString();
+}
+
+/**
+ * Pair each deal with when its quote was sent. "Quote sent" is a proxy: the
+ * earliest DONE quote job per deal (the quote artifact is produced right before
+ * the human send step), labelled as a proxy in the UI. A job whose processed_at
+ * does not parse, or whose deal is not among `deals`, yields no pair.
+ */
+export function pairQuoteLatency(
+  doneJobs: DoneQuoteJobRow[],
+  deals: DealRow[],
+): QuoteLatencyPair[] {
+  const earliestDone = new Map<number, number>();
+  for (const row of doneJobs) {
+    const t = parseTs(row.processed_at);
+    if (Number.isNaN(t)) continue;
+    const prev = earliestDone.get(row.deal_id);
+    if (prev === undefined || t < prev) earliestDone.set(row.deal_id, t);
+  }
+
+  const createdById = new Map(deals.map((d) => [d.id, d.created_at]));
+  const pairs: QuoteLatencyPair[] = [];
+  for (const [dealId, doneMs] of earliestDone) {
+    const created = createdById.get(dealId);
+    if (!created) continue;
+    pairs.push({ created_at: created, quote_sent_at: new Date(doneMs).toISOString() });
+  }
+  return pairs;
 }
 
 /**

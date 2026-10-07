@@ -42,6 +42,12 @@ export type DealRow = {
   signed_contract_total: number | null;
 };
 
+/** A finished quote job: the deal it quoted and when it was produced (ISO text). */
+export type DoneQuoteJobRow = {
+  deal_id: number;
+  processed_at: string;
+};
+
 /** A deal-created instant paired with when its quote was produced (proxy for sent). */
 export type QuoteLatencyPair = {
   created_at: string; // ISO
