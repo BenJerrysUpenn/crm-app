@@ -116,7 +116,7 @@ export function computeOutreachFunnel(
     }
   }
 
-  // Deals grouped by email key, with the furthest stage flags and the latest
+  // Deals grouped by email key, with the furthest stage flags and every
   // update instant — for the activity join.
   type DealAgg = { updates: number[]; quoted: boolean; booked: boolean };
   const dealsByEmail = new Map<string, DealAgg>();
