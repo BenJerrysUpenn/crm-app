@@ -58,6 +58,12 @@ function dealValue(d: DealRow): number {
   );
 }
 
+/** `v` rounded half-up to `precision` decimal places: the tab's one rounding rule. */
+function roundTo(v: number, precision: number): number {
+  const f = 10 ** precision;
+  return Math.round(v * f) / f;
+}
+
 /**
  * Stage-to-stage conversion %, guarding divide-by-zero. `precision` is the
  * number of decimal places (default 1 dp, so existing callers are unchanged);
@@ -69,8 +75,7 @@ export function pct(
   precision = 1,
 ): number {
   if (!denominator) return 0;
-  const f = 10 ** precision;
-  return Math.round((numerator / denominator) * 100 * f) / f;
+  return roundTo((numerator / denominator) * 100, precision);
 }
 
 export function median(values: number[]): number | null {
@@ -351,7 +356,7 @@ export function computeQuoteLatency(
 
 function round1(v: number | null): number | null {
   if (v === null) return null;
-  return Math.round(v * 10) / 10;
+  return roundTo(v, 1);
 }
 
 // --- Exception queue ---------------------------------------------------------
@@ -359,7 +364,7 @@ function round1(v: number | null): number | null {
 function ageHours(iso: string | null | undefined, now: Date): number | null {
   const t = parseTs(iso ?? undefined);
   if (Number.isNaN(t)) return null;
-  return Math.round(((now.getTime() - t) / 3_600_000) * 10) / 10;
+  return roundTo((now.getTime() - t) / 3_600_000, 1);
 }
 
 /**
