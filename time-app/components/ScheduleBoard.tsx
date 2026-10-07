@@ -3,19 +3,18 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
+import CheckWeekButton from "./CheckWeekButton";
 import { fmtTime } from "@/lib/format";
-import { describeGap, describeHoursNotSet, type CoverageGap, type HoursNotSetDay } from "@/lib/coverage";
-import { describeLongShift, formatHours, type LongShift } from "@/lib/shiftChecks";
+import { formatHours } from "@/lib/shiftChecks";
 import {
   describeForSave,
-  describeMismatch,
   formatSpan,
-  groupMismatches,
   resolveDay,
   type AvailabilityMismatch,
   type AvailabilityRow,
 } from "@/lib/availabilityCheck";
 import { availabilityCell, type CellAvailability, type CellLine } from "@/lib/availabilityCell";
+import { managerAssignsOnly } from "@/lib/managerAssigns";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 
 const TZ = "America/New_York";
@@ -52,7 +51,6 @@ type Draft = {
   ends_at: string;
   position: string;
   notes: string;
-  published: boolean;
 };
 
 type DropReq = ShiftRequest & { profiles?: Pick<Profile, "id" | "full_name"> };
@@ -101,20 +99,6 @@ export default function ScheduleBoard({
   const [ackingId, setAckingId] = useState<number | null>(null);
   const [howMany, setHowMany] = useState(1);
   const [annDraft, setAnnDraft] = useState<null | { title: string; message: string; start_date: string; end_date: string; color: string; business_closed: boolean; no_time_off: boolean; announcement: boolean }>(null);
-  // Set when publishing is refused: either the week fails a schedule check
-  // (uncovered opening hours, or a shift nobody could work), or the coverage
-  // check could not run at all.
-  const [coverage, setCoverage] = useState<
-    | null
-    | {
-        kind: "checks";
-        gaps: CoverageGap[];
-        longShifts: LongShift[];
-        availability: (AvailabilityMismatch & { employee_name?: string | null })[];
-        hoursNotSet: HoursNotSetDay[];
-      }
-    | { kind: "unavailable"; what: "store hours" | "availability" }
-  >(null);
   // Hours of a shift the manager is saving that is long enough to query.
   const [longSave, setLongSave] = useState<number | null>(null);
   // The availability warning for the shift being saved. `key` pins it to the
@@ -273,49 +257,6 @@ export default function ScheduleBoard({
     router.refresh();
   }
 
-  // force: publish even though the week leaves the store uncovered. The server
-  // refuses with 409 first; the manager has to say so in the dialog below.
-  async function publishWeek(force = false) {
-    setCopying(true);
-    setCopyMsg(null);
-    const res = await fetch("/api/shifts/publish-week", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ weekStart, force }),
-    });
-    setCopying(false);
-    const j = await res.json().catch(() => ({}));
-    if (res.status === 409 && j.error === "schedule_checks") {
-      setCoverage({
-        kind: "checks",
-        gaps: j.gaps ?? [],
-        longShifts: j.longShifts ?? [],
-        availability: j.availability ?? [],
-        hoursNotSet: j.hoursNotSet ?? [],
-      });
-      return;
-    }
-    if (res.status === 503 && (j.error === "coverage_unavailable" || j.error === "availability_unavailable")) {
-      setCoverage({ kind: "unavailable", what: j.error === "availability_unavailable" ? "availability" : "store hours" });
-      return;
-    }
-    if (!res.ok) {
-      setCopyMsg(j.error ?? "Publish failed.");
-      return;
-    }
-    setCoverage(null);
-    const published = j.published ? `Published ${j.published} shift${j.published === 1 ? "" : "s"} for the week.` : "No draft shifts to publish.";
-    const notSet: HoursNotSetDay[] = j.hoursNotSet ?? [];
-    setCopyMsg(
-      j.coverageSkipped
-        ? `${published} Store coverage wasn't checked.`
-        : notSet.length
-          ? `${published} Store hours aren't set for ${describeHoursNotSet(notSet)}. Set them on the Team page.`
-          : published,
-    );
-    router.refresh();
-  }
-
   async function copyLastWeek() {
     setCopying(true);
     setCopyMsg(null);
@@ -330,7 +271,7 @@ export default function ScheduleBoard({
       setCopyMsg(j.error ?? "Copy failed.");
       return;
     }
-    setCopyMsg(j.copied ? `Copied ${j.copied} shifts from last week (as drafts).` : "No shifts found last week.");
+    setCopyMsg(j.copied ? `Copied ${j.copied} shifts from last week.` : "No shifts found last week.");
     router.refresh();
   }
 
@@ -354,7 +295,6 @@ export default function ScheduleBoard({
       ends_at: `${dateStr}T17:00`,
       position: "",
       notes: "",
-      published: false,
     });
   }
 
@@ -370,7 +310,6 @@ export default function ScheduleBoard({
       ends_at: toLocalInput(s.ends_at),
       position: s.position ?? "",
       notes: s.notes ?? "",
-      published: s.published,
     });
   }
 
@@ -401,7 +340,6 @@ export default function ScheduleBoard({
         ends_at: end.toISOString(),
         position: draft.position || null,
         notes: draft.notes || null,
-        published: draft.published,
         confirmLong,
         confirmAvailability,
       };
@@ -457,11 +395,9 @@ export default function ScheduleBoard({
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Schedule</h1>
         <div className="flex flex-wrap items-center gap-2">
+          <CheckWeekButton isManager={isManager} weekStart={weekStart} />
           {isManager && (
             <>
-              <button onClick={() => publishWeek()} disabled={copying} className="px-3 py-1 text-sm rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">
-                {copying ? "…" : "Publish week"}
-              </button>
               <button onClick={autoFill} disabled={copying} className="px-2.5 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
                 {copying ? "Working…" : "Auto-fill"}
               </button>
@@ -638,11 +574,7 @@ export default function ScheduleBoard({
                   style={s.position && colorByType.get(s.position) ? { borderLeft: `4px solid ${colorByType.get(s.position)}` } : undefined}
                   className={`rounded-md px-2 py-1.5 text-xs border ${
                     isManager ? "cursor-pointer" : ""
-                  } ${
-                    s.published
-                      ? "bg-slate-100 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200"
-                      : "bg-slate-100 dark:bg-slate-800/30 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
-                  }`}
+                  } bg-slate-100 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200`}
                 >
                   <div className="font-medium">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
                   {isManager ? (
@@ -659,14 +591,15 @@ export default function ScheduleBoard({
                     </div>
                   )}
                   {s.notes && <div className="text-slate-600 dark:text-slate-400 italic mt-0.5">{s.notes}</div>}
-                  {!s.published && <div className="text-amber-400 mt-0.5">draft</div>}
-                  {isManager && s.published && s.employee_id && (
+                  {isManager && s.employee_id && (
                     <div className={s.acknowledged_at ? "text-emerald-400 mt-0.5" : "text-slate-500 mt-0.5"}>
                       {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
                     </div>
                   )}
                   {!isManager && !s.employee_id && (
-                    myPendingPickups.has(s.id) ? (
+                    managerAssignsOnly(s) ? (
+                      <div className="mt-2 text-slate-600 dark:text-slate-400" title="A manager adds people to catering shifts">Manager assigns</div>
+                    ) : myPendingPickups.has(s.id) ? (
                       <div className="mt-2 text-amber-400">Pickup requested</div>
                     ) : (
                       <button
@@ -711,118 +644,6 @@ export default function ScheduleBoard({
           </div>
         ))}
       </div>
-      )}
-
-      {coverage && (
-        <Modal onClose={() => setCoverage(null)} className="max-w-lg space-y-3">
-          <h2 className="font-semibold text-slate-900 dark:text-slate-100">
-            {coverage.kind !== "checks"
-              ? coverage.what === "availability"
-                ? "Availability couldn't be checked"
-                : "Store coverage couldn't be checked"
-              : coverage.gaps.length > 0
-                ? "Nobody is in the store"
-                : coverage.longShifts.length > 0
-                  ? "Check this shift before publishing"
-                  : "Check who's scheduled before publishing"}
-          </h2>
-          {coverage.kind === "checks" ? (
-            <>
-              {coverage.gaps.length > 0 && (
-                <>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    The store is open at these times this week, and no one is scheduled in store:
-                  </p>
-                  <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
-                    {coverage.gaps.map((g) => (
-                      <li key={`${g.date}-${g.from}-${g.to}`} className="text-sm text-amber-900 dark:text-amber-200">
-                        {describeGap(g)}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              {coverage.longShifts.length > 0 && (
-                <>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    {coverage.longShifts.length === 1 ? "This shift is" : "These shifts are"} too long to be right:
-                  </p>
-                  <ul className="space-y-1 rounded-md border border-rose-300 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 px-3 py-2">
-                    {coverage.longShifts.map((s, i) => (
-                      <li key={s.id ?? `${s.starts_at}-${i}`} className="text-sm text-rose-900 dark:text-rose-200">
-                        {describeLongShift(s)}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              {(() => {
-                const { conflicts, noAvailability } = groupMismatches(coverage.availability);
-                const nameOf = (m: AvailabilityMismatch & { employee_name?: string | null }) =>
-                  m.employee_name ?? nameById.get(m.employee_id) ?? null;
-                return (
-                  <>
-                    {conflicts.length > 0 && (
-                      <>
-                        <p className="text-sm text-slate-600 dark:text-slate-400">
-                          Scheduled outside their availability:
-                        </p>
-                        <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 max-h-48 overflow-y-auto">
-                          {conflicts.map((m, i) => (
-                            <li key={`a-${m.shift_id ?? i}`} className="text-sm text-amber-900 dark:text-amber-200">
-                              {describeMismatch(m, nameOf(m))}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                    {noAvailability.length > 0 && (
-                      <>
-                        <p className="text-sm text-slate-600 dark:text-slate-400">
-                          No availability on file (they haven&apos;t said whether they can work these):
-                        </p>
-                        <ul className="space-y-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 max-h-48 overflow-y-auto">
-                          {noAvailability.map((m, i) => (
-                            <li key={`n-${m.shift_id ?? i}`} className="text-sm text-slate-700 dark:text-slate-300">
-                              {describeMismatch(m, nameOf(m))}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                  </>
-                );
-              })()}
-              {coverage.hoursNotSet.length > 0 && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Store hours aren&apos;t set for {describeHoursNotSet(coverage.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
-                </p>
-              )}
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Nothing has been published. Fix the shifts above, or publish anyway.
-              </p>
-            </>
-          ) : (
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              {coverage.what === "availability"
-                ? "Something went wrong reading the team's availability, so we couldn't tell whether everyone scheduled can work their shifts."
-                : "Something went wrong reading the store hours, so we couldn't tell whether anyone is scheduled for every open hour this week."}{" "}
-              Nothing has been published. Try again in a moment, or publish without the check.
-            </p>
-          )}
-          <div className="flex justify-end gap-2 pt-1">
-            <button onClick={() => { setCoverage(null); publishWeek(true); }} disabled={copying} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
-              Publish anyway
-            </button>
-            <button
-              onClick={() => { if (coverage.kind === "unavailable") { setCoverage(null); publishWeek(); } else setCoverage(null); }}
-              disabled={copying}
-              className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50"
-            >
-              {coverage.kind === "checks" ? "Go back and fix" : "Try again"}
-            </button>
-          </div>
-        </Modal>
       )}
 
       {annDraft && (
@@ -900,7 +721,7 @@ export default function ScheduleBoard({
             )}
           </div>
           {draft.employee_id && draft.starts_at && (() => {
-            // Same resolver as the save/publish checks: dated rows, then the
+            // Same resolver as the save check: dated rows, then the
             // weekly pattern, time off on top.
             const day = resolveDay(draft.employee_id, draft.starts_at.slice(0, 10), availability);
             const spans = (kind: string) =>
@@ -1049,16 +870,11 @@ function ManagerMatrix({
       <button
         onClick={() => editShift(s)}
         style={color ? { borderLeft: `4px solid ${color}` } : undefined}
-        className={`w-full text-left rounded-md px-2 py-1 text-[11px] mb-1 border ${
-          s.published
-            ? "bg-slate-100 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200"
-            : "bg-slate-100/60 dark:bg-slate-800/30 border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
-        }`}
+        className="w-full text-left rounded-md px-2 py-1 text-[11px] mb-1 border bg-slate-100 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200"
       >
         <div className="font-medium whitespace-nowrap truncate">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
         {s.position && <div className="text-slate-500 truncate">{s.position}</div>}
-        {!s.published && <div className="text-amber-500 truncate">draft</div>}
-        {s.published && s.employee_id && (
+        {s.employee_id && (
           <div className={`truncate ${s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}`}>
             {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
           </div>

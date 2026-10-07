@@ -1,15 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { notify, emailForUser } from "@/lib/notify";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
 
 // PATCH: edit a shift (manager only). Body carries any of employee_id,
-// location_id, starts_at, ends_at, position, notes, published, plus
-// confirmLong.
+// location_id, starts_at, ends_at, position, notes, plus confirmLong.
+//
+// There are no drafts: an edit always leaves the shift live (published =
+// true), whatever the body says, and the assigned employee is told.
 //
 // An edit that leaves the shift 15+ hours long is refused with 409 unless the
 // body carries confirmLong: true. The check is run against the shift as it will
@@ -20,7 +21,7 @@ import { NextResponse } from "next/server";
 // someone whose availability does not cover it, is refused with 409
 // "availability_mismatch" unless the body carries confirmAvailability: true
 // (503 "availability_unavailable" if availability cannot be read). An edit
-// that touches neither — notes, location, publishing — is not re-asked, so a
+// that touches neither — notes, location — is not re-asked, so a
 // shift the manager already confirmed does not nag on every save.
 export async function PATCH(
   request: Request,
@@ -33,8 +34,8 @@ export async function PATCH(
   const body = await request.json();
   const supabase = createClient();
 
-  // Detect a publish transition to fire a notification, and get the times the
-  // patch is being applied on top of.
+  // The shift as it stands: the times the patch is applied on top of, and
+  // whether it was still a draft written before drafts were removed.
   const { data: before } = await supabase
     .from("shifts")
     .select("published, starts_at, ends_at, employee_id, position")
@@ -79,8 +80,8 @@ export async function PATCH(
     }
   }
 
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  for (const k of ["employee_id", "location_id", "starts_at", "ends_at", "position", "notes", "published"]) {
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), published: true };
+  for (const k of ["employee_id", "location_id", "starts_at", "ends_at", "position", "notes"]) {
     if (k in body) patch[k] = body[k];
   }
 
@@ -92,30 +93,17 @@ export async function PATCH(
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  const becamePublished = !before?.published && data?.published;
-  if (becamePublished && data.employee_id) {
+  // A shift that is new to this person (a leftover draft going live, or one
+  // just assigned to them) reads as a new shift, the message publishing the
+  // week used to send. Any other edit of an assigned shift is a change.
+  const newToThem = before?.published === false || (before?.employee_id ?? null) !== (data?.employee_id ?? null);
+  if (newToThem && data?.employee_id) {
     const emp = (data as any).profiles;
-    const email = await emailForUser(data.employee_id);
-    await notify({
-      userId: data.employee_id,
-      type: "shift_published",
-      title: "New shift posted",
-      body: `${fmtDate(data.starts_at)} · ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}`,
-      phone: emp?.phone ?? null,
-      email,
-    }).catch(() => {});
-  } else if (data?.published && data.employee_id) {
-    // An already-published, assigned shift was edited -> tell the employee.
+    await tellEmployeeAboutShift("posted", data, emp?.phone ?? null);
+  } else if (data?.employee_id) {
+    // An assigned shift was edited -> tell the employee.
     const emp = (data as any).profiles;
-    const email = await emailForUser(data.employee_id);
-    await notify({
-      userId: data.employee_id,
-      type: "schedule_change",
-      title: "Your shift was updated",
-      body: `${fmtDate(data.starts_at)} · ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}`,
-      phone: emp?.phone ?? null,
-      email,
-    }).catch(() => {});
+    await tellEmployeeAboutShift("changed", data, emp?.phone ?? null);
   }
   return NextResponse.json({ shift: data });
 }

@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import type { CheckGroup, Finding } from "@/lib/payroll/verify";
+import { useEffect, useState } from "react";
+import type { CheckGroup, Finding, Person } from "@/lib/payroll/verify";
 import type { LoadedVerify } from "@/lib/payroll/loadVerify";
 import { submittalBlocker, paysSubmitter } from "@/lib/payroll/choices";
+import { inFlight, payTableBlocker, type PaySheetState } from "@/lib/payroll/paySheet";
 import { recordChoice, resetChoice } from "./choiceApi";
 import SoloCloseNights from "@/components/SoloCloseNights";
+import PunchFixForm from "./PunchFixForm";
+import PayTable from "./PayTable";
 
 // The Verify timesheets screen (bj-finance #519, payroll spec §1).
 //
@@ -27,8 +30,27 @@ import SoloCloseNights from "@/components/SoloCloseNights";
 // case is shown read-only. The QBO staging script (§6) is not built, so the
 // screen says what does happen: the run is submitted and locked, and the pay
 // run is then keyed in QBO by hand (ruled 2026-09-27).
+//
+// A finding a punch can fix (1.1, 1.4, 1.5 edit a punch; 1.8, 1.12 add one)
+// carries a fix form (PunchFixForm, 2026-10-05). From the period starting
+// 2026-10-05 a catering event whose crew did not punch is one card (3.5,
+// "Catering crew didn't punch") with a form per missing person, or one that
+// adds the event's Catering shift with the punch; and there is no 1.9, so the
+// solo-close card stays empty. Forms write through the Timesheets routes (or
+// /api/payroll/event-punch) and then verify again, so the page never patches
+// a finding itself.
+//
+// The pay table (2026-10-05) sits above Submit: the sheet bj-finance built on
+// the Mac, per person, as QBO takes it (components/finance/PayTable.tsx). It is
+// read with every Verify, rebuilt on request, and looked at again every few
+// seconds while a build is queued or running. Submit stays disabled until the
+// pay table is built, has no open items, and is newer than the latest change
+// to the period (lib/payroll/paySheet.ts payTableBlocker).
 
 type ApiResult = LoadedVerify;
+
+/** How often the page looks again while a build is queued or running. */
+const BUILD_POLL_MS = 8000;
 
 const SEVERITY_DOT: Record<string, string> = {
   error: "bg-rose-500",
@@ -41,11 +63,21 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
   const [result, setResult] = useState<ApiResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<PaySheetState | null>(null);
+
+  async function loadSheet(end: string) {
+    const res = await fetch(`/api/payroll/sheet?window_end=${encodeURIComponent(end)}`);
+    const body = await res.json().catch(() => ({}));
+    setSheet(res.ok ? (body as PaySheetState) : { available: false, reason: body.error ?? `it could not be read (${res.status}).` });
+  }
 
   async function verify(end = windowEnd) {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/payroll/verify?window_end=${encodeURIComponent(end)}`);
+    const [res] = await Promise.all([
+      fetch(`/api/payroll/verify?window_end=${encodeURIComponent(end)}`),
+      loadSheet(end),
+    ]);
     const body = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
@@ -55,6 +87,30 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
     }
     setResult(body as ApiResult);
   }
+
+  async function rebuild() {
+    const end = result?.window.end ?? windowEnd;
+    setError(null);
+    const res = await fetch("/api/payroll/sheet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ window_end: end }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(body.error ?? `Could not ask for a rebuild (${res.status}).`);
+      return;
+    }
+    setSheet(body as PaySheetState);
+  }
+
+  // While a build is queued or running, look again shortly; stop once it lands.
+  const sheetEnd = result?.window.end;
+  useEffect(() => {
+    if (!sheet || !sheetEnd || !inFlight(sheet)) return;
+    const timer = setTimeout(() => void loadSheet(sheetEnd), BUILD_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [sheet, sheetEnd]);
 
   // A choice is recorded server-side and the whole window is then re-verified,
   // rather than the answer being patched into the findings here. Re-running is
@@ -132,7 +188,7 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
           A period is 14 days ending on a period-end Sunday. Periods end every
           other Sunday (2026-09-20, 10-04, 10-18 and so on), the default is the
           last one that has ended, and the pay date is the Wednesday three days
-          after it (spec 0.1). Nothing here reads
+          after it. Nothing here reads
           QuickBooks&rsquo; own period list, which is misaligned with the periods
           this business runs.
         </p>
@@ -143,14 +199,23 @@ export default function PayrollVerify({ defaultWindowEnd, meId }: { defaultWindo
       {result && (
         <>
           <Summary result={result} />
-          <SubmitPanel result={result} meId={meId} busy={busy} onSubmit={submit} />
+          <PayTable state={sheet} busy={busy} onRebuild={rebuild} />
+          <SubmitPanel result={result} sheet={sheet} meId={meId} busy={busy} onSubmit={submit} />
           <SoloCloseNights
             from={result.window.start}
             to={result.window.end}
             onSaved={() => verify(result.window.end)}
           />
           {result.groups.map((group) => (
-            <GroupCard key={group.check} group={group} busy={busy} onRule={rule} onClear={unrule} />
+            <GroupCard
+              key={group.check}
+              group={group}
+              busy={busy}
+              staff={result.staff}
+              onRule={rule}
+              onClear={unrule}
+              onFixed={() => verify(result.window.end)}
+            />
           ))}
         </>
       )}
@@ -166,10 +231,13 @@ function ReadyBadge({ result }: { result: ApiResult }) {
       </span>
     );
   }
+  const unanswered = result.counts.needsRuling - result.counts.ruled - result.counts.defaulted;
   const waiting =
     result.counts.needsFix > 0
       ? `${result.counts.needsFix} to fix`
-      : `${result.counts.needsRuling - result.counts.ruled - result.counts.defaulted} to answer`;
+      : unanswered > 0
+        ? `${unanswered} to answer`
+        : "the period has not ended";
   return (
     <span className="rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-sm px-3 py-2">
       Not verified — {waiting}
@@ -215,17 +283,23 @@ function Summary({ result }: { result: ApiResult }) {
  */
 function SubmitPanel({
   result,
+  sheet,
   meId,
   busy,
   onSubmit,
 }: {
   result: ApiResult;
+  sheet: PaySheetState | null;
   meId: string;
   busy: boolean;
   onSubmit: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const blocker = submittalBlocker(result, result.migrations.submittals, result.today, result.otherSubmittals);
+  // (a) Verify has nothing to fix, and the calendar allows it; then (b)-(d),
+  // the pay table. The first unmet condition is the one shown.
+  const blocker =
+    submittalBlocker(result, result.migrations.submittals, result.today, result.otherSubmittals) ??
+    (sheet ? payTableBlocker(sheet) : "Loading the pay table…");
   const wouldPayMe = paysSubmitter(result.findings, meId);
   const submitted = result.submittalState === "submitted";
   return (
@@ -312,13 +386,17 @@ function SubmitPanel({
 function GroupCard({
   group,
   busy,
+  staff,
   onRule,
   onClear,
+  onFixed,
 }: {
   group: CheckGroup;
   busy: boolean;
+  staff: Person[];
   onRule: (finding: Finding, choice: string, payeeId: string | null, note: string) => void;
   onClear: (finding: Finding) => void;
+  onFixed: () => Promise<void>;
 }) {
   return (
     <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
@@ -334,7 +412,7 @@ function GroupCard({
       <ul className="divide-y divide-slate-200 dark:divide-slate-800">
         {group.findings.map((f) => (
           <li key={f.key} className="px-4 py-3">
-            <FindingRow finding={f} busy={busy} onRule={onRule} onClear={onClear} />
+            <FindingRow finding={f} busy={busy} staff={staff} onRule={onRule} onClear={onClear} onFixed={onFixed} />
           </li>
         ))}
       </ul>
@@ -345,13 +423,17 @@ function GroupCard({
 function FindingRow({
   finding,
   busy,
+  staff,
   onRule,
   onClear,
+  onFixed,
 }: {
   finding: Finding;
   busy: boolean;
+  staff: Person[];
   onRule: (finding: Finding, choice: string, payeeId: string | null, note: string) => void;
   onClear: (finding: Finding) => void;
+  onFixed: () => Promise<void>;
 }) {
   const hasDefault = !!finding.defaultChoice;
 
@@ -374,8 +456,23 @@ function FindingRow({
         {finding.status === "needs_fix" && (
           <div className="mt-1 text-xs text-rose-500">
             {finding.check === "1.4" || finding.check === "1.5"
-              ? "Correct this punch on the Timesheets page, then verify again. There is no default, and the run cannot be submitted until it is fixed."
-              : "Fix this in the app, then verify again. No ruling can stand in for it."}
+              ? "Correct this punch below or on the Timesheets page. There is no default, and the run cannot be submitted until it is fixed."
+              : finding.check === "1.12" || finding.check === "3.5"
+                ? "Everyone punches: add the missing punch below. Once it is in, the tip splits by punches. There is no default, and the run cannot be submitted until it is fixed."
+                : finding.check === "3.7"
+                  ? "Add the Pastry Opener punch below or on the Timesheets page. Once it is in, the Olo tips split by bake shifts. There is no default, and the run cannot be submitted until it is fixed."
+                  : "Fix this in the app, then verify again. No ruling can stand in for it."}
+          </div>
+        )}
+
+        {finding.fix && (
+          <PunchFixForm key={finding.key} fix={finding.fix} staff={staff} busy={busy} onFixed={onFixed} />
+        )}
+        {finding.fixes && (
+          <div>
+            {finding.fixes.map((fix, i) => (
+              <PunchFixForm key={`${finding.key}:${i}`} fix={fix} staff={staff} busy={busy} onFixed={onFixed} />
+            ))}
           </div>
         )}
 

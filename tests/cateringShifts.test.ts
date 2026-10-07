@@ -15,7 +15,7 @@ import {
   longShiftWarning,
 } from "@/lib/cateringShifts";
 
-// The note createDraftShiftsForDeal assembles, without needing a Supabase
+// The note createCateringShiftsForDeal assembles, without needing a Supabase
 // client. Kept in the same order as the real thing: the alarm first, then where
 // to be, then the provenance.
 function noteFor(deal: Parameters<typeof computeShiftWindow>[0], company = "Example Garden Co") {
@@ -103,7 +103,7 @@ describe("longShiftWarning", () => {
   });
 });
 
-// The note the shift actually carries is assembled in createDraftShiftsForDeal,
+// The note the shift actually carries is assembled in createCateringShiftsForDeal,
 // which needs a Supabase client. This asserts the piece that matters: the
 // marker leads, so it is the first thing on the shift card.
 describe("the shift note for an implausible deal", () => {

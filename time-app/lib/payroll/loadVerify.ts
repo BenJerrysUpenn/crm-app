@@ -7,7 +7,7 @@
 // manager's own RLS. Read-only.
 
 import type { createClient } from "@/lib/supabase/server";
-import { isMissingTable, isMissingInStoreColumn } from "@/lib/storeHours";
+import { isMissingInStoreColumn } from "@/lib/storeHours";
 import {
   EVENT_DEAL_STAGES,
   verifyTimesheets,
@@ -24,11 +24,6 @@ import {
 import { PERIOD_DAYS, addDays, type PayWindow } from "@/lib/payroll/window";
 import type { HeldTipRow } from "@/lib/payroll/heldTips";
 import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/coverage";
-
-// How far back to look for deletions. A shift scheduled inside the window can
-// be deleted before the window begins, so the search cannot start at the window
-// — but it does not need to be unbounded either.
-const DELETE_LOOKBACK_DAYS = 120;
 
 type Supabase = ReturnType<typeof createClient>;
 
@@ -72,17 +67,14 @@ export async function loadVerify(
   }
 
   const shifts = (shiftsRes.data ?? []) as ShiftRow[];
-  const [shiftTypes, storeHours, deals, windowDeals, auditDeletes, auditStartedAt, submittal, unmatchedTips] =
-    await Promise.all([
-      loadShiftTypes(supabase),
-      loadStoreHours(supabase, window),
-      loadDeals(supabase, shifts),
-      loadWindowDeals(supabase, window),
-      loadAuditDeletes(supabase, window),
-      loadAuditStart(supabase),
-      loadSubmittals(supabase, window),
-      loadUnmatchedTips(supabase),
-    ]);
+  const [shiftTypes, storeHours, deals, windowDeals, submittal, unmatchedTips] = await Promise.all([
+    loadShiftTypes(supabase),
+    loadStoreHours(supabase, window),
+    loadDeals(supabase, shifts),
+    loadWindowDeals(supabase, window),
+    loadSubmittals(supabase, window),
+    loadUnmatchedTips(supabase),
+  ]);
   const afterSubmittal = await loadChangesAfterSubmittal(supabase, window, submittal.row);
 
   const input = {
@@ -98,8 +90,6 @@ export async function loadVerify(
     storeHoursUpdatedAt: storeHours.updatedAt,
     deals,
     windowDeals,
-    auditDeletes,
-    auditStartedAt,
     priorSubmittals: afterSubmittal.prior,
     auditChanges: afterSubmittal.changes,
     submittal: submittal.row,
@@ -122,8 +112,7 @@ export async function loadVerify(
     result: {
       ...result,
       // What the page needs to explain itself when a migration is behind the
-      // deploy. The audit case is not reported here: it is a finding (1.13),
-      // because an unverifiable window is a result, not a UI state.
+      // deploy.
       migrations: { storeHours: storeHours.ready, rulings: rulings.ready, submittals: submittal.ready },
       today,
       otherSubmittals: submittal.others,
@@ -222,52 +211,12 @@ async function loadDeals(supabase: Supabase, shifts: ShiftRow[]): Promise<DealRo
   try {
     const { data, error } = await supabase
       .from("deals")
-      .select("id, event_date, staff_count, company")
+      .select("id, event_date, staff_count, company, event_type")
       .in("id", ids);
     if (error) return [];
     return (data ?? []) as DealRow[];
   } catch {
     return [];
-  }
-}
-
-/**
- * Deletions of punches and shifts (§1.13).
- *
- * Returns null — NOT an empty list — when the audit table is not there. The two
- * are completely different answers: "nothing was deleted" versus "a deletion
- * would have left no trace", and the second is what the 2026-09-23 run had.
- * The rulebook turns the null into a blocking finding.
- */
-async function loadAuditDeletes(supabase: Supabase, window: PayWindow): Promise<AuditRow[] | null> {
-  try {
-    const { data, error } = await supabase
-      .from("row_audit")
-      .select("id, table_name, row_id, op, at, actor_uid, actor_role, db_role, before_image")
-      .in("table_name", ["time_entries", "shifts"])
-      .eq("op", "DELETE")
-      .gte("at", addDays(window.start, -DELETE_LOOKBACK_DAYS) + "T00:00:00Z")
-      .order("at", { ascending: false })
-      .limit(1000);
-    if (isMissingTable(error)) return null;
-    if (error) return null;
-    return (data ?? []) as AuditRow[];
-  } catch {
-    return null;
-  }
-}
-
-/**
- * When auditing started (§1.13): the earliest row_audit row. Null when the
- * table is empty, or unreadable; a missing table is loadAuditDeletes' null.
- */
-async function loadAuditStart(supabase: Supabase): Promise<string | null> {
-  try {
-    const { data, error } = await supabase.from("row_audit").select("at").order("at").limit(1);
-    if (error) return null;
-    return ((data ?? [])[0] as { at: string } | undefined)?.at ?? null;
-  } catch {
-    return null;
   }
 }
 
@@ -357,7 +306,7 @@ async function loadWindowDeals(supabase: Supabase, window: PayWindow): Promise<D
   try {
     const { data, error } = await supabase
       .from("deals")
-      .select("id, event_date, staff_count, company, stage")
+      .select("id, event_date, staff_count, company, stage, event_type")
       .gte("event_date", window.start)
       .lte("event_date", window.end + "T23:59:59")
       .in("stage", [...EVENT_DEAL_STAGES]);

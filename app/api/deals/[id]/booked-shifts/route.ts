@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createDraftShiftsForDeal, DEAL_SHIFT_COLUMNS } from "@/lib/cateringShifts";
+import { createCateringShiftsForDeal, DEAL_SHIFT_COLUMNS } from "@/lib/cateringShifts";
 
 // POST /api/deals/:id/booked-shifts
 //
 // Called by the CRM UI right after a deal is moved into "Booked Unpaid".
-// Creates one open draft shift per crew member in the time-app (manager-only,
-// unpublished). Idempotent: safe to call repeatedly; it never double-creates
-// and never edits shifts once made ("create once, never touch").
+// Creates one open shift per crew member in the time-app, live on the
+// schedule (the time-app has no drafts). Idempotent: safe to call repeatedly;
+// it never double-creates and never edits shifts once made ("create once,
+// never touch").
 export async function POST(
   _request: Request,
   { params }: { params: { id: string } },
@@ -41,7 +42,7 @@ export async function POST(
   }
 
   try {
-    const result = await createDraftShiftsForDeal(admin, deal);
+    const result = await createCateringShiftsForDeal(admin, deal);
     // Carries `warning` through when the deal asked for an implausible number
     // of hours per person; the shifts are still created.
     return NextResponse.json({ ok: true, ...result });

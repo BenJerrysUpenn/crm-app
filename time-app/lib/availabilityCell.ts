@@ -5,7 +5,7 @@
 //
 // This only turns a ResolvedDay into words. What the person said about the day
 // is decided by resolveDay in lib/availabilityCheck.ts, the same resolver the
-// save and publish checks use, so the grid can never disagree with them.
+// save check uses, so the grid can never disagree with them.
 //
 // Pure, so `node --test` runs it.
 

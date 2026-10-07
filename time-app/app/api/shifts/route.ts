@@ -1,14 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { notify, emailForUser } from "@/lib/notify";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
 
 // POST: create a shift (manager only). Body: employee_id, starts_at, ends_at,
-// position, notes, location_id, published, confirmLong.
+// position, notes, location_id, confirmLong.
+//
+// There are no drafts: every shift is written live (published = true) and an
+// assigned employee is told about it straight away. A `published` field in
+// the body, from a page loaded before drafts were removed, is ignored.
 //
 // A shift of 15+ hours is refused with 409 unless the body carries
 // confirmLong: true. Nobody works a 26-hour shift on purpose, and one reached
@@ -60,23 +63,15 @@ export async function POST(request: Request) {
       ends_at: body.ends_at,
       position: body.position ?? null,
       notes: body.notes ?? null,
-      published: !!body.published,
+      published: true,
     })
     .select("*, profiles(id, full_name, phone)")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  if (body.published && data && body.employee_id) {
+  if (data && body.employee_id) {
     const emp = (data as any).profiles;
-    const email = await emailForUser(body.employee_id);
-    await notify({
-      userId: body.employee_id,
-      type: "shift_published",
-      title: "New shift posted",
-      body: `${fmtDate(data.starts_at)} · ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}`,
-      phone: emp?.phone ?? null,
-      email,
-    }).catch(() => {});
+    await tellEmployeeAboutShift("posted", { ...data, employee_id: body.employee_id }, emp?.phone ?? null);
   }
   return NextResponse.json({ shift: data });
 }
