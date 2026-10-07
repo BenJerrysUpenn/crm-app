@@ -58,10 +58,19 @@ function dealValue(d: DealRow): number {
   );
 }
 
-/** Stage-to-stage conversion, guarding divide-by-zero. Rounded to 1 dp %. */
-export function pct(numerator: number, denominator: number): number {
+/**
+ * Stage-to-stage conversion %, guarding divide-by-zero. `precision` is the
+ * number of decimal places (default 1 dp, so existing callers are unchanged);
+ * pass 0 for the whole-percent funnel-table captions.
+ */
+export function pct(
+  numerator: number,
+  denominator: number,
+  precision = 1,
+): number {
   if (!denominator) return 0;
-  return Math.round((numerator / denominator) * 1000) / 10;
+  const f = 10 ** precision;
+  return Math.round((numerator / denominator) * 100 * f) / f;
 }
 
 export function median(values: number[]): number | null {

@@ -609,7 +609,7 @@ function convCell(value: number, denom: number) {
       <span className="text-slate-100">{value}</span>
       {denom > 0 && value <= denom ? (
         <span className="text-[10px] text-slate-500 ml-1">
-          {Math.round((value / denom) * 100)}%
+          {pct(value, denom, 0)}%
         </span>
       ) : null}
     </span>

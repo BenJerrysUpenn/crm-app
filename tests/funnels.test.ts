@@ -134,6 +134,12 @@ describe("helpers", () => {
     expect(pct(0, 0)).toBe(0);
     expect(pct(9, 10)).toBe(90);
   });
+  it("pct takes a precision: 0 dp for the whole-percent funnel captions", () => {
+    expect(pct(1, 3, 0)).toBe(33);
+    expect(pct(2, 3, 0)).toBe(67);
+    expect(pct(9, 10, 0)).toBe(90);
+    expect(pct(0, 0, 0)).toBe(0);
+  });
   it("weekStartISO snaps to Monday UTC", () => {
     // 2026-09-25 is a Friday -> Monday 2026-09-21.
     expect(weekStartISO(Date.parse("2026-09-25T12:00:00Z"))).toBe(
