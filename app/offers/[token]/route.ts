@@ -165,8 +165,13 @@ export async function POST(
   // behind it, so it answers like any other link that leads nowhere.
   if (outcome.refused || !outcome.email_present) return notFound();
 
-  // A repeat press shows the date they first said yes, which is the date the
-  // stored proof carries.
-  const at = outcome.opted_in_at ? new Date(outcome.opted_in_at) : new Date();
+  // Every outcome that reaches here carries a date: the 'already' branch
+  // requires opt_in_at IS NOT NULL (crm/009), and the write path sets now().
+  // A success with no date is a broken invariant between the RPC and this
+  // route, not a person to confirm, so fail loudly rather than fabricate
+  // today's date (CODING_STANDARDS.md:10). The date shown is the one the
+  // stored proof carries — for a repeat, the date they first said yes.
+  if (!outcome.opted_in_at) return text("Offers sign-up failed.\n", 500);
+  const at = new Date(outcome.opted_in_at);
   return html(offersSignedUpHtml(at, result.value.email));
 }

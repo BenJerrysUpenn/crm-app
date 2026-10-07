@@ -275,4 +275,18 @@ describe("failure modes", () => {
     expect(response.status).toBe(500);
     expect(await response.text()).toBe("Offers sign-up failed.\n");
   });
+
+  it("500s rather than fabricate a date when a success outcome carries none", async () => {
+    // crm/009 guarantees a date on every outcome that reaches the confirmation
+    // (the already branch requires opt_in_at IS NOT NULL; the write path sets
+    // now()). A dated-less success is a broken RPC/route invariant, so the
+    // route fails loudly instead of showing today as the agreement date.
+    db.state.rpcData = {
+      opted_in: true, already: false, refused: null, email_present: true,
+      lifted: false, opted_in_at: null,
+    };
+    const response = await POST(buttonPost(token), ctx(token));
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("Offers sign-up failed.\n");
+  });
 });
