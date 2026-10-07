@@ -51,6 +51,14 @@ Before the sender ships the headers, Alina must:
 
 Unset, the endpoint answers `503` rather than silently dropping opt-outs.
 
+### "Yes, send me offers" (`/offers/[token]`)
+The warm footer's opt-in link (bj-finance #425). GET shows a page and never writes;
+the button's POST calls the RPC `outreach_offers_opt_in`. Signed with the same
+`UNSUBSCRIBE_SECRET` (unset answers `503`). Needs `supabase/crm/007_offers_opt_in.sql`,
+then `supabase/crm/009_offers_opt_in_signup_form.sql` (007 creates the function, 009
+replaces it). A repeat press by an existing `explicit_yes` or `signup_form` opt-in
+writes nothing and shows the stored `opt_in_at`.
+
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
 
