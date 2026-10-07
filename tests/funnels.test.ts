@@ -4,7 +4,7 @@
 // the profile derivation, the window arithmetic, and — the one that must never
 // regress — outreach->deal attribution via the ACTIVITY JOIN, never created_at.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   deriveProfile,
   emailDomain,
@@ -392,22 +392,18 @@ describe("display formatting", () => {
   });
 
   describe("last activity, relative to now", () => {
-    afterEach(() => {
-      vi.useRealTimers();
-    });
+    const now = Date.parse("2026-09-25T16:00:00Z");
 
     it("says never for no activity and unknown for an unreadable instant", () => {
-      expect(ago(null)).toBe("never");
-      expect(ago("not a date")).toBe("unknown");
+      expect(ago(null, now)).toBe("never");
+      expect(ago("not a date", now)).toBe("unknown");
     });
 
     it("reads minutes, then hours under two days, then days", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-09-25T16:00:00Z"));
-      expect(ago("2026-09-25T15:59:50Z")).toBe("just now");
-      expect(ago("2026-09-25T15:15:00Z")).toBe("45m ago");
-      expect(ago("2026-09-24T00:00:00Z")).toBe("40h ago");
-      expect(ago("2026-09-22T16:00:00Z")).toBe("3d ago");
+      expect(ago("2026-09-25T15:59:50Z", now)).toBe("just now");
+      expect(ago("2026-09-25T15:15:00Z", now)).toBe("45m ago");
+      expect(ago("2026-09-24T00:00:00Z", now)).toBe("40h ago");
+      expect(ago("2026-09-22T16:00:00Z", now)).toBe("3d ago");
     });
   });
 

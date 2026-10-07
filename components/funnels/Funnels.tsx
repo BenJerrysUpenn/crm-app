@@ -161,7 +161,7 @@ function Header({
         <h2 className="text-lg font-semibold text-slate-100">Funnels</h2>
         <p className="text-xs text-slate-500">
           On-the-loop supervision of the automated email sales funnels ·{" "}
-          {loading ? "refreshing…" : `as of ${ago(generatedAt)}`}
+          {loading ? "refreshing…" : `as of ${ago(generatedAt, Date.now())}`}
         </p>
       </div>
       <div className="flex items-center gap-2">
@@ -289,7 +289,7 @@ function LoopStatusPanel({ loop }: { loop: LoopStatus }) {
             />
           </div>
           <div className="text-[11px] text-slate-500 mt-2">
-            Last engine activity {ago(loop.warm.last_activity_at)}
+            Last engine activity {ago(loop.warm.last_activity_at, Date.now())}
           </div>
         </div>
         <div>

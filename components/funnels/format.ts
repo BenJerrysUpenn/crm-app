@@ -22,12 +22,12 @@ export function ageLabel(hours: number | null | undefined): string {
   return `${Math.round(hours / 24)}d`;
 }
 
-/** Relative "3h ago" / "2d ago" from an ISO instant. */
-export function ago(iso: string | null | undefined): string {
+/** Relative "3h ago" / "2d ago" from an ISO instant to `nowMs` (epoch ms). */
+export function ago(iso: string | null | undefined, nowMs: number): string {
   if (!iso) return "never";
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "unknown";
-  const mins = Math.round((Date.now() - t) / 60000);
+  const mins = Math.round((nowMs - t) / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.round(mins / 60);
