@@ -1,7 +1,6 @@
 // Parsing and validation of the invite / re-invite / offboard forms. Pure
 // functions: a request body in, a typed form or an error string out.
-import type { Role } from "@/lib/types";
-import { normaliseEmail, validName } from "@/lib/team";
+import { normaliseEmail, normaliseRole, validName } from "@/lib/team";
 import {
   FINAL_PAY_NOTE_DEFAULT,
   SYSTEMS,
@@ -60,7 +59,7 @@ export function parseInvite(
   const em = email(b, "email") ?? (existing?.email ? existing.email.toLowerCase() : null);
   if (!em) return { ok: false, error: "Valid email required." };
   const start_date = date(b, "start_date");
-  const role: Role = str(b, "role") === "manager" ? "manager" : "employee";
+  const role = normaliseRole(str(b, "role"));
   const pay_rate = num(b, "pay_rate");
   if (pay_rate !== null && pay_rate < 0) return { ok: false, error: "Pay rate cannot be negative." };
   return {

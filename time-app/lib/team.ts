@@ -39,6 +39,11 @@ export function validName(raw: unknown): string | null {
   return s;
 }
 
+// Anything other than "manager" is an employee.
+export function normaliseRole(raw: unknown): Role {
+  return raw === "manager" ? "manager" : "employee";
+}
+
 export async function inviteTeamMember(input: InviteInput): Promise<InviteResult> {
   const email = normaliseEmail(input.email);
   if (!email || !email.includes("@"))
@@ -47,7 +52,7 @@ export async function inviteTeamMember(input: InviteInput): Promise<InviteResult
   const full_name = validName(input.full_name);
   if (!full_name)
     return { ok: false, error: "Full name required (not an email)", status: 400 };
-  const role: Role = input.role === "manager" ? "manager" : "employee";
+  const role = normaliseRole(input.role);
   const phone = (input.phone ?? "").trim() || null;
   const hourly_rate =
     typeof input.hourly_rate === "number" && !isNaN(input.hourly_rate)
