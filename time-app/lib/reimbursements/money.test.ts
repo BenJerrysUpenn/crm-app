@@ -144,7 +144,7 @@ test("amountsBeforeAdjustments: Mileage adjusted reads $16.72 -> $12.16, never a
   const b = amountsBeforeAdjustments(r, [adj("mileage", 1672, 1216, "2026-08-02T00:00:00Z")], RATES_2026)!;
   assert.deepEqual(b.adjusted, ["mileage"]);
   assert.equal(b.before.mileage_cents, 1672, "22.0 mi x 76c");
-  assert.equal(b.before.total_cents, 1672 + 400 + 800);
+  assert.equal(b.before.total_cents, 2872, "$16.72 + $4.00 + $8.00");
   assert.equal(reimbursementCents(r, RATES_2026).mileage_cents, 1216);
 });
 
@@ -158,7 +158,7 @@ test("amountsBeforeAdjustments: tolls or parking adjusted twice is old (first) -
   assert.deepEqual(b.adjusted, ["parking"]);
   assert.equal(b.before.parking_cents, 800);
   assert.equal(b.before.mileage_cents, 1672);
-  assert.equal(b.before.total_cents, 1672 + 400 + 800);
+  assert.equal(b.before.total_cents, 2872, "$16.72 + $4.00 + $8.00");
 });
 
 test("amountsBeforeAdjustments: an amount staff changed since its Adjustment is not shown as adjusted", () => {
