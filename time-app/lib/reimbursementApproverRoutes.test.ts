@@ -22,6 +22,7 @@ const financeFile = await loadAppModule<{ GET: Handler }>("app/api/payroll/reimb
 const OWNER = "00000000-0000-0000-0000-0000000000a1";
 const OWNER2 = "00000000-0000-0000-0000-0000000000a3";
 const MANAGER = "00000000-0000-0000-0000-0000000000a2";
+const MANAGER2 = "00000000-0000-0000-0000-0000000000a4";
 const DONTE = "00000000-0000-0000-0000-0000000000b1";
 
 const TODAY = dayKey(new Date().toISOString());
@@ -44,15 +45,19 @@ function row(over: Record<string, unknown> = {}) {
 
 let db: FakeSupabase;
 let sent: { url: string; body: Record<string, unknown> }[];
+// The status Resend answers with.
+let resendStatus: number;
 
 beforeEach(() => {
   process.env.RESEND_API_KEY = "re_test";
   sent = [];
+  resendStatus = 200;
   db = startFakeSupabase({
     profiles: [
       { id: OWNER, role: "manager", active: false, full_name: "Alina Owner", phone: null, notif_prefs: {} },
       { id: OWNER2, role: "manager", active: false, full_name: "Alex Owner", phone: null, notif_prefs: {} },
       { id: MANAGER, role: "manager", active: true, full_name: "Sophia Manager", phone: null, notif_prefs: {} },
+      { id: MANAGER2, role: "manager", active: true, full_name: "Mira Manager", phone: null, notif_prefs: {} },
       { id: DONTE, role: "employee", active: true, full_name: "Donte Driver", phone: null, notif_prefs: {} },
     ],
     mileage_rates: [
@@ -67,7 +72,7 @@ beforeEach(() => {
   db.storage["travel-reimbursements/adjustments/1/9-e.png"] = new TextEncoder().encode("evidence");
   db.external = async (request) => {
     sent.push({ url: request.url, body: JSON.parse(await request.text()) });
-    return new Response("{}", { status: 200 });
+    return new Response("{}", { status: resendStatus });
   };
 });
 
@@ -114,6 +119,39 @@ test("approve: no Receipts, no email; Receipts already sent are not sent again",
   assert.equal((await decide.POST(post({ action: "send_back" }), { params: { id: "2" } })).status, 200);
   assert.equal((await decide.POST(post({ action: "approve" }), { params: { id: "2" } })).status, 200);
   assert.equal(resendMails().length, 0);
+});
+
+test("approve: when receipts@ cannot be emailed it is still Approved, not stamped as sent, and the next approval sends the Receipts", async () => {
+  resendStatus = 500;
+  db.signIn(MANAGER);
+  const res = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).receipts_emailed, false);
+  assert.equal(r1().status, "approved");
+  assert.equal(r1().receipts_emailed_at, null);
+  resendStatus = 200;
+  assert.equal((await decide.POST(post({ action: "send_back" }), ID)).status, 200);
+  const again = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal((await again.json()).receipts_emailed, true);
+  assert.ok(r1().receipts_emailed_at);
+  assert.equal(resendMails().length, 2, "the refused send and the one that went");
+});
+
+test("another manager who is not an owner cannot approve, reject, send back or adjust a manager's; an owner can (ruling 28)", async () => {
+  db.tables.travel_reimbursements = [row({ profile_id: MANAGER }), row({ id: 2, profile_id: MANAGER, status: "approved" })];
+  db.signIn(MANAGER2);
+  for (const body of [{ action: "approve" }, { action: "reject", reason: "Which store?" }]) {
+    const res = await decide.POST(post(body), ID);
+    assert.equal(res.status, 403, body.action);
+    assert.match((await res.json()).error, /not another manager/, body.action);
+  }
+  assert.equal((await decide.POST(post({ action: "send_back" }), { params: { id: "2" } })).status, 403);
+  assert.equal((await adjust.POST(post({ ...adjustment, evidence_path: "adjustments/1/9-e.png" }), ID)).status, 403);
+  assert.deepEqual(db.rows("travel_reimbursements").map((r) => r.status), ["submitted", "approved"]);
+  assert.equal(db.rows("travel_reimbursement_adjustments").length, 0);
+  db.signIn(OWNER);
+  assert.equal((await decide.POST(post({ action: "approve" }), ID)).status, 200);
+  assert.equal(r1().decided_by, OWNER);
 });
 
 test("a manager who is not an owner cannot decide their own; an owner decides it, and an owner may decide their own", async () => {
