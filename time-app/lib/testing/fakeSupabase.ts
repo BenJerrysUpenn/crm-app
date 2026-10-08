@@ -8,7 +8,8 @@
 //
 // The fake speaks just enough PostgREST for the routes under test (eq / gte /
 // lte / is / in filters and not.<filter>, order, limit and offset, single, maybeSingle, a head
-// request's exact count, insert and update with return=representation) and answers /auth/v1/user from the session cookie.
+// request's exact count, insert and update with return=representation, and
+// the database functions in RPC below) and answers /auth/v1/user from the session cookie.
 // Row Level Security is emulated for time_entries only, with the policies
 // migrations 12 and 30 install (supabase/migration_30_verify.sql proves those
 // against a real Postgres): anyone signed in reads their own punches, only a
@@ -40,7 +41,8 @@ type Caller = { kind: "service" } | { kind: "anon" } | { kind: "user"; id: strin
 
 export type FakeSupabase = {
   tables: Record<string, Row[]>;
-  // Runs before each write reaches the "database": lets a test move the world
+  // Runs before each write reaches the "database" (with the table, or
+  // "rpc/<name>" for a database function): lets a test move the world
   // underneath the route between its read and its write, as a fob tap would.
   beforeWrite: ((table: string) => void) | null;
   // Columns a migration has not added yet, per table. A write naming one is
@@ -278,6 +280,38 @@ const DEFAULTS: Record<string, () => Row> = {
   payroll_sheets: () => ({ status: "queued", requested_at: DB_NOW, started_at: null, built_at: null, built_by: null, source_fingerprint: null, open_items: null, error: null, sheet: null }),
 };
 
+// ---- database functions (POST /rest/v1/rpc/<name>) ------------------------------
+// Each as its migration defines it, reduced to what the routes rely on; the
+// SQL itself is proven against Postgres by its migration's _verify.sql.
+const RPC: Record<string, (args: Row, caller: Caller) => Response> = {
+  // Migration 37: an Adjustment, all or nothing. The row must be as the
+  // Approver saw it (updated_at); otherwise nothing is written and it returns null.
+  adjust_travel_reimbursement(args, caller) {
+    if (!isManager(caller)) {
+      return json(403, { code: "42501", details: null, hint: null, message: 'new row violates row-level security policy for table "travel_reimbursement_adjustments"' });
+    }
+    const row = fake.tables.travel_reimbursements?.find((r) => r.id === args.p_id && r.updated_at === args.p_seen_updated_at);
+    if (!row) return json(200, null);
+    const column = { mileage: "mileage_cents_override", tolls: "tolls_cents", parking: "parking_cents" }[String(args.p_field)];
+    if (!column) return json(400, { code: "23514", details: null, hint: null, message: "new row violates check constraint" });
+    Object.assign(row, { [column]: args.p_new_cents, updated_at: new Date().toISOString() });
+    const adjustments = (fake.tables.travel_reimbursement_adjustments ??= []);
+    const adjustment: Row = {
+      ...DEFAULTS.travel_reimbursement_adjustments(),
+      id: adjustments.length + 1,
+      reimbursement_id: args.p_id,
+      field: args.p_field,
+      old_cents: args.p_old_cents,
+      new_cents: args.p_new_cents,
+      note: args.p_note,
+      evidence_path: args.p_evidence_path,
+      adjusted_by: (caller as { id: string }).id,
+    };
+    adjustments.push(adjustment);
+    return json(200, { reimbursement: row, adjustment });
+  },
+};
+
 // ---- Storage ------------------------------------------------------------------
 const REIMBURSEMENT_BUCKET = "travel-reimbursements";
 
@@ -310,11 +344,13 @@ function handleStorage(url: URL, method: string, headers: Headers): Response {
     return json(200, { signedURL: `/object/sign/${bucket}/${path}?token=read-token` });
   }
   m = /^object\/([^/]+)\/(.+)$/.exec(rest);
-  if (m && method === "GET") {
+  if (m && (method === "GET" || method === "HEAD")) {
     const [, bucket, path] = m;
     const bytes = fake.storage[`${bucket}/${path}`];
-    if (!bytes || !storageMay("read", caller, bucket, path)) return json(400, { statusCode: "404", error: "not_found", message: "Object not found" });
-    return new Response(bytes as unknown as BodyInit, { status: 200, headers: { "content-type": "application/octet-stream" } });
+    if (!bytes || !storageMay("read", caller, bucket, path)) {
+      return method === "HEAD" ? new Response(null, { status: 400 }) : json(400, { statusCode: "404", error: "not_found", message: "Object not found" });
+    }
+    return new Response(method === "HEAD" ? null : (bytes as unknown as BodyInit), { status: 200, headers: { "content-type": "application/octet-stream" } });
   }
   throw new Error(`fake Supabase: unexpected storage ${method} ${url.pathname}`);
 }
@@ -330,6 +366,13 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
   // here, so a notification is the in-app row alone.
   if (url.pathname.startsWith("/auth/v1/admin/users/")) {
     return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+  }
+  const fn = url.pathname.match(/^\/rest\/v1\/rpc\/(\w+)$/)?.[1];
+  if (fn && method === "POST") {
+    const rpc = RPC[fn];
+    if (!rpc) throw new Error(`fake Supabase: unexpected rpc ${fn}`);
+    fake.beforeWrite?.(`rpc/${fn}`);
+    return rpc(JSON.parse(body ?? "{}") as Row, callerOf(headers));
   }
   const table = url.pathname.match(/^\/rest\/v1\/(\w+)$/)?.[1];
   if (!table) throw new Error(`fake Supabase: unexpected ${method} ${url.pathname}`);

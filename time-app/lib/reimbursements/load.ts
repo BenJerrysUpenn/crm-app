@@ -112,6 +112,8 @@ export async function loadQueue(
   const people = profileIds.length
     ? await db.from("profiles").select("id, role, active, full_name").in("id", profileIds)
     : { data: [], error: null };
+  const badPeople = failed(people.error);
+  if (badPeople) return badPeople;
   const byId = new Map(((people.data ?? []) as (Person & { full_name: string | null })[]).map((p) => [p.id, p]));
   const also = alsoOnSameEvent(related.map((r) => ({ ...r, full_name: byId.get(r.profile_id)?.full_name ?? null })));
 

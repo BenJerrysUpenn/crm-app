@@ -30,6 +30,8 @@
 --      on insert; no status, never approved or paid (23).
 --   5. guard_travel_reimbursement(): the lifecycle in the database, as
 --      lib/reimbursements/lifecycle.ts has it in the app (see the trigger).
+--      adjust_travel_reimbursement(): an Adjustment's amount and its record,
+--      written together or not at all.
 --   6. THE PAYROLL SEAM, for bj-finance's pay table build (rulings 22, 32):
 --        travel_reimbursements_payable   view: Approved, unpaid, payroll staff
 --                                        (owners excluded), with mileage,
@@ -335,12 +337,36 @@ begin
   v_subject_mgr := coalesce(v_subject_mgr, false);
 
   -- The staff member themselves (not acting as an Approver) changes content
-  -- and resubmits; never a decision, a payment or an Adjustment.
+  -- and resubmits; never a decision or a payment.
   if v_uid is not null and v_uid = new.profile_id and not v_actor_manager then
     if new.decided_by is distinct from old.decided_by or new.paid_on is distinct from old.paid_on
-       or new.paid_by is distinct from old.paid_by or new.receipts_emailed_at is distinct from old.receipts_emailed_at
-       or (new.mileage_cents_override is not null and new.mileage_cents_override is distinct from old.mileage_cents_override) then
-      raise exception 'Only an Approver decides, pays or adjusts a Travel Reimbursement.';
+       or new.paid_by is distinct from old.paid_by or new.receipts_emailed_at is distinct from old.receipts_emailed_at then
+      raise exception 'Only an Approver decides or pays a Travel Reimbursement.';
+    end if;
+  end if;
+
+  -- The amounts an Adjustment changes. The staff member's own edit while
+  -- Submitted or Rejected may retype tolls and parking and drops a Mileage
+  -- Adjustment (back to null). Any other change to them is an Adjustment: on
+  -- a Submitted or Approved one, leaving its status, by an Approver who may
+  -- decide it; a non-owner manager's only by an owner (rulings 28, 29).
+  if v_uid is not null
+     and (new.tolls_cents, new.parking_cents, new.mileage_cents_override)
+         is distinct from (old.tolls_cents, old.parking_cents, old.mileage_cents_override)
+     and not (v_uid = new.profile_id and old.status in ('submitted', 'rejected')
+              and (new.mileage_cents_override is null
+                   or new.mileage_cents_override is not distinct from old.mileage_cents_override)) then
+    if new.status <> old.status or old.status not in ('submitted', 'approved') then
+      raise exception 'An Adjustment can only be made while a Travel Reimbursement is Submitted or Approved.';
+    end if;
+    if not v_actor_manager then
+      raise exception 'Only an Approver (a manager or owner) can make an Adjustment.';
+    end if;
+    if v_subject_mgr and not v_actor_owner then
+      if v_uid = new.profile_id then
+        raise exception 'A manager cannot adjust their own Travel Reimbursement; an owner decides it.';
+      end if;
+      raise exception 'A manager''s Travel Reimbursement is adjusted by an owner, not another manager.';
     end if;
   end if;
 
@@ -451,6 +477,44 @@ drop trigger if exists guard_travel_reimbursement_adjustment on public.travel_re
 create trigger guard_travel_reimbursement_adjustment
   before insert on public.travel_reimbursement_adjustments
   for each row execute function public.guard_travel_reimbursement_adjustment();
+
+-- An Adjustment as the adjust route makes it: the amount and its record in
+-- one transaction, so neither is written without the other. Only if the row
+-- is still as the Approver read it (p_seen_updated_at, which every update
+-- moves): a reimbursement decided, sent back or adjusted meanwhile writes
+-- nothing and returns null. Runs as the caller, so Row Level Security and both
+-- guard triggers above decide who may adjust which. p_field is the Adjustment
+-- field; mileage replaces the computed amount (mileage_cents_override).
+-- Returns { reimbursement, adjustment }, the two rows as written.
+create or replace function public.adjust_travel_reimbursement(
+  p_id bigint, p_seen_updated_at timestamptz, p_field text,
+  p_old_cents integer, p_new_cents integer, p_note text, p_evidence_path text)
+returns jsonb
+language plpgsql
+security invoker set search_path = public
+as $$
+declare
+  v_row public.travel_reimbursements;
+  v_adj public.travel_reimbursement_adjustments;
+begin
+  update public.travel_reimbursements r
+     set mileage_cents_override = case when p_field = 'mileage' then p_new_cents else r.mileage_cents_override end,
+         tolls_cents            = case when p_field = 'tolls'   then p_new_cents else r.tolls_cents end,
+         parking_cents          = case when p_field = 'parking' then p_new_cents else r.parking_cents end
+   where r.id = p_id and r.updated_at = p_seen_updated_at
+  returning r.* into v_row;
+  if not found then
+    return null;
+  end if;
+  insert into public.travel_reimbursement_adjustments (reimbursement_id, field, old_cents, new_cents, note, evidence_path, adjusted_by)
+  values (p_id, p_field, p_old_cents, p_new_cents, p_note, p_evidence_path, auth.uid())
+  returning * into v_adj;
+  return jsonb_build_object('reimbursement', to_jsonb(v_row), 'adjustment', to_jsonb(v_adj));
+end;
+$$;
+
+revoke execute on function public.adjust_travel_reimbursement(bigint, timestamptz, text, integer, integer, text, text) from public, anon;
+grant execute on function public.adjust_travel_reimbursement(bigint, timestamptz, text, integer, integer, text, text) to authenticated;
 
 -- ---------- 6. the payroll seam -------------------------------------------------------
 -- What the pay table pays: every Approved reimbursement of payroll staff not

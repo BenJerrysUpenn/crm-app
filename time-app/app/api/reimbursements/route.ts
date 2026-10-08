@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   const rates = await loadRates(supabase);
   if (!rates.ok) return NextResponse.json({ error: rates.error }, { status: 503 });
   const resolved = await resolveSubmission(parsed.value, today, rates.rates);
-  if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+  if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
 
   const { data, error } = await supabase
     .from("travel_reimbursements")

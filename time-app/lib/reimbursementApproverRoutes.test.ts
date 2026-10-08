@@ -137,6 +137,49 @@ test("approve: when receipts@ cannot be emailed it is still Approved, not stampe
   assert.equal(resendMails().length, 2, "the refused send and the one that went");
 });
 
+test("approve: a refused send to receipts@ is said in the response, not passed over", async () => {
+  resendStatus = 500;
+  db.signIn(MANAGER);
+  const body = await (await decide.POST(post({ action: "approve" }), ID)).json();
+  assert.equal(body.receipts_emailed, false);
+  assert.match(body.receipts_error, /could not be emailed to receipts@/);
+});
+
+test("approve: a Receipt missing from Storage is not emailed, and the response names it", async () => {
+  delete db.storage[`travel-reimbursements/${DONTE}/receipts/1-a.jpg`];
+  db.signIn(MANAGER);
+  const res = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.receipts_emailed, false);
+  assert.match(body.receipts_error, /1-a\.jpg/);
+  assert.equal(r1().status, "approved");
+  assert.equal(r1().receipts_emailed_at, null);
+  assert.equal(resendMails().length, 0);
+});
+
+test("approve: when the Receipts went but their stamp cannot be written, the response says so (a second approval would send them again)", async () => {
+  db.missingColumns.travel_reimbursements = ["receipts_emailed_at"];
+  db.signIn(MANAGER);
+  const res = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.receipts_emailed, true);
+  assert.match(body.receipts_error, /went to receipts@, but recording that failed/);
+  assert.equal(r1().status, "approved");
+  assert.equal(resendMails().length, 1);
+});
+
+test("decide and adjust: when the Adjustments cannot be read, nothing is written and the route says so", async () => {
+  db.missingTables = ["travel_reimbursement_adjustments"];
+  db.signIn(MANAGER);
+  assert.equal((await decide.POST(post({ action: "approve" }), ID)).status, 503);
+  assert.equal((await adjust.POST(post(adjustment), ID)).status, 503);
+  assert.equal(r1().status, "submitted");
+  assert.equal(r1().parking_cents, 800);
+  assert.equal(resendMails().length, 0);
+});
+
 test("another manager who is not an owner cannot approve, reject, send back or adjust a manager's; an owner can (ruling 28)", async () => {
   db.tables.travel_reimbursements = [row({ profile_id: MANAGER }), row({ id: 2, profile_id: MANAGER, status: "approved" })];
   db.signIn(MANAGER2);
@@ -256,6 +299,30 @@ test("adjust: needs an evidence file and a one-line note", async () => {
   assert.equal((await adjust.POST(post({ ...adjustment, evidence_path: "adjustments/2/x.png" }), ID)).status, 400, "evidence for another reimbursement");
   assert.equal((await adjust.POST(post({ ...adjustment, note: "x".repeat(301) }), ID)).status, 400);
   assert.equal(db.rows("travel_reimbursement_adjustments").length, 0);
+});
+
+test("adjust: evidence that was never uploaded is refused", async () => {
+  db.signIn(MANAGER);
+  const res = await adjust.POST(post({ ...adjustment, evidence_path: "adjustments/1/never-uploaded.png" }), ID);
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /evidence/i);
+  assert.equal(r1().parking_cents, 800);
+  assert.equal(db.rows("travel_reimbursement_adjustments").length, 0);
+});
+
+test("adjust: a reimbursement decided meanwhile is refused and leaves no Adjustment behind", async () => {
+  db.signIn(MANAGER);
+  // Another Approver rejects it between this Approver's read and write.
+  db.beforeWrite = () => {
+    db.beforeWrite = null;
+    Object.assign(r1(), { status: "rejected", rejection_reason: "Which store?", updated_at: "2026-10-08T15:00:00.000Z" });
+  };
+  const res = await adjust.POST(post(adjustment), ID);
+  assert.equal(res.status, 409);
+  assert.match((await res.json()).error, /changed while you were looking/);
+  assert.equal(r1().parking_cents, 800);
+  assert.equal(db.rows("travel_reimbursement_adjustments").length, 0, "no Adjustment recorded for an amount that did not change");
+  assert.equal(db.rows("notifications").length, 0);
 });
 
 test("adjust: the amount changes, the original is kept with the note, and the employee is told old and new", async () => {

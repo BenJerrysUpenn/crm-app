@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
 // A Lyft ride report (bj-finance #210, rulings 7, 23): the ride went on the
 // company card, so nothing is paid back. It is Filed on upload, never in the
 // approval queue, and its screenshots are emailed to receipts@ now, where the
-// receipt processor matches them to the card charge.
+// receipt processor matches them to the card charge. A failed email does not
+// unfile it: email_error says what went wrong.
 export async function POST(request: Request) {
   const me = await getProfile();
   if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
   const parsed = parseLyftRideReport(await request.json().catch(() => null), { profileId: me.id, today });
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const reason = await resolveReason(parsed.value, today);
-  if (!reason.ok) return NextResponse.json({ error: reason.error }, { status: 400 });
+  if (!reason.ok) return NextResponse.json({ error: reason.error }, { status: reason.status });
 
   const { data, error } = await createClient()
     .from("lyft_ride_reports")
@@ -32,6 +33,6 @@ export async function POST(request: Request) {
   if (isMissingTable(error)) return NextResponse.json({ error: NEEDS_MIGRATION }, { status: 503 });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  const emailed = await emailLyftRideReport(data as LyftRow, me.full_name ?? "A staff member");
-  return NextResponse.json({ report: data, emailed });
+  const email = await emailLyftRideReport(data as LyftRow, me.full_name ?? "A staff member");
+  return NextResponse.json({ report: data, emailed: email.emailed, email_error: email.error });
 }

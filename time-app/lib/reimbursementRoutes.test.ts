@@ -384,6 +384,46 @@ test("Lyft: when receipts@ cannot be emailed the report is still Filed, and not 
   assert.equal(report.emailed_at, null);
 });
 
+test("Lyft: a refused send to receipts@ is said in the response", async () => {
+  process.env.RESEND_API_KEY = "re_test";
+  resendStatus = 500;
+  const shot = `${DONTE}/lyft/1-a.png`;
+  db.storage[`travel-reimbursements/${shot}`] = new TextEncoder().encode("png bytes");
+  db.signIn(DONTE);
+  const body = await (await lyft.POST(req("POST", { reason: { kind: "errands", note: "Depot" }, trip_date: YESTERDAY, screenshot_paths: [shot] }))).json();
+  assert.equal(body.emailed, false);
+  assert.match(body.email_error, /could not be emailed to receipts@/);
+});
+
+test("Lyft: when the report went to receipts@ but its stamp cannot be written, the response says so", async () => {
+  process.env.RESEND_API_KEY = "re_test";
+  db.missingColumns.lyft_ride_reports = ["emailed_at"];
+  const shot = `${DONTE}/lyft/1-a.png`;
+  db.storage[`travel-reimbursements/${shot}`] = new TextEncoder().encode("png bytes");
+  db.signIn(DONTE);
+  const res = await lyft.POST(req("POST", { reason: { kind: "errands", note: "Depot" }, trip_date: YESTERDAY, screenshot_paths: [shot] }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.emailed, true);
+  assert.match(body.email_error, /went to receipts@, but recording that failed/);
+  assert.equal(db.rows("lyft_ride_reports").length, 1, "still Filed");
+});
+
+test("submit and Lyft: when the Catering Events cannot be read, the route says so, not that the event is not in the list", async () => {
+  db.missingTables = ["deals"];
+  db.signIn(DONTE);
+  const catering = { reason: { kind: "catering_event", event_id: 501 }, trip_date: YESTERDAY };
+  for (const res of [
+    await create.POST(req("POST", { ...errands, ...catering })),
+    await lyft.POST(req("POST", { ...catering, screenshot_paths: [`${DONTE}/lyft/1-a.png`] })),
+  ]) {
+    assert.equal(res.status, 503);
+    assert.doesNotMatch((await res.json()).error, /not in the list/);
+  }
+  assert.equal(db.rows("travel_reimbursements").length, 0);
+  assert.equal(db.rows("lyft_ride_reports").length, 0);
+});
+
 test("Lyft: needs a screenshot of the staff member's own", async () => {
   db.signIn(DONTE);
   const res = await lyft.POST(req("POST", { reason: { kind: "errands", note: "Depot" }, trip_date: YESTERDAY, screenshot_paths: [] }));

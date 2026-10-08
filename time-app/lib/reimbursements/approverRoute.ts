@@ -8,6 +8,9 @@ import { NextResponse } from "next/server";
 import { NEEDS_MIGRATION, loadRates, profileLite, withAmounts, type AdjustmentRow, type ReimbursementRow, type WithAmounts } from "./server";
 import type { MileageRate } from "./money";
 
+/** A write that found the reimbursement no longer as the Approver read it (409). */
+export const CHANGED = "It changed while you were looking. Reload and try again.";
+
 type Ok = {
   res?: undefined;
   row: WithAmounts;
@@ -26,7 +29,8 @@ export async function approverContext(idParam: string): Promise<Ok | { res: Next
   if (!data) return { res: NextResponse.json({ error: "Travel Reimbursement not found" }, { status: 404 }) };
   const rates = await loadRates(supabase);
   if (!rates.ok) return { res: NextResponse.json({ error: rates.error }, { status: 503 }) };
-  const { data: adj } = await supabase.from("travel_reimbursement_adjustments").select("*").eq("reimbursement_id", id);
+  const { data: adj, error: adjError } = await supabase.from("travel_reimbursement_adjustments").select("*").eq("reimbursement_id", id);
+  if (adjError) return { res: NextResponse.json({ error: isMissingTable(adjError) ? NEEDS_MIGRATION : adjError.message }, { status: 503 }) };
   const subject = await profileLite((data as ReimbursementRow).profile_id);
   if (!subject) return { res: NextResponse.json({ error: "Its staff member was not found" }, { status: 404 }) };
   const [row] = withAmounts([data as ReimbursementRow], rates.rates, (adj ?? []) as AdjustmentRow[]);

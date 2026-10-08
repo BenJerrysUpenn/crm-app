@@ -169,6 +169,7 @@ export default function ReimbursementForm({
       const r = await send("/api/reimbursements/lyft", "POST", { reason: reasonBody(), trip_date: tripDate, screenshot_paths: shots });
       setBusy(null);
       if (!r.ok) return setErr(String(r.payload.error ?? "Could not file it."));
+      if (r.payload.email_error) return onDone(`Lyft ride report filed. ${r.payload.email_error}`);
       return onDone(r.payload.emailed ? "Lyft ride report filed and sent to receipts@." : "Lyft ride report filed.");
     }
 

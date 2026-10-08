@@ -121,6 +121,13 @@ test("loadQueue: what has left the queue is listed under Decided, newest first, 
   assert.ok(!q.submitted.some((i) => i.id === 6) && !q.approved.some((i) => i.id === 7));
 });
 
+test("loadQueue: when the people cannot be read it fails, rather than treating everyone as an employee", async () => {
+  db.signIn(MANAGER.id);
+  db.missingTables = ["profiles"];
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.equal(q.ok, false);
+});
+
 test("loadQueue: Decided lists only the latest 50 that have left the queue", async () => {
   const many = Array.from({ length: 51 }, (_, i) =>
     row(100 + i, SAM.id, { status: "rejected", rejection_reason: "No receipt", decided_by: MANAGER.id, decided_at: "2026-09-01T12:00:00Z", updated_at: `2026-09-${String(1 + (i % 28)).padStart(2, "0")}T12:${String(i).padStart(2, "0")}:00Z` }),

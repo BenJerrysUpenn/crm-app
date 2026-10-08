@@ -12,6 +12,7 @@
 begin;
 
 drop function if exists public.mark_travel_reimbursements_paid(bigint[], date);
+drop function if exists public.adjust_travel_reimbursement(bigint, timestamptz, text, integer, integer, text, text);
 drop view if exists public.travel_reimbursements_waiting;
 drop view if exists public.travel_reimbursements_payable;
 drop table if exists public.travel_reimbursement_adjustments;

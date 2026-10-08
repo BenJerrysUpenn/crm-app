@@ -132,11 +132,12 @@ export async function listCateringEvents(today: string): Promise<{ ok: true; eve
   return { ok: true, events: cateringEventsFromDeals((data ?? []) as EventDeal[], today) };
 }
 
-/** One Catering Event by its deal id, only if it is in the picker's window today. */
-export async function findCateringEvent(dealId: number, today: string): Promise<CateringEvent | null> {
-  const { data } = await createAdminClient().from("deals").select(EVENT_DEAL_COLUMNS).eq("id", dealId).maybeSingle();
-  if (!data) return null;
-  return cateringEventsFromDeals([data as EventDeal], today)[0] ?? null;
+/** One Catering Event by its deal id, or null unless it is in the picker's window today. */
+async function findCateringEvent(dealId: number, today: string): Promise<{ ok: true; event: CateringEvent | null } | { ok: false; error: string }> {
+  const { data, error } = await createAdminClient().from("deals").select(EVENT_DEAL_COLUMNS).eq("id", dealId).maybeSingle();
+  if (error) return { ok: false, error: `The Catering Events could not be read: ${error.message}` };
+  if (!data) return { ok: true, event: null };
+  return { ok: true, event: cateringEventsFromDeals([data as EventDeal], today)[0] ?? null };
 }
 
 // ---------- destination miles ------------------------------------------------------------
@@ -183,50 +184,73 @@ export async function notifyEmployee(subject: ProfileLite, title: string, body: 
 
 // ---------- receipts@ ------------------------------------------------------------------------
 
-async function attachmentsFor(paths: string[]): Promise<EmailAttachment[] | null> {
-  const storage = createAdminClient().storage.from(BUCKET);
-  const out: EmailAttachment[] = [];
+/**
+ * Whether an email went to receipts@ now, and what went wrong if anything
+ * did, in words for the person who pressed the button. An error with
+ * emailed: true means it went but was not stamped, so a later send would
+ * repeat it.
+ */
+export type ReceiptsEmailed = { emailed: boolean; error: string | null };
+
+/**
+ * `what` ("The Receipts") from `paths` in the bucket to receipts@, then the
+ * stamp that says they went. Service role: the files are the staff member's.
+ */
+async function emailToReceipts(
+  what: string,
+  paths: string[],
+  compose: (attachments: number) => { subject: string; text: string },
+  stamp: { table: "travel_reimbursements" | "lyft_ride_reports"; column: "receipts_emailed_at" | "emailed_at"; id: number },
+): Promise<ReceiptsEmailed> {
+  const admin = createAdminClient();
+  const files: EmailAttachment[] = [];
   for (const path of paths) {
-    const { data, error } = await storage.download(path);
-    if (error || !data) return null;
-    out.push({ filename: path.split("/").pop() ?? "receipt", content: new Uint8Array(await data.arrayBuffer()) });
+    const { data, error } = await admin.storage.from(BUCKET).download(path);
+    if (error || !data)
+      return { emailed: false, error: `${what} were not emailed to receipts@: ${path} could not be read from Storage (${error?.message ?? "no file"}).` };
+    files.push({ filename: path.split("/").pop() ?? "receipt", content: new Uint8Array(await data.arrayBuffer()) });
   }
-  return out;
+  const mail = compose(files.length);
+  if (!(await sendEmail(RECEIPTS_TO, mail.subject, mail.text, files))) return { emailed: false, error: `${what} could not be emailed to receipts@.` };
+  const { error } = await admin.from(stamp.table).update({ [stamp.column]: new Date().toISOString() }).eq("id", stamp.id);
+  if (error) return { emailed: true, error: `${what} went to receipts@, but recording that failed (${error.message}). Do not send them again.` };
+  return { emailed: true, error: null };
 }
 
 /**
  * On approval: the Receipts go to receipts@ once (ruling 30), stamped
- * receipts_emailed_at. Nothing to send, or already sent, is not an error.
- * Returns whether an email went now; false also when email is not set up.
+ * receipts_emailed_at. Nothing to send, already sent, or email not set up
+ * sends nothing and is not an error.
  */
-export async function emailReceiptsOnApproval(row: WithAmounts, employee: string): Promise<boolean> {
-  if (!row.receipt_paths.length || row.receipts_emailed_at || !emailConfigured()) return false;
-  const files = await attachmentsFor(row.receipt_paths);
-  if (!files) return false;
-  const mail = travelReimbursementReceiptEmail({
-    id: row.id,
-    employee,
-    reason: reasonLabel(row),
-    trip_date: row.trip_date,
-    tolls_cents: row.amounts.tolls_cents,
-    parking_cents: row.amounts.parking_cents,
-    total_cents: row.amounts.total_cents,
-    attachments: files.length,
-  });
-  if (!(await sendEmail(RECEIPTS_TO, mail.subject, mail.text, files))) return false;
-  await createAdminClient().from("travel_reimbursements").update({ receipts_emailed_at: new Date().toISOString() }).eq("id", row.id);
-  return true;
+export async function emailReceiptsOnApproval(row: WithAmounts, employee: string): Promise<ReceiptsEmailed> {
+  if (!row.receipt_paths.length || row.receipts_emailed_at || !emailConfigured()) return { emailed: false, error: null };
+  return emailToReceipts(
+    "The Receipts",
+    row.receipt_paths,
+    (attachments) =>
+      travelReimbursementReceiptEmail({
+        id: row.id,
+        employee,
+        reason: reasonLabel(row),
+        trip_date: row.trip_date,
+        tolls_cents: row.amounts.tolls_cents,
+        parking_cents: row.amounts.parking_cents,
+        total_cents: row.amounts.total_cents,
+        attachments,
+      }),
+    { table: "travel_reimbursements", column: "receipts_emailed_at", id: row.id },
+  );
 }
 
 /** On upload: the Lyft ride report goes to receipts@ (ruling 23), stamped emailed_at. */
-export async function emailLyftRideReport(report: LyftRow, employee: string): Promise<boolean> {
-  if (!emailConfigured()) return false;
-  const files = await attachmentsFor(report.screenshot_paths);
-  if (!files) return false;
-  const mail = lyftRideReportEmail({ id: report.id, employee, reason: reasonLabel(report), trip_date: report.trip_date, attachments: files.length });
-  if (!(await sendEmail(RECEIPTS_TO, mail.subject, mail.text, files))) return false;
-  await createAdminClient().from("lyft_ride_reports").update({ emailed_at: new Date().toISOString() }).eq("id", report.id);
-  return true;
+export async function emailLyftRideReport(report: LyftRow, employee: string): Promise<ReceiptsEmailed> {
+  if (!emailConfigured()) return { emailed: false, error: null };
+  return emailToReceipts(
+    "The Lyft ride report screenshots",
+    report.screenshot_paths,
+    (attachments) => lyftRideReportEmail({ id: report.id, employee, reason: reasonLabel(report), trip_date: report.trip_date, attachments }),
+    { table: "lyft_ride_reports", column: "emailed_at", id: report.id },
+  );
 }
 
 // ---------- from a parsed submission to the row's columns ----------------------------------
@@ -238,29 +262,36 @@ type ResolvedColumns = Pick<
   | "no_receipt_confirmed"
 >;
 
+/**
+ * Why a submission was not resolved, with the status the route answers: 400
+ * for the staff member to fix, 503 when a read it needs failed.
+ */
+export type Unresolved = { ok: false; error: string; status: 400 | 503 };
+
 /** The Reason's columns: a Catering Event must still be in the picker's window. */
 export async function resolveReason(
   v: ReasonValue,
   today: string,
-): Promise<{ ok: true; cols: Pick<ReimbursementRow, "reason_kind" | "deal_id" | "event_label" | "event_date" | "reason_note"> } | { ok: false; error: string }> {
+): Promise<{ ok: true; cols: Pick<ReimbursementRow, "reason_kind" | "deal_id" | "event_label" | "event_date" | "reason_note"> } | Unresolved> {
   if (v.reason_kind === "errands")
     return { ok: true, cols: { reason_kind: "errands", deal_id: null, event_label: null, event_date: null, reason_note: v.reason_note } };
-  const event = await findCateringEvent(v.event_id!, today);
-  if (!event) return { ok: false, error: "That Catering Event is not in the list (the last 365 days, up to today). Pick it again." };
+  const found = await findCateringEvent(v.event_id!, today);
+  if (!found.ok) return { ...found, status: 503 };
+  const event = found.event;
+  if (!event) return { ok: false, error: "That Catering Event is not in the list (the last 365 days, up to today). Pick it again.", status: 400 };
   return { ok: true, cols: { reason_kind: "catering_event", deal_id: event.id, event_label: eventLabel(event), event_date: event.date, reason_note: v.reason_note } };
 }
 
 /**
  * Everything a submission writes, with destination miles computed here and a
- * Mileage rate checked for the trip date. An `{ ok: false }` is the staff
- * member's to fix (the routes answer 400); a missing migration is `loadRates`'
+ * Mileage rate checked for the trip date. A missing migration is `loadRates`'
  * failure, answered 503 before this runs.
  */
 export async function resolveSubmission(
   v: ReimbursementValue,
   today: string,
   rates: MileageRate[],
-): Promise<{ ok: true; cols: ResolvedColumns } | { ok: false; error: string }> {
+): Promise<{ ok: true; cols: ResolvedColumns } | Unresolved> {
   const reason = await resolveReason(v, today);
   if (!reason.ok) return reason;
   let miles = v.miles ?? 0;
@@ -268,14 +299,14 @@ export async function resolveSubmission(
   const ends = v.mileage_mode === "destinations" ? routeEnds(v) : null;
   if (ends) {
     const route = await computeRouteMiles(v.stops!, ends);
-    if (!route.ok) return route;
+    if (!route.ok) return { ...route, status: 400 };
     miles = route.miles;
     legs = route.legs;
   }
   if (!(miles > 0) && v.tolls_cents === 0 && v.parking_cents === 0)
-    return { ok: false, error: "There is nothing to pay back: add miles, tolls or parking." };
+    return { ok: false, error: "There is nothing to pay back: add miles, tolls or parking.", status: 400 };
   if (miles > 0 && reimbursementCents({ trip_date: v.trip_date, miles, tolls_cents: 0, parking_cents: 0, mileage_cents_override: null }, rates).rate == null)
-    return { ok: false, error: `There is no Mileage rate for ${v.trip_date}. Ask a manager.` };
+    return { ok: false, error: `There is no Mileage rate for ${v.trip_date}. Ask a manager.`, status: 400 };
   return {
     ok: true,
     cols: {
@@ -300,9 +331,4 @@ export async function resolveSubmission(
 /** "<Field> changed from $a to $b: note" for the employee's notice. */
 export function adjustmentText(a: Pick<AdjustmentRow, "field" | "old_cents" | "new_cents" | "note">): string {
   return `${FIELD_LABEL[a.field]} changed from ${money(a.old_cents)} to ${money(a.new_cents)}: ${a.note}`;
-}
-
-/** Today in New York, as a pay date. */
-export function todayNY(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }

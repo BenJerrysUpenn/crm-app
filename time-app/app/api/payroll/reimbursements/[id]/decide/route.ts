@@ -1,8 +1,9 @@
 import { approverAction, type ApproverAction } from "@/lib/reimbursements/lifecycle";
 import { approveRefusal } from "@/lib/reimbursements/money";
-import { approverContext } from "@/lib/reimbursements/approverRoute";
+import { CHANGED, approverContext } from "@/lib/reimbursements/approverRoute";
 import { reasonLabel } from "@/lib/reimbursements/events";
-import { emailReceiptsOnApproval, notifyEmployee, todayNY, withAmounts, type ReimbursementRow } from "@/lib/reimbursements/server";
+import { emailReceiptsOnApproval, notifyEmployee, withAmounts, type ReceiptsEmailed, type ReimbursementRow } from "@/lib/reimbursements/server";
+import { dayKey } from "@/lib/format";
 import { money } from "@/lib/payroll/paySheet";
 import { getProfile } from "@/lib/auth";
 import { financeAccess } from "@/lib/financeAccess";
@@ -18,7 +19,9 @@ const MAX_REASON = 500;
 // Body: { action: "approve" | "reject" | "send_back" | "paid_outside_payroll", reason? }
 //
 // An Approver decides a Travel Reimbursement (bj-finance #210):
-//   approve               Submitted -> Approved. Its Receipts go to receipts@ now (30).
+//   approve               Submitted -> Approved. Its Receipts go to receipts@ now (30);
+//                         receipts_error says what went wrong if they did not,
+//                         or went but were not stamped. The approval stands.
 //                         No notice to the employee (25). Refused with no
 //                         Mileage rate for the trip date: no total (42).
 //   reject                Submitted -> Rejected, with a reason the employee is told.
@@ -46,15 +49,17 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, MAX_REASON) : "";
   if (action === "reject" && !reason) return NextResponse.json({ error: "Say why it is rejected, so they can fix it." }, { status: 400 });
 
+  // The new status is approverAction's; the rest says who did it and when.
   const now = new Date().toISOString();
-  const patch: Partial<ReimbursementRow> =
+  const stamp: Partial<ReimbursementRow> =
     action === "approve"
-      ? { status: "approved", decided_by: me.id, decided_at: now }
+      ? { decided_by: me.id, decided_at: now }
       : action === "reject"
-        ? { status: "rejected", rejection_reason: reason, decided_by: me.id, decided_at: now }
-        : action === "send_back"
-          ? { status: "submitted" }
-          : { status: "paid_outside_payroll", paid_on: todayNY(), paid_by: me.id };
+        ? { rejection_reason: reason, decided_by: me.id, decided_at: now }
+        : action === "paid_outside_payroll"
+          ? { paid_on: dayKey(now), paid_by: me.id }
+          : {};
+  const patch: Partial<ReimbursementRow> = { status: step.to, ...stamp };
 
   const { data, error } = await supabase
     .from("travel_reimbursements")
@@ -64,16 +69,16 @@ export async function POST(request: Request, { params }: { params: { id: string 
     .select()
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 409 });
-  if (!data) return NextResponse.json({ error: "It changed while you were looking. Reload and try again." }, { status: 409 });
+  if (!data) return NextResponse.json({ error: CHANGED }, { status: 409 });
   const [updated] = withAmounts([data as ReimbursementRow], rates, row.adjustments);
 
-  let receiptsEmailed = false;
-  if (action === "approve") receiptsEmailed = await emailReceiptsOnApproval(updated, subject.full_name ?? "A staff member");
+  const receipts: ReceiptsEmailed =
+    action === "approve" ? await emailReceiptsOnApproval(updated, subject.full_name ?? "A staff member") : { emailed: false, error: null };
   if (action === "reject")
     await notifyEmployee(
       subject,
       "Travel Reimbursement rejected",
       `Your Travel Reimbursement for ${reasonLabel(updated)}, trip ${updated.trip_date} (${money(updated.amounts.total_cents)}), was rejected: ${reason} Fix it on the Reimbursements page and submit it again.`,
     );
-  return NextResponse.json({ reimbursement: updated, receipts_emailed: receiptsEmailed });
+  return NextResponse.json({ reimbursement: updated, receipts_emailed: receipts.emailed, receipts_error: receipts.error });
 }

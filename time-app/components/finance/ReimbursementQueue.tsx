@@ -81,7 +81,8 @@ export default function ReimbursementQueue({
     setBusy(null);
     if (!res.ok) return setMsg({ id, text: payload.error || "That did not work.", error: true });
     setPanel(null);
-    setMsg({ id, text: payload.receipts_emailed ? `${done} Receipts sent to receipts@.` : done, error: false });
+    if (payload.receipts_error) setMsg({ id, text: `${done} ${payload.receipts_error}`, error: true });
+    else setMsg({ id, text: payload.receipts_emailed ? `${done} Receipts sent to receipts@.` : done, error: false });
     router.refresh();
   }
 

@@ -20,7 +20,10 @@
 --      such manager (decide, send back or adjust); an owner can (ruling 28).
 --   6. Paid outside payroll: only an owner's, only by an owner.
 --   7. Adjustments: by an Approver, on Submitted or Approved only; never on
---      a non-owner manager's own; staff read theirs, cannot write one.
+--      a non-owner manager's own; staff read theirs, cannot write one. The
+--      amounts themselves move under the same rule, written directly or
+--      through adjust_travel_reimbursement(), which writes the amount and its
+--      Adjustment together or neither, and nothing on a row changed since read.
 --   8. travel_reimbursements_payable: Approved, unpaid, owners excluded, at the
 --      trip date's rate half-up, an Adjustment's mileage replacing it.
 --   9. mark_travel_reimbursements_paid: all or nothing, idempotent for the
@@ -28,7 +31,8 @@
 --  10. Lyft ride reports: staff file their own; read their own only.
 --  11. Storage: staff upload to and read their own folder only; Approvers read
 --      all and alone upload under adjustments/.
---  12. No API role reads the payroll views or calls the functions.
+--  12. No API role reads the payroll views or calls the payroll and guard
+--      functions; only a signed-in caller calls adjust_travel_reimbursement().
 -- ============================================================================
 
 begin;
@@ -45,6 +49,8 @@ declare
   v_id2    bigint;
   v_own    bigint;
   v_mgr    bigint;
+  v_rej    bigint;
+  v_json   jsonb;
   n        integer;
   refused  boolean;
   r        record;
@@ -142,6 +148,11 @@ begin
   -- A manager's own, for 5.
   insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles)
   values (mgr, 'errands', 'bank run', '2026-07-02', 'typed', 3) returning id into v_mgr;
+  -- A non-owner manager still edits their own while Submitted, like anyone.
+  update public.travel_reimbursements set tolls_cents = 100 where id = v_mgr;
+  if (select tolls_cents from public.travel_reimbursements where id = v_mgr) <> 100 then
+    raise exception 'a manager could not edit the tolls on their own Submitted reimbursement';
+  end if;
   reset role;
 
   -- ---- 4. staff change their own ----------------------------------------------------------
@@ -234,6 +245,19 @@ begin
   exception when raise_exception then refused := true;
   end;
   if not refused then raise exception 'a manager adjusted another manager''s reimbursement'; end if;
+  -- The amounts directly, without an Adjustment, are held to the same rule.
+  begin
+    update public.travel_reimbursements set mileage_cents_override = 1 where id = v_mgr;
+    refused := false;
+  exception when raise_exception then refused := true;
+  end;
+  if not refused then raise exception 'a manager set another manager''s mileage amount directly'; end if;
+  begin
+    update public.travel_reimbursements set parking_cents = 999 where id = v_mgr;
+    refused := false;
+  exception when raise_exception then refused := true;
+  end;
+  if not refused then raise exception 'a manager changed another manager''s parking directly'; end if;
   reset role;
 
   -- An owner decides the manager's, and an owner's own.
@@ -310,6 +334,60 @@ begin
   exception when raise_exception then refused := true;
   end;
   if not refused then raise exception 'a manager who is not an owner adjusted their own'; end if;
+  -- v_mgr is Approved now: the manager's own amounts are an owner's to adjust.
+  begin
+    update public.travel_reimbursements set mileage_cents_override = 1 where id = v_mgr;
+    refused := false;
+  exception when raise_exception then refused := true;
+  end;
+  if not refused then raise exception 'a manager who is not an owner set their own mileage amount directly'; end if;
+  begin
+    perform public.adjust_travel_reimbursement(v_mgr, (select updated_at from public.travel_reimbursements where id = v_mgr),
+                                               'parking', 0, 300, 'x', 'adjustments/2/x.png');
+    refused := false;
+  exception when raise_exception then refused := true;
+  end;
+  if not refused then raise exception 'a manager who is not an owner adjusted their own through the function'; end if;
+  -- A Rejected one is not adjusted, not even its mileage amount directly.
+  reset role;
+  insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles)
+  values (emp2, 'errands', 'to reject', '2026-07-05', 'typed', 4) returning id into v_rej;
+  set local role authenticated;
+  update public.travel_reimbursements set status = 'rejected', rejection_reason = 'Which store?' where id = v_rej;
+  begin
+    update public.travel_reimbursements set mileage_cents_override = 100 where id = v_rej;
+    refused := false;
+  exception when raise_exception then refused := true;
+  end;
+  if not refused then raise exception 'a Rejected reimbursement''s mileage amount was set'; end if;
+  reset role;
+
+  -- adjust_travel_reimbursement: the amount and its Adjustment together, or neither.
+  perform set_config('request.jwt.claims', json_build_object('sub', own::text, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  if public.adjust_travel_reimbursement(v_mgr, '2000-01-01 00:00+00', 'parking', 0, 300, 'Lot receipt', 'adjustments/2/lot.png') is not null then
+    raise exception 'an Adjustment to a reimbursement changed since it was read was written';
+  end if;
+  begin
+    perform public.adjust_travel_reimbursement(v_mgr, (select updated_at from public.travel_reimbursements where id = v_mgr),
+                                               'parking', 0, 300, '   ', 'adjustments/2/lot.png');
+    refused := false;
+  exception when check_violation then refused := true;
+  end;
+  if not refused then raise exception 'an Adjustment without a note was written through the function'; end if;
+  if (select parking_cents from public.travel_reimbursements where id = v_mgr) <> 0
+     or exists (select 1 from public.travel_reimbursement_adjustments where reimbursement_id = v_mgr) then
+    raise exception 'a refused Adjustment left its amount or its record behind';
+  end if;
+  v_json := public.adjust_travel_reimbursement(v_mgr, (select updated_at from public.travel_reimbursements where id = v_mgr),
+                                               'parking', 0, 300, 'Lot receipt', 'adjustments/2/lot.png');
+  if (v_json -> 'reimbursement' ->> 'parking_cents')::int <> 300
+     or (v_json -> 'adjustment' ->> 'old_cents')::int <> 0
+     or (v_json -> 'adjustment' ->> 'adjusted_by')::uuid <> own
+     or (select parking_cents from public.travel_reimbursements where id = v_mgr) <> 300
+     or (select count(*) from public.travel_reimbursement_adjustments where reimbursement_id = v_mgr and field = 'parking' and new_cents = 300) <> 1 then
+    raise exception 'an owner''s Adjustment through the function was not written whole: %', v_json;
+  end if;
   reset role;
 
   perform set_config('request.jwt.claims', json_build_object('sub', emp::text, 'role', 'authenticated')::text, true);
@@ -461,6 +539,10 @@ begin
       raise exception '% can execute a migration 37 function', r.full_name;
     end if;
   end loop;
+  if has_function_privilege('anon', 'public.adjust_travel_reimbursement(bigint, timestamptz, text, integer, integer, text, text)', 'execute')
+     or not has_function_privilege('authenticated', 'public.adjust_travel_reimbursement(bigint, timestamptz, text, integer, integer, text, text)', 'execute') then
+    raise exception 'adjust_travel_reimbursement() is not for signed-in callers only';
+  end if;
   foreach r.full_name in array array['anon', 'authenticated'] loop
     if has_table_privilege(r.full_name, 'public.travel_reimbursements_payable', 'select')
        or has_table_privilege(r.full_name, 'public.travel_reimbursements_waiting', 'select') then
