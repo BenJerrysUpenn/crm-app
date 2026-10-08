@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { money } from "@/lib/payroll/paySheet";
-import { FIELD_LABEL, STATUS_LABEL, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
+import { FIELD_LABEL, STATUS_LABEL, type AdjustmentField, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { BUCKET, CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
 import { routeText } from "@/lib/reimbursements/routeMiles";
@@ -118,7 +118,7 @@ function rateText(rate: number | null): string {
 }
 
 /** "$a" or, when that amount was adjusted, "$before → $now (adjusted)" (ruling 40). */
-function amountText(r: WithAmounts, field: "mileage" | "tolls" | "parking", now: number | null): string {
+function amountText(r: WithAmounts, field: AdjustmentField, now: number | null): string {
   const b = r.before_adjustments;
   if (!b || !b.adjusted.includes(field)) return money(now);
   const before = field === "mileage" ? b.before.mileage_cents : field === "tolls" ? b.before.tolls_cents : b.before.parking_cents;

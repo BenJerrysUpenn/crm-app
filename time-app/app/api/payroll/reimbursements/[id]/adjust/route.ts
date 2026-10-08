@@ -1,4 +1,4 @@
-import { approverAction } from "@/lib/reimbursements/lifecycle";
+import { ADJUSTMENT_FIELDS, approverAction } from "@/lib/reimbursements/lifecycle";
 import { approverContext } from "@/lib/reimbursements/approverRoute";
 import { centsFromDollars } from "@/lib/reimbursements/money";
 import { reasonLabel } from "@/lib/reimbursements/events";
@@ -11,7 +11,6 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
-const FIELDS = ["mileage", "tolls", "parking"] as const;
 const MAX_NOTE = 300;
 
 // POST /api/payroll/reimbursements/:id/adjust
@@ -28,7 +27,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (!me || financeAccess(me) !== "allowed")
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  const field = FIELDS.find((f) => f === body?.field);
+  const field = ADJUSTMENT_FIELDS.find((f) => f === body?.field);
   if (!field) return NextResponse.json({ error: "Pick the amount to adjust: mileage, tolls or parking." }, { status: 400 });
   const newCents = centsFromDollars(body?.amount);
   if (newCents == null || (typeof body?.amount === "string" && body.amount.trim() === ""))

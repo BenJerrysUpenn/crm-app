@@ -62,7 +62,8 @@ export function staffMayChange(status: ReimbursementStatus): boolean {
 }
 
 /** The amounts an Adjustment can change, as the Approver and the employee see them. */
-export type AdjustmentField = "mileage" | "tolls" | "parking";
+export const ADJUSTMENT_FIELDS = ["mileage", "tolls", "parking"] as const;
+export type AdjustmentField = (typeof ADJUSTMENT_FIELDS)[number];
 
 export const FIELD_LABEL: Record<AdjustmentField, string> = { mileage: "Mileage", tolls: "Tolls", parking: "Parking" };
 

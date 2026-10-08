@@ -10,7 +10,7 @@ import { notify, emailForUser } from "@/lib/notify";
 import { emailConfigured, sendEmail, type EmailAttachment } from "@/lib/email";
 import { isMissingTable } from "@/lib/storeHours";
 import { money } from "@/lib/payroll/paySheet";
-import { amountsBeforeAdjustments, reimbursementCents, type AmountField, type Amounts, type MileageRate } from "./money";
+import { amountsBeforeAdjustments, reimbursementCents, type Amounts, type MileageRate } from "./money";
 import {
   CATERING_EVENT_STAGES,
   EVENT_DEAL_COLUMNS,
@@ -96,7 +96,7 @@ export type WithAmounts = ReimbursementRow & {
   amounts: Amounts;
   adjustments: AdjustmentRow[];
   /** The amounts before the Adjustments that still stand, shown old -> new (ruling 40); null when none. */
-  before_adjustments: { before: Amounts; adjusted: AmountField[] } | null;
+  before_adjustments: { before: Amounts; adjusted: AdjustmentField[] } | null;
 };
 
 type Db = SupabaseClient;

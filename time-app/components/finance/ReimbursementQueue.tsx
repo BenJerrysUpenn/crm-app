@@ -14,17 +14,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DecidedItem, QueueItem } from "@/lib/reimbursements/load";
-import { DECIDED_SHOWN } from "@/lib/reimbursements/lifecycle";
+import { ADJUSTMENT_FIELDS, DECIDED_SHOWN, FIELD_LABEL, type AdjustmentField } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
-import { approveRefusal, currentFieldCents, dollarsText, type AmountField } from "@/lib/reimbursements/money";
+import { approveRefusal, currentFieldCents, dollarsText } from "@/lib/reimbursements/money";
 import { money } from "@/lib/payroll/paySheet";
 import { ReimbursementDetail, StatusBadge, BUTTON, PRIMARY, INPUT, uploadFile } from "@/components/reimbursements/shared";
 
 const fileHref = (path: string) => `/api/payroll/reimbursements/file?path=${encodeURIComponent(path)}`;
 
 type Panel = { id: number; kind: "reject" | "adjust" } | null;
-
-const FIELD_NAME: Record<AmountField, string> = { mileage: "Mileage", tolls: "Tolls", parking: "Parking" };
 
 /** Who took it off the queue and when, e.g. "Rejected by Sophia Manager on 2026-10-08: Which store?". */
 function decisionLine(d: DecidedItem): string {
@@ -50,7 +48,7 @@ export default function ReimbursementQueue({
   const [busy, setBusy] = useState<number | null>(null);
   const [msg, setMsg] = useState<{ id: number; text: string; error: boolean } | null>(null);
   const [reason, setReason] = useState("");
-  const [field, setField] = useState<"mileage" | "tolls" | "parking">("mileage");
+  const [field, setField] = useState<AdjustmentField>("mileage");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [evidence, setEvidence] = useState<File | null>(null);
@@ -66,7 +64,7 @@ export default function ReimbursementQueue({
   }
 
   /** The Adjust panel's amount follows the field picked: what it is now (ruling 43). */
-  function pickField(item: QueueItem, f: AmountField) {
+  function pickField(item: QueueItem, f: AdjustmentField) {
     setField(f);
     setAmount(dollarsText(currentFieldCents(item.amounts, f)));
   }
@@ -177,10 +175,12 @@ export default function ReimbursementQueue({
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-sm text-slate-700 dark:text-slate-300">
                 Amount
-                <select value={field} onChange={(e) => pickField(item, e.target.value as AmountField)} className={INPUT}>
-                  <option value="mileage">Mileage</option>
-                  <option value="tolls">Tolls</option>
-                  <option value="parking">Parking</option>
+                <select value={field} onChange={(e) => pickField(item, e.target.value as AdjustmentField)} className={INPUT}>
+                  {ADJUSTMENT_FIELDS.map((f) => (
+                    <option key={f} value={f}>
+                      {FIELD_LABEL[f]}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="block text-sm text-slate-700 dark:text-slate-300">
@@ -189,7 +189,7 @@ export default function ReimbursementQueue({
               </label>
             </div>
             <div className="text-sm text-slate-600 dark:text-slate-400">
-              {FIELD_NAME[field]} now: {money(currentFieldCents(item.amounts, field))}
+              {FIELD_LABEL[field]} now: {money(currentFieldCents(item.amounts, field))}
             </div>
             <label className="block text-sm text-slate-700 dark:text-slate-300">
               Note (one line, the staff member sees it)

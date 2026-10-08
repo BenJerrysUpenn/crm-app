@@ -16,6 +16,8 @@
 //
 // Pure and dependency-free, so `node --test` runs it and the browser can use it.
 
+import type { AdjustmentField } from "./lifecycle.ts";
+
 export type MileageRate = {
   /** First trip date the rate applies to. YYYY-MM-DD. */
   starts_on: string;
@@ -122,10 +124,8 @@ export function sumMiles(legs: number[]): number {
 
 // ---------- Adjustments and approval, as the Approver and staff see them -------------------
 
-export type AmountField = "mileage" | "tolls" | "parking";
-
 /** What an Adjustment records, as far as the amounts go. */
-export type AdjustmentAmounts = { field: AmountField; old_cents: number; new_cents: number; adjusted_at: string };
+export type AdjustmentAmounts = { field: AdjustmentField; old_cents: number; new_cents: number; adjusted_at: string };
 
 /**
  * The amounts as they were before any Adjustment that still stands, so an
@@ -139,11 +139,11 @@ export function amountsBeforeAdjustments(
   r: Priceable,
   adjustments: AdjustmentAmounts[],
   rates: MileageRate[],
-): { before: Amounts; adjusted: AmountField[] } | null {
-  const of = (field: AmountField) => adjustments.filter((a) => a.field === field).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
-  const adjusted: AmountField[] = [];
+): { before: Amounts; adjusted: AdjustmentField[] } | null {
+  const of = (field: AdjustmentField) => adjustments.filter((a) => a.field === field).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
+  const adjusted: AdjustmentField[] = [];
   if (r.mileage_cents_override != null && of("mileage").length) adjusted.push("mileage");
-  const firstOld = (field: "tolls" | "parking", now: number): number => {
+  const firstOld = (field: Exclude<AdjustmentField, "mileage">, now: number): number => {
     const list = of(field);
     if (!list.length || list[list.length - 1].new_cents !== now) return now;
     adjusted.push(field);
@@ -167,7 +167,7 @@ export function approveRefusal(amounts: Pick<Amounts, "total_cents">, tripDate: 
 }
 
 /** One amount as it stands, for the Adjust panel (ruling 43). Null: Mileage with no rate. */
-export function currentFieldCents(amounts: Amounts, field: AmountField): number | null {
+export function currentFieldCents(amounts: Amounts, field: AdjustmentField): number | null {
   return field === "mileage" ? amounts.mileage_cents : field === "tolls" ? amounts.tolls_cents : amounts.parking_cents;
 }
 
