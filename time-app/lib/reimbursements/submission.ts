@@ -4,9 +4,10 @@
 //   * Reason: Groceries / errands, which needs a "what for / where" note
 //     (ruling 12), or a Catering Event picked from the list (16, 17).
 //   * Trip date: a real day, not in the future. No pay-period limit (11).
-//   * Mileage: typed miles, or destinations: stops after the store, "return
-//     to start" on unless turned off (14). Destination miles are computed on
-//     the server (lib/reimbursements/routeMiles.ts), never taken from the browser.
+//   * Mileage: typed miles, or destinations: the stops, with "Start at the
+//     store" and "End at the store" each on unless turned off, two points at
+//     least (14, 45). Destination miles are computed on the server
+//     (lib/reimbursements/routeMiles.ts), never taken from the browser.
 //   * Tolls and parking: optional amounts on any Reason (3, 4, 8).
 //   * Receipts: the staff member's own uploads. Tolls or parking with no
 //     Receipt needs "Are you sure there is no receipt?" answered yes (9).
@@ -15,7 +16,7 @@
 
 import { isISODate } from "../holidays.ts";
 import { centsFromDollars, milesFromInput } from "./money.ts";
-import { cleanStops } from "./routeMiles.ts";
+import { cleanRoute } from "./routeMiles.ts";
 import type { ReasonKind } from "./events.ts";
 
 export const CONFIRM_NO_RECEIPT = "Are you sure there is no receipt?";
@@ -30,7 +31,9 @@ export type ReimbursementValue = ReasonValue & {
   /** Typed miles; null in destinations mode until the server computes them. */
   miles: number | null;
   stops: string[] | null;
-  return_to_start: boolean | null;
+  /** Destinations mode's checkboxes; null when the miles are typed. */
+  start_at_store: boolean | null;
+  end_at_store: boolean | null;
   tolls_cents: number;
   parking_cents: number;
   receipt_paths: string[];
@@ -87,15 +90,16 @@ export function parseReimbursement(body: unknown, ctx: Ctx): Parsed<Reimbursemen
   if (!trip.ok) return trip;
 
   const m = obj(b.mileage);
-  let mileage: Pick<ReimbursementValue, "mileage_mode" | "miles" | "stops" | "return_to_start">;
+  let mileage: Pick<ReimbursementValue, "mileage_mode" | "miles" | "stops" | "start_at_store" | "end_at_store">;
   if (m.mode === "destinations") {
-    const stops = cleanStops(m.stops);
+    const ends = { start_at_store: m.start_at_store !== false, end_at_store: m.end_at_store !== false };
+    const stops = cleanRoute(m.stops, ends);
     if (!stops.ok) return stops;
-    mileage = { mileage_mode: "destinations", miles: null, stops: stops.stops, return_to_start: m.return_to_start !== false };
+    mileage = { mileage_mode: "destinations", miles: null, stops: stops.stops, ...ends };
   } else if (m.mode === "typed") {
     const miles = milesFromInput(m.miles === "" || m.miles == null ? "0" : m.miles);
     if (miles == null) return { ok: false, error: "Type the miles as a number, one decimal place at most (e.g. 12.3)." };
-    mileage = { mileage_mode: "typed", miles, stops: null, return_to_start: null };
+    mileage = { mileage_mode: "typed", miles, stops: null, start_at_store: null, end_at_store: null };
   } else {
     return { ok: false, error: "Say how the miles are given: typed, or from destinations." };
   }

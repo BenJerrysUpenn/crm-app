@@ -12,8 +12,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  LEFT_QUEUE,
   approverAction,
   approversToNotify,
+  decisionOf,
   isApprover,
   isOwner,
   mayDecide,
@@ -155,4 +157,16 @@ test("status labels are the glossary's words", () => {
     paid: "Paid",
     paid_outside_payroll: "Paid outside payroll",
   });
+});
+
+test("what leaves the Approver queue, and who decided it when (ruling 41)", () => {
+  assert.deepEqual(LEFT_QUEUE, ["rejected", "paid", "paid_outside_payroll"], "Approved stays: it is listed until Paid");
+  const r = { decided_by: "sophia", decided_at: "2026-10-08T14:00:00Z", paid_by: null, paid_on: null, rejection_reason: "Which store?" };
+  assert.deepEqual(decisionOf({ ...r, status: "rejected" }), { by: "sophia", at: "2026-10-08T14:00:00Z", reason: "Which store?" });
+  assert.deepEqual(
+    decisionOf({ ...r, status: "paid_outside_payroll", paid_by: "alina", paid_on: "2026-10-09", rejection_reason: null }),
+    { by: "alina", at: "2026-10-09", reason: null },
+  );
+  // Paid by payroll: no one person; the pay date.
+  assert.deepEqual(decisionOf({ ...r, status: "paid", paid_on: "2026-10-10", rejection_reason: null }), { by: null, at: "2026-10-10", reason: null });
 });

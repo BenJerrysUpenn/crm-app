@@ -31,7 +31,8 @@ test("typed miles for errands, with the note", () => {
       mileage_mode: "typed",
       miles: 12.3,
       stops: null,
-      return_to_start: null,
+      start_at_store: null,
+      end_at_store: null,
       tolls_cents: 0,
       parking_cents: 0,
       receipt_paths: [],
@@ -63,15 +64,27 @@ test("the trip date is a real day, not in the future", () => {
   assert.equal(parseReimbursement({ ...typed, trip_date: "2026-03-02" }, ctx).ok, true);
 });
 
-test("destinations mode: stops, and return to start on unless turned off", () => {
+test("destinations mode: stops, with Start and End at the store each on unless turned off", () => {
   const on = parseReimbursement({ ...typed, mileage: { mode: "destinations", stops: [" Venue ", ""] } }, ctx);
   assert.equal(on.ok && on.value.mileage_mode, "destinations");
   assert.deepEqual(on.ok && on.value.stops, ["Venue"]);
-  assert.equal(on.ok && on.value.return_to_start, true);
+  assert.equal(on.ok && on.value.start_at_store, true);
+  assert.equal(on.ok && on.value.end_at_store, true);
   assert.equal(on.ok && on.value.miles, null, "the server computes the miles");
-  const off = parseReimbursement({ ...typed, mileage: { mode: "destinations", stops: ["Venue"], return_to_start: false } }, ctx);
-  assert.equal(off.ok && off.value.return_to_start, false);
+  const noEnd = parseReimbursement({ ...typed, mileage: { mode: "destinations", stops: ["Venue"], end_at_store: false } }, ctx);
+  assert.equal(noEnd.ok && noEnd.value.end_at_store, false);
+  assert.equal(noEnd.ok && noEnd.value.start_at_store, true);
+  const noStart = parseReimbursement({ ...typed, mileage: { mode: "destinations", stops: ["Restaurant Depot"], start_at_store: false } }, ctx);
+  assert.equal(noStart.ok && noStart.value.start_at_store, false);
+  assert.equal(noStart.ok && noStart.value.end_at_store, true);
   assert.equal(parseReimbursement({ ...typed, mileage: { mode: "destinations", stops: [] } }, ctx).ok, false);
+});
+
+test("destinations mode: with neither end at the store, two stops at least", () => {
+  const one = parseReimbursement({ ...typed, mileage: { mode: "destinations", stops: ["A"], start_at_store: false, end_at_store: false } }, ctx);
+  assert.equal(one.ok, false);
+  const two = parseReimbursement({ ...typed, mileage: { mode: "destinations", stops: ["A", "B"], start_at_store: false, end_at_store: false } }, ctx);
+  assert.equal(two.ok, true);
 });
 
 test("tolls and parking are optional amounts on any Reason", () => {

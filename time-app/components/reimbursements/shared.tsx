@@ -1,14 +1,17 @@
 "use client";
 
 // Pieces both Reimbursements pages use (bj-finance #210): uploading a file to
-// the private bucket through a signed URL, the status badge, and one
-// reimbursement's money laid out the same way for staff and Approvers.
+// the private bucket through a signed URL, a preview of what was picked, the
+// status badge, and one reimbursement's money laid out the same way for staff
+// and Approvers, an adjusted amount reading old -> new (ruling 40).
 
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { money } from "@/lib/payroll/paySheet";
 import { FIELD_LABEL, STATUS_LABEL, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { BUCKET, CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
+import { routeText } from "@/lib/reimbursements/routeMiles";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 
 export const INPUT =
@@ -40,6 +43,59 @@ export async function uploadFile(endpoint: string, extra: Record<string, unknown
   return payload.path as string;
 }
 
+/** A file picked in the form: its name, size and type, and a local URL to show it. */
+export type PickedFile = { path: string; name: string; size: number | null; type: string; url: string | null };
+
+function sizeText(bytes: number | null): string {
+  if (bytes == null) return "";
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FileThumb({ f }: { f: PickedFile }) {
+  const [broken, setBroken] = useState(false);
+  const box = "h-16 w-16 shrink-0 rounded-md border border-slate-300 dark:border-slate-700";
+  if (f.type.startsWith("image/") && f.url && !broken)
+    // A local blob URL or the signed file route: next/image cannot optimise either.
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={f.url} alt={f.name} onError={() => setBroken(true)} className={`${box} object-cover bg-slate-100 dark:bg-slate-800`} />;
+  return (
+    <div className={`${box} flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-xs font-semibold ${f.type === "application/pdf" ? "text-rose-700 dark:text-rose-400" : "text-slate-500"}`}>
+      {f.type === "application/pdf" ? "PDF" : "File"}
+    </div>
+  );
+}
+
+/**
+ * What was picked, before submitting (ruling 44): a thumbnail for a photo, a
+ * PDF badge otherwise (and for a photo the browser cannot show, e.g. HEIC on
+ * Chrome), with the file name and size, so staff can tell it is the right one.
+ */
+export function FilePreviews({ files, noun, onRemove }: { files: PickedFile[]; noun: string; onRemove: (path: string) => void }) {
+  if (!files.length) return null;
+  return (
+    <ul className="space-y-2">
+      {files.map((f, i) => (
+        <li key={f.path} className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-300">
+          {f.url ? (
+            <a href={f.url} target="_blank" rel="noreferrer" title="Open it">
+              <FileThumb f={f} />
+            </a>
+          ) : (
+            <FileThumb f={f} />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate">{f.name || `${noun} ${i + 1}`}</div>
+            {f.size != null && <div className="text-xs text-slate-500">{sizeText(f.size)}</div>}
+          </div>
+          <button type="button" className="text-xs underline" onClick={() => onRemove(f.path)}>
+            remove
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 const TONE: Record<ReimbursementStatus | "filed", string> = {
   submitted: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
   approved: "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300",
@@ -61,6 +117,14 @@ function rateText(rate: number | null): string {
   return rate == null ? "no Mileage rate" : `${Number.isInteger(rate) ? rate : rate.toFixed(1)}¢/mi`;
 }
 
+/** "$a" or, when that amount was adjusted, "$before → $now (adjusted)" (ruling 40). */
+function amountText(r: WithAmounts, field: "mileage" | "tolls" | "parking", now: number | null): string {
+  const b = r.before_adjustments;
+  if (!b || !b.adjusted.includes(field)) return money(now);
+  const before = field === "mileage" ? b.before.mileage_cents : field === "tolls" ? b.before.tolls_cents : b.before.parking_cents;
+  return `${money(before)} → ${money(now)} (adjusted)`;
+}
+
 /** Reason, trip date, Mileage, tolls, parking, total and Adjustments, as one block. */
 export function ReimbursementDetail({
   r,
@@ -74,6 +138,7 @@ export function ReimbursementDetail({
 }) {
   const a = r.amounts;
   const miles = Number(r.miles);
+  const adjusted = r.before_adjustments?.adjusted ?? [];
   return (
     <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
       <div className="font-medium text-slate-900 dark:text-slate-100">{reasonLabel(r)}</div>
@@ -81,15 +146,18 @@ export function ReimbursementDetail({
       {(miles > 0 || r.mileage_cents_override != null) && (
         <div>
           Mileage: {miles.toFixed(1)} mi
-          {r.mileage_mode === "destinations" && r.stops?.length ? ` (store → ${r.stops.join(" → ")}${r.return_to_start ? " → store" : ""})` : ""}
+          {r.mileage_mode === "destinations" && r.stops?.length
+            ? ` (${routeText(r.stops, { start_at_store: r.start_at_store !== false, end_at_store: r.end_at_store !== false })})`
+            : ""}
           {" × "}
-          {rateText(a.rate)} = {money(a.mileage_cents)}
-          {r.mileage_cents_override != null && " (adjusted)"}
+          {rateText(a.rate)} = {amountText(r, "mileage", a.mileage_cents)}
         </div>
       )}
-      {a.tolls_cents > 0 && <div>Tolls: {money(a.tolls_cents)}</div>}
-      {a.parking_cents > 0 && <div>Parking: {money(a.parking_cents)}</div>}
-      <div className="font-medium text-slate-900 dark:text-slate-100">Total {money(a.total_cents)}</div>
+      {(a.tolls_cents > 0 || adjusted.includes("tolls")) && <div>Tolls: {amountText(r, "tolls", a.tolls_cents)}</div>}
+      {(a.parking_cents > 0 || adjusted.includes("parking")) && <div>Parking: {amountText(r, "parking", a.parking_cents)}</div>}
+      <div className="font-medium text-slate-900 dark:text-slate-100">
+        Total {r.before_adjustments ? `${money(r.before_adjustments.before.total_cents)} → ${money(a.total_cents)}` : money(a.total_cents)}
+      </div>
       {r.receipt_paths.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {r.receipt_paths.map((p, i) => (

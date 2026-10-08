@@ -6,20 +6,23 @@
 //               Catering Event picked from the last 365 days (date, start time,
 //               venue/company, address; searchable).
 //   Trip date   defaults to the Catering Event's date.
-//   How         Personal car: Mileage (typed, or destinations from the store
-//               with "Return to start" on), optional tolls and parking, and
-//               Receipts. Lyft: Lyft ride report screenshots only; Filed at
-//               once and nothing is paid back.
+//   How         Personal car: Mileage (typed, or destinations with "Start
+//               at the store" and "End at the store" each on by default),
+//               optional tolls and parking, and Receipts. Lyft: Lyft ride
+//               report screenshots only; Filed at once and nothing is paid back.
+//   Files       each upload shows a preview (thumbnail, or PDF badge, with
+//               name and size) before submitting (ruling 44).
 //
 // The server checks everything again and computes destination miles itself.
 
 import { useEffect, useMemo, useState } from "react";
 import { money } from "@/lib/payroll/paySheet";
 import { centsFromDollars, milesFromInput, reimbursementCents, type MileageRate } from "@/lib/reimbursements/money";
-import { STORE_ADDRESS } from "@/lib/reimbursements/routeMiles";
+import { placeLabel } from "@/lib/reimbursements/routeMiles";
 import type { ReasonKind } from "@/lib/reimbursements/events";
 import type { WithAmounts } from "@/lib/reimbursements/server";
-import { BUTTON, INPUT, PRIMARY, uploadFile } from "./shared";
+import { CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
+import { BUTTON, FilePreviews, INPUT, PRIMARY, uploadFile, type PickedFile } from "./shared";
 
 type PickedEvent = { id: number; date: string; label: string; address: string | null };
 
@@ -27,6 +30,12 @@ const CONFIRM_NO_RECEIPT = "Are you sure there is no receipt?";
 
 function centsText(cents: number): string {
   return cents ? (cents / 100).toFixed(2) : "";
+}
+
+/** A file already on the reimbursement being edited: only its path is known. */
+function savedFile(path: string, i: number): PickedFile {
+  const ext = (path.split(".").pop() ?? "").toLowerCase();
+  return { path, name: `Receipt ${i + 1} (uploaded before)`, size: null, type: CONTENT_TYPE_BY_EXT[ext] ?? "", url: `/api/reimbursements/file?path=${encodeURIComponent(path)}` };
 }
 
 export default function ReimbursementForm({
@@ -57,14 +66,17 @@ export default function ReimbursementForm({
   const [mileageMode, setMileageMode] = useState<"typed" | "destinations">(editing?.mileage_mode ?? "typed");
   const [miles, setMiles] = useState(editing && editing.mileage_mode === "typed" ? String(Number(editing.miles)) : "");
   const [stops, setStops] = useState<string[]>(editing?.stops?.length ? editing.stops : [""]);
-  const [returnToStart, setReturnToStart] = useState(editing?.return_to_start ?? true);
+  const [startAtStore, setStartAtStore] = useState(editing?.start_at_store ?? true);
+  const [endAtStore, setEndAtStore] = useState(editing?.end_at_store ?? true);
   const [route, setRoute] = useState<{ miles: number; legs: { from: string; to: string; miles: number }[] } | null>(
     editing?.route_legs ? { miles: Number(editing.miles), legs: editing.route_legs } : null,
   );
   const [tolls, setTolls] = useState(centsText(editing?.tolls_cents ?? 0));
   const [parking, setParking] = useState(centsText(editing?.parking_cents ?? 0));
-  const [receipts, setReceipts] = useState<string[]>(editing?.receipt_paths ?? []);
-  const [shots, setShots] = useState<string[]>([]);
+  const [receiptFiles, setReceiptFiles] = useState<PickedFile[]>((editing?.receipt_paths ?? []).map(savedFile));
+  const [shotFiles, setShotFiles] = useState<PickedFile[]>([]);
+  const receipts = receiptFiles.map((f) => f.path);
+  const shots = shotFiles.map((f) => f.path);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -75,7 +87,15 @@ export default function ReimbursementForm({
     const t = setTimeout(async () => {
       const res = await fetch(`/api/reimbursements/events?q=${encodeURIComponent(query)}`);
       const payload = await res.json().catch(() => ({}));
-      if (!stale) setResults(res.ok ? payload.events : []);
+      if (stale) return;
+      const list: PickedEvent[] = res.ok ? payload.events : [];
+      setResults(list);
+      // Editing keeps only the Catering Event's id and label: take its venue
+      // address from the list, so destinations mode can pre-fill it (ruling 46).
+      setEvent((prev) => {
+        const address = prev && prev.address == null ? list.find((e) => e.id === prev.id)?.address : null;
+        return prev && address ? { ...prev, address } : prev;
+      });
     }, 250);
     return () => {
       stale = true;
@@ -108,9 +128,13 @@ export default function ReimbursementForm({
     setErr(null);
     setBusy("Uploading…");
     try {
-      const paths: string[] = [];
-      for (const f of Array.from(files)) paths.push(await uploadFile("/api/reimbursements/upload-url", { kind }, f));
-      (kind === "receipts" ? setReceipts : setShots)((prev) => [...prev, ...paths]);
+      const picked: PickedFile[] = [];
+      for (const f of Array.from(files)) {
+        const path = await uploadFile("/api/reimbursements/upload-url", { kind }, f);
+        const ext = (f.name.split(".").pop() ?? "").toLowerCase();
+        picked.push({ path, name: f.name, size: f.size, type: f.type || CONTENT_TYPE_BY_EXT[ext] || "", url: URL.createObjectURL(f) });
+      }
+      (kind === "receipts" ? setReceiptFiles : setShotFiles)((prev) => [...prev, ...picked]);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -124,7 +148,7 @@ export default function ReimbursementForm({
     const res = await fetch("/api/reimbursements/route-miles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stops, return_to_start: returnToStart }),
+      body: JSON.stringify({ stops, start_at_store: startAtStore, end_at_store: endAtStore }),
     });
     const payload = await res.json().catch(() => ({}));
     setBusy(null);
@@ -160,7 +184,7 @@ export default function ReimbursementForm({
     const body = {
       reason: reasonBody(),
       trip_date: tripDate,
-      mileage: mileageMode === "typed" ? { mode: "typed", miles } : { mode: "destinations", stops, return_to_start: returnToStart },
+      mileage: mileageMode === "typed" ? { mode: "typed", miles } : { mode: "destinations", stops, start_at_store: startAtStore, end_at_store: endAtStore },
       tolls,
       parking,
       receipt_paths: receipts,
@@ -264,7 +288,7 @@ export default function ReimbursementForm({
             Upload the Lyft ride report screenshot. Nothing is paid back: the ride was on the company card. It is filed and sent to receipts@ straight away.
           </p>
           <input type="file" accept="image/*,application/pdf" multiple onChange={(e) => addFiles(e.target.files, "lyft")} className="text-sm" />
-          {shots.length > 0 && <div className="text-sm text-slate-700 dark:text-slate-300">{shots.length} screenshot{shots.length === 1 ? "" : "s"} uploaded</div>}
+          <FilePreviews files={shotFiles} noun="Screenshot" onRemove={(p) => setShotFiles(shotFiles.filter((f) => f.path !== p))} />
         </div>
       ) : (
         <>
@@ -290,7 +314,14 @@ export default function ReimbursementForm({
               <input inputMode="decimal" value={miles} onChange={(e) => setMiles(e.target.value)} placeholder="Miles, e.g. 12.3" className={INPUT} />
             ) : (
               <div className="space-y-2 text-sm">
-                <div className="text-slate-600 dark:text-slate-400">Starts at the store, {STORE_ADDRESS}</div>
+                <label className="flex items-center gap-2 text-slate-800 dark:text-slate-200">
+                  <input type="checkbox" checked={startAtStore} onChange={(e) => { setStartAtStore(e.target.checked); setRoute(null); }} /> Start at the store
+                </label>
+                {!startAtStore && (
+                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                    The trip starts at the first stop. E.g. home → Restaurant Depot → store: enter Restaurant Depot first, and only Restaurant Depot → store is paid.
+                  </div>
+                )}
                 {stops.map((s, i) => (
                   <div key={i} className="flex gap-2">
                     <input
@@ -299,7 +330,7 @@ export default function ReimbursementForm({
                         setStops(stops.map((x, j) => (j === i ? e.target.value : x)));
                         setRoute(null);
                       }}
-                      placeholder={`Stop ${i + 1} address`}
+                      placeholder={i === 0 && !startAtStore ? "Stop 1 address (the trip starts here)" : `Stop ${i + 1} address`}
                       className={INPUT}
                     />
                     {stops.length > 1 && (
@@ -314,7 +345,7 @@ export default function ReimbursementForm({
                     Add stop
                   </button>
                   <label className="flex items-center gap-2 text-slate-800 dark:text-slate-200">
-                    <input type="checkbox" checked={returnToStart} onChange={(e) => { setReturnToStart(e.target.checked); setRoute(null); }} /> Return to start
+                    <input type="checkbox" checked={endAtStore} onChange={(e) => { setEndAtStore(e.target.checked); setRoute(null); }} /> End at the store
                   </label>
                   <button type="button" className={BUTTON} onClick={computeMiles} disabled={!!busy}>
                     Compute miles
@@ -324,7 +355,7 @@ export default function ReimbursementForm({
                   <div className="text-slate-700 dark:text-slate-300">
                     {route.legs.map((l, i) => (
                       <div key={i} className="text-xs">
-                        {l.from} → {l.to}: {l.miles.toFixed(1)} mi
+                        {placeLabel(l.from)} → {placeLabel(l.to)}: {l.miles.toFixed(1)} mi
                       </div>
                     ))}
                     <div className="font-medium">{route.miles.toFixed(1)} mi</div>
@@ -348,18 +379,7 @@ export default function ReimbursementForm({
           <div className="space-y-1">
             <div className="text-sm text-slate-700 dark:text-slate-300">Receipts (photos or PDF)</div>
             <input type="file" accept="image/*,application/pdf" multiple onChange={(e) => addFiles(e.target.files, "receipts")} className="text-sm" />
-            {receipts.length > 0 && (
-              <ul className="text-sm text-slate-700 dark:text-slate-300">
-                {receipts.map((p, i) => (
-                  <li key={p} className="flex items-center gap-2">
-                    Receipt {i + 1}
-                    <button type="button" className="text-xs underline" onClick={() => setReceipts(receipts.filter((x) => x !== p))}>
-                      remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <FilePreviews files={receiptFiles} noun="Receipt" onRemove={(p) => setReceiptFiles(receiptFiles.filter((f) => f.path !== p))} />
           </div>
 
           <div className="text-sm text-slate-700 dark:text-slate-300">

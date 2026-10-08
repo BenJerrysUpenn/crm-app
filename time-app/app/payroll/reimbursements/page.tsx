@@ -22,7 +22,7 @@ export default async function ReimbursementsQueuePage() {
   return (
     <FinanceShell tab="reimbursements" profile={viewer.profile} timeHref={viewer.timeHref}>
       {queue.ok ? (
-        <ReimbursementQueue submitted={queue.submitted} approved={queue.approved} viewerIsOwner={isOwner(viewer.profile)} />
+        <ReimbursementQueue submitted={queue.submitted} approved={queue.approved} decided={queue.decided} viewerIsOwner={isOwner(viewer.profile)} />
       ) : (
         <div className="text-sm text-slate-600 dark:text-slate-400">Reimbursements are not available yet: {queue.error}</div>
       )}

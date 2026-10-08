@@ -1,4 +1,5 @@
 import { approverAction, type ApproverAction } from "@/lib/reimbursements/lifecycle";
+import { approveRefusal } from "@/lib/reimbursements/money";
 import { approverContext } from "@/lib/reimbursements/approverRoute";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { emailReceiptsOnApproval, notifyEmployee, todayNY, withAmounts, type ReimbursementRow } from "@/lib/reimbursements/server";
@@ -18,7 +19,8 @@ const MAX_REASON = 500;
 //
 // An Approver decides a Travel Reimbursement (bj-finance #210):
 //   approve               Submitted -> Approved. Its Receipts go to receipts@ now (30).
-//                         No notice to the employee (25).
+//                         No notice to the employee (25). Refused with no
+//                         Mileage rate for the trip date: no total (42).
 //   reject                Submitted -> Rejected, with a reason the employee is told.
 //   send_back             Approved -> Submitted, until it is Paid (20).
 //   paid_outside_payroll  an owner's Approved one, by an owner, paid today (18).
@@ -38,6 +40,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const step = approverAction(action, row.status, { subject, actor: me });
   if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.forbidden ? 403 : 409 });
+  const noTotal = action === "approve" ? approveRefusal(row.amounts, row.trip_date) : null;
+  if (noTotal) return NextResponse.json({ error: noTotal }, { status: 409 });
 
   const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, MAX_REASON) : "";
   if (action === "reject" && !reason) return NextResponse.json({ error: "Say why it is rejected, so they can fix it." }, { status: 400 });

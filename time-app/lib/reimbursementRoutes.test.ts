@@ -43,7 +43,7 @@ const errands = {
 function row(over: Record<string, unknown> = {}) {
   return {
     id: 1, profile_id: DONTE, reason_kind: "errands", deal_id: null, event_label: null, event_date: null,
-    reason_note: "Depot", trip_date: YESTERDAY, mileage_mode: "typed", miles: 10, stops: null, return_to_start: null,
+    reason_note: "Depot", trip_date: YESTERDAY, mileage_mode: "typed", miles: 10, stops: null, start_at_store: null, end_at_store: null,
     route_legs: null, tolls_cents: 0, parking_cents: 0, mileage_cents_override: null, receipt_paths: [],
     no_receipt_confirmed: false, status: "submitted", rejection_reason: null, decided_by: null, decided_at: null,
     paid_on: null, paid_by: null, receipts_emailed_at: null, submitted_at: "2026-10-01T00:00:00Z",
@@ -206,7 +206,8 @@ test("submit: destinations mode computes the miles on the server, from the store
   assert.equal(r.mileage_mode, "destinations");
   assert.equal(r.miles, 4, "two legs of 2.04 mi, each rounded to 2.0");
   assert.deepEqual(r.stops, ["Restaurant Depot"]);
-  assert.equal(r.return_to_start, true);
+  assert.equal(r.start_at_store, true);
+  assert.equal(r.end_at_store, true);
   assert.equal((r.route_legs as unknown[]).length, 2);
   const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
   assert.deepEqual(google?.body.destination, { address: "218 S 40th St, Philadelphia, PA 19104" });
@@ -223,13 +224,40 @@ test("submit: destinations mode when Google cannot route the trip is refused, wi
   assert.equal(db.rows("notifications").length, 0);
 });
 
+test("submit: Start at the store off pays only from the first stop (home -> Depot -> store is Depot -> store)", async () => {
+  process.env.GOOGLE_MAPS_API_KEY = "maps-key";
+  db.signIn(DONTE);
+  const res = await create.POST(req("POST", { ...errands, mileage: { mode: "destinations", stops: ["Restaurant Depot"], start_at_store: false } }));
+  assert.equal(res.status, 200);
+  const [r] = db.rows("travel_reimbursements");
+  assert.equal(r.miles, 2, "one leg of 2.04 mi");
+  assert.equal(r.start_at_store, false);
+  assert.equal(r.end_at_store, true);
+  assert.deepEqual(r.route_legs, [{ from: "Restaurant Depot", to: "218 S 40th St, Philadelphia, PA 19104", miles: 2 }]);
+  const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
+  assert.deepEqual(google?.body.origin, { address: "Restaurant Depot" });
+});
+
+test("submit and route-miles: with neither end at the store, one stop is refused", async () => {
+  process.env.GOOGLE_MAPS_API_KEY = "maps-key";
+  db.signIn(DONTE);
+  const mileage = { mode: "destinations", stops: ["Restaurant Depot"], start_at_store: false, end_at_store: false };
+  assert.equal((await create.POST(req("POST", { ...errands, mileage }))).status, 400);
+  assert.equal(db.rows("travel_reimbursements").length, 0);
+  const preview = await routeMilesApi.POST(req("POST", { stops: ["Restaurant Depot"], start_at_store: false, end_at_store: false }));
+  assert.equal(preview.status, 400);
+  const two = await routeMilesApi.POST(req("POST", { stops: ["Home", "Restaurant Depot"], start_at_store: false, end_at_store: false }));
+  assert.equal(two.status, 200);
+  assert.deepEqual((await two.json()).legs, [{ from: "Home", to: "Restaurant Depot", miles: 2 }]);
+});
+
 test("route-miles: previews the computed miles; without a Maps key it says to type them", async () => {
   db.signIn(DONTE);
-  const none = await routeMilesApi.POST(req("POST", { stops: ["A"], return_to_start: true }));
+  const none = await routeMilesApi.POST(req("POST", { stops: ["A"] }));
   assert.equal(none.status, 400);
   assert.match((await none.json()).error, /Type the miles/);
   process.env.GOOGLE_MAPS_API_KEY = "maps-key";
-  const ok = await routeMilesApi.POST(req("POST", { stops: ["A"], return_to_start: false }));
+  const ok = await routeMilesApi.POST(req("POST", { stops: ["A"], end_at_store: false }));
   assert.equal(ok.status, 200);
   assert.equal((await ok.json()).miles, 2);
 });

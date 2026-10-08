@@ -119,3 +119,59 @@ export function legMiles(meters: number): number {
 export function sumMiles(legs: number[]): number {
   return Math.round(legs.reduce((s, m) => s + Math.round(m * 10), 0)) / 10;
 }
+
+// ---------- Adjustments and approval, as the Approver and staff see them -------------------
+
+export type AmountField = "mileage" | "tolls" | "parking";
+
+/** What an Adjustment records, as far as the amounts go. */
+export type AdjustmentAmounts = { field: AmountField; old_cents: number; new_cents: number; adjusted_at: string };
+
+/**
+ * The amounts as they were before any Adjustment that still stands, so an
+ * adjusted amount reads old -> new ("$16.72 -> $12.16 (adjusted)", ruling 40)
+ * rather than a sum that does not add up. Mileage before is the miles at the
+ * trip date's rate; tolls or parking before is the first Adjustment's old
+ * amount. An amount staff have retyped since (an edit drops a Mileage
+ * Adjustment, or replaces tolls) is not adjusted. Null when nothing is.
+ */
+export function amountsBeforeAdjustments(
+  r: Priceable,
+  adjustments: AdjustmentAmounts[],
+  rates: MileageRate[],
+): { before: Amounts; adjusted: AmountField[] } | null {
+  const of = (field: AmountField) => adjustments.filter((a) => a.field === field).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
+  const adjusted: AmountField[] = [];
+  if (r.mileage_cents_override != null && of("mileage").length) adjusted.push("mileage");
+  const firstOld = (field: "tolls" | "parking", now: number): number => {
+    const list = of(field);
+    if (!list.length || list[list.length - 1].new_cents !== now) return now;
+    adjusted.push(field);
+    return list[0].old_cents;
+  };
+  const tolls = firstOld("tolls", r.tolls_cents);
+  const parking = firstOld("parking", r.parking_cents);
+  if (!adjusted.length) return null;
+  return { before: reimbursementCents({ ...r, tolls_cents: tolls, parking_cents: parking, mileage_cents_override: null }, rates), adjusted };
+}
+
+/**
+ * Why a reimbursement cannot be approved, or null when it can: with no
+ * Mileage rate for its trip date it has no total (ruling 42). The decide
+ * route refuses the same.
+ */
+export function approveRefusal(amounts: Pick<Amounts, "total_cents">, tripDate: string): string | null {
+  return amounts.total_cents == null
+    ? `There is no Mileage rate for ${tripDate}, so it has no total and cannot be approved. Add the IRS rate for that date first.`
+    : null;
+}
+
+/** One amount as it stands, for the Adjust panel (ruling 43). Null: Mileage with no rate. */
+export function currentFieldCents(amounts: Amounts, field: AmountField): number | null {
+  return field === "mileage" ? amounts.mileage_cents : field === "tolls" ? amounts.tolls_cents : amounts.parking_cents;
+}
+
+/** Cents as an input's dollars, "16.72"; blank for none. centsFromDollars reads it back. */
+export function dollarsText(cents: number | null): string {
+  return cents == null ? "" : (cents / 100).toFixed(2);
+}

@@ -102,7 +102,10 @@ create table if not exists public.travel_reimbursements (
   mileage_mode           text        not null,
   miles                  numeric(6, 1) not null default 0,
   stops                  jsonb,
-  return_to_start        boolean,
+  -- Destinations mode's checkboxes (ruling 45): the trip starts at the store,
+  -- and ends at the store, unless turned off. Null when the miles are typed.
+  start_at_store         boolean,
+  end_at_store           boolean,
   route_legs             jsonb,
   tolls_cents            integer     not null default 0,
   parking_cents          integer     not null default 0,
@@ -144,7 +147,10 @@ alter table public.travel_reimbursements add constraint travel_reimbursements_mi
   check (mileage_mode in ('typed', 'destinations')
      and miles >= 0 and miles <= 2000
      and (mileage_mode <> 'destinations'
-          or (jsonb_typeof(stops) = 'array' and jsonb_array_length(stops) > 0 and return_to_start is not null)));
+          or (jsonb_typeof(stops) = 'array' and jsonb_array_length(stops) > 0
+              and start_at_store is not null and end_at_store is not null
+              -- Two points at least: with neither end at the store, two stops.
+              and jsonb_array_length(stops) + start_at_store::int + end_at_store::int >= 2)));
 
 alter table public.travel_reimbursements drop constraint if exists travel_reimbursements_amounts_check;
 alter table public.travel_reimbursements add constraint travel_reimbursements_amounts_check
@@ -376,11 +382,11 @@ begin
   elsif old.status = 'approved' then
     -- Approved is locked: only an Adjustment's amounts and the receipts@ stamp move.
     if (new.reason_kind, new.deal_id, new.event_label, new.event_date, new.reason_note, new.trip_date,
-        new.mileage_mode, new.miles, new.stops, new.return_to_start, new.route_legs, new.receipt_paths,
+        new.mileage_mode, new.miles, new.stops, new.start_at_store, new.end_at_store, new.route_legs, new.receipt_paths,
         new.no_receipt_confirmed)
        is distinct from
        (old.reason_kind, old.deal_id, old.event_label, old.event_date, old.reason_note, old.trip_date,
-        old.mileage_mode, old.miles, old.stops, old.return_to_start, old.route_legs, old.receipt_paths,
+        old.mileage_mode, old.miles, old.stops, old.start_at_store, old.end_at_store, old.route_legs, old.receipt_paths,
         old.no_receipt_confirmed) then
       raise exception 'An Approved Travel Reimbursement is locked. An Approver can send it back to Submitted first.';
     end if;

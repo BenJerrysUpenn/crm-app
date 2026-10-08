@@ -35,7 +35,7 @@ const ID = { params: { id: "1" } };
 function row(over: Record<string, unknown> = {}) {
   return {
     id: 1, profile_id: DONTE, reason_kind: "catering_event", deal_id: 501, event_label: "Sat Oct 3, 2026, 2:00 PM, Acme", event_date: "2026-10-03",
-    reason_note: null, trip_date: "2026-10-03", mileage_mode: "typed", miles: 10, stops: null, return_to_start: null,
+    reason_note: null, trip_date: "2026-10-03", mileage_mode: "typed", miles: 10, stops: null, start_at_store: null, end_at_store: null,
     route_legs: null, tolls_cents: 450, parking_cents: 800, mileage_cents_override: null, receipt_paths: [`${DONTE}/receipts/1-a.jpg`],
     no_receipt_confirmed: false, status: "submitted", rejection_reason: null, decided_by: null, decided_at: null,
     paid_on: null, paid_by: null, receipts_emailed_at: null, submitted_at: "2026-10-04T00:00:00Z",
@@ -154,6 +154,19 @@ test("another manager who is not an owner cannot approve, reject, send back or a
   assert.equal(r1().decided_by, OWNER);
 });
 
+test("approve: no Mileage rate for the trip date, so no total: refused, and it stays Submitted (ruling 42)", async () => {
+  db.tables.travel_reimbursements = [row({ trip_date: "2025-06-01" })];
+  db.signIn(OWNER);
+  const res = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal(res.status, 409);
+  assert.match((await res.json()).error, /no Mileage rate for 2025-06-01/);
+  assert.equal(r1().status, "submitted");
+  assert.equal(resendMails().length, 0);
+  // Reject still works; and once the Mileage is adjusted it has a total and can be approved.
+  db.tables.travel_reimbursements = [row({ trip_date: "2025-06-01", mileage_cents_override: 700 })];
+  assert.equal((await decide.POST(post({ action: "approve" }), ID)).status, 200);
+});
+
 test("a manager who is not an owner cannot decide their own; an owner decides it, and an owner may decide their own", async () => {
   db.tables.travel_reimbursements = [row({ profile_id: MANAGER }), row({ id: 2, profile_id: OWNER, receipt_paths: [] , no_receipt_confirmed: true })];
   db.signIn(MANAGER);
@@ -260,6 +273,11 @@ test("adjust: the mileage amount replaces the computed one at the trip date's ra
   assert.equal(r1().mileage_cents_override, 700);
   const [a] = db.rows("travel_reimbursement_adjustments");
   assert.equal(a.old_cents, 760);
+  // Shown old -> new: $7.60 -> $7.00 (ruling 40).
+  const { reimbursement } = await res.json();
+  assert.deepEqual(reimbursement.before_adjustments.adjusted, ["mileage"]);
+  assert.equal(reimbursement.before_adjustments.before.mileage_cents, 760);
+  assert.equal(reimbursement.amounts.mileage_cents, 700);
 });
 
 test("adjust: an Approved one can be adjusted; Paid or Rejected cannot; nor a non-owner manager's own", async () => {

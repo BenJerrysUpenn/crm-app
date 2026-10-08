@@ -114,6 +114,36 @@ export function approverAction(
   return { ok: true, to: action === "adjust" ? from : TO[action] };
 }
 
+/**
+ * The statuses that take a reimbursement off the Approver's queue. They are
+ * listed under Decided at the bottom of the tab, not out of sight (ruling 41).
+ * Approved stays on the queue until it is Paid.
+ */
+export const LEFT_QUEUE: ReimbursementStatus[] = ["rejected", "paid", "paid_outside_payroll"];
+
+/** How many of the latest Decided items the tab lists. */
+export const DECIDED_SHOWN = 50;
+
+export type DecisionFields = {
+  status: ReimbursementStatus;
+  decided_by: string | null;
+  decided_at: string | null;
+  paid_by: string | null;
+  paid_on: string | null;
+  rejection_reason: string | null;
+};
+
+/**
+ * Who took it off the queue, and when: Rejected by an Approver (with the
+ * reason); Paid outside payroll by an owner on the date paid; Paid by payroll
+ * (no one person) on the pay date.
+ */
+export function decisionOf(r: DecisionFields): { by: string | null; at: string | null; reason: string | null } {
+  if (r.status === "rejected") return { by: r.decided_by, at: r.decided_at, reason: r.rejection_reason };
+  if (r.status === "paid_outside_payroll") return { by: r.paid_by, at: r.paid_on, reason: null };
+  return { by: null, at: r.paid_on, reason: null };
+}
+
 /** May payroll mark this reimbursement Paid? Approved, and not an owner's (18, 22). */
 export function payrollMayMarkPaid(status: ReimbursementStatus, subject: Person): boolean {
   return status === "approved" && !isOwner(subject);

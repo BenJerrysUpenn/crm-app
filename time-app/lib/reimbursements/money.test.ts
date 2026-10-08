@@ -9,7 +9,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  amountsBeforeAdjustments,
+  approveRefusal,
   centsFromDollars,
+  currentFieldCents,
+  dollarsText,
   legMiles,
   mileageCents,
   milesFromInput,
@@ -120,4 +124,67 @@ test("legMiles: a route leg in meters, rounded to 0.1 mi half-up", () => {
   // 5.26 mi -> 5.3 ; 5.24 mi -> 5.2
   assert.equal(legMiles(5.26 * 1609.344), 5.3);
   assert.equal(legMiles(5.24 * 1609.344), 5.2);
+});
+
+// ---------- prototype review (rulings 40, 42, 43) -------------------------------------
+
+const RATES_2026: MileageRate[] = [
+  { starts_on: "2026-01-01", cents_per_mile: 72.5 },
+  { starts_on: "2026-07-01", cents_per_mile: 76 },
+];
+const base = { trip_date: "2026-08-01", miles: 22, tolls_cents: 400, parking_cents: 800, mileage_cents_override: null };
+const adj = (field: "mileage" | "tolls" | "parking", old_cents: number, new_cents: number, at: string) => ({ field, old_cents, new_cents, adjusted_at: at });
+
+test("amountsBeforeAdjustments: none, so nothing to show as old -> new", () => {
+  assert.equal(amountsBeforeAdjustments(base, [], RATES_2026), null);
+});
+
+test("amountsBeforeAdjustments: Mileage adjusted reads $16.72 -> $12.16, never a sum that does not add up (ruling 40)", () => {
+  const r = { ...base, mileage_cents_override: 1216 };
+  const b = amountsBeforeAdjustments(r, [adj("mileage", 1672, 1216, "2026-08-02T00:00:00Z")], RATES_2026)!;
+  assert.deepEqual(b.adjusted, ["mileage"]);
+  assert.equal(b.before.mileage_cents, 1672, "22.0 mi x 76c");
+  assert.equal(b.before.total_cents, 1672 + 400 + 800);
+  assert.equal(reimbursementCents(r, RATES_2026).mileage_cents, 1216);
+});
+
+test("amountsBeforeAdjustments: tolls or parking adjusted twice is old (first) -> new (now)", () => {
+  const r = { ...base, parking_cents: 300 };
+  const b = amountsBeforeAdjustments(
+    r,
+    [adj("parking", 500, 300, "2026-08-03T00:00:00Z"), adj("parking", 800, 500, "2026-08-02T00:00:00Z")],
+    RATES_2026,
+  )!;
+  assert.deepEqual(b.adjusted, ["parking"]);
+  assert.equal(b.before.parking_cents, 800);
+  assert.equal(b.before.mileage_cents, 1672);
+  assert.equal(b.before.total_cents, 1672 + 400 + 800);
+});
+
+test("amountsBeforeAdjustments: an amount staff changed since its Adjustment is not shown as adjusted", () => {
+  // Mileage override dropped by a staff edit; tolls retyped after an Adjustment.
+  const r = { ...base, tolls_cents: 900 };
+  const b = amountsBeforeAdjustments(r, [adj("mileage", 1672, 1216, "2026-08-02T00:00:00Z"), adj("tolls", 400, 200, "2026-08-02T00:00:00Z")], RATES_2026);
+  assert.equal(b, null);
+});
+
+test("approveRefusal: no Mileage rate for the trip date means no total, so no Approve (ruling 42)", () => {
+  const none = reimbursementCents({ ...base, trip_date: "2025-06-01" }, RATES_2026);
+  assert.match(approveRefusal(none, "2025-06-01") ?? "", /no Mileage rate for 2025-06-01/);
+  assert.equal(approveRefusal(reimbursementCents(base, RATES_2026), base.trip_date), null);
+  // An Adjustment to the Mileage gives it a total.
+  const adjusted = reimbursementCents({ ...base, trip_date: "2025-06-01", mileage_cents_override: 1000 }, RATES_2026);
+  assert.equal(approveRefusal(adjusted, "2025-06-01"), null);
+});
+
+test("currentFieldCents and dollarsText: the Adjust panel shows and pre-fills the current amount (ruling 43)", () => {
+  const a = reimbursementCents(base, RATES_2026);
+  assert.equal(currentFieldCents(a, "mileage"), 1672);
+  assert.equal(currentFieldCents(a, "tolls"), 400);
+  assert.equal(currentFieldCents(a, "parking"), 800);
+  assert.equal(currentFieldCents(reimbursementCents({ ...base, trip_date: "2025-06-01" }, RATES_2026), "mileage"), null);
+  assert.equal(dollarsText(1672), "16.72");
+  assert.equal(dollarsText(0), "0.00");
+  assert.equal(dollarsText(null), "");
+  assert.equal(centsFromDollars(dollarsText(1672)), 1672);
 });

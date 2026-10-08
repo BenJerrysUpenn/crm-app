@@ -82,8 +82,8 @@ begin
   insert into public.travel_reimbursements (profile_id, reason_kind, deal_id, event_label, trip_date, mileage_mode, miles, tolls_cents, parking_cents)
   values (emp, 'catering_event', 9001, 'Sat Oct 3, 2026, Acme', '2026-06-30', 'typed', 10.0, 450, 1200)
   returning id into v_id;
-  insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles, stops, return_to_start)
-  values (emp, 'errands', 'Restaurant Depot', '2026-07-01', 'destinations', 0.2, '["Restaurant Depot"]', true)
+  insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles, stops, start_at_store, end_at_store)
+  values (emp, 'errands', 'Restaurant Depot', '2026-07-01', 'destinations', 0.2, '["Restaurant Depot"]', false, true)
   returning id into v_id2;
 
   begin
@@ -117,6 +117,15 @@ begin
   exception when check_violation then refused := true;
   end;
   if not refused then raise exception 'a reimbursement with nothing to pay was accepted'; end if;
+
+  -- Destinations: two points at least. Neither end at the store needs two stops (ruling 45).
+  begin
+    insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles, stops, start_at_store, end_at_store)
+    values (emp, 'errands', 'x', '2026-07-01', 'destinations', 1, '["Restaurant Depot"]', false, false);
+    refused := false;
+  exception when check_violation then refused := true;
+  end;
+  if not refused then raise exception 'a one-point destinations trip was accepted'; end if;
   reset role;
 
   -- ---- 3. who reads -------------------------------------------------------------------------

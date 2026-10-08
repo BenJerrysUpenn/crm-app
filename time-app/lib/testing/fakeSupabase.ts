@@ -265,7 +265,7 @@ function represent(rows: Row[], headers: Headers, status: number): Response {
 const DEFAULTS: Record<string, () => Row> = {
   // Migration 37's column defaults.
   travel_reimbursements: () => ({
-    status: "submitted", stops: null, return_to_start: null, route_legs: null, tolls_cents: 0, parking_cents: 0,
+    status: "submitted", stops: null, start_at_store: null, end_at_store: null, route_legs: null, tolls_cents: 0, parking_cents: 0,
     mileage_cents_override: null, receipt_paths: [], no_receipt_confirmed: false, rejection_reason: null,
     decided_by: null, decided_at: null, paid_on: null, paid_by: null, receipts_emailed_at: null,
     deal_id: null, event_label: null, event_date: null, reason_note: null,

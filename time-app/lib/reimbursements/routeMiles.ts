@@ -1,7 +1,10 @@
-// Mileage from destinations (bj-finance #210, rulings 2, 14).
+// Mileage from destinations (bj-finance #210, rulings 2, 14, 45).
 //
-// The trip starts at the store, visits the stops in order and, unless the
-// staff member turns "Return to start" off, comes back to the store. Google's
+// The trip starts at the store unless the staff member turns "Start at the
+// store" off (then it starts at the first stop: home -> Restaurant Depot ->
+// store is entered as Restaurant Depot, then the store, and only that is
+// paid), visits the stops in order, and ends at the store unless "End at the
+// store" is off. With both off it is just the stops. Two points at least. Google's
 // Routes API (computeRoutes, DRIVE) gives each leg's driving distance in one
 // call; each leg is rounded to 0.1 mi half-up (lib/reimbursements/money.ts) and
 // the miles are their sum. The reference is catering-automations
@@ -19,6 +22,8 @@ export const MAX_STOPS = 10;
 const MAX_STOP_LENGTH = 300;
 
 export type Leg = { from: string; to: string; miles: number };
+/** The two checkboxes of destinations mode, both on by default. */
+export type RouteEnds = { start_at_store: boolean; end_at_store: boolean };
 export type RouteResult = { ok: true; miles: number; legs: Leg[] } | { ok: false; error: string };
 
 /** The stops as typed: trimmed, blanks dropped; at least one, at most MAX_STOPS. */
@@ -31,18 +36,38 @@ export function cleanStops(input: unknown): { ok: true; stops: string[] } | { ok
   return { ok: true, stops };
 }
 
-/** Every point of the trip, in order: the store, the stops, the store again if returning. */
-export function routePoints(stops: string[], returnToStart: boolean): string[] {
-  return [STORE_ADDRESS, ...stops, ...(returnToStart ? [STORE_ADDRESS] : [])];
+/** Every point of the trip, in order: the store if starting there, the stops, the store if ending there. */
+export function routePoints(stops: string[], ends: RouteEnds): string[] {
+  return [...(ends.start_at_store ? [STORE_ADDRESS] : []), ...stops, ...(ends.end_at_store ? [STORE_ADDRESS] : [])];
+}
+
+/** cleanStops, and the trip has at least two points: with neither end at the store, two stops. */
+export function cleanRoute(input: unknown, ends: RouteEnds): { ok: true; stops: string[] } | { ok: false; error: string } {
+  const stops = cleanStops(input);
+  if (!stops.ok) return stops;
+  if (routePoints(stops.stops, ends).length < 2)
+    return { ok: false, error: "Not starting or ending at the store: enter at least two stops, where you started and where you went." };
+  return stops;
+}
+
+/** The store as staff see it in legs and routes: "Store", not its address. */
+export function placeLabel(address: string): string {
+  return address === STORE_ADDRESS ? "Store" : address;
+}
+
+/** The trip as one line, e.g. "Store → Venue → Store". */
+export function routeText(stops: string[], ends: RouteEnds): string {
+  return routePoints(stops, ends).map(placeLabel).join(" → ");
 }
 
 export async function routeMiles(
   stops: string[],
-  returnToStart: boolean,
+  ends: RouteEnds,
   opts: { apiKey: string | undefined; fetchImpl?: typeof fetch },
 ): Promise<RouteResult> {
   if (!opts.apiKey) return { ok: false, error: "Computing miles from destinations is not set up yet (no Maps key). Type the miles instead." };
-  const points = routePoints(stops, returnToStart);
+  const points = routePoints(stops, ends);
+  if (points.length < 2) return { ok: false, error: "A trip needs at least two points." };
   const body: Record<string, unknown> = {
     origin: { address: points[0] },
     destination: { address: points[points.length - 1] },

@@ -10,7 +10,7 @@ import { notify, emailForUser } from "@/lib/notify";
 import { emailConfigured, sendEmail, type EmailAttachment } from "@/lib/email";
 import { isMissingTable } from "@/lib/storeHours";
 import { money } from "@/lib/payroll/paySheet";
-import { reimbursementCents, type Amounts, type MileageRate } from "./money";
+import { amountsBeforeAdjustments, reimbursementCents, type AmountField, type Amounts, type MileageRate } from "./money";
 import {
   CATERING_EVENT_STAGES,
   EVENT_DEAL_COLUMNS,
@@ -25,7 +25,7 @@ import {
 import { FIELD_LABEL, approversToNotify, type AdjustmentField, type Person, type ReimbursementStatus } from "./lifecycle";
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
 import { BUCKET, type ReasonValue, type ReimbursementValue } from "./submission";
-import { routeMiles, type RouteResult } from "./routeMiles";
+import { routeMiles, type RouteEnds, type RouteResult } from "./routeMiles";
 
 export const NEEDS_MIGRATION = "Travel Reimbursements need migration 37 in Supabase.";
 
@@ -45,7 +45,9 @@ export type ReimbursementRow = {
   mileage_mode: "typed" | "destinations";
   miles: number | string;
   stops: string[] | null;
-  return_to_start: boolean | null;
+  /** Destinations mode's checkboxes (ruling 45); null when the miles are typed. */
+  start_at_store: boolean | null;
+  end_at_store: boolean | null;
   route_legs: { from: string; to: string; miles: number }[] | null;
   tolls_cents: number;
   parking_cents: number;
@@ -90,7 +92,12 @@ export type LyftRow = {
   emailed_at: string | null;
 };
 
-export type WithAmounts = ReimbursementRow & { amounts: Amounts; adjustments: AdjustmentRow[] };
+export type WithAmounts = ReimbursementRow & {
+  amounts: Amounts;
+  adjustments: AdjustmentRow[];
+  /** The amounts before the Adjustments that still stand, shown old -> new (ruling 40); null when none. */
+  before_adjustments: { before: Amounts; adjusted: AmountField[] } | null;
+};
 
 type Db = SupabaseClient;
 
@@ -103,11 +110,10 @@ export async function loadRates(db: Db): Promise<{ ok: true; rates: MileageRate[
 
 /** Rows with their amounts at today's reading of the rates, and their Adjustments, oldest first. */
 export function withAmounts(rows: ReimbursementRow[], rates: MileageRate[], adjustments: AdjustmentRow[]): WithAmounts[] {
-  return rows.map((r) => ({
-    ...r,
-    amounts: reimbursementCents(r, rates),
-    adjustments: adjustments.filter((a) => a.reimbursement_id === r.id).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at)),
-  }));
+  return rows.map((r) => {
+    const own = adjustments.filter((a) => a.reimbursement_id === r.id).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
+    return { ...r, amounts: reimbursementCents(r, rates), adjustments: own, before_adjustments: amountsBeforeAdjustments(r, own, rates) };
+  });
 }
 
 // ---------- Catering Events (staff cannot read deals) ------------------------------
@@ -136,8 +142,8 @@ export async function findCateringEvent(dealId: number, today: string): Promise<
 // ---------- destination miles ------------------------------------------------------------
 
 /** GOOGLE_MAPS_API_KEY is server-only: it is never sent to a browser. */
-export function computeRouteMiles(stops: string[], returnToStart: boolean): Promise<RouteResult> {
-  return routeMiles(stops, returnToStart, { apiKey: process.env.GOOGLE_MAPS_API_KEY });
+export function computeRouteMiles(stops: string[], ends: RouteEnds): Promise<RouteResult> {
+  return routeMiles(stops, ends, { apiKey: process.env.GOOGLE_MAPS_API_KEY });
 }
 
 // ---------- notices ------------------------------------------------------------------------
@@ -228,7 +234,7 @@ export async function emailLyftRideReport(report: LyftRow, employee: string): Pr
 type ResolvedColumns = Pick<
   ReimbursementRow,
   | "reason_kind" | "deal_id" | "event_label" | "event_date" | "reason_note" | "trip_date" | "mileage_mode"
-  | "miles" | "stops" | "return_to_start" | "route_legs" | "tolls_cents" | "parking_cents" | "receipt_paths"
+  | "miles" | "stops" | "start_at_store" | "end_at_store" | "route_legs" | "tolls_cents" | "parking_cents" | "receipt_paths"
   | "no_receipt_confirmed"
 >;
 
@@ -260,7 +266,7 @@ export async function resolveSubmission(
   let miles = v.miles ?? 0;
   let legs: ReimbursementRow["route_legs"] = null;
   if (v.mileage_mode === "destinations") {
-    const route = await computeRouteMiles(v.stops!, v.return_to_start !== false);
+    const route = await computeRouteMiles(v.stops!, { start_at_store: v.start_at_store !== false, end_at_store: v.end_at_store !== false });
     if (!route.ok) return route;
     miles = route.miles;
     legs = route.legs;
@@ -277,7 +283,8 @@ export async function resolveSubmission(
       mileage_mode: v.mileage_mode,
       miles,
       stops: v.stops,
-      return_to_start: v.mileage_mode === "destinations" ? v.return_to_start !== false : null,
+      start_at_store: v.mileage_mode === "destinations" ? v.start_at_store !== false : null,
+      end_at_store: v.mileage_mode === "destinations" ? v.end_at_store !== false : null,
       route_legs: legs,
       tolls_cents: v.tolls_cents,
       parking_cents: v.parking_cents,

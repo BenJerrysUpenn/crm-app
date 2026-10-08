@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 // POST /api/reimbursements
 // Body: { reason: { kind: "errands", note } | { kind: "catering_event", event_id, note? },
-//         trip_date, mileage: { mode: "typed", miles } | { mode: "destinations", stops, return_to_start },
+//         trip_date, mileage: { mode: "typed", miles } | { mode: "destinations", stops, start_at_store, end_at_store },
 //         tolls?, parking?, receipt_paths?, no_receipt_confirmed? }
 //
 // A staff member submits a Travel Reimbursement for one Reason (bj-finance

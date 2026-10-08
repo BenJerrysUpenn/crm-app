@@ -38,7 +38,9 @@ beforeEach(() => {
       row(2, SAM.id, { miles: 12.1, status: "approved" }),
       row(3, MANAGER.id, { deal_id: null, reason_kind: "errands", trip_date: "2026-06-30" }),
       row(4, OWNER.id, { deal_id: 777, status: "approved" }),
-      row(5, SAM.id, { status: "paid" }),
+      row(5, SAM.id, { status: "paid", paid_on: "2026-10-09", updated_at: "2026-10-09T20:00:00Z" }),
+      row(6, SAM.id, { deal_id: 900, status: "rejected", rejection_reason: "Which store?", decided_by: MANAGER.id, decided_at: "2026-10-08T14:00:00Z", updated_at: "2026-10-08T14:00:00Z" }),
+      row(7, OWNER.id, { deal_id: 901, status: "paid_outside_payroll", paid_by: OWNER.id, paid_on: "2026-10-10", updated_at: "2026-10-10T15:00:00Z" }),
     ],
     travel_reimbursement_adjustments: [
       { id: 1, reimbursement_id: 1, field: "tolls", old_cents: 450, new_cents: 400, note: "x", evidence_path: "adjustments/1/a.png", adjusted_by: OWNER.id, adjusted_at: "2026-10-05T00:00:00Z" },
@@ -100,4 +102,20 @@ test("loadQueue: another manager may not decide a non-owner manager's; an owner 
   const o = await loadQueue(createClient(), OWNER);
   assert.ok(o.ok);
   assert.equal(o.submitted.find((i) => i.id === 3)!.refused, null);
+});
+
+test("loadQueue: what has left the queue is listed under Decided, newest first, with who decided and when (ruling 41)", async () => {
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  assert.deepEqual(q.decided.map((i) => i.id), [7, 5, 6]);
+  const [owner, paid, rejected] = q.decided;
+  assert.deepEqual([owner.status, owner.full_name, owner.decided_by_name, owner.decided_on], ["paid_outside_payroll", "Alina Owner", "Alina Owner", "2026-10-10"]);
+  assert.deepEqual([paid.status, paid.decided_by_name, paid.decided_on], ["paid", null, "2026-10-09"]);
+  assert.deepEqual(
+    [rejected.status, rejected.full_name, rejected.decided_by_name, rejected.decided_on, rejected.rejection_reason],
+    ["rejected", "Sam Lee", "Sophia Manager", "2026-10-08", "Which store?"],
+  );
+  assert.equal(rejected.amounts.total_cents, 760);
+  assert.ok(!q.submitted.some((i) => i.id === 6) && !q.approved.some((i) => i.id === 7));
 });
