@@ -20,10 +20,11 @@ import {
   reasonLabel,
   type CateringEvent,
   type EventDeal,
+  type ReasonKind,
 } from "./events";
 import { approversToNotify, type Person, type ReimbursementStatus } from "./lifecycle";
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
-import type { ReimbursementValue } from "./submission";
+import type { ReasonValue, ReimbursementValue } from "./submission";
 import { routeMiles, type RouteResult } from "./routeMiles";
 
 /** The private Storage bucket for Receipts, Lyft ride reports and evidence (ADR 0002). */
@@ -38,7 +39,7 @@ export const NOTICE_DECISION = "reimbursement_decision";
 export type ReimbursementRow = {
   id: number;
   profile_id: string;
-  reason_kind: "errands" | "catering_event";
+  reason_kind: ReasonKind;
   deal_id: number | null;
   event_label: string | null;
   event_date: string | null;
@@ -81,7 +82,7 @@ export type AdjustmentRow = {
 export type LyftRow = {
   id: number;
   profile_id: string;
-  reason_kind: "errands" | "catering_event";
+  reason_kind: ReasonKind;
   deal_id: number | null;
   event_label: string | null;
   event_date: string | null;
@@ -235,7 +236,7 @@ type ResolvedColumns = Pick<
 
 /** The Reason's columns: a Catering Event must still be in the picker's window. */
 export async function resolveReason(
-  v: { reason_kind: "errands" | "catering_event"; event_id: number | null; reason_note: string | null },
+  v: ReasonValue,
   today: string,
 ): Promise<{ ok: true; cols: Pick<ReimbursementRow, "reason_kind" | "deal_id" | "event_label" | "event_date" | "reason_note"> } | { ok: false; error: string }> {
   if (v.reason_kind === "errands")

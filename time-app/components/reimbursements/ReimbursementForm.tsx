@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from "react";
 import { money } from "@/lib/payroll/paySheet";
 import { centsFromDollars, milesFromInput, reimbursementCents, type MileageRate } from "@/lib/reimbursements/money";
 import { STORE_ADDRESS } from "@/lib/reimbursements/routeMiles";
+import type { ReasonKind } from "@/lib/reimbursements/events";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 import { BUTTON, INPUT, PRIMARY, uploadFile } from "./shared";
 
@@ -42,7 +43,7 @@ export default function ReimbursementForm({
   onDone: (message: string) => void;
   onCancel: () => void;
 }) {
-  const [reasonKind, setReasonKind] = useState<"" | "errands" | "catering_event">(editing?.reason_kind ?? "");
+  const [reasonKind, setReasonKind] = useState<"" | ReasonKind>(editing?.reason_kind ?? "");
   const [event, setEvent] = useState<PickedEvent | null>(
     editing?.deal_id && editing.event_label
       ? { id: editing.deal_id, date: editing.event_date ?? editing.trip_date, label: editing.event_label, address: null }
