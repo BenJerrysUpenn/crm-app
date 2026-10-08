@@ -16,7 +16,7 @@
 
 import { isISODate } from "../holidays.ts";
 import { centsFromDollars, milesFromInput } from "./money.ts";
-import { cleanRoute } from "./routeMiles.ts";
+import { cleanRoute, routeEnds } from "./routeMiles.ts";
 import type { ReasonKind } from "./events.ts";
 
 export const CONFIRM_NO_RECEIPT = "Are you sure there is no receipt?";
@@ -92,7 +92,7 @@ export function parseReimbursement(body: unknown, ctx: Ctx): Parsed<Reimbursemen
   const m = obj(b.mileage);
   let mileage: Pick<ReimbursementValue, "mileage_mode" | "miles" | "stops" | "start_at_store" | "end_at_store">;
   if (m.mode === "destinations") {
-    const ends = { start_at_store: m.start_at_store !== false, end_at_store: m.end_at_store !== false };
+    const ends = routeEnds(m);
     const stops = cleanRoute(m.stops, ends);
     if (!stops.ok) return stops;
     mileage = { mileage_mode: "destinations", miles: null, stops: stops.stops, ...ends };

@@ -25,7 +25,7 @@ import {
 import { FIELD_LABEL, approversToNotify, type AdjustmentField, type Person, type ReimbursementStatus } from "./lifecycle";
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
 import { BUCKET, type ReasonValue, type ReimbursementValue } from "./submission";
-import { routeMiles, type RouteEnds, type RouteResult } from "./routeMiles";
+import { routeEnds, routeMiles, type RouteEnds, type RouteResult } from "./routeMiles";
 
 export const NEEDS_MIGRATION = "Travel Reimbursements need migration 37 in Supabase.";
 
@@ -265,8 +265,9 @@ export async function resolveSubmission(
   if (!reason.ok) return reason;
   let miles = v.miles ?? 0;
   let legs: ReimbursementRow["route_legs"] = null;
-  if (v.mileage_mode === "destinations") {
-    const route = await computeRouteMiles(v.stops!, { start_at_store: v.start_at_store !== false, end_at_store: v.end_at_store !== false });
+  const ends = v.mileage_mode === "destinations" ? routeEnds(v) : null;
+  if (ends) {
+    const route = await computeRouteMiles(v.stops!, ends);
     if (!route.ok) return route;
     miles = route.miles;
     legs = route.legs;
@@ -283,8 +284,8 @@ export async function resolveSubmission(
       mileage_mode: v.mileage_mode,
       miles,
       stops: v.stops,
-      start_at_store: v.mileage_mode === "destinations" ? v.start_at_store !== false : null,
-      end_at_store: v.mileage_mode === "destinations" ? v.end_at_store !== false : null,
+      start_at_store: ends?.start_at_store ?? null,
+      end_at_store: ends?.end_at_store ?? null,
       route_legs: legs,
       tolls_cents: v.tolls_cents,
       parking_cents: v.parking_cents,

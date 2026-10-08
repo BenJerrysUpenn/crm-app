@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { money } from "@/lib/payroll/paySheet";
 import { centsFromDollars, milesFromInput, reimbursementCents, type MileageRate } from "@/lib/reimbursements/money";
-import { placeLabel } from "@/lib/reimbursements/routeMiles";
+import { placeLabel, routeEnds } from "@/lib/reimbursements/routeMiles";
 import type { ReasonKind } from "@/lib/reimbursements/events";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 import { CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
@@ -66,8 +66,8 @@ export default function ReimbursementForm({
   const [mileageMode, setMileageMode] = useState<"typed" | "destinations">(editing?.mileage_mode ?? "typed");
   const [miles, setMiles] = useState(editing && editing.mileage_mode === "typed" ? String(Number(editing.miles)) : "");
   const [stops, setStops] = useState<string[]>(editing?.stops?.length ? editing.stops : [""]);
-  const [startAtStore, setStartAtStore] = useState(editing?.start_at_store ?? true);
-  const [endAtStore, setEndAtStore] = useState(editing?.end_at_store ?? true);
+  const [startAtStore, setStartAtStore] = useState(routeEnds(editing).start_at_store);
+  const [endAtStore, setEndAtStore] = useState(routeEnds(editing).end_at_store);
   const [route, setRoute] = useState<{ miles: number; legs: { from: string; to: string; miles: number }[] } | null>(
     editing?.route_legs ? { miles: Number(editing.miles), legs: editing.route_legs } : null,
   );

@@ -12,7 +12,7 @@ import { FIELD_LABEL, STATUS_LABEL, type AdjustmentField, type ReimbursementStat
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { BUCKET, CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
 import { fieldCents } from "@/lib/reimbursements/money";
-import { routeText } from "@/lib/reimbursements/routeMiles";
+import { routeEnds, routeText } from "@/lib/reimbursements/routeMiles";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 
 export const INPUT =
@@ -147,7 +147,7 @@ export function ReimbursementDetail({
         <div>
           Mileage: {miles.toFixed(1)} mi
           {r.mileage_mode === "destinations" && r.stops?.length
-            ? ` (${routeText(r.stops, { start_at_store: r.start_at_store !== false, end_at_store: r.end_at_store !== false })})`
+            ? ` (${routeText(r.stops, routeEnds(r))})`
             : ""}
           {" × "}
           {rateText(a.rate)} = {amountText(r, "mileage", a.mileage_cents)}

@@ -24,6 +24,11 @@ const MAX_STOP_LENGTH = 300;
 export type Leg = { from: string; to: string; miles: number };
 /** The two checkboxes of destinations mode, both on by default. */
 export type RouteEnds = { start_at_store: boolean; end_at_store: boolean };
+
+/** The checkboxes as a body or a row carries them: each one on unless it is false. */
+export function routeEnds(raw: { start_at_store?: unknown; end_at_store?: unknown } | null | undefined): RouteEnds {
+  return { start_at_store: raw?.start_at_store !== false, end_at_store: raw?.end_at_store !== false };
+}
 export type RouteResult = { ok: true; miles: number; legs: Leg[] } | { ok: false; error: string };
 
 /** The stops as typed: trimmed, blanks dropped; at least one, at most MAX_STOPS. */

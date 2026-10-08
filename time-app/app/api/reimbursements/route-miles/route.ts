@@ -1,5 +1,5 @@
 import { getProfile } from "@/lib/auth";
-import { cleanRoute } from "@/lib/reimbursements/routeMiles";
+import { cleanRoute, routeEnds } from "@/lib/reimbursements/routeMiles";
 import { computeRouteMiles } from "@/lib/reimbursements/server";
 import { NextResponse } from "next/server";
 
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   const me = await getProfile();
   if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const body = (await request.json().catch(() => null)) as { stops?: unknown; start_at_store?: unknown; end_at_store?: unknown } | null;
-  const ends = { start_at_store: body?.start_at_store !== false, end_at_store: body?.end_at_store !== false };
+  const ends = routeEnds(body);
   const stops = cleanRoute(body?.stops, ends);
   if (!stops.ok) return NextResponse.json({ error: stops.error }, { status: 400 });
   const route = await computeRouteMiles(stops.stops, ends);
