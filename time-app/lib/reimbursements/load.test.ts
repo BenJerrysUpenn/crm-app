@@ -39,7 +39,7 @@ beforeEach(() => {
       row(3, MANAGER.id, { deal_id: null, reason_kind: "errands", trip_date: "2026-06-30" }),
       row(4, OWNER.id, { deal_id: 777, status: "approved" }),
       row(5, SAM.id, { status: "paid", paid_on: "2026-10-09", updated_at: "2026-10-09T20:00:00Z" }),
-      row(6, SAM.id, { deal_id: 900, status: "rejected", rejection_reason: "Which store?", decided_by: MANAGER.id, decided_at: "2026-10-08T14:00:00Z", updated_at: "2026-10-08T14:00:00Z" }),
+      row(6, SAM.id, { deal_id: 900, status: "rejected", rejection_reason: "Which store?", decided_by: MANAGER.id, decided_at: "2026-10-09T01:30:00Z", updated_at: "2026-10-09T01:30:00Z" }),
       row(7, OWNER.id, { deal_id: 901, status: "paid_outside_payroll", paid_by: OWNER.id, paid_on: "2026-10-10", updated_at: "2026-10-10T15:00:00Z" }),
     ],
     travel_reimbursement_adjustments: [
@@ -115,7 +115,22 @@ test("loadQueue: what has left the queue is listed under Decided, newest first, 
   assert.deepEqual(
     [rejected.status, rejected.full_name, rejected.decided_by_name, rejected.decided_on, rejected.rejection_reason],
     ["rejected", "Sam Lee", "Sophia Manager", "2026-10-08", "Which store?"],
+    "rejected at 01:30 UTC on Oct 9 is 9:30 PM on Oct 8 in New York",
   );
   assert.equal(rejected.amounts.total_cents, 760);
   assert.ok(!q.submitted.some((i) => i.id === 6) && !q.approved.some((i) => i.id === 7));
+});
+
+test("loadQueue: Decided lists only the latest 50 that have left the queue", async () => {
+  const many = Array.from({ length: 51 }, (_, i) =>
+    row(100 + i, SAM.id, { status: "rejected", rejection_reason: "No receipt", decided_by: MANAGER.id, decided_at: "2026-09-01T12:00:00Z", updated_at: `2026-09-${String(1 + (i % 28)).padStart(2, "0")}T12:${String(i).padStart(2, "0")}:00Z` }),
+  );
+  db.tables.travel_reimbursements = many;
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  assert.equal(q.decided.length, 50);
+  // Row 100 (updated Sep 1, 12:00) is the oldest of the 51, so it is the one left out.
+  assert.ok(!q.decided.some((i) => i.id === 100));
+  assert.equal(q.decided[0].id, 127, "Sep 28 is the newest");
 });
