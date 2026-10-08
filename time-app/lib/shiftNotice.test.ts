@@ -397,3 +397,25 @@ test("when the shifts cannot be read after the claim, nothing is sent and the no
   assert.equal(to("sam@example.test").length, 1);
   assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 13 · 12:00 PM–5:00 PM");
 });
+
+// ---- Other alerts are not held for 8pm -------------------------------------------
+
+test("a shift reminder is still emailed straight away, not held for 8pm", async () => {
+  db.tables.shifts.push({ id: 1, employee_id: SAM, starts_at: edt("2026-10-08", "10:20"), ends_at: edt("2026-10-08", "15:00"), position: null, published: true });
+
+  const out = await tick(edt("2026-10-08", "10:00"));
+
+  assert.deepEqual(out.reminded, [1]);
+  assert.deepEqual(to("sam@example.test").map((s) => s.text.split("\n")[0]), ["Shift starting soon"]);
+  assert.deepEqual(notified(), [[SAM, "shift_reminder"]]);
+});
+
+test("a shift reminder is not emailed to someone who switched email off", async () => {
+  db.tables.profiles.find((p) => p.id === SAM)!.notif_prefs = { email: false };
+  db.tables.shifts.push({ id: 1, employee_id: SAM, starts_at: edt("2026-10-08", "10:20"), ends_at: edt("2026-10-08", "15:00"), position: null, published: true });
+
+  await tick(edt("2026-10-08", "10:00"));
+
+  assert.deepEqual(to("sam@example.test"), []);
+  assert.deepEqual(notified(), [[SAM, "shift_reminder"]]);
+});
