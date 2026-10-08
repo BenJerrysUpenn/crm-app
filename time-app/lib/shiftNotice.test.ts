@@ -342,3 +342,58 @@ test("the night the clocks go back, the summary waits for 8pm EST, not 8pm EDT",
   assert.equal(to("sam@example.test").length, 1);
   assert.deepEqual(db.rows("shift_digests").map((d) => d.digest_day), ["2026-11-01"]);
 });
+
+// ---- When a step fails ---------------------------------------------------------
+
+test("a shift is still saved, and on the bell, when its notice cannot be queued", async () => {
+  // Migration 38 not applied yet: the queue table is not there.
+  db.missingTables = ["shift_notices"];
+  const shiftId = await create(SAM, "2026-10-13", "12:00", "17:00");
+
+  assert.deepEqual(db.rows("shifts").map((s) => [s.id, s.employee_id]), [[shiftId, SAM]]);
+  assert.deepEqual(notified(), [[SAM, "shift_published"]]);
+  assert.deepEqual(sent, []);
+});
+
+test("when the summaries cannot be claimed, the cron still answers, says why, and the queue keeps every notice", async () => {
+  await create(SAM, "2026-10-13", "12:00", "17:00");
+  db.beforeWrite = (target) => {
+    if (target === "rpc/claim_shift_digests") throw new Error("database unreachable");
+  };
+
+  const out = await tick(edt("2026-10-08", "20:00"));
+
+  assert.deepEqual(out.shiftDigests, []);
+  assert.match(out.shiftDigestError, /database unreachable/);
+  assert.deepEqual(sent, []);
+  assert.deepEqual(db.rows("shift_notices").map((n) => [n.employee_id, n.notice]), [[SAM, "posted"]]);
+
+  // The next tick that can claim sends the summary that same evening.
+  db.beforeWrite = null;
+  await tick(edt("2026-10-08", "20:05"));
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 13 · 12:00 PM–5:00 PM");
+});
+
+test("when the shifts cannot be read after the claim, nothing is sent and the notices come back in the next day's summary", async () => {
+  const shiftId = await create(SAM, "2026-10-13", "12:00", "17:00");
+  // The claim goes through; the read of the shifts it names fails.
+  db.beforeWrite = (target) => {
+    if (target === "rpc/claim_shift_digests") db.missingTables = ["shifts"];
+  };
+
+  const out = await tick(edt("2026-10-08", "20:00"));
+  db.beforeWrite = null;
+  db.missingTables = [];
+
+  assert.deepEqual(out.shiftDigests, []);
+  assert.match(out.shiftDigestError, /shifts/);
+  assert.deepEqual(sent, []);
+  assert.deepEqual(db.rows("shift_notices").map((n) => [n.shift_id, n.employee_id, n.notice]), [[shiftId, SAM, "posted"]]);
+
+  // Today's summary was claimed, so the notices wait for tomorrow's.
+  await tick(edt("2026-10-08", "20:05"));
+  assert.deepEqual(sent, []);
+  await tick(edt("2026-10-09", "20:00"));
+  assert.equal(to("sam@example.test").length, 1);
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 13 · 12:00 PM–5:00 PM");
+});
