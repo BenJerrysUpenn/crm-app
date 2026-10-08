@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingTable } from "@/lib/storeHours";
 import type { MileageRate } from "./money";
 import { alsoOnSameEvent } from "./events";
-import { DECIDED_SHOWN, LEFT_QUEUE, decisionOf, isOwner, mayDecide, type Person } from "./lifecycle";
+import { DECIDED_SHOWN, LEFT_QUEUE, ON_QUEUE, decisionOf, isOwner, mayDecide, type Person } from "./lifecycle";
 import { dayKey } from "@/lib/format";
 import { NEEDS_MIGRATION, loadRates, withAmounts, type AdjustmentRow, type LyftRow, type ReimbursementRow, type WithAmounts } from "./server";
 
@@ -74,7 +74,7 @@ export async function loadQueue(
     db
       .from("travel_reimbursements")
       .select("*")
-      .in("status", ["submitted", "approved"])
+      .in("status", ON_QUEUE)
       .order("trip_date", { ascending: true })
       .order("id", { ascending: true }),
     db

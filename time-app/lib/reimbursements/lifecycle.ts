@@ -115,12 +115,15 @@ export function approverAction(
   return { ok: true, to: action === "adjust" ? from : TO[action] };
 }
 
+/** The statuses on the Approver's queue: Submitted, and Approved until it is Paid. */
+export const ON_QUEUE: ReimbursementStatus[] = ["submitted", "approved"];
+
 /**
- * The statuses that take a reimbursement off the Approver's queue. They are
- * listed under Decided at the bottom of the tab, not out of sight (ruling 41).
- * Approved stays on the queue until it is Paid.
+ * The statuses that take a reimbursement off the Approver's queue: every
+ * other one. They are listed under Decided at the bottom of the tab, not out
+ * of sight (ruling 41).
  */
-export const LEFT_QUEUE: ReimbursementStatus[] = ["rejected", "paid", "paid_outside_payroll"];
+export const LEFT_QUEUE: ReimbursementStatus[] = (Object.keys(STATUS_LABEL) as ReimbursementStatus[]).filter((s) => !ON_QUEUE.includes(s));
 
 /** How many of the latest Decided items the tab lists. */
 export const DECIDED_SHOWN = 50;
