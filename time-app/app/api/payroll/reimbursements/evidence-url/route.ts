@@ -1,7 +1,7 @@
-import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { financeAccess } from "@/lib/financeAccess";
-import { BUCKET, uploadPath } from "@/lib/reimbursements/submission";
+import { uploadPath } from "@/lib/reimbursements/submission";
+import { signedUploadResponse } from "@/lib/reimbursements/fileRoute";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,5 @@ export async function POST(request: Request) {
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Bad reimbursement id" }, { status: 400 });
   const path = uploadPath({ folder: `adjustments/${id}`, kind: "evidence", ext: body?.ext, content_type: body?.content_type });
   if (!path.ok) return NextResponse.json({ error: path.error }, { status: 400 });
-  const { data, error } = await createClient().storage.from(BUCKET).createSignedUploadUrl(path.path);
-  if (error || !data) return NextResponse.json({ error: error?.message ?? "Could not create an upload URL" }, { status: 500 });
-  return NextResponse.json({ path: data.path, token: data.token });
+  return signedUploadResponse(path.path);
 }
