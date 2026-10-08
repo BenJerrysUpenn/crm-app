@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
+import { tellEmployeeAboutShift, type AssignedShift } from "@/lib/shiftNotice";
 import { checkShiftAvailability, prefersShift } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
   }
 
   let assigned = 0;
-  const picked: { id: number; employee_id: string; starts_at: string; ends_at: string; position: string | null }[] = [];
+  const picked: AssignedShift[] = [];
   for (const shift of openShifts) {
     const dur = minutes(shift);
 

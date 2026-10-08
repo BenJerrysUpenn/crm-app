@@ -39,7 +39,10 @@ export const DIGEST_TITLE = "Your shift updates";
 const TZ = "America/New_York";
 const DIGEST_HOUR = 20;
 
-type ShiftRow = { id: number; employee_id: string | null; starts_at: string; ends_at: string; position: string | null };
+// The shift fields a notice is written from, as read back from shifts.
+export type ShiftRow = { id: number; employee_id: string | null; starts_at: string; ends_at: string; position: string | null };
+// A shift someone is on: the only kind an employee is told about.
+export type AssignedShift = ShiftRow & { employee_id: string };
 
 function summary(shift: Pick<ShiftRow, "starts_at" | "ends_at" | "position">): string {
   return `${fmtDate(shift.starts_at)} · ${fmtTime(shift.starts_at)}–${fmtTime(shift.ends_at)}${shift.position ? " · " + shift.position : ""}`;
@@ -47,7 +50,7 @@ function summary(shift: Pick<ShiftRow, "starts_at" | "ends_at" | "position">): s
 
 export async function tellEmployeeAboutShift(
   notice: ShiftNotice,
-  shift: { id: number; employee_id: string; starts_at: string; ends_at: string; position: string | null },
+  shift: AssignedShift,
 ): Promise<void> {
   const { error } = await createAdminClient()
     .from("shift_notices")

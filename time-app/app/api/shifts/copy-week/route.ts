@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
+import { tellEmployeeAboutShift, type ShiftRow } from "@/lib/shiftNotice";
 import { NextResponse } from "next/server";
 
 const TZ = "America/New_York";
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     .select("id, employee_id, starts_at, ends_at, position");
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
 
-  const copies = (inserted ?? []) as { id: number; employee_id: string | null; starts_at: string; ends_at: string; position: string | null }[];
+  const copies = (inserted ?? []) as ShiftRow[];
   for (const s of copies) {
     if (!s.employee_id) continue;
     await tellEmployeeAboutShift("posted", { ...s, employee_id: s.employee_id });
