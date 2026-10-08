@@ -17,6 +17,7 @@ export const TYPES_BY_ROLE: Record<"manager" | "employee", NotifPrefItem[]> = {
     { key: "clockout_reminder", label: "Reminder if I'm still clocked in after my shift ends" },
     { key: "drop_decision", label: "When my drop request is approved or denied" },
     { key: "timeoff_decision", label: "When my time-off request is approved or denied" },
+    { key: "reimbursement_decision", label: "When my Travel Reimbursement is rejected or adjusted" },
   ],
   manager: [
     { key: "missed_clockin", label: "When a staff member misses a clock-in" },
@@ -25,5 +26,7 @@ export const TYPES_BY_ROLE: Record<"manager" | "employee", NotifPrefItem[]> = {
     { key: "time_off_request", label: "Time-off requests" },
     { key: "availability_change", label: "When someone changes their availability" },
     { key: "timeoff_cancelled", label: "When approved time off is cancelled" },
+    { key: "reimbursement_submitted", label: "When a Travel Reimbursement is submitted" },
+    { key: "reimbursement_decision", label: "When my own Travel Reimbursement is rejected or adjusted" },
   ],
 };

@@ -58,7 +58,8 @@ export function staffMayChange(status: ReimbursementStatus): boolean {
 
 export type ApproverAction = "approve" | "reject" | "send_back" | "paid_outside_payroll" | "adjust";
 
-export type ActionResult = { ok: true; to: ReimbursementStatus } | { ok: false; error: string };
+/** `forbidden`: this person may not decide this reimbursement at all (403), rather than not now (409). */
+export type ActionResult = { ok: true; to: ReimbursementStatus } | { ok: false; error: string; forbidden: boolean };
 
 const FROM: Record<ApproverAction, ReimbursementStatus[]> = {
   approve: ["submitted"],
@@ -93,12 +94,12 @@ export function approverAction(
   who: { subject: Person; actor: Person },
 ): ActionResult {
   const refused = mayDecide(who.actor, who.subject);
-  if (refused) return { ok: false, error: refused };
-  if (!FROM[action].includes(from)) return { ok: false, error: NOT_FROM[action] };
+  if (refused) return { ok: false, error: refused, forbidden: true };
+  if (!FROM[action].includes(from)) return { ok: false, error: NOT_FROM[action], forbidden: false };
   if (action === "paid_outside_payroll") {
     if (!isOwner(who.subject))
-      return { ok: false, error: "Only an owner's Travel Reimbursement is paid outside payroll; staff are paid on the paycheck." };
-    if (!isOwner(who.actor)) return { ok: false, error: "Only an owner can mark a Travel Reimbursement Paid outside payroll." };
+      return { ok: false, error: "Only an owner's Travel Reimbursement is paid outside payroll; staff are paid on the paycheck.", forbidden: false };
+    if (!isOwner(who.actor)) return { ok: false, error: "Only an owner can mark a Travel Reimbursement Paid outside payroll.", forbidden: false };
   }
   return { ok: true, to: action === "adjust" ? from : TO[action] };
 }

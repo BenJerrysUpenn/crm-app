@@ -13,7 +13,14 @@
 // migrations 12 and 30 install (supabase/migration_30_verify.sql proves those
 // against a real Postgres): anyone signed in reads their own punches, only a
 // manager inserts, updates or deletes one through their session, and the
-// service role is not held to RLS. Every other table is readable by any signed-in caller.
+// service role is not held to RLS. travel_reimbursements and lyft_ride_reports
+// (migration 37) are read as their policies say: your own, or all for a
+// manager. Every other table is readable by any signed-in caller.
+//
+// Storage (migration 37's travel-reimbursements bucket) is faked too: signed
+// upload URLs, signed read URLs and downloads, under the bucket's policies
+// (your own folder; a manager reads all and alone writes under adjustments/).
+// Any other origin (Resend, Google) goes to `external`, which a test sets.
 
 import * as nodeModule from "node:module";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -43,6 +50,13 @@ export type FakeSupabase = {
   // Tables a migration has not created yet: every request to one is refused
   // as hosted PostgREST does (PGRST205, "schema cache").
   missingTables: string[];
+  // Storage objects, keyed "<bucket>/<path>". A signed upload URL does not
+  // create one; a test puts the bytes here as the browser's upload would.
+  storage: Record<string, Uint8Array>;
+  // Paths a signed upload URL was minted for, as "<bucket>/<path>".
+  signedUploads: string[];
+  // Requests to any origin but Supabase's. Null: such a request fails the test.
+  external: ((request: Request) => Response | Promise<Response>) | null;
   signIn(userId: string): void;
   // The Cookie header a browser with this session sends (for middleware).
   cookieHeader(): string;
@@ -157,10 +171,17 @@ function isManager(caller: Caller): boolean {
   return fake.tables.profiles?.some((p) => p.id === caller.id && p.role === "manager") ?? false;
 }
 
+const OWN_ROWS: Record<string, string> = {
+  time_entries: "employee_id",
+  travel_reimbursements: "profile_id",
+  lyft_ride_reports: "profile_id",
+};
+
 function canRead(table: string, caller: Caller, row: Row): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon") return false;
-  if (table === "time_entries") return row.employee_id === caller.id || isManager(caller);
+  const owner = OWN_ROWS[table];
+  if (owner) return row[owner] === caller.id || isManager(caller);
   return true;
 }
 
@@ -242,12 +263,64 @@ function represent(rows: Row[], headers: Headers, status: number): Response {
 }
 
 const DEFAULTS: Record<string, () => Row> = {
+  // Migration 37's column defaults.
+  travel_reimbursements: () => ({
+    status: "submitted", stops: null, return_to_start: null, route_legs: null, tolls_cents: 0, parking_cents: 0,
+    mileage_cents_override: null, receipt_paths: [], no_receipt_confirmed: false, rejection_reason: null,
+    decided_by: null, decided_at: null, paid_on: null, paid_by: null, receipts_emailed_at: null,
+    deal_id: null, event_label: null, event_date: null, reason_note: null,
+    submitted_at: DB_NOW, created_at: DB_NOW, updated_at: DB_NOW,
+  }),
+  travel_reimbursement_adjustments: () => ({ adjusted_at: DB_NOW }),
+  lyft_ride_reports: () => ({ filed_at: DB_NOW, emailed_at: null, deal_id: null, event_label: null, event_date: null, reason_note: null }),
   time_entries: () => ({ clock_in_at: DB_NOW, clock_out_at: null, status: "open", manual: false }),
   // Migration 36's column defaults: a new pay table row is a queued request.
   payroll_sheets: () => ({ status: "queued", requested_at: DB_NOW, started_at: null, built_at: null, built_by: null, source_fingerprint: null, open_items: null, error: null, sheet: null }),
 };
 
+// ---- Storage ------------------------------------------------------------------
+const REIMBURSEMENT_BUCKET = "travel-reimbursements";
+
+/** Migration 37's storage.objects policies, for that bucket; others are open. */
+function storageMay(op: "read" | "write", caller: Caller, bucket: string, path: string): boolean {
+  if (caller.kind === "service") return true;
+  if (caller.kind === "anon") return false;
+  if (bucket !== REIMBURSEMENT_BUCKET) return true;
+  const folder = path.split("/")[0];
+  if (op === "read") return folder === caller.id || isManager(caller);
+  return folder === caller.id || (folder === "adjustments" && isManager(caller));
+}
+
+function handleStorage(url: URL, method: string, headers: Headers): Response {
+  const caller = callerOf(headers);
+  const rest = decodeURIComponent(url.pathname.replace(/^\/storage\/v1\//, ""));
+  const refuse = () => json(403, { statusCode: "403", error: "Unauthorized", message: "new row violates row-level security policy" });
+  let m = /^object\/upload\/sign\/([^/]+)\/(.+)$/.exec(rest);
+  if (m && method === "POST") {
+    const [, bucket, path] = m;
+    if (!storageMay("write", caller, bucket, path)) return refuse();
+    fake.signedUploads.push(`${bucket}/${path}`);
+    return json(200, { url: `/object/upload/sign/${bucket}/${path}?token=upload-token-${fake.signedUploads.length}` });
+  }
+  m = /^object\/sign\/([^/]+)\/(.+)$/.exec(rest);
+  if (m && method === "POST") {
+    const [, bucket, path] = m;
+    if (!(`${bucket}/${path}` in fake.storage)) return json(400, { statusCode: "404", error: "not_found", message: "Object not found" });
+    if (!storageMay("read", caller, bucket, path)) return json(400, { statusCode: "404", error: "not_found", message: "Object not found" });
+    return json(200, { signedURL: `/object/sign/${bucket}/${path}?token=read-token` });
+  }
+  m = /^object\/([^/]+)\/(.+)$/.exec(rest);
+  if (m && method === "GET") {
+    const [, bucket, path] = m;
+    const bytes = fake.storage[`${bucket}/${path}`];
+    if (!bytes || !storageMay("read", caller, bucket, path)) return json(400, { statusCode: "404", error: "not_found", message: "Object not found" });
+    return new Response(bytes as unknown as BodyInit, { status: 200, headers: { "content-type": "application/octet-stream" } });
+  }
+  throw new Error(`fake Supabase: unexpected storage ${method} ${url.pathname}`);
+}
+
 async function handle(url: URL, method: string, headers: Headers, body: string | null): Promise<Response> {
+  if (url.pathname.startsWith("/storage/v1/")) return handleStorage(url, method, headers);
   if (url.pathname === "/auth/v1/user") {
     const caller = callerOf(headers);
     if (caller.kind !== "user") return json(401, { code: 401, error_code: "bad_jwt", msg: "invalid JWT" });
@@ -340,7 +413,10 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(input, init);
   const url = new URL(request.url);
-  if (url.origin !== new URL(SUPABASE_URL).origin) throw new Error(`test tried to reach ${url.origin}`);
+  if (url.origin !== new URL(SUPABASE_URL).origin) {
+    if (fake.external) return fake.external(request);
+    throw new Error(`test tried to reach ${url.origin}`);
+  }
   const body = request.method === "GET" || request.method === "HEAD" ? null : await request.text();
   return handle(url, request.method, request.headers, body);
 }
@@ -358,6 +434,9 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
     beforeWrite: null,
     missingColumns: {},
     missingTables: [],
+    storage: {},
+    signedUploads: [],
+    external: null,
     signIn(userId) {
       const accessToken = `token-for-${userId}`;
       tokens.set(accessToken, userId);
