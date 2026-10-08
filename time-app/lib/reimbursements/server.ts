@@ -144,14 +144,17 @@ export function computeRouteMiles(stops: string[], returnToStart: boolean): Prom
 
 type ProfileLite = Person & { full_name: string | null; phone?: string | null };
 
+/** The profile columns ProfileLite carries. */
+const PROFILE_LITE_COLUMNS = "id, role, active, full_name, phone";
+
 export async function profileLite(id: string): Promise<ProfileLite | null> {
-  const { data } = await createAdminClient().from("profiles").select("id, role, active, full_name, phone").eq("id", id).maybeSingle();
+  const { data } = await createAdminClient().from("profiles").select(PROFILE_LITE_COLUMNS).eq("id", id).maybeSingle();
   return (data as ProfileLite) ?? null;
 }
 
 /** On submit (and resubmit): every Approver who may decide it, but not its submitter. */
 export async function notifyApprovers(subject: ProfileLite, row: Pick<ReimbursementRow, "reason_kind" | "reason_note" | "event_label" | "trip_date">, totalCents: number | null) {
-  const { data } = await createAdminClient().from("profiles").select("id, role, active, full_name, phone").eq("role", "manager");
+  const { data } = await createAdminClient().from("profiles").select(PROFILE_LITE_COLUMNS).eq("role", "manager");
   const who = subject.full_name ?? "A staff member";
   for (const a of approversToNotify((data ?? []) as ProfileLite[], subject)) {
     const email = await emailForUser(a.id);
