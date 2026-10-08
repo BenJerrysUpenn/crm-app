@@ -1,6 +1,7 @@
 // Parsing and validation of the invite / re-invite / offboard forms. Pure
 // functions: a request body in, a typed form or an error string out.
 import type { Role } from "@/lib/types";
+import { normaliseEmail, validName } from "@/lib/team";
 import {
   FINAL_PAY_NOTE_DEFAULT,
   SYSTEMS,
@@ -33,7 +34,7 @@ function date(b: Body, k: string): string | null {
   return DATE_RE.test(s) ? s : null;
 }
 function email(b: Body, k: string): string | null {
-  const s = str(b, k).toLowerCase();
+  const s = normaliseEmail(str(b, k));
   return s.includes("@") ? s : null;
 }
 function uuid(b: Body, k: string): string | null {
@@ -54,8 +55,8 @@ export function parseInvite(
   b: Body,
   existing: { id: string; email: string | null } | null,
 ): Parsed<InviteForm> {
-  const legal_name = str(b, "legal_name");
-  if (!legal_name || legal_name.includes("@")) return { ok: false, error: "Full name required (not an email)." };
+  const legal_name = validName(str(b, "legal_name"));
+  if (!legal_name) return { ok: false, error: "Full name required (not an email)." };
   const em = email(b, "email") ?? (existing?.email ? existing.email.toLowerCase() : null);
   if (!em) return { ok: false, error: "Valid email required." };
   const start_date = date(b, "start_date");
