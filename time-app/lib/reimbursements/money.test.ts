@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  amountText,
   amountsBeforeAdjustments,
   approveRefusal,
   centsFromDollars,
@@ -19,6 +20,7 @@ import {
   milesFromInput,
   rateForDate,
   reimbursementCents,
+  totalText,
   type MileageRate,
 } from "./money.ts";
 
@@ -166,6 +168,21 @@ test("amountsBeforeAdjustments: an amount staff changed since its Adjustment is 
   const r = { ...base, tolls_cents: 900 };
   const b = amountsBeforeAdjustments(r, [adj("mileage", 1672, 1216, "2026-08-02T00:00:00Z"), adj("tolls", 400, 200, "2026-08-02T00:00:00Z")], RATES_2026);
   assert.equal(b, null);
+});
+
+test("amountText and totalText: an adjusted amount reads \"$16.72 → $12.16 (adjusted)\", the others as they are, the total before → now (ruling 40)", () => {
+  const r = { ...base, mileage_cents_override: 1216 };
+  const shown = { amounts: reimbursementCents(r, RATES_2026), before_adjustments: amountsBeforeAdjustments(r, [adj("mileage", 1672, 1216, "2026-08-02T00:00:00Z")], RATES_2026) };
+  assert.equal(amountText(shown, "mileage"), "$16.72 → $12.16 (adjusted)");
+  assert.equal(amountText(shown, "tolls"), "$4.00");
+  assert.equal(amountText(shown, "parking"), "$8.00");
+  assert.equal(totalText(shown), "$28.72 → $24.16");
+});
+
+test("amountText and totalText: nothing adjusted reads each amount and the total plainly", () => {
+  const shown = { amounts: reimbursementCents(base, RATES_2026), before_adjustments: null };
+  assert.equal(amountText(shown, "mileage"), "$16.72");
+  assert.equal(totalText(shown), "$28.72");
 });
 
 test("approveRefusal: no Mileage rate for the trip date means no total, so no Approve (ruling 42)", () => {

@@ -8,10 +8,10 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { money } from "@/lib/payroll/paySheet";
-import { FIELD_LABEL, STATUS_LABEL, type AdjustmentField, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
+import { FIELD_LABEL, STATUS_LABEL, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { BUCKET, contentTypeOf, extOf } from "@/lib/reimbursements/submission";
-import { fieldCents } from "@/lib/reimbursements/money";
+import { amountText, totalText } from "@/lib/reimbursements/money";
 import { routeEnds, routeText } from "@/lib/reimbursements/routeMiles";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 
@@ -121,13 +121,6 @@ function rateText(rate: number | null): string {
   return rate == null ? "no Mileage rate" : `${Number.isInteger(rate) ? rate : rate.toFixed(1)}¢/mi`;
 }
 
-/** "$a" or, when that amount was adjusted, "$before → $now (adjusted)" (ruling 40). */
-function amountText(r: WithAmounts, field: AdjustmentField, now: number | null): string {
-  const b = r.before_adjustments;
-  if (!b || !b.adjusted.includes(field)) return money(now);
-  return `${money(fieldCents(b.before, field))} → ${money(now)} (adjusted)`;
-}
-
 /** Reason, trip date, Mileage, tolls, parking, total and Adjustments, as one block. */
 export function ReimbursementDetail({
   r,
@@ -153,13 +146,13 @@ export function ReimbursementDetail({
             ? ` (${routeText(r.stops, routeEnds(r))})`
             : ""}
           {" × "}
-          {rateText(a.rate)} = {amountText(r, "mileage", a.mileage_cents)}
+          {rateText(a.rate)} = {amountText(r, "mileage")}
         </div>
       )}
-      {(a.tolls_cents > 0 || adjusted.includes("tolls")) && <div>Tolls: {amountText(r, "tolls", a.tolls_cents)}</div>}
-      {(a.parking_cents > 0 || adjusted.includes("parking")) && <div>Parking: {amountText(r, "parking", a.parking_cents)}</div>}
+      {(a.tolls_cents > 0 || adjusted.includes("tolls")) && <div>Tolls: {amountText(r, "tolls")}</div>}
+      {(a.parking_cents > 0 || adjusted.includes("parking")) && <div>Parking: {amountText(r, "parking")}</div>}
       <div className="font-medium text-slate-900 dark:text-slate-100">
-        Total {r.before_adjustments ? `${money(r.before_adjustments.before.total_cents)} → ${money(a.total_cents)}` : money(a.total_cents)}
+        Total {totalText(r)}
       </div>
       {r.receipt_paths.length > 0 ? (
         <div className="flex flex-wrap gap-2">

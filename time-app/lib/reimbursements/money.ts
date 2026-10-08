@@ -14,9 +14,11 @@
 // migration_37.sql's travel_reimbursements_payable view is the database's
 // copy of reimbursementCents(); migration_37_verify.sql checks they agree.
 //
-// Pure and dependency-free, so `node --test` runs it and the browser can use it.
+// Pure (money() for the text is too), so `node --test` runs it and the browser
+// can use it.
 
 import type { AdjustmentField } from "./lifecycle.ts";
+import { money } from "../payroll/paySheet.ts";
 
 export type MileageRate = {
   /** First trip date the rate applies to. YYYY-MM-DD. */
@@ -174,4 +176,21 @@ export function fieldCents(amounts: Amounts, field: AdjustmentField): number | n
 /** Cents as an input's dollars, "16.72"; blank for none. centsFromDollars reads it back. */
 export function dollarsText(cents: number | null): string {
   return cents == null ? "" : (cents / 100).toFixed(2);
+}
+
+/** Amounts as shown, with what they were before the Adjustments that still stand. */
+type Shown = { amounts: Amounts; before_adjustments: { before: Amounts; adjusted: AdjustmentField[] } | null };
+
+/** One amount as staff and Approvers read it: "$a", or "$before → $now (adjusted)" when adjusted (ruling 40). */
+export function amountText(r: Shown, field: AdjustmentField): string {
+  const now = money(fieldCents(r.amounts, field));
+  const b = r.before_adjustments;
+  if (!b || !b.adjusted.includes(field)) return now;
+  return `${money(fieldCents(b.before, field))} → ${now} (adjusted)`;
+}
+
+/** The total as read: "$a", or "$before → $now" when anything was adjusted (ruling 40). */
+export function totalText(r: Shown): string {
+  const now = money(r.amounts.total_cents);
+  return r.before_adjustments ? `${money(r.before_adjustments.before.total_cents)} → ${now}` : now;
 }
