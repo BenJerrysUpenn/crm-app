@@ -22,6 +22,9 @@ export const BUTTON =
 export const PRIMARY =
   "text-sm px-3 py-1.5 rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium disabled:opacity-50";
 
+/** Opening one of the staff member's own files, through the time site's signed file route. */
+export const staffFileHref = (path: string) => `/api/reimbursements/file?path=${encodeURIComponent(path)}`;
+
 /**
  * Uploads one file: asks `endpoint` for a signed upload URL (the server makes
  * the path), uploads straight to Storage, and returns the path to send with

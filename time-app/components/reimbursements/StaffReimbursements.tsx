@@ -13,9 +13,7 @@ import { staffMayChange } from "@/lib/reimbursements/lifecycle";
 import type { MileageRate } from "@/lib/reimbursements/money";
 import type { LyftRow, WithAmounts } from "@/lib/reimbursements/server";
 import ReimbursementForm from "./ReimbursementForm";
-import { BUTTON, PRIMARY, ReimbursementDetail, StatusBadge } from "./shared";
-
-const fileHref = (path: string) => `/api/reimbursements/file?path=${encodeURIComponent(path)}`;
+import { BUTTON, PRIMARY, ReimbursementDetail, StatusBadge, staffFileHref } from "./shared";
 
 export default function StaffReimbursements({
   reimbursements,
@@ -66,7 +64,7 @@ export default function StaffReimbursements({
           {reimbursements.map((r) => (
             <li key={r.id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4 space-y-2">
               <div className="flex items-start justify-between gap-3">
-                <ReimbursementDetail r={r} fileHref={fileHref} />
+                <ReimbursementDetail r={r} fileHref={staffFileHref} />
                 <StatusBadge status={r.status} />
               </div>
               {r.status === "rejected" && r.rejection_reason && (
@@ -101,7 +99,7 @@ export default function StaffReimbursements({
                   <div>Trip date {l.trip_date}</div>
                   <div className="flex flex-wrap gap-2">
                     {l.screenshot_paths.map((p, i) => (
-                      <a key={p} href={fileHref(p)} target="_blank" rel="noreferrer" className="underline text-xs">
+                      <a key={p} href={staffFileHref(p)} target="_blank" rel="noreferrer" className="underline text-xs">
                         Screenshot {i + 1}
                       </a>
                     ))}

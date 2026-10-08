@@ -22,7 +22,7 @@ import { placeLabel, routeEnds } from "@/lib/reimbursements/routeMiles";
 import type { ReasonKind } from "@/lib/reimbursements/events";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 import { contentTypeOf } from "@/lib/reimbursements/submission";
-import { BUTTON, FilePreviews, INPUT, PRIMARY, uploadFile, type PickedFile } from "./shared";
+import { BUTTON, FilePreviews, INPUT, PRIMARY, staffFileHref, uploadFile, type PickedFile } from "./shared";
 
 type PickedEvent = { id: number; date: string; label: string; address: string | null };
 
@@ -34,7 +34,7 @@ function centsText(cents: number): string {
 
 /** A file already on the reimbursement being edited: only its path is known. */
 function savedFile(path: string, i: number): PickedFile {
-  return { path, name: `Receipt ${i + 1} (uploaded before)`, size: null, type: contentTypeOf(path), url: `/api/reimbursements/file?path=${encodeURIComponent(path)}` };
+  return { path, name: `Receipt ${i + 1} (uploaded before)`, size: null, type: contentTypeOf(path), url: staffFileHref(path) };
 }
 
 export default function ReimbursementForm({
