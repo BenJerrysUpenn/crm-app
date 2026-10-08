@@ -16,12 +16,13 @@
 // manager inserts, updates or deletes one through their session, and the
 // service role is not held to RLS. travel_reimbursements and lyft_ride_reports
 // (migration 37) are read as their policies say: your own, or all for a
-// manager. Every other table is readable by any signed-in caller.
+// manager. shift_notices and shift_digests (migration 38) are the service
+// role's alone. Every other table is readable by any signed-in caller.
 //
 // Storage (migration 37's travel-reimbursements bucket) is faked too: signed
 // upload URLs, signed read URLs and downloads, under the bucket's policies
 // (your own folder; a manager reads all and alone writes under adjustments/).
-// Any other origin (Resend, Google) goes to `external`, which a test sets.
+// Any other origin (Resend, Twilio, Google) goes to `external`, which a test sets.
 
 import * as nodeModule from "node:module";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -59,6 +60,9 @@ export type FakeSupabase = {
   signedUploads: string[];
   // Requests to any origin but Supabase's. Null: such a request fails the test.
   external: ((request: Request) => Response | Promise<Response>) | null;
+  // auth.users emails by user id, for emailForUser (lib/notify.ts). Nobody
+  // listed here has an email, so their notifications go by text or not at all.
+  emails: Record<string, string>;
   signIn(userId: string): void;
   // The Cookie header a browser with this session sends (for middleware).
   cookieHeader(): string;
@@ -179,9 +183,12 @@ const OWN_ROWS: Record<string, string> = {
   lyft_ride_reports: "profile_id",
 };
 
+// Migration 38: no API role but the service role touches these.
+const SERVICE_ONLY = ["shift_notices", "shift_digests"];
+
 function canRead(table: string, caller: Caller, row: Row): boolean {
   if (caller.kind === "service") return true;
-  if (caller.kind === "anon") return false;
+  if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
   const owner = OWN_ROWS[table];
   if (owner) return row[owner] === caller.id || isManager(caller);
   return true;
@@ -189,7 +196,7 @@ function canRead(table: string, caller: Caller, row: Row): boolean {
 
 function canWrite(table: string, caller: Caller): boolean {
   if (caller.kind === "service") return true;
-  if (caller.kind === "anon") return false;
+  if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
   if (table === "time_entries") return isManager(caller);
   return true;
 }
@@ -310,6 +317,24 @@ const RPC: Record<string, (args: Row, caller: Caller) => Response> = {
     adjustments.push(adjustment);
     return json(200, { reimbursement: row, adjustment });
   },
+  // Migration 38: claim today's 8pm shift summaries. Each person with queued
+  // shift notices and no summary yet for p_day gets one: their notices are
+  // taken off the queue and returned. Anyone already summarised that day keeps
+  // theirs queued for the next day. The service role alone may call it.
+  claim_shift_digests(args, caller) {
+    if (caller.kind !== "service") {
+      return json(401, { code: "42501", details: null, hint: null, message: "permission denied for function claim_shift_digests" });
+    }
+    const day = String(args.p_day);
+    const digests = (fake.tables.shift_digests ??= []);
+    const notices = (fake.tables.shift_notices ??= []);
+    const due = [...new Set(notices.map((n) => n.employee_id))];
+    const fresh = due.filter((e) => !digests.some((d) => d.employee_id === e && d.digest_day === day));
+    for (const e of fresh) digests.push({ employee_id: e, digest_day: day, claimed_at: new Date().toISOString() });
+    const claimed = notices.filter((n) => fresh.includes(n.employee_id));
+    fake.tables.shift_notices = notices.filter((n) => !claimed.includes(n));
+    return json(200, claimed.map((n) => ({ employee_id: n.employee_id, shift_id: n.shift_id, notice: n.notice })));
+  },
 };
 
 // ---- Storage ------------------------------------------------------------------
@@ -362,10 +387,13 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     if (caller.kind !== "user") return json(401, { code: 401, error_code: "bad_jwt", msg: "invalid JWT" });
     return json(200, { id: caller.id, aud: "authenticated", role: "authenticated", email: `${caller.id}@example.test` });
   }
-  // emailForUser's auth-admin lookup (lib/notify.ts): nobody has an email
-  // here, so a notification is the in-app row alone.
+  // emailForUser's auth-admin lookup (lib/notify.ts): the address a test put
+  // in `emails`, or no such user.
   if (url.pathname.startsWith("/auth/v1/admin/users/")) {
-    return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+    const id = decodeURIComponent(url.pathname.slice("/auth/v1/admin/users/".length));
+    const email = fake.emails[id];
+    if (!email) return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+    return json(200, { id, aud: "authenticated", role: "authenticated", email });
   }
   const fn = url.pathname.match(/^\/rest\/v1\/rpc\/(\w+)$/)?.[1];
   if (fn && method === "POST") {
@@ -480,6 +508,7 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
     storage: {},
     signedUploads: [],
     external: null,
+    emails: {},
     signIn(userId) {
       const accessToken = `token-for-${userId}`;
       tokens.set(accessToken, userId);
