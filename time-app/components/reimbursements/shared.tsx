@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import { money } from "@/lib/payroll/paySheet";
 import { FIELD_LABEL, STATUS_LABEL, type AdjustmentField, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
-import { BUCKET, CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
+import { BUCKET, contentTypeOf, extOf } from "@/lib/reimbursements/submission";
 import { fieldCents } from "@/lib/reimbursements/money";
 import { routeEnds, routeText } from "@/lib/reimbursements/routeMiles";
 import type { WithAmounts } from "@/lib/reimbursements/server";
@@ -28,8 +28,8 @@ export const PRIMARY =
  * the form. Phone photos never pass through Vercel.
  */
 export async function uploadFile(endpoint: string, extra: Record<string, unknown>, file: File): Promise<string> {
-  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
-  const contentType = file.type || CONTENT_TYPE_BY_EXT[ext] || "";
+  const ext = extOf(file.name);
+  const contentType = contentTypeOf(file.name, file.type);
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

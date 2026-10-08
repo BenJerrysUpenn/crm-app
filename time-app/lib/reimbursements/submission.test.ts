@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { CONFIRM_NO_RECEIPT, parseLyftRideReport, parseReimbursement, uploadPath } from "./submission.ts";
+import { CONFIRM_NO_RECEIPT, contentTypeOf, extOf, parseLyftRideReport, parseReimbursement, uploadPath } from "./submission.ts";
 
 const ME = "11111111-1111-1111-1111-111111111111";
 const TODAY = "2026-10-08";
@@ -132,4 +132,14 @@ test("uploadPath: under the staff member's own folder, by kind, with a safe exte
   assert.equal(uploadPath({ folder: ME, kind: "lyft", ext: "pdf", content_type: "application/pdf" }, () => "x").ok, true);
   assert.equal(uploadPath({ folder: ME, kind: "receipts", ext: "exe", content_type: "application/octet-stream" }, () => "x").ok, false);
   assert.equal(uploadPath({ folder: ME, kind: "receipts", ext: "jpg", content_type: "text/html" }, () => "x").ok, false);
+});
+
+test("a picked file's type: the browser's, else its extension's, else none", () => {
+  assert.equal(extOf("IMG_0042.HEIC"), "heic");
+  assert.equal(extOf("receipt.scan.pdf"), "pdf");
+  assert.equal(contentTypeOf("IMG_0042.HEIC"), "image/heic");
+  assert.equal(contentTypeOf("IMG_0042.HEIC", "image/jpeg"), "image/jpeg");
+  assert.equal(contentTypeOf("u1/receipts/1-ab.pdf"), "application/pdf");
+  assert.equal(contentTypeOf("notes.txt"), "");
+  assert.equal(contentTypeOf("noextension"), "");
 });

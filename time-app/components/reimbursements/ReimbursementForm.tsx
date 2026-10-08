@@ -21,7 +21,7 @@ import { centsFromDollars, milesFromInput, reimbursementCents, type MileageRate 
 import { placeLabel, routeEnds } from "@/lib/reimbursements/routeMiles";
 import type { ReasonKind } from "@/lib/reimbursements/events";
 import type { WithAmounts } from "@/lib/reimbursements/server";
-import { CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
+import { contentTypeOf } from "@/lib/reimbursements/submission";
 import { BUTTON, FilePreviews, INPUT, PRIMARY, uploadFile, type PickedFile } from "./shared";
 
 type PickedEvent = { id: number; date: string; label: string; address: string | null };
@@ -34,8 +34,7 @@ function centsText(cents: number): string {
 
 /** A file already on the reimbursement being edited: only its path is known. */
 function savedFile(path: string, i: number): PickedFile {
-  const ext = (path.split(".").pop() ?? "").toLowerCase();
-  return { path, name: `Receipt ${i + 1} (uploaded before)`, size: null, type: CONTENT_TYPE_BY_EXT[ext] ?? "", url: `/api/reimbursements/file?path=${encodeURIComponent(path)}` };
+  return { path, name: `Receipt ${i + 1} (uploaded before)`, size: null, type: contentTypeOf(path), url: `/api/reimbursements/file?path=${encodeURIComponent(path)}` };
 }
 
 export default function ReimbursementForm({
@@ -131,8 +130,7 @@ export default function ReimbursementForm({
       const picked: PickedFile[] = [];
       for (const f of Array.from(files)) {
         const path = await uploadFile("/api/reimbursements/upload-url", { kind }, f);
-        const ext = (f.name.split(".").pop() ?? "").toLowerCase();
-        picked.push({ path, name: f.name, size: f.size, type: f.type || CONTENT_TYPE_BY_EXT[ext] || "", url: URL.createObjectURL(f) });
+        picked.push({ path, name: f.name, size: f.size, type: contentTypeOf(f.name, f.type), url: URL.createObjectURL(f) });
       }
       (kind === "receipts" ? setReceiptFiles : setShotFiles)((prev) => [...prev, ...picked]);
     } catch (e) {

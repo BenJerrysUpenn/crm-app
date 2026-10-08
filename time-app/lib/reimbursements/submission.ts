@@ -158,6 +158,16 @@ export const CONTENT_TYPE_BY_EXT: Record<string, string> = {
 export const ALLOWED_EXT = Object.keys(CONTENT_TYPE_BY_EXT);
 export const ALLOWED_CONTENT_TYPES = Array.from(new Set(Object.values(CONTENT_TYPE_BY_EXT)));
 
+/** A file name's extension, lower case: "IMG_1.HEIC" is "heic". */
+export function extOf(name: string): string {
+  return (name.split(".").pop() ?? "").toLowerCase();
+}
+
+/** A file's content type: what the browser says, else what its extension maps to; "" when neither. */
+export function contentTypeOf(name: string, browserType = ""): string {
+  return browserType || CONTENT_TYPE_BY_EXT[extOf(name)] || "";
+}
+
 /**
  * Where an upload goes in the travel-reimbursements bucket: the staff member's
  * own folder for Receipts and Lyft ride reports, adjustments/<id> for an
