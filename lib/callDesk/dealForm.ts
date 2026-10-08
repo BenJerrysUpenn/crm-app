@@ -97,7 +97,7 @@ export const DEAL_SOURCE = "phone" as const;
 
 /** How strictly to validate. The two intakes want different things:
  *
- *  `call_desk` — Joey is on the phone with the customer and can ask for
+ *  `call_desk` — the caller is on the phone with the customer and can ask for
  *  anything, and the deal goes straight to the quote worker, which needs a
  *  package, a date and a guest count to price. So everything is required.
  *

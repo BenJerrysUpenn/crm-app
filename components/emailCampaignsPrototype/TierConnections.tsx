@@ -57,7 +57,7 @@ export default function TierConnections({ flows, tiers }: { flows: Flows; tiers:
           <T>Offer</T>
           <N n={offer} title="People in Offer now" />
           <span className="ml-1 text-slate-500">
-            (booked in the last 12 months {fmt(flows.offerBookedRecent)}, or opted in {fmt(flows.offerOptedIn)})
+            (booked in the last 12 months {fmt(flows.offerBookedRecent)}, or explicitly opted in {fmt(flows.offerOptedIn)})
           </span>
           <span className="mx-2 text-slate-600">·</span>
           <T>CRM deal</T>

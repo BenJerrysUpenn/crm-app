@@ -33,14 +33,14 @@ function deal(over: Partial<DedupeMatch> = {}): DedupeMatch {
   return {
     kind: "deal",
     id: 25401,
-    name: "Dana Okafor",
+    name: "Jordan Sample",
     company: "Wharton",
-    email: "dana@wharton.upenn.edu",
-    phone: "(215) 665-5323",
+    email: "jordan@example.org",
+    phone: "(215) 555-0123",
     stage: "Event Complete",
     event_date: "2025-11-04",
-    first_name: "Dana",
-    last_name: "Okafor",
+    first_name: "Jordan",
+    last_name: "Sample",
     venue_name: "Huntsman Hall",
     venue_address: "3730 Walnut St, Philadelphia, PA",
     touched_at: "2025-11-05T12:00:00",
@@ -53,10 +53,10 @@ function prospect(over: Partial<DedupeMatch> = {}): DedupeMatch {
   return {
     kind: "prospect",
     id: 126,
-    name: "Dana Okafor",
+    name: "Jordan Sample",
     company: "The Wharton School",
-    email: "dana@wharton.upenn.edu",
-    phone: "2156655323",
+    email: "jordan@example.org",
+    phone: "2155550123",
     matched: ["email"],
     ...over,
   };
@@ -120,7 +120,7 @@ describe("what autofill may touch", () => {
       guest_count: 200,
       package_name: "Sundae Party",
     } as unknown as DedupeMatch;
-    const before = form({ contact_email: "dana@wharton.upenn.edu" });
+    const before = form({ contact_email: "jordan@example.org" });
     const { form: after } = run(
       before,
       applyAutofill(before, EMPTY_AUTOFILL, loaded),
@@ -133,10 +133,10 @@ describe("what autofill may touch", () => {
 describe("autofillValues", () => {
   it("takes names, contact, company and venue from a deal", () => {
     expect(autofillValues(deal())).toEqual({
-      contact_first_name: "Dana",
-      contact_last_name: "Okafor",
-      contact_email: "dana@wharton.upenn.edu",
-      contact_phone: "(215) 665-5323",
+      contact_first_name: "Jordan",
+      contact_last_name: "Sample",
+      contact_email: "jordan@example.org",
+      contact_phone: "(215) 555-0123",
       company: "Wharton",
       venue_name: "Huntsman Hall",
       venue_address: "3730 Walnut St, Philadelphia, PA",
@@ -145,10 +145,10 @@ describe("autofillValues", () => {
 
   it("splits a prospect's name and gives no venue", () => {
     const values = autofillValues(
-      prospect({ name: "Dana Okafor-Reyes", venue_address: "ignored" }),
+      prospect({ name: "Jordan Sample-Reyes", venue_address: "ignored" }),
     );
-    expect(values.contact_first_name).toBe("Dana");
-    expect(values.contact_last_name).toBe("Okafor-Reyes");
+    expect(values.contact_first_name).toBe("Jordan");
+    expect(values.contact_last_name).toBe("Sample-Reyes");
     expect(values.venue_name).toBeUndefined();
     expect(values.venue_address).toBeUndefined();
   });
@@ -161,8 +161,8 @@ describe("autofillValues", () => {
       venue_address: undefined,
     });
     const values = autofillValues(bare);
-    expect(values.contact_first_name).toBe("Dana");
-    expect(values.contact_last_name).toBe("Okafor");
+    expect(values.contact_first_name).toBe("Jordan");
+    expect(values.contact_last_name).toBe("Sample");
     expect(values.venue_address).toBeUndefined();
   });
 
@@ -173,9 +173,9 @@ describe("autofillValues", () => {
   });
 
   it("splits names the way the call desk always has", () => {
-    expect(splitName("  Dana  ")).toEqual({ first: "Dana", last: "" });
-    expect(splitName("Dana van der Berg")).toEqual({
-      first: "Dana",
+    expect(splitName("  Jordan  ")).toEqual({ first: "Jordan", last: "" });
+    expect(splitName("Jordan van der Berg")).toEqual({
+      first: "Jordan",
       last: "van der Berg",
     });
     expect(splitName(null)).toEqual({ first: "", last: "" });
@@ -237,15 +237,15 @@ describe("which match autofill uses", () => {
 
 describe("applyAutofill", () => {
   it("fills every empty field from the match", () => {
-    const before = form({ contact_email: "dana@wharton.upenn.edu" });
+    const before = form({ contact_email: "jordan@example.org" });
     const { form: after, state } = run(
       before,
       applyAutofill(before, EMPTY_AUTOFILL, deal()),
       EMPTY_AUTOFILL,
     );
-    expect(after.contact_first_name).toBe("Dana");
-    expect(after.contact_last_name).toBe("Okafor");
-    expect(after.contact_phone).toBe("(215) 665-5323");
+    expect(after.contact_first_name).toBe("Jordan");
+    expect(after.contact_last_name).toBe("Sample");
+    expect(after.contact_phone).toBe("(215) 555-0123");
     expect(after.company).toBe("Wharton");
     expect(after.venue_name).toBe("Huntsman Hall");
     expect(after.venue_address).toBe("3730 Walnut St, Philadelphia, PA");
@@ -255,7 +255,7 @@ describe("applyAutofill", () => {
   it("never overwrites what the human typed", () => {
     const before = form({
       contact_first_name: "Danielle",
-      contact_email: "DANA@wharton.upenn.edu",
+      contact_email: "JORDAN@example.org",
       venue_address: "Irvine Auditorium",
     });
     const { form: after, state } = run(
@@ -264,18 +264,18 @@ describe("applyAutofill", () => {
       EMPTY_AUTOFILL,
     );
     expect(after.contact_first_name).toBe("Danielle");
-    expect(after.contact_email).toBe("DANA@wharton.upenn.edu");
+    expect(after.contact_email).toBe("JORDAN@example.org");
     expect(after.venue_address).toBe("Irvine Auditorium");
     // ...and does not claim them as autofilled.
     expect(isAutofilled(after, state, "contact_first_name")).toBe(false);
     expect(isAutofilled(after, state, "venue_address")).toBe(false);
     // The empty ones were still filled.
-    expect(after.contact_last_name).toBe("Okafor");
+    expect(after.contact_last_name).toBe("Sample");
     expect(isAutofilled(after, state, "contact_last_name")).toBe(true);
   });
 
   it("treats an autofilled field the human then edited as theirs", () => {
-    const start = form({ contact_email: "dana@wharton.upenn.edu" });
+    const start = form({ contact_email: "jordan@example.org" });
     const filled = run(
       start,
       applyAutofill(start, EMPTY_AUTOFILL, deal()),
@@ -297,7 +297,7 @@ describe("applyAutofill", () => {
 });
 
 describe("following the matches", () => {
-  const typed = form({ contact_email: "dana@wharton.upenn.edu" });
+  const typed = form({ contact_email: "jordan@example.org" });
 
   it("auto-applies the best match when matches arrive", () => {
     const result = autofillFromMatches(typed, EMPTY_AUTOFILL, [
@@ -327,13 +327,13 @@ describe("following the matches", () => {
       EMPTY_AUTOFILL,
     );
     // The human typed a different email; that person is new.
-    const retyped = { ...filled.form, contact_email: "sam@drexel.edu" };
+    const retyped = { ...filled.form, contact_email: "sam@example.com" };
     const { form: after, state } = run(
       retyped,
       autofillFromMatches(retyped, filled.state, []),
       filled.state,
     );
-    expect(after.contact_email).toBe("sam@drexel.edu");
+    expect(after.contact_email).toBe("sam@example.com");
     expect(after.contact_first_name).toBe("");
     expect(after.venue_address).toBe("");
     expect(state.source).toBeNull();
@@ -361,7 +361,7 @@ describe("following the matches", () => {
     );
     expect(after.contact_first_name).toBe("Sam");
     expect(after.venue_address).toBe("Drexel, Philadelphia");
-    // Wharton came from Dana's deal and Sam's has no company: emptied, not kept.
+    // Wharton came from Jordan's deal and Sam's has no company: emptied, not kept.
     expect(after.company).toBe("");
     expect(after.venue_name).toBe("");
   });
@@ -369,7 +369,7 @@ describe("following the matches", () => {
 
 describe("undo", () => {
   const typed = form({
-    contact_email: "dana@wharton.upenn.edu",
+    contact_email: "jordan@example.org",
     contact_first_name: "Danielle",
   });
 
@@ -386,7 +386,7 @@ describe("undo", () => {
       filled.state,
     );
     expect(after.contact_first_name).toBe("Danielle");
-    expect(after.contact_email).toBe("dana@wharton.upenn.edu");
+    expect(after.contact_email).toBe("jordan@example.org");
     expect(after.company).toBe("Wharton MBA office");
     expect(after.contact_last_name).toBe("");
     expect(after.venue_address).toBe("");
@@ -422,18 +422,18 @@ describe("undo", () => {
 
 describe("the async edges", () => {
   it("never overwrites a keystroke that landed while the lookup was in flight", () => {
-    const base = form({ contact_email: "dana@wharton.upenn.edu" });
+    const base = form({ contact_email: "jordan@example.org" });
     const result = applyAutofill(base, EMPTY_AUTOFILL, deal());
     // The human typed a last name before the answer came back.
     const now = { ...base, contact_last_name: "O" };
     const after = applyAutofillPatch(now, base, result.patch);
     expect(after.contact_last_name).toBe("O");
-    expect(after.contact_first_name).toBe("Dana");
+    expect(after.contact_first_name).toBe("Jordan");
   });
 
   it("looks up only what the human typed", () => {
     // Human typed a phone; autofill filled the email from the match.
-    const typed = form({ contact_phone: "215-665-5323" });
+    const typed = form({ contact_phone: "215-555-0123" });
     const filled = run(
       typed,
       autofillFromMatches(typed, EMPTY_AUTOFILL, [
@@ -441,15 +441,15 @@ describe("the async edges", () => {
       ]),
       EMPTY_AUTOFILL,
     );
-    expect(filled.form.contact_email).toBe("dana@wharton.upenn.edu");
+    expect(filled.form.contact_email).toBe("jordan@example.org");
     expect(autofillLookupKeys(filled.form, filled.state)).toEqual({
       email: "",
-      phone: "215-665-5323",
+      phone: "215-555-0123",
     });
     // Once the human edits the email it is theirs, and it is looked up.
-    const edited = { ...filled.form, contact_email: "dana.o@wharton.upenn.edu" };
+    const edited = { ...filled.form, contact_email: "jordan.s@example.org" };
     expect(autofillLookupKeys(edited, filled.state).email).toBe(
-      "dana.o@wharton.upenn.edu",
+      "jordan.s@example.org",
     );
   });
 });

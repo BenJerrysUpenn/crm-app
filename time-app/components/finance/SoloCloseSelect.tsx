@@ -6,8 +6,9 @@ import { recordChoice } from "./choiceApi";
 
 // The §1.9 solo-close dropdown for one night (bj-finance #519, ruled
 // 2026-09-22): pay the scheduled closer / pay an unpunched manager / skip.
-// Default skip. It lives on the schedule view; the Finance tab only shows what
-// was chosen. The options, the scheduled closer and the managers all come from
+// Default skip. It lives in the solo-close card on the payroll page
+// (components/SoloCloseNights.tsx); the check list below it only shows what was
+// chosen. The options, the scheduled closer and the managers all come from
 // the server's rulebook (lib/payroll/verify.ts); nothing is worked out here.
 //
 // One <select> carries both the choice and, for "unpunched manager", which

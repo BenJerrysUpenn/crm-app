@@ -55,16 +55,13 @@ export default function AvailabilityGrid({
   weekStart,
   weekRows,
   timeOff,
-  lockedDays,
 }: {
   weekStart: string;
   weekRows: Availability[];
   timeOff: Availability[];
-  lockedDays: string[];
 }) {
   const router = useRouter();
   const dates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
-  const lockedSet = useMemo(() => new Set(lockedDays), [lockedDays]);
 
   const seed = useMemo(() => {
     const m = new Map<string, Pref>();
@@ -106,7 +103,6 @@ export default function AvailabilityGrid({
   }, []);
 
   function apply(col: number, slot: number) {
-    if (lockedSet.has(dates[col])) return;
     setCells((prev) => {
       const k = key(col, slot);
       const next = new Map(prev);
@@ -135,7 +131,6 @@ export default function AvailabilityGrid({
   }
 
   function clearCol(col: number) {
-    if (lockedSet.has(dates[col])) return;
     setCells((prev) => {
       const next = new Map(prev);
       for (let s = 0; s < SLOTS; s++) next.delete(key(col, s));
@@ -235,21 +230,18 @@ export default function AvailabilityGrid({
           </button>
         ))}
       </div>
-      <p className="text-sm text-slate-600 dark:text-slate-400">Pick a mode, then click and drag to paint the hours. Days already scheduled are locked.</p>
+      <p className="text-sm text-slate-600 dark:text-slate-400">Pick a mode, then click and drag to paint the hours.</p>
       {msg && <div className="text-sm text-emerald-400">{msg}</div>}
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 overflow-x-auto">
         <div className="select-none" style={{ touchAction: "none", minWidth: 560 }} onPointerMove={onPointerMove}>
           <div className="grid" style={{ gridTemplateColumns: `48px repeat(7, 1fr)` }}>
             <div />
-            {dates.map((d, i) => {
-              const locked = lockedSet.has(d);
-              return (
-                <button key={i} onClick={() => clearCol(i)} disabled={locked} className={`text-xs font-medium pb-1 ${locked ? "text-slate-600" : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"}`}>
-                  {DOW[i]} {Number(d.slice(8, 10))}{locked ? " 🔒" : ""}
-                </button>
-              );
-            })}
+            {dates.map((d, i) => (
+              <button key={i} onClick={() => clearCol(i)} className="text-xs font-medium pb-1 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200">
+                {DOW[i]} {Number(d.slice(8, 10))}
+              </button>
+            ))}
           </div>
           <div className="grid" style={{ gridTemplateColumns: `48px repeat(7, 1fr)` }}>
             {Array.from({ length: SLOTS }).map((_, slot) => {
@@ -260,18 +252,15 @@ export default function AvailabilityGrid({
                   <div className={`text-[10px] text-slate-500 text-right pr-1 h-5 -mt-2 ${onHour ? "" : "opacity-0"}`}>
                     {onHour ? label(min) : ""}
                   </div>
-                  {dates.map((d, col) => {
-                    const locked = lockedSet.has(d);
+                  {dates.map((_, col) => {
                     const pref = cells.get(key(col, slot));
                     return (
                       <div
                         key={col}
                         data-col={col}
                         data-slot={slot}
-                        onPointerDown={(e) => !locked && onPointerDown(e, col, slot)}
-                        className={`h-5 border-b border-l border-slate-200 dark:border-slate-800 ${onHour ? "border-t border-t-slate-700/60" : ""} ${
-                          locked ? "bg-slate-100 dark:bg-slate-950/60 cursor-not-allowed" : "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                        } ${pref ? PREF_COLOR[pref] : ""}`}
+                        onPointerDown={(e) => onPointerDown(e, col, slot)}
+                        className={`h-5 border-b border-l border-slate-200 dark:border-slate-800 ${onHour ? "border-t border-t-slate-700/60" : ""} cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 ${pref ? PREF_COLOR[pref] : ""}`}
                       />
                     );
                   })}
@@ -348,7 +337,7 @@ function TimeOff({ timeOff }: { timeOff: Availability[] }) {
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
       <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Time-off requests</div>
-      <p className="text-xs text-slate-500">Request a single day or a range. You can&apos;t request off once that day&apos;s schedule is posted.</p>
+      <p className="text-xs text-slate-500">Request a single day or a range.</p>
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-slate-600 dark:text-slate-400">From
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ml-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1 text-slate-900 dark:text-slate-100" />

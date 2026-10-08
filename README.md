@@ -91,6 +91,14 @@ if the write fails.
 The board loads `archived = 0` rows only. Archived deals (9.5k+ historical rows)
 stay hidden. Within each column, cards sort by `event_date` ascending.
 
+## COI panel (deal drawer)
+`components/CoiPanel.tsx` renders on deals with `coi_required = 1` and assembles the
+Hartford certificate request from the deal (`buildCoiRequest` in `lib/coi.ts`). It never
+submits to The Hartford; the human sends. Its only write is `coi_sent_at` plus
+`updated_at` in one `deals` update (it never touches `stage`). A COI is urgent when
+required, unsent and the event is 0 to 14 days out (`COI_URGENT_WINDOW_DAYS`), the
+same window as Catering-Manager `revive.coi_required_unsent`.
+
 ## Local dev (optional)
 ```
 npm install
@@ -101,10 +109,18 @@ Open http://localhost:3000.
 
 ## Deploy
 Push to GitHub, import the repo into Vercel, set the two env vars, deploy.
+
+Two Vercel projects build from this repo: `crm-app` (repo root; crm.withers-ventures.com,
+personal.withers-ventures.com) and `time` (`time-app/`; time.withers-ventures.com,
+finance.withers-ventures.com). `vercel.json` in each root limits automatic deploys to
+`main` (production) and branches named `preview/*` (preview URLs). Every other branch,
+including PR branches and review-pass commits, builds nothing on Vercel: the Hobby plan
+allows 100 deployments a day across the account. To get a preview URL for a prototype or
+a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
 ## Catering-shift reconciler (local command)
-Creates the manager-only draft shifts for booked catering deals that have a
+Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
 (`reconcileShifts` in `lib/cateringShifts.ts`: cart events start 120 min
 before departure, 15h+ shifts are flagged CHECK HOURS), run straight against

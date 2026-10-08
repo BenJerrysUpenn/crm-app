@@ -104,10 +104,10 @@ describe("REQUIRED_FIELDS agrees with validateDealPayload", () => {
   // exactly which blanks the validator refuses.
   const full: DealFormPayload = {
     ...EMPTY_DEAL_FORM_PAYLOAD,
-    contact_first_name: "Dana",
-    contact_last_name: "Okafor",
-    contact_email: "dana@wharton.upenn.edu",
-    contact_phone: "(215) 665-5323",
+    contact_first_name: "Jordan",
+    contact_last_name: "Sample",
+    contact_email: "jordan@example.org",
+    contact_phone: "(215) 555-0123",
     company: "Wharton",
     customer_profile: "office_admin",
     event_type: "Corporate",

@@ -13,9 +13,9 @@ export const fetchCache = "force-no-store";
 
 // GET /api/cron/catering-shifts
 //
-// Reconciles catering draft shifts: any booked deal (unpaid or paid) whose
+// Reconciles catering shifts: any booked deal (unpaid or paid) whose
 // picklist has been generated (departure_time is set) but has no shifts yet
-// gets its open draft shifts created. This is the path that catches deals whose
+// gets its open shifts created. This is the path that catches deals whose
 // picklist is generated AFTER booking, when the stage-change trigger can't.
 //
 // Meant to be hit on a schedule. It is the one CRM route a scheduler reaches

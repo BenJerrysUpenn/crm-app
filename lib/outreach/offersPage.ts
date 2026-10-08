@@ -1,23 +1,28 @@
-// PROTOTYPE (v6) — the page someone lands on after clicking "Yes, send me
-// offers" in an email footer. Nothing serves this for real yet: the
-// email-campaigns "Recipient pages" row previews it at
-// /email-campaigns/preview/offers-signup, in a sandboxed frame, with a sample
-// address and no database write.
+// The pages a person sees at /offers/<token> after clicking "Yes, send me
+// offers" in a warm email footer (bj-finance #425). Served by
+// app/offers/[token]/route.ts and previewed, with a sample address, at
+// /email-campaigns/preview/offers-signup — one copy, so the preview cannot
+// drift from what is served.
 //
-// Brand-plain and styled like the one-click unsubscribe page
-// (lib/outreach/unsubscribePage.ts): no framework, no JS, no cookies.
+// The copy of the two main pages is the owners' prototype v6 copy, VERBATIM
+// (crm-app PR #30, approved 2026-09-27). Do not reword it without them: the
+// consent statement is what is stored as proof of opt-in, and changing a word
+// of it means bumping OFFERS_PAGE_VERSION so every stored row still says which
+// wording that person saw.
 //
-// Two states, like the unsubscribe page. Mail providers and corporate link
-// scanners open every link in an email before a person does, so a real
-// version should record consent only when the person presses the button,
-// never on the link click itself.
+// Brand-plain and styled like the unsubscribe page (lib/outreach/
+// unsubscribePage.ts): no framework, no JS, no cookies. The form has no
+// action attribute, so it posts to the page's own URL and the token is never
+// re-rendered into markup.
 
 /** The exact statement stored as proof of opt-in, with the address and the
  * date and time the button was pressed. */
 export const OFFERS_CONSENT_TEXT =
   "Yes, send me offers. I agree to receive one email a month from Ben & Jerry's Philadelphia with its seasonal menu and offers. I can unsubscribe at any time with the link at the bottom of any of these emails.";
 
-export const OFFERS_SAMPLE_EMAIL = "jordan.rivera@example.com";
+/** Which page and wording the person saw. Stored on every consent row. Bump
+ * it whenever the confirm page or OFFERS_CONSENT_TEXT changes. */
+export const OFFERS_PAGE_VERSION = "offers-optin-2026-09-27";
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -71,8 +76,8 @@ const TAIL = `<footer>Ben &amp; Jerry's Philadelphia · 218 S 40th St Philadelph
 </html>
 `;
 
-/** Step 1: the landing page from the email link. Records nothing. */
-export function offersConfirmHtml(email = OFFERS_SAMPLE_EMAIL): string {
+/** GET: the landing page from the email link. Records nothing. */
+export function offersConfirmHtml(email: string): string {
   return `${HEAD("Yes, send me offers")}<h1>One seasonal menu a month?</h1>
 <p>Press the button and we will send ${esc(email)} one short email a month with our seasonal menu and offers.
 Nothing is signed up until you do.</p>
@@ -83,9 +88,9 @@ Nothing is signed up until you do.</p>
 ${TAIL}`;
 }
 
-/** Step 2: after the button. The consent statement shown is exactly what is
+/** POST: after the button. The consent statement shown is exactly what is
  * stored, with the address and the date and time. */
-export function offersSignedUpHtml(at: Date, email = OFFERS_SAMPLE_EMAIL): string {
+export function offersSignedUpHtml(at: Date, email: string): string {
   return `${HEAD("You're on the list")}<h1>You're on the list</h1>
 <p>You're on the list: one short seasonal menu with offers a month from Ben &amp; Jerry's Philadelphia.</p>
 <h2>What you'll get</h2>

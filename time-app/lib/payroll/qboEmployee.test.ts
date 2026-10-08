@@ -45,17 +45,17 @@ test("2.5: blank in every dialect means 'not mapped', never an empty string", ()
 });
 
 test("2.5: an email address is refused — the commonest wrong paste", () => {
-  assert.match(err("sophia@benjerryphilly.com"), /not an email address/);
+  assert.match(err("staff1@example.com"), /not an email address/);
 });
 
 test("2.5: whitespace inside is refused rather than squeezed out", () => {
   // Two things were pasted. Guessing which one is the id is worse than asking.
-  assert.match(err("1042 Kieran"), /no spaces/);
+  assert.match(err("1042 Quinn"), /no spaces/);
 });
 
 test("2.5: a name is refused — the join is never by name", () => {
-  assert.match(err("Kieran Flint"), /no spaces/);
-  assert.match(err("piper!"), /digits and letters/);
+  assert.match(err("Quinn Fixture"), /no spaces/);
+  assert.match(err("sprinkles!"), /digits and letters/);
 });
 
 test("2.5: something far too long is refused", () => {
@@ -63,11 +63,11 @@ test("2.5: something far too long is refused", () => {
 });
 
 const ROSTER: RosterProfile[] = [
-  { id: "a", full_name: "Wright, Sylvia", active: true, qbo_employee_id: "11" },
-  { id: "b", full_name: "Freeman, Carli", active: true, qbo_employee_id: null },
-  { id: "c", full_name: "Allen, James", active: true, qbo_employee_id: "  " },
-  { id: "d", full_name: "Barrett, Joey", active: false, qbo_employee_id: null },
-  { id: "e", full_name: "Malmgren, Sophia", active: true, qbo_employee_id: "12" },
+  { id: "a", full_name: "Demo, Robin", active: true, qbo_employee_id: "11" },
+  { id: "b", full_name: "Bravo, Casey", active: true, qbo_employee_id: null },
+  { id: "c", full_name: "Alpha, Taylor", active: true, qbo_employee_id: "  " },
+  { id: "d", full_name: "Tester, Jamie", active: false, qbo_employee_id: null },
+  { id: "e", full_name: "Example, Pat", active: true, qbo_employee_id: "12" },
 ];
 
 test("2.5: the unmapped list is active people only, by name", () => {
@@ -75,14 +75,14 @@ test("2.5: the unmapped list is active people only, by name", () => {
   // bury the person who is about to be paid and cannot be.
   assert.deepEqual(
     unmappedProfiles(ROSTER).map((p) => p.full_name),
-    ["Allen, James", "Freeman, Carli"],
+    ["Alpha, Taylor", "Bravo, Casey"],
   );
 });
 
 test("2.5: two people on one QBO employee id are reported together", () => {
   const clash: RosterProfile[] = [
     ...ROSTER,
-    { id: "f", full_name: "Flint, Kieran", active: true, qbo_employee_id: "11" },
+    { id: "f", full_name: "Fixture, Quinn", active: true, qbo_employee_id: "11" },
   ];
   const dupes = duplicateMappings(clash);
   assert.equal(dupes.length, 1);

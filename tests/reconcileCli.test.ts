@@ -6,7 +6,7 @@
 // every shift an hour before departure, cart events included. These tests pin
 // the stories that matter for the replacement:
 //
-//   * a booked deal with a departure time and no shifts gets one draft shift
+//   * a booked deal with a departure time and no shifts gets one live shift
 //     per crew member, with the cart rule and the CHECK HOURS marker, and the
 //     one summary line names it;
 //   * running it again creates nothing;
@@ -42,7 +42,7 @@ const PLAIN: DealTimes = {
 };
 // The same event with the ice cream cart: the crew starts at the storage unit.
 const CART: DealTimes = { ...PLAIN, id: 25402, staff_count: 1, cart_service: 1 };
-// A deal whose hours are not credible (the Terrain shape: 26h per person).
+// A deal whose hours are not credible (the Example Garden Co shape: 26h per person).
 const LONG: DealTimes = { ...PLAIN, id: 25403, staff_count: 1, labor_hours: 26 };
 
 // An in-memory shifts table with the real unique (deal_id, deal_slot) rule,
@@ -96,7 +96,7 @@ async function run(argv: string[], store: ShiftStore, env: Record<string, string
 }
 
 describe("a live run", () => {
-  it("creates one draft shift per crew member for a booked deal with no shifts", async () => {
+  it("creates one live shift per crew member for a booked deal with no shifts", async () => {
     const db = memoryStore([PLAIN]);
     const r = await run([], db.store);
 
@@ -105,7 +105,7 @@ describe("a live run", () => {
     expect(db.shifts.map((s) => s.deal_slot)).toEqual([1, 2]);
     for (const s of db.shifts) {
       expect(s.employee_id).toBeNull();
-      expect(s.published).toBe(false);
+      expect(s.published).toBe(true);
       expect(s.position).toBe("Catering");
       expect(s.starts_at).toBe("2026-10-10T17:30:00.000Z"); // 13:30 EDT, 1h before departure
       expect(s.ends_at).toBe("2026-10-11T01:30:00.000Z"); // 21:30 EDT

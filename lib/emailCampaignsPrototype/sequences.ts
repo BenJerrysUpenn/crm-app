@@ -36,7 +36,10 @@ export type SequenceDoc = { name: string; steps: SeqStep[] };
 //         BODY, approved 2026-08-26). BODY is one string there; it is split
 //         here at its blank lines into body / signature / opt-out footer, and
 //         its {first_name} placeholder is written as the editor's
-//         {{first_name}} merge field. No other character differs.
+//         {{first_name}} merge field. No other character differs, except
+//         WARM_SIGNATURE's phone line below, dropped here for the PII scrub
+//         (crm-app#42) pending the same change in warm_sender.py — see the
+//         open question on this file.
 //   v5: the footers' trailing link words ("Unsubscribe", "Yes, send me
 //   offers") are stored as {{unsubscribe_link}} / {{offers_link}} in the
 //   editable footer (SEED_LANE_BLOCKS), derived from these constants; the
@@ -56,7 +59,7 @@ export const WARM_SUBJECT = "Ice cream catering for holiday events";
 
 export const WARM_BODY = "Hi {{first_name}},\n\nI'm Alina, the owner of the Ben & Jerry's in Philadelphia. I took over the shop in May and run it as a woman-owned small business.\n\nWe cater events across the Philadelphia area, and winter is coming! The cold-weather menu is hot chocolate floats, warmed cookie and brownie sundaes, and Belgian waffle sundaes, with toppings like crushed candy cane, gingersnaps, and hot fudge. We bring everything, scoop for your guests, and clean up. You tell us when, where, and how many.\n\nThe regular ice cream cup, cone, or sundae catering is open year round as well.\n\nIf you have a holiday party, wedding, staff appreciation event, bar/bat mitzvah coming up, I can turn a quote around the same day.\n\nLooking forward to hearing from you!";
 
-export const WARM_SIGNATURE = "Alina Withers\nOwner, Ben & Jerry's Philadelphia\n218 S 40th St, Philadelphia, PA 19104\n6093696808";
+export const WARM_SIGNATURE = "Alina Withers\nOwner, Ben & Jerry's Philadelphia\n218 S 40th St, Philadelphia, PA 19104";
 
 export const WARM_FOOTER_OPT_OUT = "If you'd rather not hear from me, reply \"no thanks\" and I'll take you off my list.";
 

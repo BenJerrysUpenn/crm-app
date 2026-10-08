@@ -15,7 +15,7 @@
 -- VERIFY. supabase/migration_26_verify.sql. ROLLBACK. supabase/migration_26_down.sql.
 --
 -- WHY NOT JOIN ON NAMES (§2.5). The run matched Withers-time people to QBO
--- people by name and it does not work: "piper" in one system is Kieran Flint in
+-- people by name and it does not work: a nickname in one system is a full name in
 -- the other, and QBO itself returns different display names from different
 -- endpoints, so even a careful string match has nothing stable to match on. The
 -- id is the Intuit.ems.iop local employee id. One column, set once per person,
@@ -24,7 +24,7 @@
 -- WHY A TABLE AND NOT PROSE (§3.6). Catering tips arrive on Square invoices
 -- weeks before the event they belong to, so every run holds some and releases
 -- others. The 2026-09-23 run tracked that in a written note, and the note
--- carried a phantom $100 — the Geraci payment and the Burlington payment were
+-- carried a phantom $100 — two payments under different payer names were
 -- the same money against deal 25188, counted twice. A table with a status per
 -- payment makes the tie-out arithmetic rather than reading:
 --
@@ -173,7 +173,7 @@ create unique index if not exists held_tips_source_payment_key
 -- them.
 --
 -- This index does NOT catch the phantom $100. That was one payment entered
--- under two different payer names (Geraci and Burlington, deal 25188), so the
+-- under two different payer names (deal 25188), so the
 -- names made the rows look distinct here. Catching it needs a check that
 -- ignores the payer, and ignoring the payer is too blunt to enforce as a
 -- constraint — so that one is reported, not refused: findDuplicates() in
