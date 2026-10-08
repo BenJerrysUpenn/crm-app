@@ -59,7 +59,8 @@ export const SYSTEMS: { key: System; label: string; hint: string }[] = [
   { key: "google", label: "Google Group", hint: GOOGLE_GROUP },
   { key: "fob", label: "RFID fob", hint: "assign a fob for the Pi clock" },
 ];
-export const SYSTEMS_DEFAULT: System[] = ["square", "slack", "qbo", "google", "fob"];
+// Every system is ticked by default.
+export const SYSTEMS_DEFAULT: System[] = SYSTEMS.map((s) => s.key);
 
 export type StepSpec = {
   key: string;
