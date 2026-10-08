@@ -147,9 +147,12 @@ export function parseLyftRideReport(body: unknown, ctx: Ctx): Parsed<LyftValue> 
 /** The private Storage bucket for Receipts, Lyft ride reports and evidence (ADR 0002). */
 export const BUCKET = "travel-reimbursements";
 
-/** Photos from a phone, or a PDF. */
-export const ALLOWED_EXT = ["jpg", "jpeg", "png", "heic", "heif", "webp", "pdf"];
-export const ALLOWED_CONTENT_TYPES = ["image/jpeg", "image/png", "image/heic", "image/heif", "image/webp", "application/pdf"];
+/** Photos from a phone, or a PDF: each file extension allowed, and its content type. */
+export const CONTENT_TYPE_BY_EXT: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", heic: "image/heic", heif: "image/heif", webp: "image/webp", pdf: "application/pdf",
+};
+export const ALLOWED_EXT = Object.keys(CONTENT_TYPE_BY_EXT);
+export const ALLOWED_CONTENT_TYPES = Array.from(new Set(Object.values(CONTENT_TYPE_BY_EXT)));
 
 /**
  * Where an upload goes in the travel-reimbursements bucket: the staff member's

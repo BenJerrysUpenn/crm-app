@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { money } from "@/lib/payroll/paySheet";
 import { STATUS_LABEL, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
-import { BUCKET } from "@/lib/reimbursements/submission";
+import { BUCKET, CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 
 export const INPUT =
@@ -18,10 +18,6 @@ export const BUTTON =
 export const PRIMARY =
   "text-sm px-3 py-1.5 rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium disabled:opacity-50";
 
-const TYPE_BY_EXT: Record<string, string> = {
-  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", heic: "image/heic", heif: "image/heif", webp: "image/webp", pdf: "application/pdf",
-};
-
 /**
  * Uploads one file: asks `endpoint` for a signed upload URL (the server makes
  * the path), uploads straight to Storage, and returns the path to send with
@@ -29,7 +25,7 @@ const TYPE_BY_EXT: Record<string, string> = {
  */
 export async function uploadFile(endpoint: string, extra: Record<string, unknown>, file: File): Promise<string> {
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
-  const contentType = file.type || TYPE_BY_EXT[ext] || "";
+  const contentType = file.type || CONTENT_TYPE_BY_EXT[ext] || "";
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
