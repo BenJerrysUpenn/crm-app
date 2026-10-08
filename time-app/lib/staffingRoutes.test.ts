@@ -8,7 +8,7 @@
 //
 //   npm test        (node --test; Node runs TypeScript directly)
 
-import { beforeEach, test } from "node:test";
+import { beforeEach, mock, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "./testing/fakeSupabase.ts";
@@ -135,6 +135,43 @@ test("Remove access now runs before a future last day", async () => {
   assert.equal(profile(SAM).active, false);
 });
 
+// "Is the last day past?" is asked of the shop's calendar (America/New_York),
+// not of UTC: at 23:00 on 15 September in Philadelphia it is already the 16th in UTC.
+async function offboardSamAt(now: string, last_day: string) {
+  mock.timers.enable({ apis: ["Date"], now: new Date(now) });
+  try {
+    return await offboardSam({ last_day });
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+test("offboarding whose last day is today in Philadelphia removes access straight away", async () => {
+  const { json } = await offboardSamAt("2026-09-15T15:00:00Z", "2026-09-15");
+  assert.equal(json.ran, true);
+  assert.equal(authUser(SAM).ban_duration, "876000h");
+  assert.equal(profile(SAM).active, false);
+});
+
+test("a last day that is tomorrow in Philadelphia waits, even once it is tomorrow in UTC", async () => {
+  const { json } = await offboardSamAt("2026-09-16T03:00:00Z", "2026-09-16");
+  assert.equal(json.ran, false);
+  assert.equal(authUser(SAM).ban_duration, undefined);
+  assert.equal(profile(SAM).active, true);
+});
+
+test("offboarding someone with no fob says so and still completes the access removal", async () => {
+  const { json } = await submit({ kind: "offboarding", employee_id: KIT, last_day: "2026-09-15", reason: "Quit", systems: ["fob"] });
+  const rec = json.record!;
+  assert.equal(step(rec, "fob_unassign").status, "done");
+  assert.equal(step(rec, "fob_unassign").result, "No fob was assigned");
+  assert.equal(profile(KIT).active, false);
+  assert.deepEqual(
+    db.rows("staff_cards").map((c) => [c.card_id, c.employee_id]),
+    [["CARD-1", SAM]],
+  );
+});
+
 test("the access-removal chain stops at the first failure, and Run retries from there", async () => {
   db.rpc = {}; // migration 23's revoke_user_sessions not applied yet
   const { json } = await offboardSam();
@@ -199,6 +236,40 @@ test("a cancelled record does not run", async () => {
   assert.equal(((await res.json()) as { record: Rec }).record.status, "cancelled");
   await runRecord(id);
   assert.equal(authUser(SAM).ban_duration, undefined);
+  assert.equal(profile(SAM).active, true);
+});
+
+const setStatus = async (id: number, status: unknown) => {
+  const res = await record.PATCH(
+    new Request(`http://time.test/api/staffing/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+    { params: { id: String(id) } },
+  );
+  return { status: res.status, json: (await res.json()) as { record?: Rec; error?: string } };
+};
+
+test("a cancelled record reopened runs again; 'done' cannot be set by hand", async () => {
+  const { json } = await offboardSam({ last_day: "2999-12-31" });
+  const id = json.record!.id;
+  await setStatus(id, "cancelled");
+
+  const done = await setStatus(id, "done");
+  assert.equal(done.status, 400);
+  assert.equal(done.json.error, "status must be open or cancelled");
+
+  assert.equal((await setStatus(id, "open")).json.record!.status, "open");
+  await runRecord(id);
+  assert.equal(authUser(SAM).ban_duration, "876000h");
+  assert.equal(profile(SAM).active, false);
+});
+
+test("reopening a step on a cancelled record leaves the record cancelled", async () => {
+  const { json } = await offboardSam({ last_day: "2999-12-31" });
+  const id = json.record!.id;
+  await setStatus(id, "cancelled");
+  const reopened = await tick(id, "final_pay", { reopen: true });
+  assert.equal(reopened.status, 200);
+  assert.equal(reopened.json.record!.status, "cancelled");
+  await runRecord(id);
   assert.equal(profile(SAM).active, true);
 });
 
@@ -358,4 +429,11 @@ test("POST /api/profiles refuses an email in the name box before inviting anyone
   assert.equal(res.status, 400);
   assert.equal(((await res.json()) as { error: string }).error, "Full name required (not an email)");
   assert.equal(db.authUsers.some((u) => u.email === "jo@example.test"), false);
+});
+
+test("POST /api/profiles refuses an address with no @ before inviting anyone", async () => {
+  const res = await post(profiles.POST, "/api/profiles", { email: "jo", full_name: "Jo Test" });
+  assert.equal(res.status, 400);
+  assert.equal(((await res.json()) as { error: string }).error, "Valid email required");
+  assert.deepEqual(db.authUsers.map((u) => u.email), ["manager@example.test", "sam@example.test", "kit@example.test"]);
 });
