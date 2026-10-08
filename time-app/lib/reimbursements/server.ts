@@ -29,6 +29,11 @@ import { routeEnds, routeMiles, type RouteEnds, type RouteResult } from "./route
 
 export const NEEDS_MIGRATION = "Travel Reimbursements need migration 37 in Supabase.";
 
+/** A failed read in words: a table that is not there yet means migration 37 is not in. */
+export function readError(error: { message: string }): string {
+  return isMissingTable(error) ? NEEDS_MIGRATION : error.message;
+}
+
 /** Notice types (lib/notifPrefs.ts): Approvers on submit; the employee on Rejected or an Adjustment. */
 export const NOTICE_SUBMITTED = "reimbursement_submitted";
 export const NOTICE_DECISION = "reimbursement_decision";
@@ -103,8 +108,7 @@ type Db = SupabaseClient;
 
 export async function loadRates(db: Db): Promise<{ ok: true; rates: MileageRate[] } | { ok: false; error: string }> {
   const { data, error } = await db.from("mileage_rates").select("starts_on, cents_per_mile");
-  if (isMissingTable(error)) return { ok: false, error: NEEDS_MIGRATION };
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: readError(error) };
   return { ok: true, rates: ((data ?? []) as MileageRate[]).map((r) => ({ starts_on: r.starts_on, cents_per_mile: Number(r.cents_per_mile) })) };
 }
 

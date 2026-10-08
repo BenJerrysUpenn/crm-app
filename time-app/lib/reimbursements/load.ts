@@ -4,17 +4,16 @@
 // migration 37 a missing table answers { ok: false } and the page says so.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isMissingTable } from "@/lib/storeHours";
 import type { MileageRate } from "./money";
 import { alsoOnSameEvent } from "./events";
 import { DECIDED_SHOWN, LEFT_QUEUE, ON_QUEUE, decisionOf, isOwner, mayDecide, type Person } from "./lifecycle";
-import { NEEDS_MIGRATION, loadRates, withAmounts, type AdjustmentRow, type LyftRow, type ReimbursementRow, type WithAmounts } from "./server";
+import { loadRates, readError, withAmounts, type AdjustmentRow, type LyftRow, type ReimbursementRow, type WithAmounts } from "./server";
 
 type Failed = { ok: false; error: string };
 
 function failed(error: { message: string } | null): Failed | null {
   if (!error) return null;
-  return { ok: false, error: isMissingTable(error) ? NEEDS_MIGRATION : error.message };
+  return { ok: false, error: readError(error) };
 }
 
 /** The staff page: the viewer's own reimbursements, newest trip first, and their Lyft ride reports. */
