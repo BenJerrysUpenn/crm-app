@@ -22,7 +22,7 @@ import {
   type EventDeal,
   type ReasonKind,
 } from "./events";
-import { approversToNotify, type Person, type ReimbursementStatus } from "./lifecycle";
+import { FIELD_LABEL, approversToNotify, type AdjustmentField, type Person, type ReimbursementStatus } from "./lifecycle";
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
 import { BUCKET, type ReasonValue, type ReimbursementValue } from "./submission";
 import { routeMiles, type RouteResult } from "./routeMiles";
@@ -67,7 +67,7 @@ export type ReimbursementRow = {
 export type AdjustmentRow = {
   id: number;
   reimbursement_id: number;
-  field: "mileage" | "tolls" | "parking";
+  field: AdjustmentField;
   old_cents: number;
   new_cents: number;
   note: string;
@@ -91,8 +91,6 @@ export type LyftRow = {
 };
 
 export type WithAmounts = ReimbursementRow & { amounts: Amounts; adjustments: AdjustmentRow[] };
-
-export const FIELD_LABEL: Record<AdjustmentRow["field"], string> = { mileage: "Mileage", tolls: "Tolls", parking: "Parking" };
 
 type Db = SupabaseClient;
 

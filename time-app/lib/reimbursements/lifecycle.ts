@@ -61,6 +61,11 @@ export function staffMayChange(status: ReimbursementStatus): boolean {
   return status === "submitted" || status === "rejected";
 }
 
+/** The amounts an Adjustment can change, as the Approver and the employee see them. */
+export type AdjustmentField = "mileage" | "tolls" | "parking";
+
+export const FIELD_LABEL: Record<AdjustmentField, string> = { mileage: "Mileage", tolls: "Tolls", parking: "Parking" };
+
 export type ApproverAction = "approve" | "reject" | "send_back" | "paid_outside_payroll" | "adjust";
 
 /** `forbidden`: this person may not decide this reimbursement at all (403), rather than not now (409). */

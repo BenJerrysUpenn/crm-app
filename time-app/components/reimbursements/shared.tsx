@@ -6,7 +6,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { money } from "@/lib/payroll/paySheet";
-import { STATUS_LABEL, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
+import { FIELD_LABEL, STATUS_LABEL, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { BUCKET, CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
 import type { WithAmounts } from "@/lib/reimbursements/server";
@@ -105,7 +105,7 @@ export function ReimbursementDetail({
         <ul className="mt-1 space-y-0.5 text-xs">
           {r.adjustments.map((x) => (
             <li key={x.id}>
-              Adjustment: {x.field === "mileage" ? "Mileage" : x.field === "tolls" ? "Tolls" : "Parking"} {money(x.old_cents)} → {money(x.new_cents)}. {x.note}
+              Adjustment: {FIELD_LABEL[x.field]} {money(x.old_cents)} → {money(x.new_cents)}. {x.note}
               {evidence && (
                 <>
                   {" "}
