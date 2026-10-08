@@ -37,7 +37,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (!note || note.length > MAX_NOTE || note.includes("\n"))
     return NextResponse.json({ error: `Add a one-line note (up to ${MAX_NOTE} characters) saying what settled it.` }, { status: 400 });
 
-  const ctx = await approverContext(me, params.id);
+  const ctx = await approverContext(params.id);
   if (ctx.res) return ctx.res;
   const { row, subject, rates, supabase } = ctx;
 

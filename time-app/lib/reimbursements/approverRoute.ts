@@ -4,21 +4,19 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { isMissingTable } from "@/lib/storeHours";
-import type { Profile } from "@/lib/types";
 import { NextResponse } from "next/server";
 import { NEEDS_MIGRATION, loadRates, profileLite, withAmounts, type AdjustmentRow, type ReimbursementRow, type WithAmounts } from "./server";
 import type { MileageRate } from "./money";
 
 type Ok = {
   res?: undefined;
-  me: Profile;
   row: WithAmounts;
   subject: NonNullable<Awaited<ReturnType<typeof profileLite>>>;
   rates: MileageRate[];
   supabase: ReturnType<typeof createClient>;
 };
 
-export async function approverContext(me: Profile, idParam: string): Promise<Ok | { res: NextResponse }> {
+export async function approverContext(idParam: string): Promise<Ok | { res: NextResponse }> {
   const id = Number(idParam);
   if (!Number.isInteger(id) || id <= 0) return { res: NextResponse.json({ error: "Bad id" }, { status: 400 }) };
   const supabase = createClient();
@@ -32,5 +30,5 @@ export async function approverContext(me: Profile, idParam: string): Promise<Ok 
   const subject = await profileLite((data as ReimbursementRow).profile_id);
   if (!subject) return { res: NextResponse.json({ error: "Its staff member was not found" }, { status: 404 }) };
   const [row] = withAmounts([data as ReimbursementRow], rates.rates, (adj ?? []) as AdjustmentRow[]);
-  return { me, row, subject, rates: rates.rates, supabase };
+  return { row, subject, rates: rates.rates, supabase };
 }

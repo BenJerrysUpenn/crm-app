@@ -32,7 +32,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const action = ACTIONS.find((a) => a === body?.action);
   if (!action) return NextResponse.json({ error: `action must be one of ${ACTIONS.join(", ")}` }, { status: 400 });
 
-  const ctx = await approverContext(me, params.id);
+  const ctx = await approverContext(params.id);
   if (ctx.res) return ctx.res;
   const { row, subject, rates, supabase } = ctx;
 
