@@ -129,6 +129,9 @@ export function sumMiles(legs: number[]): number {
 /** What an Adjustment records, as far as the amounts go. */
 export type AdjustmentAmounts = { field: AdjustmentField; old_cents: number; new_cents: number; adjusted_at: string };
 
+/** The amounts before the Adjustments that still stand, and which of them those Adjustments changed. */
+export type BeforeAdjustments = { before: Amounts; adjusted: AdjustmentField[] };
+
 /**
  * The amounts as they were before any Adjustment that still stands, so an
  * adjusted amount reads old -> new ("$16.72 -> $12.16 (adjusted)", ruling 40)
@@ -141,7 +144,7 @@ export function amountsBeforeAdjustments(
   r: Priceable,
   adjustments: AdjustmentAmounts[],
   rates: MileageRate[],
-): { before: Amounts; adjusted: AdjustmentField[] } | null {
+): BeforeAdjustments | null {
   const of = (field: AdjustmentField) => adjustments.filter((a) => a.field === field).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
   const adjusted: AdjustmentField[] = [];
   if (r.mileage_cents_override != null && of("mileage").length) adjusted.push("mileage");
@@ -179,7 +182,7 @@ export function dollarsText(cents: number | null): string {
 }
 
 /** Amounts as shown, with what they were before the Adjustments that still stand. */
-type Shown = { amounts: Amounts; before_adjustments: { before: Amounts; adjusted: AdjustmentField[] } | null };
+type Shown = { amounts: Amounts; before_adjustments: BeforeAdjustments | null };
 
 /** One amount as staff and Approvers read it: "$a", or "$before → $now (adjusted)" when adjusted (ruling 40). */
 export function amountText(r: Shown, field: AdjustmentField): string {
