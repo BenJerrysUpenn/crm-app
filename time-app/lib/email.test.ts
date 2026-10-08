@@ -10,14 +10,18 @@ import { sendEmail } from "./email.ts";
 
 const realFetch = globalThis.fetch;
 let sent: { url: string; headers: Headers; body: Record<string, unknown> }[] = [];
+// What Resend answers: a status, or "down" for a request that never reaches it.
+let resend: number | "down" = 200;
 
 beforeEach(() => {
   sent = [];
+  resend = 200;
   process.env.RESEND_API_KEY = "re_test";
   process.env.NOTIFICATIONS_FROM_EMAIL = "Withers Time <time@withers-ventures.com>";
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (resend === "down") throw new TypeError("fetch failed");
     sent.push({ url: String(input), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
-    return new Response("{}", { status: 200 });
+    return new Response("{}", { status: resend });
   }) as typeof fetch;
 });
 
@@ -50,4 +54,11 @@ test("is a no-op without RESEND_API_KEY", async () => {
   delete process.env.RESEND_API_KEY;
   assert.equal(await sendEmail("a@example.test", "Hi", "Body"), false);
   assert.equal(sent.length, 0);
+});
+
+test("is false when Resend refuses the email or cannot be reached, so the caller does not count it sent", async () => {
+  resend = 422;
+  assert.equal(await sendEmail("receipts@withers-ventures.com", "S", "T", [{ filename: "r.jpg", content: Buffer.from("x") }]), false);
+  resend = "down";
+  assert.equal(await sendEmail("receipts@withers-ventures.com", "S", "T"), false);
 });
