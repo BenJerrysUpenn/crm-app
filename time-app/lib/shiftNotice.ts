@@ -6,7 +6,7 @@
 // shift was updated" (schedule_change) when one they already had was edited.
 //
 // ONE SUMMARY A DAY (Alina, 2026-10-08). Saving a shift puts it on the
-// person's bell straight away (the in-app row, as before) and queues it in
+// person's bell straight away (the in-app row) and queues it in
 // shift_notices (migration 38); it sends no email or text. At 8pm New York
 // time the missed-clock-in cron, hit every few minutes from outside
 // (ALEX-CRON-SETUP.md), calls sendShiftDigests: each person with queued
@@ -19,7 +19,7 @@
 // left out when its type (shift_published / schedule_change) is switched off,
 // and the summary goes only by the channels (email / sms) left on.
 //
-// Best-effort, as before: a notice that cannot be queued never fails the
+// Best-effort: a notice that cannot be queued never fails the
 // write that has already been made.
 import { createAdminClient } from "@/lib/supabase/admin";
 import { emailForUser, notify, sendOnChannels, wants, type NotifPrefs } from "@/lib/notify";

@@ -119,7 +119,7 @@ test("auto-fill assigns by the shared rules: weekly hours count, pending time of
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { ok: true, assigned: 1, left: 0 });
   assert.equal(db.rows("shifts")[0].employee_id, JO);
-  // The shift is live, so the person it went to is told, as publishing used to:
+  // The shift is live, so the person it went to is told:
   // on the bell now, and queued for the 8pm summary (lib/shiftNotice.ts).
   assert.deepEqual(
     db.rows("notifications").map((n) => [n.user_id, n.type]),
