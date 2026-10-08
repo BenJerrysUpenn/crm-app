@@ -162,9 +162,19 @@ test("approve: no Mileage rate for the trip date, so no total: refused, and it s
   assert.match((await res.json()).error, /no Mileage rate for 2025-06-01/);
   assert.equal(r1().status, "submitted");
   assert.equal(resendMails().length, 0);
-  // Reject still works; and once the Mileage is adjusted it has a total and can be approved.
+  // Once the Mileage is adjusted it has a total and can be approved.
   db.tables.travel_reimbursements = [row({ trip_date: "2025-06-01", mileage_cents_override: 700 })];
   assert.equal((await decide.POST(post({ action: "approve" }), ID)).status, 200);
+  assert.equal(r1().status, "approved");
+});
+
+test("reject: no Mileage rate for the trip date does not stop a rejection (ruling 42 refuses only approve)", async () => {
+  db.tables.travel_reimbursements = [row({ trip_date: "2025-06-01" })];
+  db.signIn(OWNER);
+  const res = await decide.POST(post({ action: "reject", reason: "Which store?" }), ID);
+  assert.equal(res.status, 200);
+  assert.equal(r1().status, "rejected");
+  assert.equal(r1().rejection_reason, "Which store?");
 });
 
 test("a manager who is not an owner cannot decide their own; an owner decides it, and an owner may decide their own", async () => {
