@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LifecycleKind, LifecycleStep, LifecycleWithSteps } from "@/lib/types";
+import { stepFinished } from "@/lib/staffing/catalogue";
 
 // The checklists under the Team table: one card per invite / re-invite /
 // offboarding, one row per step. Automatic steps show what the app did,
@@ -96,7 +97,7 @@ function RecordCard({
     (form.legal_name as string) ||
     (form.employee_name as string) ||
     "—";
-  const done = rec.steps.filter((s) => s.status === "done" || s.status === "skipped").length;
+  const done = rec.steps.filter(stepFinished).length;
   const pendingAuto = rec.steps.some((s) => s.mode === "auto" && (s.status === "pending" || s.status === "failed"));
   const failed = rec.steps.some((s) => s.status === "failed");
 
@@ -186,7 +187,7 @@ function StepRow({
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [extra, setExtra] = useState("");
-  const [expanded, setExpanded] = useState(step.status !== "done" && step.status !== "skipped");
+  const [expanded, setExpanded] = useState(!stepFinished(step));
 
   const needsExtra =
     step.key === "fob_assign" ? "fob_card_id" : step.key === "qbo_create_employee" ? "qbo_employee_id" : null;
@@ -309,7 +310,7 @@ function StepRow({
               </button>
             </div>
           )}
-          {step.mode !== "auto" && rec.status !== "cancelled" && (step.status === "done" || step.status === "skipped") && (
+          {step.mode !== "auto" && rec.status !== "cancelled" && stepFinished(step) && (
             <button type="button" onClick={reopen} disabled={busy} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline">
               Reopen
             </button>

@@ -27,6 +27,7 @@ import type {
 import {
   inviteSteps,
   offboardingSteps,
+  stepFinished,
   type InviteForm,
   type OffboardingForm,
   type StepSpec,
@@ -396,7 +397,7 @@ export async function setLifecycleStatus(
 async function closeIfComplete(admin: SupabaseClient, id: number) {
   const rec = await loadLifecycle(admin, id);
   if (!rec || rec.status !== "open") return;
-  const allDone = rec.steps.every((s) => s.status === "done" || s.status === "skipped");
+  const allDone = rec.steps.every(stepFinished);
   if (!allDone) return;
   await admin
     .from("staff_lifecycle")

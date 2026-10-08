@@ -17,7 +17,7 @@
 //
 // Nothing in this file touches the database. lib/staffing/execute.ts runs
 // the auto steps and applies the side effects of marking a step done.
-import type { Role, StepDetail, StepMode, WorkerSystem } from "@/lib/types";
+import type { LifecycleStep, Role, StepDetail, StepMode, WorkerSystem } from "@/lib/types";
 
 export const SQUARE_TEAM_URL = "https://app.squareup.com/dashboard/team";
 export const SLACK_ADMIN_URL = "https://benandjerrys4-nsh6689.slack.com/admin";
@@ -61,6 +61,12 @@ export const SYSTEMS: { key: System; label: string; hint: string }[] = [
 ];
 // Every system is ticked by default.
 export const SYSTEMS_DEFAULT: System[] = SYSTEMS.map((s) => s.key);
+
+// A step is finished once it is done or skipped; a record closes when every
+// step is finished.
+export function stepFinished(s: Pick<LifecycleStep, "status">): boolean {
+  return s.status === "done" || s.status === "skipped";
+}
 
 export type StepSpec = {
   key: string;
