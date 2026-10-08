@@ -19,7 +19,10 @@
 //
 // A Lyft ride report is not in here: it is Filed on upload and has no life.
 //
-// Pure and dependency-free, so `node --test` runs it and the browser can use it.
+// Pure (its one import, dayKey, is too), so `node --test` runs it and the
+// browser can use it.
+
+import { dayKey } from "../format.ts";
 
 export type ReimbursementStatus = "submitted" | "approved" | "rejected" | "paid" | "paid_outside_payroll";
 
@@ -134,18 +137,17 @@ export type DecisionFields = {
   decided_at: string | null;
   paid_by: string | null;
   paid_on: string | null;
-  rejection_reason: string | null;
 };
 
 /**
- * Who took it off the queue, and when: Rejected by an Approver (with the
- * reason); Paid outside payroll by an owner on the date paid; Paid by payroll
- * (no one person) on the pay date.
+ * Who took it off the queue, and on what day: Rejected by an Approver on the
+ * New York day they rejected it; Paid outside payroll by an owner on the date
+ * paid; Paid by payroll (no one person) on the pay date.
  */
-export function decisionOf(r: DecisionFields): { by: string | null; at: string | null; reason: string | null } {
-  if (r.status === "rejected") return { by: r.decided_by, at: r.decided_at, reason: r.rejection_reason };
-  if (r.status === "paid_outside_payroll") return { by: r.paid_by, at: r.paid_on, reason: null };
-  return { by: null, at: r.paid_on, reason: null };
+export function decisionOf(r: DecisionFields): { by: string | null; on: string | null } {
+  if (r.status === "rejected") return { by: r.decided_by, on: r.decided_at ? dayKey(r.decided_at) : null };
+  if (r.status === "paid_outside_payroll") return { by: r.paid_by, on: r.paid_on };
+  return { by: null, on: r.paid_on };
 }
 
 /** May payroll mark this reimbursement Paid? Approved, and not an owner's (18, 22). */

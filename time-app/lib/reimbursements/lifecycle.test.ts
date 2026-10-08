@@ -161,12 +161,14 @@ test("status labels are the glossary's words", () => {
 
 test("what leaves the Approver queue, and who decided it when (ruling 41)", () => {
   assert.deepEqual(LEFT_QUEUE, ["rejected", "paid", "paid_outside_payroll"], "Approved stays: it is listed until Paid");
-  const r = { decided_by: "sophia", decided_at: "2026-10-08T14:00:00Z", paid_by: null, paid_on: null, rejection_reason: "Which store?" };
-  assert.deepEqual(decisionOf({ ...r, status: "rejected" }), { by: "sophia", at: "2026-10-08T14:00:00Z", reason: "Which store?" });
+  const r = { decided_by: "sophia", decided_at: "2026-10-08T14:00:00Z", paid_by: null, paid_on: null };
+  assert.deepEqual(decisionOf({ ...r, status: "rejected" }), { by: "sophia", on: "2026-10-08" });
+  // Rejected at 9:30 PM in New York is that New York day, not the next UTC one.
+  assert.deepEqual(decisionOf({ ...r, status: "rejected", decided_at: "2026-10-09T01:30:00Z" }), { by: "sophia", on: "2026-10-08" });
   assert.deepEqual(
-    decisionOf({ ...r, status: "paid_outside_payroll", paid_by: "alina", paid_on: "2026-10-09", rejection_reason: null }),
-    { by: "alina", at: "2026-10-09", reason: null },
+    decisionOf({ ...r, status: "paid_outside_payroll", paid_by: "alina", paid_on: "2026-10-09" }),
+    { by: "alina", on: "2026-10-09" },
   );
   // Paid by payroll: no one person; the pay date.
-  assert.deepEqual(decisionOf({ ...r, status: "paid", paid_on: "2026-10-10", rejection_reason: null }), { by: null, at: "2026-10-10", reason: null });
+  assert.deepEqual(decisionOf({ ...r, status: "paid", paid_on: "2026-10-10" }), { by: null, on: "2026-10-10" });
 });

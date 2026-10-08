@@ -8,7 +8,6 @@ import { isMissingTable } from "@/lib/storeHours";
 import type { MileageRate } from "./money";
 import { alsoOnSameEvent } from "./events";
 import { DECIDED_SHOWN, LEFT_QUEUE, ON_QUEUE, decisionOf, isOwner, mayDecide, type Person } from "./lifecycle";
-import { dayKey } from "@/lib/format";
 import { NEEDS_MIGRATION, loadRates, withAmounts, type AdjustmentRow, type LyftRow, type ReimbursementRow, type WithAmounts } from "./server";
 
 type Failed = { ok: false; error: string };
@@ -127,7 +126,7 @@ export async function loadQueue(
       ...r,
       full_name: byId.get(r.profile_id)?.full_name ?? null,
       decided_by_name: d.by ? byId.get(d.by)?.full_name ?? null : null,
-      decided_on: d.at ? (d.at.length > 10 ? dayKey(d.at) : d.at) : null,
+      decided_on: d.on,
     };
   });
   return {
