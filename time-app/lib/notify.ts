@@ -2,9 +2,10 @@
 // Email (Resend) and SMS (Twilio) are no-ops when their env vars are unset,
 // so the app runs day one and you wire in keys later.
 //
-// Shift notices (shift_published, schedule_change) put only the in-app row
-// out at save time (inAppOnly); their email and text go in the 8pm summary,
-// which sends through sendOnChannels below (lib/shiftNotice.ts).
+// Shift notices (shift_published, schedule_change) are notified with no email
+// or phone, so only the in-app row goes out at save time; their email and text
+// go in the 8pm summary, which sends through sendOnChannels below
+// (lib/shiftNotice.ts).
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
 
@@ -15,8 +16,6 @@ type NotifyArgs = {
   body?: string;
   email?: string | null;
   phone?: string | null;
-  // Write the in-app row and send nothing by email or text.
-  inAppOnly?: boolean;
 };
 
 // A person's notif_prefs: alert types and channels ("email", "sms"), each on
@@ -66,7 +65,7 @@ export async function sendOnChannels(args: {
 }
 
 export async function notify(args: NotifyArgs) {
-  const { userId, type, title, body, email, phone, inAppOnly } = args;
+  const { userId, type, title, body, email, phone } = args;
 
   const supabase = createAdminClient();
 
@@ -105,9 +104,7 @@ export async function notify(args: NotifyArgs) {
     // ignore dedupe failures and proceed
   }
 
-  const { sent_email, sent_sms } = inAppOnly
-    ? { sent_email: false, sent_sms: false }
-    : await sendOnChannels({ prefs, title, body, email, phone });
+  const { sent_email, sent_sms } = await sendOnChannels({ prefs, title, body, email, phone });
 
   await supabase.from("notifications").insert({
     user_id: userId,

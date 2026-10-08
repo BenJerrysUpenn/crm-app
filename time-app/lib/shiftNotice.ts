@@ -53,11 +53,11 @@ export async function tellEmployeeAboutShift(
     .from("shift_notices")
     .insert({ shift_id: shift.id, employee_id: shift.employee_id, notice });
   if (error) console.error(`shift ${shift.id}: could not queue the ${notice} notice: ${error.message}`);
+  // No email or phone: the bell alone now, by email and text at 8pm.
   await notify({
     userId: shift.employee_id,
     ...MESSAGE[notice],
     body: summary(shift),
-    inAppOnly: true,
   }).catch(() => {});
 }
 
