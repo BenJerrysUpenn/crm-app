@@ -344,6 +344,48 @@ test("a re-invite of someone with no login is refused", async () => {
   assert.deepEqual(db.rows("staff_lifecycle"), []);
 });
 
+// Re-invite (docs/staffing.md, "Re-invite" and the email-sender paragraph): the
+// sign-in link goes to an existing account, which only the Resend path can reach.
+const reinviteKit = () => submit({ kind: "reinvite", employee_id: KIT, legal_name: "Kit Doe" });
+
+test("a re-invite with Resend set emails the existing person a magic link and reactivates their profile", async () => {
+  process.env.RESEND_API_KEY = "test-resend-key";
+  profile(KIT).active = false;
+  const { status, json } = await reinviteKit();
+  assert.equal(status, 200);
+  const rec = json.record!;
+  assert.equal(step(rec, "withers_time_invite").status, "done");
+  assert.equal(step(rec, "withers_time_invite").result, `Invited kit@example.test (delivery: email); profile ${KIT}`);
+  assert.equal(rec.employee_id, KIT);
+  assert.equal(profile(KIT).active, true);
+  assert.equal(db.authUsers.length, 3); // no second account
+  assert.equal(db.outbox.length, 1);
+  assert.equal(db.outbox[0].to, "kit@example.test");
+  assert.match(db.outbox[0].text, /\/auth\/confirm\?token_hash=hashed-magiclink-0{8}-0{4}-0{4}-0{4}-0{11}c&type=magiclink/);
+});
+
+test("a re-invite without Resend is refused for an existing account and leaves the profile inactive", async () => {
+  profile(KIT).active = false;
+  const { status, json } = await reinviteKit();
+  assert.equal(status, 200);
+  const inv = step(json.record!, "withers_time_invite");
+  assert.equal(inv.status, "failed");
+  assert.match(inv.result ?? "", /already been registered/);
+  assert.equal(profile(KIT).active, false);
+  assert.deepEqual(db.outbox, []);
+});
+
+test("a re-invite Resend refuses fails the step and leaves the profile inactive", async () => {
+  process.env.RESEND_API_KEY = "test-resend-key";
+  db.resendStatus = 422;
+  profile(KIT).active = false;
+  const { json } = await reinviteKit();
+  const inv = step(json.record!, "withers_time_invite");
+  assert.equal(inv.status, "failed");
+  assert.equal(inv.result, "Invite email could not be sent (Resend rejected it).");
+  assert.equal(profile(KIT).active, false);
+});
+
 // ---- steps done by hand -------------------------------------------------------------
 
 async function addRobin(systems: string[]) {

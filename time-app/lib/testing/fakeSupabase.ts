@@ -11,7 +11,10 @@
 // request's exact count, insert and update with return=representation) and answers /auth/v1/user from the session cookie.
 // GoTrue's admin side is the `authUsers` list: invite (a new address only, as
 // GoTrue refuses a registered one), list, get and update by id (a ban is the
-// update's ban_duration). An id not in the list answers 404. A Postgres
+// update's ban_duration), and generate_link (an invite token for a new address
+// only, a magic-link token for a registered one). An id not in the list answers
+// 404. Resend's send endpoint is faked too: each email lands in `outbox`, and
+// `resendStatus` lets a test make Resend refuse. A Postgres
 // function is whatever a test puts in `rpc`; one not there answers PGRST202,
 // as hosted PostgREST does before the migration that creates it.
 // Row Level Security is emulated for time_entries only, with the policies
@@ -52,6 +55,10 @@ export type FakeSupabase = {
   authUsers: Row[];
   // Postgres functions callable through rpc(), by name.
   rpc: Record<string, (args: Row) => unknown>;
+  // Emails sent through Resend (api.resend.com), oldest first.
+  outbox: { to: string; subject: string; text: string }[];
+  // The HTTP status Resend answers with; anything but 2xx is a refusal.
+  resendStatus: number;
   signIn(userId: string): void;
   // The Cookie header a browser with this session sends (for middleware).
   cookieHeader(): string;
@@ -287,6 +294,19 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     fake.authUsers.push(user);
     return json(200, user);
   }
+  if (url.pathname === "/auth/v1/admin/generate_link" && method === "POST") {
+    const { type, email } = JSON.parse(body ?? "{}") as { type: string; email: string };
+    let user = fake.authUsers.find((u) => u.email === email);
+    if (type === "invite") {
+      if (user) return json(422, { code: 422, error_code: "email_exists", msg: "A user with this email address has already been registered" });
+      user = { id: crypto.randomUUID(), email };
+      fake.authUsers.push(user);
+    } else if (!user) {
+      return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+    }
+    const hashed_token = `hashed-${type}-${String(user.id)}`;
+    return json(200, { ...user, action_link: `${SUPABASE_URL}/auth/v1/verify?token=${hashed_token}`, email_otp: "000000", hashed_token, redirect_to: "", verification_type: type });
+  }
   const fn = url.pathname.match(/^\/rest\/v1\/rpc\/(\w+)$/)?.[1];
   if (fn) {
     const impl = fake.rpc[fn];
@@ -389,6 +409,12 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(input, init);
   const url = new URL(request.url);
+  if (url.href === "https://api.resend.com/emails" && request.method === "POST") {
+    const { to, subject, text } = (await request.json()) as { to: string; subject: string; text: string };
+    if (fake.resendStatus >= 300) return json(fake.resendStatus, { name: "validation_error", message: "refused" });
+    fake.outbox.push({ to, subject, text });
+    return json(200, { id: `email-${fake.outbox.length}` });
+  }
   if (url.origin !== new URL(SUPABASE_URL).origin) throw new Error(`test tried to reach ${url.origin}`);
   const body = request.method === "GET" || request.method === "HEAD" ? null : await request.text();
   return handle(url, request.method, request.headers, body);
@@ -409,6 +435,8 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
     missingTables: [],
     authUsers: [],
     rpc: {},
+    outbox: [],
+    resendStatus: 200,
     signIn(userId) {
       const accessToken = `token-for-${userId}`;
       tokens.set(accessToken, userId);
