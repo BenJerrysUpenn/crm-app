@@ -446,7 +446,7 @@ test("an automatic step cannot be ticked or reopened by hand; an unknown record 
   assert.equal((await runRecord(999)).status, 404);
 });
 
-// ---- POST /api/profiles, which now shares lib/team.ts with the invite step ----------
+// ---- POST /api/profiles, which shares lib/team.ts with the invite step ----------------
 
 test("POST /api/profiles still invites and writes the profile", async () => {
   const res = await post(profiles.POST, "/api/profiles", {
