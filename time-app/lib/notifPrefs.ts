@@ -10,8 +10,9 @@ export const CHANNELS: NotifPrefItem[] = [
 
 export const TYPES_BY_ROLE: Record<"manager" | "employee", NotifPrefItem[]> = {
   employee: [
-    { key: "shift_published", label: "A new shift is posted for me" },
-    { key: "schedule_change", label: "When my schedule changes" },
+    // Email and text for these two come in one summary at 8pm (lib/shiftNotice.ts).
+    { key: "shift_published", label: "A new shift is posted for me (email and text in the 8pm daily summary)" },
+    { key: "schedule_change", label: "When my schedule changes (email and text in the 8pm daily summary)" },
     { key: "shift_reminder", label: "Reminder before my shift starts" },
     { key: "missed_clockin", label: "Alert if I haven't clocked in" },
     { key: "clockout_reminder", label: "Reminder if I'm still clocked in after my shift ends" },

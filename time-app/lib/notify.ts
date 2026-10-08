@@ -1,6 +1,10 @@
 // Notification fan-out: writes an in-app row and best-effort email + SMS.
 // Email (Resend) and SMS (Twilio) are no-ops when their env vars are unset,
 // so the app runs day one and you wire in keys later.
+//
+// Shift notices (shift_published, schedule_change) put only the in-app row
+// out at save time (inAppOnly); their email and text go in the 8pm summary,
+// which sends through sendOnChannels below (lib/shiftNotice.ts).
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
 
@@ -11,7 +15,17 @@ type NotifyArgs = {
   body?: string;
   email?: string | null;
   phone?: string | null;
+  // Write the in-app row and send nothing by email or text.
+  inAppOnly?: boolean;
 };
+
+// A person's notif_prefs: alert types and channels ("email", "sms"), each on
+// unless set to false (opt-out model).
+export type NotifPrefs = Record<string, boolean>;
+
+export function wants(prefs: NotifPrefs, key: string): boolean {
+  return prefs[key] !== false;
+}
 
 async function sendSms(to: string, body: string) {
   const sid = process.env.TWILIO_ACCOUNT_SID;
@@ -36,26 +50,40 @@ async function sendSms(to: string, body: string) {
   }
 }
 
-export async function notify(args: NotifyArgs) {
-  const { userId, type, title, body, email, phone } = args;
+// Email and text one message, on the channels this person has left on.
+export async function sendOnChannels(args: {
+  prefs: NotifPrefs;
+  title: string;
+  body?: string;
+  email?: string | null;
+  phone?: string | null;
+}): Promise<{ sent_email: boolean; sent_sms: boolean }> {
+  const { prefs, title, body, email, phone } = args;
   const text = body ? `${title}\n\n${body}` : title;
+  const sent_email = email && wants(prefs, "email") ? await sendEmail(email, title, text) : false;
+  const sent_sms = phone && wants(prefs, "sms") ? await sendSms(phone, text) : false;
+  return { sent_email, sent_sms };
+}
+
+export async function notify(args: NotifyArgs) {
+  const { userId, type, title, body, email, phone, inAppOnly } = args;
 
   const supabase = createAdminClient();
 
   // Respect the recipient's preferences. Absent key = on (opt-out model).
-  let prefs: Record<string, boolean> = {};
+  let prefs: NotifPrefs = {};
   try {
     const { data } = await supabase
       .from("profiles")
       .select("notif_prefs")
       .eq("id", userId)
       .single();
-    prefs = (data?.notif_prefs as Record<string, boolean>) ?? {};
+    prefs = (data?.notif_prefs as NotifPrefs) ?? {};
   } catch {
     prefs = {};
   }
   // If this alert type is switched off, send nothing at all.
-  if (prefs[type] === false) {
+  if (!wants(prefs, type)) {
     return { sent_email: false, sent_sms: false, skipped: true };
   }
 
@@ -77,8 +105,9 @@ export async function notify(args: NotifyArgs) {
     // ignore dedupe failures and proceed
   }
 
-  const sent_email = email && prefs.email !== false ? await sendEmail(email, title, text) : false;
-  const sent_sms = phone && prefs.sms !== false ? await sendSms(phone, text) : false;
+  const { sent_email, sent_sms } = inAppOnly
+    ? { sent_email: false, sent_sms: false }
+    : await sendOnChannels({ prefs, title, body, email, phone });
 
   await supabase.from("notifications").insert({
     user_id: userId,
