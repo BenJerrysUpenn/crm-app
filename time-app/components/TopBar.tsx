@@ -16,6 +16,7 @@ const links: { href: string; label: string; managerOnly?: boolean; offsite?: boo
   { href: "/schedule", label: "Schedule" },
   { href: "/availability", label: "Availability" },
   { href: "/timesheets", label: "Timesheets" },
+  { href: "/reimbursements", label: "Reimbursements" },
   { href: "/attendance", label: "Attendance", managerOnly: true },
   { href: "/team", label: "Team", managerOnly: true },
   { href: "/finance", label: "Finance", managerOnly: true, offsite: true },
