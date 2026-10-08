@@ -1,0 +1,114 @@
+// The life of a Travel Reimbursement, and who may decide one (bj-finance #210).
+//
+//   Submitted -> Approved | Rejected            an Approver decides (ruling 10)
+//   Rejected  -> Submitted                      the staff member edits and resubmits
+//   Approved  -> Submitted                      an Approver sends it back, until Paid (20)
+//   Approved  -> Paid                           payroll, when the submittal is approved (22)
+//   Approved  -> Paid outside payroll           an owner's own, marked by an owner (18)
+//   Paid, Paid outside payroll                  final
+//
+// Staff edit or delete their own only while Submitted or Rejected (20).
+// Approvers are managers and owners (10). An owner may decide their own (19);
+// a manager who is not an owner may not, and an owner decides it (28).
+//
+// Owners, today, are managers kept off the roster: role 'manager' with
+// active = false (lib/financeAccess.ts). This is the one place that says so
+// for reimbursements; migration 37's guard trigger holds the database to it.
+//
+// A Lyft ride report is not in here: it is Filed on upload and has no life.
+//
+// Pure and dependency-free, so `node --test` runs it and the browser can use it.
+
+export type ReimbursementStatus = "submitted" | "approved" | "rejected" | "paid" | "paid_outside_payroll";
+
+export const STATUS_LABEL: Record<ReimbursementStatus, string> = {
+  submitted: "Submitted",
+  approved: "Approved",
+  rejected: "Rejected",
+  paid: "Paid",
+  paid_outside_payroll: "Paid outside payroll",
+};
+
+export type Person = { id: string; role: string; active: boolean };
+
+/** An owner: a manager kept off the roster (lib/financeAccess.ts). */
+export function isOwner(p: Pick<Person, "role" | "active">): boolean {
+  return p.role === "manager" && p.active === false;
+}
+
+/** An Approver: a manager or an owner (the same gate as the finance site). */
+export function isApprover(p: Pick<Person, "role">): boolean {
+  return p.role === "manager";
+}
+
+export const NOT_APPROVER = "Only an Approver (a manager or owner) can do that.";
+export const NOT_OWN = "A manager cannot decide their own Travel Reimbursement; an owner decides it.";
+
+/** Why `actor` may not decide `subject`'s reimbursement, or null when they may. */
+export function mayDecide(actor: Person, subject: Person): string | null {
+  if (!isApprover(actor)) return NOT_APPROVER;
+  if (actor.id === subject.id && !isOwner(actor)) return NOT_OWN;
+  return null;
+}
+
+/** May the staff member who submitted it edit, resubmit or delete it? */
+export function staffMayChange(status: ReimbursementStatus): boolean {
+  return status === "submitted" || status === "rejected";
+}
+
+export type ApproverAction = "approve" | "reject" | "send_back" | "paid_outside_payroll" | "adjust";
+
+export type ActionResult = { ok: true; to: ReimbursementStatus } | { ok: false; error: string };
+
+const FROM: Record<ApproverAction, ReimbursementStatus[]> = {
+  approve: ["submitted"],
+  reject: ["submitted"],
+  send_back: ["approved"],
+  paid_outside_payroll: ["approved"],
+  adjust: ["submitted", "approved"],
+};
+
+const TO: Record<Exclude<ApproverAction, "adjust">, ReimbursementStatus> = {
+  approve: "approved",
+  reject: "rejected",
+  send_back: "submitted",
+  paid_outside_payroll: "paid_outside_payroll",
+};
+
+const NOT_FROM: Record<ApproverAction, string> = {
+  approve: "Only a Submitted Travel Reimbursement can be approved.",
+  reject: "Only a Submitted Travel Reimbursement can be rejected.",
+  send_back: "Only an Approved Travel Reimbursement can be sent back, and only until it is Paid.",
+  paid_outside_payroll: "Only an Approved Travel Reimbursement can be marked Paid outside payroll.",
+  adjust: "An Adjustment can only be made while a Travel Reimbursement is Submitted or Approved.",
+};
+
+/**
+ * What an Approver's action does to a reimbursement in `from`, or why it is
+ * refused. An Adjustment leaves the status where it is.
+ */
+export function approverAction(
+  action: ApproverAction,
+  from: ReimbursementStatus,
+  who: { subject: Person; actor: Person },
+): ActionResult {
+  const refused = mayDecide(who.actor, who.subject);
+  if (refused) return { ok: false, error: refused };
+  if (!FROM[action].includes(from)) return { ok: false, error: NOT_FROM[action] };
+  if (action === "paid_outside_payroll") {
+    if (!isOwner(who.subject))
+      return { ok: false, error: "Only an owner's Travel Reimbursement is paid outside payroll; staff are paid on the paycheck." };
+    if (!isOwner(who.actor)) return { ok: false, error: "Only an owner can mark a Travel Reimbursement Paid outside payroll." };
+  }
+  return { ok: true, to: action === "adjust" ? from : TO[action] };
+}
+
+/** May payroll mark this reimbursement Paid? Approved, and not an owner's (18, 22). */
+export function payrollMayMarkPaid(status: ReimbursementStatus, subject: Person): boolean {
+  return status === "approved" && !isOwner(subject);
+}
+
+/** Who hears of a new submission: every Approver who may decide it, but not its submitter. */
+export function approversToNotify<T extends Person>(approvers: T[], subject: Person): T[] {
+  return approvers.filter((a) => a.id !== subject.id && mayDecide(a, subject) === null);
+}
