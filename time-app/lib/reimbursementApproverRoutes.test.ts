@@ -6,11 +6,10 @@
 //
 //   npm test
 
-import { beforeEach, test } from "node:test";
+import { afterEach, beforeEach, mock, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "./testing/fakeSupabase.ts";
-import { dayKey } from "./format.ts";
 
 type Handler = (request: Request, ctx?: { params: Record<string, string> }) => Promise<Response>;
 
@@ -24,8 +23,6 @@ const OWNER2 = "00000000-0000-0000-0000-0000000000a3";
 const MANAGER = "00000000-0000-0000-0000-0000000000a2";
 const MANAGER2 = "00000000-0000-0000-0000-0000000000a4";
 const DONTE = "00000000-0000-0000-0000-0000000000b1";
-
-const TODAY = dayKey(new Date().toISOString());
 
 function post(body: unknown): Request {
   return new Request("http://finance.test/api/payroll/reimbursements/1/x", { method: "POST", body: JSON.stringify(body) });
@@ -75,6 +72,8 @@ beforeEach(() => {
     return new Response("{}", { status: resendStatus });
   };
 });
+
+afterEach(() => mock.timers.reset());
 
 const r1 = () => db.rows("travel_reimbursements")[0];
 const resendMails = () => sent.filter((s) => s.url === "https://api.resend.com/emails");
@@ -269,7 +268,9 @@ test("send back: Approved returns to Submitted; Submitted and Paid cannot be sen
   assert.equal(db.rows("travel_reimbursements")[1].status, "paid");
 });
 
-test("Paid outside payroll: an owner's Approved one, marked by an owner with today's date", async () => {
+test("Paid outside payroll: an owner's Approved one, marked by an owner with today's date in New York", async () => {
+  // 10:30 PM on Oct 8 in New York is already Oct 9 in UTC: paid_on is New York's day.
+  mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-09T02:30:00Z") });
   db.tables.travel_reimbursements = [row({ profile_id: OWNER, status: "approved" }), row({ id: 2, status: "approved" })];
   db.signIn(MANAGER);
   assert.equal((await decide.POST(post({ action: "paid_outside_payroll" }), ID)).status, 409);
@@ -278,7 +279,7 @@ test("Paid outside payroll: an owner's Approved one, marked by an owner with tod
   const res = await decide.POST(post({ action: "paid_outside_payroll" }), ID);
   assert.equal(res.status, 200);
   assert.equal(r1().status, "paid_outside_payroll");
-  assert.equal(r1().paid_on, TODAY);
+  assert.equal(r1().paid_on, "2026-10-08");
   assert.equal(r1().paid_by, OWNER2);
 });
 
