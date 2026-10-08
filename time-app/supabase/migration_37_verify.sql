@@ -4,7 +4,7 @@
 -- Run by hand against a database with migration 37 applied, or locally with
 -- every other verify file: `npm run test:db`. Everything happens inside one
 -- transaction that ends in ROLLBACK. It needs one active manager and two
--- employees in public.profiles; it makes its own owners. A clean run ends with
+-- employees in public.profiles; it makes its own owners and a second manager. A clean run ends with
 -- "migration 37 verified".
 --
 -- WHAT IS CHECKED
@@ -16,7 +16,8 @@
 --   4. Staff edit and resubmit their own while Submitted or Rejected; never
 --      decide one, not even their own; never touch an Approved one.
 --   5. An Approver approves, rejects (with a reason) and sends back. A manager
---      who is not an owner cannot decide their own; an owner can.
+--      who is not an owner cannot decide their own, and neither can another
+--      such manager (decide, send back or adjust); an owner can (ruling 28).
 --   6. Paid outside payroll: only an owner's, only by an owner.
 --   7. Adjustments: by an Approver, on Submitted or Approved only; never on
 --      a non-owner manager's own; staff read theirs, cannot write one.
@@ -39,6 +40,7 @@ declare
   emp2     uuid;
   own      uuid := gen_random_uuid();
   own2     uuid := gen_random_uuid();
+  mgr2     uuid := gen_random_uuid();
   v_id     bigint;
   v_id2    bigint;
   v_own    bigint;
@@ -55,8 +57,10 @@ begin
   end if;
   insert into auth.users (id, email, raw_user_meta_data) values
     (own, 'owner-37@example.test', '{"full_name":"Owner One"}'),
-    (own2, 'owner2-37@example.test', '{"full_name":"Owner Two"}');
+    (own2, 'owner2-37@example.test', '{"full_name":"Owner Two"}'),
+    (mgr2, 'manager2-37@example.test', '{"full_name":"Manager Two"}');
   update public.profiles set role = 'manager', active = false where id in (own, own2);
+  update public.profiles set role = 'manager', active = true where id = mgr2;
 
   -- ---- 1. Mileage rates --------------------------------------------------------------
   if (select cents_per_mile from public.mileage_rates where starts_on = '2026-01-01') <> 72.50
@@ -199,16 +203,53 @@ begin
   update public.travel_reimbursements set status = 'approved' where id = v_id2;
   reset role;
 
+  -- Another manager who is not an owner cannot decide or adjust the manager's (ruling 28).
+  perform set_config('request.jwt.claims', json_build_object('sub', mgr2::text, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    update public.travel_reimbursements set status = 'approved' where id = v_mgr;
+    refused := false;
+  exception when raise_exception then refused := true;
+  end;
+  if not refused then raise exception 'a manager approved another manager''s reimbursement'; end if;
+  begin
+    update public.travel_reimbursements set status = 'rejected', rejection_reason = 'no' where id = v_mgr;
+    refused := false;
+  exception when raise_exception then refused := true;
+  end;
+  if not refused then raise exception 'a manager rejected another manager''s reimbursement'; end if;
+  begin
+    insert into public.travel_reimbursement_adjustments (reimbursement_id, field, old_cents, new_cents, note, evidence_path, adjusted_by)
+    values (v_mgr, 'mileage', 228, 200, 'x', 'adjustments/2/x.png', mgr2);
+    refused := false;
+  exception when raise_exception then refused := true;
+  end;
+  if not refused then raise exception 'a manager adjusted another manager''s reimbursement'; end if;
+  reset role;
+
   -- An owner decides the manager's, and an owner's own.
   perform set_config('request.jwt.claims', json_build_object('sub', own::text, 'role', 'authenticated')::text, true);
   set local role authenticated;
   update public.travel_reimbursements set status = 'approved' where id = v_mgr;
+  if (select status from public.travel_reimbursements where id = v_mgr) <> 'approved' then
+    raise exception 'an owner could not approve a manager''s reimbursement';
+  end if;
   insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles)
   values (own, 'errands', 'supplies', '2026-07-03', 'typed', 5) returning id into v_own;
   update public.travel_reimbursements set status = 'approved' where id = v_own;
   if (select status from public.travel_reimbursements where id = v_own) <> 'approved' then
     raise exception 'an owner could not approve their own';
   end if;
+  reset role;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', mgr2::text, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    update public.travel_reimbursements set status = 'submitted' where id = v_mgr;
+    refused := false;
+  exception when raise_exception then refused := true;
+  end;
+  if not refused then raise exception 'a manager sent back another manager''s Approved reimbursement'; end if;
   reset role;
 
   -- ---- 6. Paid outside payroll --------------------------------------------------------------

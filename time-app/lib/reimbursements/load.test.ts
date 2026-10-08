@@ -16,6 +16,7 @@ const { createClient } = await loadAppModule<typeof import("../supabase/server.t
 
 const OWNER = { id: "00000000-0000-0000-0000-0000000000a1", role: "manager", active: false, full_name: "Alina Owner" };
 const MANAGER = { id: "00000000-0000-0000-0000-0000000000a2", role: "manager", active: true, full_name: "Sophia Manager" };
+const MANAGER2 = { id: "00000000-0000-0000-0000-0000000000a3", role: "manager", active: true, full_name: "Mira Manager" };
 const DONTE = { id: "00000000-0000-0000-0000-0000000000b1", role: "employee", active: true, full_name: "Donte Driver" };
 const SAM = { id: "00000000-0000-0000-0000-0000000000b2", role: "employee", active: true, full_name: "Sam Lee" };
 
@@ -30,7 +31,7 @@ function row(id: number, profile_id: string, over: Record<string, unknown> = {})
 let db: FakeSupabase;
 beforeEach(() => {
   db = startFakeSupabase({
-    profiles: [OWNER, MANAGER, DONTE, SAM],
+    profiles: [OWNER, MANAGER, MANAGER2, DONTE, SAM],
     mileage_rates: [{ starts_on: "2026-01-01", cents_per_mile: 72.5 }, { starts_on: "2026-07-01", cents_per_mile: 76 }],
     travel_reimbursements: [
       row(1, DONTE.id),
@@ -86,4 +87,17 @@ test("loadQueue: says which this viewer may not decide: a non-owner manager's ow
   assert.ok(q.ok);
   assert.match(q.submitted.find((i) => i.id === 3)!.refused ?? "", /owner decides it/);
   assert.equal(q.submitted.find((i) => i.id === 1)!.refused, null);
+});
+
+test("loadQueue: another manager may not decide a non-owner manager's; an owner may (ruling 28)", async () => {
+  db.signIn(MANAGER2.id);
+  const q = await loadQueue(createClient(), MANAGER2);
+  assert.ok(q.ok);
+  assert.match(q.submitted.find((i) => i.id === 3)!.refused ?? "", /owner/);
+  assert.equal(q.submitted.find((i) => i.id === 1)!.refused, null);
+
+  db.signIn(OWNER.id);
+  const o = await loadQueue(createClient(), OWNER);
+  assert.ok(o.ok);
+  assert.equal(o.submitted.find((i) => i.id === 3)!.refused, null);
 });

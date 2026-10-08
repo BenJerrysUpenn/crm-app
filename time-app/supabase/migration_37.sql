@@ -50,7 +50,8 @@
 -- reports, and update or delete their own while Submitted or Rejected. Managers
 -- (which includes the owners) read every row and update any reimbursement;
 -- the guard trigger refuses what the lifecycle forbids, including a manager who
--- is not an owner deciding their own. Only managers insert Adjustments.
+-- is not an owner deciding their own or another such manager's: only an owner
+-- decides a non-owner manager's (ruling 28). Only managers insert Adjustments.
 --
 -- OWNERS. Today an owner is a manager kept off the roster: role 'manager',
 -- active = false (time-app/lib/financeAccess.ts). This file reads owners that
@@ -284,6 +285,7 @@ declare
   v_actor_manager boolean := false;
   v_actor_owner   boolean := false;
   v_subject_owner boolean;
+  v_subject_mgr   boolean;
 begin
   if v_uid is not null then
     select p.role = 'manager', p.role = 'manager' and not p.active
@@ -320,9 +322,11 @@ begin
   if new.profile_id <> old.profile_id then
     raise exception 'A Travel Reimbursement cannot change hands.';
   end if;
-  select p.role = 'manager' and not p.active into v_subject_owner
+  select p.role = 'manager' and not p.active, p.role = 'manager' and p.active
+    into v_subject_owner, v_subject_mgr
     from public.profiles p where p.id = new.profile_id;
   v_subject_owner := coalesce(v_subject_owner, false);
+  v_subject_mgr := coalesce(v_subject_mgr, false);
 
   -- The staff member themselves (not acting as an Approver) changes content
   -- and resubmits; never a decision, a payment or an Adjustment.
@@ -341,13 +345,17 @@ begin
       raise exception 'A Travel Reimbursement cannot go from % to %.', old.status, new.status;
     end if;
     -- A decision, or sending an Approved one back: an Approver who may decide it.
+    -- A non-owner manager's is decided by an owner only (ruling 28).
     if new.status in ('approved', 'rejected') or (old.status = 'approved' and new.status = 'submitted') then
       if v_uid is not null then
         if not v_actor_manager then
           raise exception 'Only an Approver (a manager or owner) can do that.';
         end if;
-        if v_uid = new.profile_id and not v_actor_owner then
-          raise exception 'A manager cannot decide their own Travel Reimbursement; an owner decides it.';
+        if v_subject_mgr and not v_actor_owner then
+          if v_uid = new.profile_id then
+            raise exception 'A manager cannot decide their own Travel Reimbursement; an owner decides it.';
+          end if;
+          raise exception 'A manager''s Travel Reimbursement is decided by an owner, not another manager.';
         end if;
       end if;
     end if;
@@ -391,7 +399,8 @@ create trigger guard_travel_reimbursement
   for each row execute function public.guard_travel_reimbursement();
 
 -- An Adjustment: on a Submitted or Approved reimbursement, by an Approver who
--- may decide it (lifecycle.ts approverAction 'adjust').
+-- may decide it (lifecycle.ts approverAction 'adjust'): a non-owner manager's
+-- only by an owner (ruling 28).
 create or replace function public.guard_travel_reimbursement_adjustment()
 returns trigger
 language plpgsql
@@ -403,6 +412,7 @@ declare
   v_subject uuid;
   v_manager boolean;
   v_owner   boolean;
+  v_subject_mgr boolean;
 begin
   select r.status, r.profile_id into v_status, v_subject
     from public.travel_reimbursements r where r.id = new.reimbursement_id;
@@ -415,8 +425,13 @@ begin
     if not coalesce(v_manager, false) then
       raise exception 'Only an Approver (a manager or owner) can make an Adjustment.';
     end if;
-    if v_uid = v_subject and not coalesce(v_owner, false) then
-      raise exception 'A manager cannot adjust their own Travel Reimbursement; an owner decides it.';
+    select p.role = 'manager' and p.active into v_subject_mgr
+      from public.profiles p where p.id = v_subject;
+    if coalesce(v_subject_mgr, false) and not coalesce(v_owner, false) then
+      if v_uid = v_subject then
+        raise exception 'A manager cannot adjust their own Travel Reimbursement; an owner decides it.';
+      end if;
+      raise exception 'A manager''s Travel Reimbursement is adjusted by an owner, not another manager.';
     end if;
   end if;
   new.adjusted_at := now();

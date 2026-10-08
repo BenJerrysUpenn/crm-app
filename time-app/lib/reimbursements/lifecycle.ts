@@ -8,8 +8,10 @@
 //   Paid, Paid outside payroll                  final
 //
 // Staff edit or delete their own only while Submitted or Rejected (20).
-// Approvers are managers and owners (10). An owner may decide their own (19);
-// a manager who is not an owner may not, and an owner decides it (28).
+// Approvers are managers and owners (10). An owner may decide their own (19).
+// A manager who is not an owner may not decide their own, and neither may
+// another such manager: only an owner decides it (28). An employee's is
+// decided by any Approver.
 //
 // Owners, today, are managers kept off the roster: role 'manager' with
 // active = false (lib/financeAccess.ts). This is the one place that says so
@@ -43,11 +45,14 @@ export function isApprover(p: Pick<Person, "role">): boolean {
 
 export const NOT_APPROVER = "Only an Approver (a manager or owner) can do that.";
 export const NOT_OWN = "A manager cannot decide their own Travel Reimbursement; an owner decides it.";
+export const NOT_MANAGERS = "A manager's Travel Reimbursement is decided by an owner, not another manager.";
 
 /** Why `actor` may not decide `subject`'s reimbursement, or null when they may. */
 export function mayDecide(actor: Person, subject: Person): string | null {
   if (!isApprover(actor)) return NOT_APPROVER;
-  if (actor.id === subject.id && !isOwner(actor)) return NOT_OWN;
+  if (isApprover(subject) && !isOwner(subject) && !isOwner(actor)) {
+    return actor.id === subject.id ? NOT_OWN : NOT_MANAGERS;
+  }
   return null;
 }
 
