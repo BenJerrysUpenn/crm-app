@@ -24,8 +24,8 @@ export type Profile = {
   notif_prefs: Record<string, boolean> | null;
   // Staffing forms (lib/staffing/). Optional because the columns arrive in
   // migration 23; undefined means the column is not there yet. qbo_employee_id
-  // is declared above — migration 23 also adds it (add column if not exists),
-  // and migration 26 added it independently.
+  // is declared above; migrations 23 and 26 both add it with add column if
+  // not exists, so it is one column whichever runs first.
   preferred_name?: string | null;
   start_date?: string | null; // YYYY-MM-DD
   last_day?: string | null; // YYYY-MM-DD
