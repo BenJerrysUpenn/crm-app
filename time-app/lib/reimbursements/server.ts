@@ -24,11 +24,8 @@ import {
 } from "./events";
 import { approversToNotify, type Person, type ReimbursementStatus } from "./lifecycle";
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
-import type { ReasonValue, ReimbursementValue } from "./submission";
+import { BUCKET, type ReasonValue, type ReimbursementValue } from "./submission";
 import { routeMiles, type RouteResult } from "./routeMiles";
-
-/** The private Storage bucket for Receipts, Lyft ride reports and evidence (ADR 0002). */
-export const BUCKET = "travel-reimbursements";
 
 export const NEEDS_MIGRATION = "Travel Reimbursements need migration 37 in Supabase.";
 

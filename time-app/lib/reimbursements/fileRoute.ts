@@ -6,7 +6,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { BUCKET } from "./server";
+import { BUCKET } from "./submission";
 
 export async function signedFileRedirect(request: Request): Promise<NextResponse> {
   const path = new URL(request.url).searchParams.get("path") ?? "";

@@ -144,6 +144,9 @@ export function parseLyftRideReport(body: unknown, ctx: Ctx): Parsed<LyftValue> 
 
 // ---------- upload paths ---------------------------------------------------------
 
+/** The private Storage bucket for Receipts, Lyft ride reports and evidence (ADR 0002). */
+export const BUCKET = "travel-reimbursements";
+
 /** Photos from a phone, or a PDF. */
 export const ALLOWED_EXT = ["jpg", "jpeg", "png", "heic", "heif", "webp", "pdf"];
 export const ALLOWED_CONTENT_TYPES = ["image/jpeg", "image/png", "image/heic", "image/heif", "image/webp", "application/pdf"];

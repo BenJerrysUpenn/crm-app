@@ -1,8 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { financeAccess } from "@/lib/financeAccess";
-import { uploadPath } from "@/lib/reimbursements/submission";
-import { BUCKET } from "@/lib/reimbursements/server";
+import { BUCKET, uploadPath } from "@/lib/reimbursements/submission";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";

@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { money } from "@/lib/payroll/paySheet";
 import { STATUS_LABEL, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
+import { BUCKET } from "@/lib/reimbursements/submission";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 
 export const INPUT =
@@ -16,8 +17,6 @@ export const BUTTON =
   "text-sm px-3 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50";
 export const PRIMARY =
   "text-sm px-3 py-1.5 rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium disabled:opacity-50";
-
-const BUCKET = "travel-reimbursements";
 
 const TYPE_BY_EXT: Record<string, string> = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", heic: "image/heic", heif: "image/heif", webp: "image/webp", pdf: "application/pdf",
