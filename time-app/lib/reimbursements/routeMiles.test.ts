@@ -110,6 +110,13 @@ test("routeMiles: not starting at the store routes from the first stop", async (
   assert.deepEqual(both.calls[0].body.intermediates, [{ address: "B" }]);
 });
 
+test("routeMiles: one stop with neither end at the store is refused without calling Google", async () => {
+  const { calls, fetchImpl } = fakeRoutes([1 * MI]);
+  const r = await routeMiles(["Depot"], { start_at_store: false, end_at_store: false }, { apiKey: "k", fetchImpl });
+  assert.deepEqual(r, { ok: false, error: "A trip needs at least two points." });
+  assert.equal(calls.length, 0);
+});
+
 test("routeMiles: a leg with no distance (same place twice) is 0 mi", async () => {
   const { fetchImpl } = fakeRoutes([undefined, 1 * MI]);
   const r = await routeMiles(["218 S 40th St", "Venue"], { start_at_store: true, end_at_store: false }, { apiKey: "k", fetchImpl });
