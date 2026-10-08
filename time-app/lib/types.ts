@@ -206,6 +206,8 @@ export type LifecycleStatus = "open" | "done" | "cancelled";
 // onboarding worker (browser automation as the manager); manual = checklist.
 export type StepMode = "auto" | "worker" | "manual";
 export type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
+// The systems the onboarding worker drives (a worker step's `system`).
+export type WorkerSystem = "square" | "slack" | "qbo" | "google";
 
 export type StepDetail = {
   lines?: string[];
@@ -224,7 +226,7 @@ export type LifecycleStep = {
   label: string;
   detail: StepDetail;
   // Worker contract (mode = "worker"); see supabase/migration_23.sql.
-  system: "square" | "slack" | "qbo" | "google" | null;
+  system: WorkerSystem | null;
   action: string | null;
   payload: Record<string, unknown>;
   claimed_at: string | null;

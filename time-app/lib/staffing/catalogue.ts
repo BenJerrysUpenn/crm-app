@@ -17,7 +17,7 @@
 //
 // Nothing in this file touches the database. lib/staffing/execute.ts runs
 // the auto steps and applies the side effects of marking a step done.
-import type { Role, StepDetail, StepMode } from "@/lib/types";
+import type { Role, StepDetail, StepMode, WorkerSystem } from "@/lib/types";
 
 export const SQUARE_TEAM_URL = "https://app.squareup.com/dashboard/team";
 export const SLACK_ADMIN_URL = "https://benandjerrys4-nsh6689.slack.com/admin";
@@ -51,7 +51,7 @@ export const OFFBOARD_REASONS = [
 // The systems a manager can tick on the invite / re-invite / offboard forms.
 // Withers-time itself is always included. `fob` has no worker: it is a tap
 // on the Pi reader, then the id typed into the step.
-export type System = "square" | "slack" | "qbo" | "google" | "fob";
+export type System = WorkerSystem | "fob";
 export const SYSTEMS: { key: System; label: string; hint: string }[] = [
   { key: "square", label: "Square Team", hint: "own POS login and passcode" },
   { key: "slack", label: "Slack", hint: "#attendance-chat, managers also #managers-chat" },
@@ -66,7 +66,7 @@ export type StepSpec = {
   mode: StepMode;
   label: string;
   detail: StepDetail;
-  system?: "square" | "slack" | "qbo" | "google";
+  system?: WorkerSystem;
   action?: string;
   payload?: Record<string, unknown>;
 };
