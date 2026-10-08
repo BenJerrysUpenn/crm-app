@@ -192,16 +192,24 @@ export async function notifyEmployee(subject: ProfileLite, title: string, body: 
  */
 export type ReceiptsEmailed = { emailed: boolean; error: string | null };
 
+/** What each kind of record sends to receipts@, in words, and the column that stamps it sent. */
+const TO_RECEIPTS = {
+  travel_reimbursements: { what: "The Receipts", column: "receipts_emailed_at" },
+  lyft_ride_reports: { what: "The Lyft ride report screenshots", column: "emailed_at" },
+} as const;
+
 /**
- * `what` ("The Receipts") from `paths` in the bucket to receipts@, then the
- * stamp that says they went. Service role: the files are the staff member's.
+ * Record `id` of `table`: its files at `paths` in the bucket to receipts@,
+ * then the stamp that says they went. Service role: the files are the staff
+ * member's.
  */
 async function emailToReceipts(
-  what: string,
+  table: keyof typeof TO_RECEIPTS,
+  id: number,
   paths: string[],
   compose: (attachments: number) => { subject: string; text: string },
-  stamp: { table: "travel_reimbursements" | "lyft_ride_reports"; column: "receipts_emailed_at" | "emailed_at"; id: number },
 ): Promise<ReceiptsEmailed> {
+  const { what, column } = TO_RECEIPTS[table];
   const admin = createAdminClient();
   const files: EmailAttachment[] = [];
   for (const path of paths) {
@@ -212,7 +220,7 @@ async function emailToReceipts(
   }
   const mail = compose(files.length);
   if (!(await sendEmail(RECEIPTS_TO, mail.subject, mail.text, files))) return { emailed: false, error: `${what} could not be emailed to receipts@.` };
-  const { error } = await admin.from(stamp.table).update({ [stamp.column]: new Date().toISOString() }).eq("id", stamp.id);
+  const { error } = await admin.from(table).update({ [column]: new Date().toISOString() }).eq("id", id);
   if (error) return { emailed: true, error: `${what} went to receipts@, but recording that failed (${error.message}). Do not send them again.` };
   return { emailed: true, error: null };
 }
@@ -225,7 +233,8 @@ async function emailToReceipts(
 export async function emailReceiptsOnApproval(row: WithAmounts, employee: string): Promise<ReceiptsEmailed> {
   if (!row.receipt_paths.length || row.receipts_emailed_at || !emailConfigured()) return { emailed: false, error: null };
   return emailToReceipts(
-    "The Receipts",
+    "travel_reimbursements",
+    row.id,
     row.receipt_paths,
     (attachments) =>
       travelReimbursementReceiptEmail({
@@ -238,18 +247,14 @@ export async function emailReceiptsOnApproval(row: WithAmounts, employee: string
         total_cents: row.amounts.total_cents,
         attachments,
       }),
-    { table: "travel_reimbursements", column: "receipts_emailed_at", id: row.id },
   );
 }
 
 /** On upload: the Lyft ride report goes to receipts@ (ruling 23), stamped emailed_at. */
 export async function emailLyftRideReport(report: LyftRow, employee: string): Promise<ReceiptsEmailed> {
   if (!emailConfigured()) return { emailed: false, error: null };
-  return emailToReceipts(
-    "The Lyft ride report screenshots",
-    report.screenshot_paths,
-    (attachments) => lyftRideReportEmail({ id: report.id, employee, reason: reasonLabel(report), trip_date: report.trip_date, attachments }),
-    { table: "lyft_ride_reports", column: "emailed_at", id: report.id },
+  return emailToReceipts("lyft_ride_reports", report.id, report.screenshot_paths, (attachments) =>
+    lyftRideReportEmail({ id: report.id, employee, reason: reasonLabel(report), trip_date: report.trip_date, attachments }),
   );
 }
 
