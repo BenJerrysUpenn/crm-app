@@ -53,11 +53,16 @@ function row(over: Record<string, unknown> = {}) {
 
 let db: FakeSupabase;
 let sent: { url: string; body: Record<string, unknown> }[];
+// What Resend and Google answer with.
+let resendStatus: number;
+let googleStatus: number;
 
 beforeEach(() => {
   delete process.env.RESEND_API_KEY;
   delete process.env.GOOGLE_MAPS_API_KEY;
   sent = [];
+  resendStatus = 200;
+  googleStatus = 200;
   db = startFakeSupabase({
     profiles: [
       { id: OWNER, role: "manager", active: false, full_name: "Alina Owner", phone: null, notif_prefs: {} },
@@ -86,10 +91,11 @@ beforeEach(() => {
     const body = JSON.parse(await request.text());
     sent.push({ url: request.url, body });
     if (request.url.startsWith("https://routes.googleapis.com/")) {
+      if (googleStatus !== 200) return new Response(JSON.stringify({ error: { message: "API key not valid" } }), { status: googleStatus });
       const legs = 1 + (body.intermediates?.length ?? 0);
       return new Response(JSON.stringify({ routes: [{ legs: Array.from({ length: legs }, () => ({ distanceMeters: 1609.344 * 2.04 })) }] }));
     }
-    return new Response("{}", { status: 200 });
+    return new Response("{}", { status: resendStatus });
   };
 });
 
@@ -137,6 +143,14 @@ test("submit: typed miles for errands is Submitted, and every Approver but the s
 });
 
 test("submit: a manager's own goes to the owners, not to the manager", async () => {
+  db.signIn(MANAGER);
+  assert.equal((await create.POST(req("POST", errands))).status, 200);
+  assert.deepEqual(db.rows("notifications").map((n) => n.user_id), [OWNER]);
+});
+
+test("submit: a non-owner manager's goes to the owners only, never to another manager (ruling 28)", async () => {
+  const MIRA = "00000000-0000-0000-0000-0000000000a3";
+  db.tables.profiles.push({ id: MIRA, role: "manager", active: true, full_name: "Mira Manager", phone: null, notif_prefs: {} });
   db.signIn(MANAGER);
   assert.equal((await create.POST(req("POST", errands))).status, 200);
   assert.deepEqual(db.rows("notifications").map((n) => n.user_id), [OWNER]);
@@ -196,6 +210,17 @@ test("submit: destinations mode computes the miles on the server, from the store
   assert.equal((r.route_legs as unknown[]).length, 2);
   const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
   assert.deepEqual(google?.body.destination, { address: "218 S 40th St, Philadelphia, PA 19104" });
+});
+
+test("submit: destinations mode when Google cannot route the trip is refused, with nothing written and nobody told", async () => {
+  process.env.GOOGLE_MAPS_API_KEY = "maps-key";
+  googleStatus = 403;
+  db.signIn(DONTE);
+  const res = await create.POST(req("POST", { ...errands, mileage: { mode: "destinations", stops: ["Restaurant Depot"], miles: "999" } }));
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /type the miles/);
+  assert.equal(db.rows("travel_reimbursements").length, 0);
+  assert.equal(db.rows("notifications").length, 0);
 });
 
 test("route-miles: previews the computed miles; without a Maps key it says to type them", async () => {
@@ -315,6 +340,20 @@ test("Lyft: a ride report is Filed at once, emailed to receipts@ with its screen
   assert.equal(mail?.body.subject, `[Withers Time] Lyft ride report: Donte Driver, ${YESTERDAY}`);
   assert.match(String(mail?.body.text), /^Kind: Lyft ride report\nEmployee: Donte Driver\nReason: Catering Event: /);
   assert.deepEqual(mail?.body.attachments, [{ filename: "1-a.png", content: Buffer.from("png bytes").toString("base64") }]);
+});
+
+test("Lyft: when receipts@ cannot be emailed the report is still Filed, and not stamped as emailed", async () => {
+  process.env.RESEND_API_KEY = "re_test";
+  resendStatus = 500;
+  const shot = `${DONTE}/lyft/1-a.png`;
+  db.storage[`travel-reimbursements/${shot}`] = new TextEncoder().encode("png bytes");
+  db.signIn(DONTE);
+  const res = await lyft.POST(req("POST", { reason: { kind: "errands", note: "Depot" }, trip_date: YESTERDAY, screenshot_paths: [shot] }));
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).emailed, false);
+  const [report] = db.rows("lyft_ride_reports");
+  assert.equal(report.profile_id, DONTE);
+  assert.equal(report.emailed_at, null);
 });
 
 test("Lyft: needs a screenshot of the staff member's own", async () => {
