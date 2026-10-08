@@ -191,7 +191,7 @@ test("a shift they already had reads as changed; new and changed are listed in s
 });
 
 test("a shift deleted before 8pm is left out, and nobody is sent an empty summary", async () => {
-  const keep = await create(SAM, "2026-10-13", "12:00", "17:00");
+  await create(SAM, "2026-10-13", "12:00", "17:00");
   const gone = await create(SAM, "2026-10-14", "12:00", "17:00");
   const alsoGone = await create(JO, "2026-10-14", "17:00", "22:00");
   assert.equal((await shiftById.DELETE(req("DELETE"), id(gone))).status, 200);
@@ -201,7 +201,6 @@ test("a shift deleted before 8pm is left out, and nobody is sent an empty summar
 
   assert.equal(to("sam@example.test").length, 1);
   assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 13 · 12:00 PM–5:00 PM");
-  assert.ok(keep);
   assert.deepEqual(to("jo@example.test"), []);
   assert.deepEqual(to(JO_PHONE), []);
 });
