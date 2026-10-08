@@ -49,13 +49,13 @@ test("mayDecide: an owner may decide their own", () => {
 });
 
 test("mayDecide: a manager who is not an owner may not decide their own; an owner decides it", () => {
-  assert.match(mayDecide(MANAGER, MANAGER) ?? "", /owner/);
+  assert.match(mayDecide(MANAGER, MANAGER) ?? "", /cannot decide their own/);
   assert.equal(mayDecide(OWNER, MANAGER), null);
 });
 
 test("mayDecide: a non-owner manager's reimbursement is decided only by an owner, never another manager (ruling 28)", () => {
-  assert.match(mayDecide(MANAGER2, MANAGER) ?? "", /owner/);
-  assert.match(mayDecide(MANAGER, MANAGER2) ?? "", /owner/);
+  assert.match(mayDecide(MANAGER2, MANAGER) ?? "", /not another manager/);
+  assert.match(mayDecide(MANAGER, MANAGER2) ?? "", /not another manager/);
   assert.equal(mayDecide(OWNER, MANAGER), null);
   assert.equal(mayDecide(OWNER2, MANAGER2), null);
   for (const action of ["approve", "reject", "adjust"] as const) {

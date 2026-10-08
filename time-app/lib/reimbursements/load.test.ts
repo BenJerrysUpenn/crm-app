@@ -93,7 +93,7 @@ test("loadQueue: another manager may not decide a non-owner manager's; an owner 
   db.signIn(MANAGER2.id);
   const q = await loadQueue(createClient(), MANAGER2);
   assert.ok(q.ok);
-  assert.match(q.submitted.find((i) => i.id === 3)!.refused ?? "", /owner/);
+  assert.match(q.submitted.find((i) => i.id === 3)!.refused ?? "", /not another manager/);
   assert.equal(q.submitted.find((i) => i.id === 1)!.refused, null);
 
   db.signIn(OWNER.id);
