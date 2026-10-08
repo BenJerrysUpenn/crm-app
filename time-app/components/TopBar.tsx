@@ -7,13 +7,18 @@ import type { Role } from "@/lib/types";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
 
-const links: { href: string; label: string; managerOnly?: boolean }[] = [
+// `offsite` entries are plain links, not next/link: Finance lives on its own
+// host (finance.withers-ventures.com), reached through the /finance redirect in
+// middleware (lib/hosts.ts). next/link would try, and fail, to prefetch it
+// across origins. On localhost and previews the same redirect lands on /payroll.
+const links: { href: string; label: string; managerOnly?: boolean; offsite?: boolean }[] = [
   { href: "/", label: "Clock" },
   { href: "/schedule", label: "Schedule" },
   { href: "/availability", label: "Availability" },
   { href: "/timesheets", label: "Timesheets" },
   { href: "/attendance", label: "Attendance", managerOnly: true },
   { href: "/team", label: "Team", managerOnly: true },
+  { href: "/finance", label: "Finance", managerOnly: true, offsite: true },
   { href: "/account", label: "Account" },
 ];
 
@@ -57,9 +62,9 @@ export default function TopBar({
         {/* Desktop nav */}
         <nav className="hidden sm:flex items-center gap-1 flex-1 overflow-x-auto">
           {visible.map((l) => (
-            <Link
+            <NavLink
               key={l.href}
-              href={l.href}
+              link={l}
               className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap ${
                 isActive(l.href)
                   ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium"
@@ -67,7 +72,7 @@ export default function TopBar({
               }`}
             >
               {l.label}
-            </Link>
+            </NavLink>
           ))}
         </nav>
 
@@ -93,9 +98,9 @@ export default function TopBar({
       {open && (
         <nav className="sm:hidden border-t border-slate-200 dark:border-slate-800 px-2 py-2 flex flex-col gap-1">
           {visible.map((l) => (
-            <Link
+            <NavLink
               key={l.href}
-              href={l.href}
+              link={l}
               onClick={() => setOpen(false)}
               className={`px-3 py-2 rounded-md text-sm ${
                 isActive(l.href)
@@ -104,10 +109,34 @@ export default function TopBar({
               }`}
             >
               {l.label}
-            </Link>
+            </NavLink>
           ))}
         </nav>
       )}
     </header>
+  );
+}
+
+function NavLink({
+  link,
+  className,
+  onClick,
+  children,
+}: {
+  link: { href: string; offsite?: boolean };
+  className: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  if (link.offsite)
+    return (
+      <a href={link.href} className={className} onClick={onClick}>
+        {children}
+      </a>
+    );
+  return (
+    <Link href={link.href} className={className} onClick={onClick}>
+      {children}
+    </Link>
   );
 }

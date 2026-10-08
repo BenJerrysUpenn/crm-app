@@ -7,13 +7,29 @@ export type Profile = {
   role: Role;
   hourly_rate: number | null;
   active: boolean;
+  // QuickBooks Payroll employee id (Intuit.ems.iop local id) — the only join
+  // between this app and QBO, because names differ between the two systems and
+  // between QBO's own endpoints (payroll spec 2.5). Optional because the column
+  // arrives in migration 26; undefined means the column is not there yet.
+  qbo_employee_id?: string | null;
+  // Salaried or hourly, set by a manager on the Team page; null = not set.
+  // The payroll sheet reads it (bj-finance #519, ruled 2026-09-22). Optional
+  // for the same reason as qbo_employee_id: it arrives in migration 26.
+  pay_type?: "hourly" | "salaried" | null;
+  // When a manager archived this person (left the team); null = not archived.
+  // Only the Team page reads it: `active` still means "on the schedule"
+  // everywhere. Optional because the column arrives in migration 32;
+  // undefined means the column is not there yet (lib/teamArchive.ts).
+  archived_at?: string | null;
   notif_prefs: Record<string, boolean> | null;
-  // Staffing forms (migration_23). See lib/staffing/.
-  preferred_name: string | null;
-  start_date: string | null; // YYYY-MM-DD
-  last_day: string | null; // YYYY-MM-DD
-  has_workforce: boolean; // finished QuickBooks Workforce self-setup
-  qbo_employee_id: string | null;
+  // Staffing forms (lib/staffing/). Optional because the columns arrive in
+  // migration 23; undefined means the column is not there yet. qbo_employee_id
+  // is declared above — migration 23 also adds it (add column if not exists),
+  // and migration 26 added it independently.
+  preferred_name?: string | null;
+  start_date?: string | null; // YYYY-MM-DD
+  last_day?: string | null; // YYYY-MM-DD
+  has_workforce?: boolean; // finished QuickBooks Workforce self-setup
   created_at: string;
 };
 
@@ -39,6 +55,9 @@ export type Shift = {
   acknowledged_at: string | null;
   created_at: string;
   updated_at: string;
+  // Set on the shifts the CRM writes for a booked catering deal; a manager
+  // assigns those (lib/managerAssigns.ts).
+  deal_id?: number | null;
 };
 
 export type TimeEntry = {
@@ -113,7 +132,34 @@ export type ShiftType = {
   active: boolean;
   default_start: string | null;
   default_end: string | null;
+  // Does this kind of shift put someone behind the counter? Only in-store
+  // types count toward store coverage (Catering, Marketing and Staff Meeting
+  // do not). Optional because the column arrives in migration 24 — undefined
+  // means the column is not there yet and should be read as true.
+  in_store?: boolean | null;
   created_at: string;
+};
+
+// The store's normal opening hours for one weekday. One row per weekday, and a
+// weekday with no row means "hours not set" rather than "closed".
+export type StoreHours = {
+  weekday: number; // 0 = Sunday .. 6 = Saturday, matching Date#getDay
+  is_closed: boolean;
+  opens: string | null; // "HH:MM:SS"
+  closes: string | null;
+  updated_at: string | null;
+};
+
+// A one-off override for a single date: a holiday closure, or special hours.
+// Never changes the weekly pattern — delete the row and the date goes back to
+// its normal weekday hours.
+export type StoreHoursException = {
+  date: string; // "YYYY-MM-DD"
+  label: string | null;
+  is_closed: boolean;
+  opens: string | null; // "HH:MM:SS", when open on special hours
+  closes: string | null;
+  created_at: string | null;
 };
 
 export type Annotation = {
@@ -202,3 +248,27 @@ export type Lifecycle = {
 };
 
 export type LifecycleWithSteps = Lifecycle & { steps: LifecycleStep[] };
+
+// One append-only entry in the write log for `time_entries` and `shifts`
+// (migration 25). Written by the `audit_row_change` trigger, readable by
+// managers, writable by nobody.
+//
+// The three actor columns answer "who" for the three kinds of writer this app
+// has: a signed-in person through PostgREST (actor_uid + actor_role), a cron or
+// catering job on the service-role key (actor_role = 'service_role', no uid),
+// and somebody in the SQL editor (neither, so db_role is the only answer).
+//
+// before_image is null on INSERT and after_image is null on DELETE — a missing
+// image and an empty row are different things.
+export type RowAudit = {
+  id: number;
+  table_name: "time_entries" | "shifts" | string;
+  row_id: number | null;
+  op: "INSERT" | "UPDATE" | "DELETE";
+  at: string;
+  actor_uid: string | null;
+  actor_role: string | null;
+  db_role: string;
+  before_image: Record<string, unknown> | null;
+  after_image: Record<string, unknown> | null;
+};

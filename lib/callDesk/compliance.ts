@@ -331,9 +331,9 @@ function longDate(value: string | null | undefined): string | null {
 }
 
 /**
- * The caller's first name for the script. Joey signs in with a Gmail address,
- * so an email is the usual input: take the local part, cut it at the first
- * separator and capitalise. He says his own name out loud regardless — this is
+ * The caller's first name for the script. A caller may sign in with a Gmail
+ * address, so an email is the usual input: take the local part, cut it at the first
+ * separator and capitalise. The caller says their own name out loud regardless — this is
  * a prompt, not a transcript.
  */
 export function callerFirstName(callerName: string | null | undefined): string {
@@ -347,8 +347,8 @@ export function callerFirstName(callerName: string | null | undefined): string {
 }
 
 /**
- * The one line Joey reads before any pitch: his name, the business, and why he
- * is calling — 47 C.F.R. §64.1200(d)(4), 16 C.F.R. §310.4(d), 73 P.S.
+ * The one line the caller reads before any pitch: their name, the business, and
+ * why they are calling — 47 C.F.R. §64.1200(d)(4), 16 C.F.R. §310.4(d), 73 P.S.
  * §2245(a)(5). The closing clause says how we got the number, which is the
  * honest answer to the question that follows it, and it comes from the same
  * column the window was computed from so the two can never disagree.
@@ -370,5 +370,6 @@ export function openingScript(
   return `${opener} You have been in touch with us before.`;
 }
 
-/** The callback number the rules require us to give on request. */
-export const CALLBACK_NUMBER = "609-369-6808";
+/** The callback number the rules require us to give on request. Set in the
+ *  deploy environment, never in source: it is a personal line. */
+export const CALLBACK_NUMBER = process.env.CALL_DESK_CALLBACK_NUMBER ?? "";

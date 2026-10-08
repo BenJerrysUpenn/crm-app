@@ -68,7 +68,10 @@ deploy_notes: >-
   whatever checks the repo actually has. That does not change the merge rule —
   deterministic checks first, reviewer approvals advisory. Supabase migrations under
   supabase/ are applied to a hosted project, so a migration that lands is live for every
-  viewer at once.
+  viewer at once. A push to main also fast-forwards a CHECKOUT of this repo on the
+  droplet (bj-box, ~bjservice/code/crm-app): .github/workflows/deploy-droplet.yml only
+  dispatches Software-Factory's deploy workflow. Nothing is built, installed or run from
+  that checkout; it is staged for the system-BOM migration, and Vercel stays production.
 
 language_notes: >-
   A Next.js / TypeScript application, with Python and PLpgSQL alongside it (Supabase
