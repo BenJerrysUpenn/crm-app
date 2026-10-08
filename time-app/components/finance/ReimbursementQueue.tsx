@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import type { DecidedItem, QueueItem } from "@/lib/reimbursements/load";
 import { ADJUSTMENT_FIELDS, DECIDED_SHOWN, FIELD_LABEL, type AdjustmentField } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
-import { approveRefusal, currentFieldCents, dollarsText } from "@/lib/reimbursements/money";
+import { approveRefusal, fieldCents, dollarsText } from "@/lib/reimbursements/money";
 import { money } from "@/lib/payroll/paySheet";
 import { ReimbursementDetail, StatusBadge, BUTTON, PRIMARY, INPUT, uploadFile } from "@/components/reimbursements/shared";
 
@@ -57,7 +57,7 @@ export default function ReimbursementQueue({
     setPanel(p);
     setReason("");
     setField("mileage");
-    setAmount(item ? dollarsText(currentFieldCents(item.amounts, "mileage")) : "");
+    setAmount(item ? dollarsText(fieldCents(item.amounts, "mileage")) : "");
     setNote("");
     setEvidence(null);
     setMsg(null);
@@ -66,7 +66,7 @@ export default function ReimbursementQueue({
   /** The Adjust panel's amount follows the field picked: what it is now (ruling 43). */
   function pickField(item: QueueItem, f: AdjustmentField) {
     setField(f);
-    setAmount(dollarsText(currentFieldCents(item.amounts, f)));
+    setAmount(dollarsText(fieldCents(item.amounts, f)));
   }
 
   async function post(id: number, path: string, body: unknown, done: string) {
@@ -189,7 +189,7 @@ export default function ReimbursementQueue({
               </label>
             </div>
             <div className="text-sm text-slate-600 dark:text-slate-400">
-              {FIELD_LABEL[field]} now: {money(currentFieldCents(item.amounts, field))}
+              {FIELD_LABEL[field]} now: {money(fieldCents(item.amounts, field))}
             </div>
             <label className="block text-sm text-slate-700 dark:text-slate-300">
               Note (one line, the staff member sees it)

@@ -1,6 +1,6 @@
 import { ADJUSTMENT_FIELDS, approverAction } from "@/lib/reimbursements/lifecycle";
 import { approverContext } from "@/lib/reimbursements/approverRoute";
-import { centsFromDollars } from "@/lib/reimbursements/money";
+import { centsFromDollars, fieldCents } from "@/lib/reimbursements/money";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { adjustmentText, notifyEmployee, withAmounts, type AdjustmentRow, type ReimbursementRow } from "@/lib/reimbursements/server";
 import { money } from "@/lib/payroll/paySheet";
@@ -47,7 +47,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const step = approverAction("adjust", row.status, { subject, actor: me });
   if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.forbidden ? 403 : 409 });
 
-  const oldCents = field === "mileage" ? (row.amounts.mileage_cents ?? 0) : field === "tolls" ? row.tolls_cents : row.parking_cents;
+  const oldCents = fieldCents(row.amounts, field) ?? 0;
   if (oldCents === newCents) return NextResponse.json({ error: `${field[0].toUpperCase()}${field.slice(1)} is already ${money(newCents)}.` }, { status: 400 });
 
   const { data: adj, error: adjErr } = await supabase

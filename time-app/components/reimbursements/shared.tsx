@@ -11,6 +11,7 @@ import { money } from "@/lib/payroll/paySheet";
 import { FIELD_LABEL, STATUS_LABEL, type AdjustmentField, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { BUCKET, CONTENT_TYPE_BY_EXT } from "@/lib/reimbursements/submission";
+import { fieldCents } from "@/lib/reimbursements/money";
 import { routeText } from "@/lib/reimbursements/routeMiles";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 
@@ -121,8 +122,7 @@ function rateText(rate: number | null): string {
 function amountText(r: WithAmounts, field: AdjustmentField, now: number | null): string {
   const b = r.before_adjustments;
   if (!b || !b.adjusted.includes(field)) return money(now);
-  const before = field === "mileage" ? b.before.mileage_cents : field === "tolls" ? b.before.tolls_cents : b.before.parking_cents;
-  return `${money(before)} → ${money(now)} (adjusted)`;
+  return `${money(fieldCents(b.before, field))} → ${money(now)} (adjusted)`;
 }
 
 /** Reason, trip date, Mileage, tolls, parking, total and Adjustments, as one block. */

@@ -166,8 +166,8 @@ export function approveRefusal(amounts: Pick<Amounts, "total_cents">, tripDate: 
     : null;
 }
 
-/** One amount as it stands, for the Adjust panel (ruling 43). Null: Mileage with no rate. */
-export function currentFieldCents(amounts: Amounts, field: AdjustmentField): number | null {
+/** One of the amounts, by Adjustment field: as it stands, or as it was before (rulings 40, 43). Null: Mileage with no rate. */
+export function fieldCents(amounts: Amounts, field: AdjustmentField): number | null {
   return field === "mileage" ? amounts.mileage_cents : field === "tolls" ? amounts.tolls_cents : amounts.parking_cents;
 }
 

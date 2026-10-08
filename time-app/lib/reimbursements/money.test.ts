@@ -12,7 +12,7 @@ import {
   amountsBeforeAdjustments,
   approveRefusal,
   centsFromDollars,
-  currentFieldCents,
+  fieldCents,
   dollarsText,
   legMiles,
   mileageCents,
@@ -177,12 +177,12 @@ test("approveRefusal: no Mileage rate for the trip date means no total, so no Ap
   assert.equal(approveRefusal(adjusted, "2025-06-01"), null);
 });
 
-test("currentFieldCents and dollarsText: the Adjust panel shows and pre-fills the current amount (ruling 43)", () => {
+test("fieldCents and dollarsText: the Adjust panel shows and pre-fills the current amount (ruling 43)", () => {
   const a = reimbursementCents(base, RATES_2026);
-  assert.equal(currentFieldCents(a, "mileage"), 1672);
-  assert.equal(currentFieldCents(a, "tolls"), 400);
-  assert.equal(currentFieldCents(a, "parking"), 800);
-  assert.equal(currentFieldCents(reimbursementCents({ ...base, trip_date: "2025-06-01" }, RATES_2026), "mileage"), null);
+  assert.equal(fieldCents(a, "mileage"), 1672);
+  assert.equal(fieldCents(a, "tolls"), 400);
+  assert.equal(fieldCents(a, "parking"), 800);
+  assert.equal(fieldCents(reimbursementCents({ ...base, trip_date: "2025-06-01" }, RATES_2026), "mileage"), null);
   assert.equal(dollarsText(1672), "16.72");
   assert.equal(dollarsText(0), "0.00");
   assert.equal(dollarsText(null), "");
