@@ -28,6 +28,14 @@ Safe to re-run. It adds five columns to `profiles` (`preferred_name`,
 `revoke_user_sessions(uuid)` (SECURITY DEFINER, service role only). Without
 it the Team page's add / re-invite / offboard actions fail.
 
+The invite and re-invite emails need an email sender configured. With
+`RESEND_API_KEY` set the app generates the sign-in link itself (an invite link
+for a new person, a magic link for someone who already has an account) and
+sends it through Resend. With `RESEND_API_KEY` unset it falls back to
+Supabase-sent email via `inviteUserByEmail`, which delivers a first invite but
+is refused for an address that already has an account — so **Re-invite needs
+`RESEND_API_KEY` set** to reach an existing person (`lib/authLinks.ts`).
+
 ## The hard rule
 
 **Never delete a Withers-time user.** `time_entries.employee_id` cascades
