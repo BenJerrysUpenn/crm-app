@@ -297,6 +297,16 @@ test("edit: a Rejected one is fixed and resubmitted, and the Approvers hear of i
   assert.equal(db.rows("notifications").length, 2);
 });
 
+test("edit: when the Catering Events cannot be read, the route says so and the edit is not written", async () => {
+  db.tables.travel_reimbursements.push(row());
+  db.missingTables = ["deals"];
+  db.signIn(DONTE);
+  const res = await one.PATCH(req("PATCH", { ...errands, reason: { kind: "catering_event", event_id: 501 } }), { params: { id: "1" } });
+  assert.equal(res.status, 503);
+  assert.doesNotMatch((await res.json()).error, /not in the list/);
+  assert.equal(db.rows("travel_reimbursements")[0].reason_kind, "errands");
+});
+
 test("edit and delete: an Approved or Paid one is locked to staff", async () => {
   db.tables.travel_reimbursements.push(row({ id: 1, status: "approved" }), row({ id: 2, status: "paid", paid_on: "2026-10-07" }));
   db.signIn(DONTE);

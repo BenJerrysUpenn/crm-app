@@ -311,6 +311,21 @@ test("adjust: evidence that was never uploaded is refused", async () => {
   assert.equal(db.rows("travel_reimbursement_adjustments").length, 0);
 });
 
+test("adjust: when Storage cannot say whether the evidence is there, the route says so and writes nothing", async () => {
+  const supabase = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    if (request.method === "HEAD" && new URL(request.url).pathname.startsWith("/storage/v1/object/")) return new Response(null, { status: 500 });
+    return supabase(request);
+  }) as typeof fetch;
+  db.signIn(MANAGER);
+  const res = await adjust.POST(post(adjustment), ID);
+  assert.equal(res.status, 503);
+  assert.match((await res.json()).error, /could not be checked/);
+  assert.equal(r1().parking_cents, 800);
+  assert.equal(db.rows("travel_reimbursement_adjustments").length, 0);
+});
+
 test("adjust: a reimbursement decided meanwhile is refused and leaves no Adjustment behind", async () => {
   db.signIn(MANAGER);
   // Another Approver rejects it between this Approver's read and write.
