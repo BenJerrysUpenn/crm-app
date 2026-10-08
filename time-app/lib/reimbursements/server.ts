@@ -246,8 +246,9 @@ export async function resolveReason(
 
 /**
  * Everything a submission writes, with destination miles computed here and a
- * Mileage rate checked for the trip date. `status` 400 is the staff member's
- * to fix; 503 is setup (no migration).
+ * Mileage rate checked for the trip date. An `{ ok: false }` is the staff
+ * member's to fix (the routes answer 400); a missing migration is `loadRates`'
+ * failure, answered 503 before this runs.
  */
 export async function resolveSubmission(
   v: ReimbursementValue,
