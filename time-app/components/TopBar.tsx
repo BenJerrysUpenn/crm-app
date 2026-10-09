@@ -7,11 +7,7 @@ import type { Role } from "@/lib/types";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
 
-// `offsite` entries are plain links, not next/link: Finance lives on its own
-// host (finance.withers-ventures.com), reached through the /finance redirect in
-// middleware (lib/hosts.ts). next/link would try, and fail, to prefetch it
-// across origins. On localhost and previews the same redirect lands on /payroll.
-const links: { href: string; label: string; managerOnly?: boolean; offsite?: boolean }[] = [
+const links: { href: string; label: string; managerOnly?: boolean }[] = [
   { href: "/", label: "Clock" },
   { href: "/schedule", label: "Schedule" },
   { href: "/availability", label: "Availability" },
@@ -19,7 +15,6 @@ const links: { href: string; label: string; managerOnly?: boolean; offsite?: boo
   { href: "/reimbursements", label: "Reimbursements" },
   { href: "/attendance", label: "Attendance", managerOnly: true },
   { href: "/team", label: "Team", managerOnly: true },
-  { href: "/finance", label: "Finance", managerOnly: true, offsite: true },
   { href: "/account", label: "Account" },
 ];
 
@@ -124,17 +119,11 @@ function NavLink({
   onClick,
   children,
 }: {
-  link: { href: string; offsite?: boolean };
+  link: { href: string };
   className: string;
   onClick?: () => void;
   children: React.ReactNode;
 }) {
-  if (link.offsite)
-    return (
-      <a href={link.href} className={className} onClick={onClick}>
-        {children}
-      </a>
-    );
   return (
     <Link href={link.href} className={className} onClick={onClick}>
       {children}
