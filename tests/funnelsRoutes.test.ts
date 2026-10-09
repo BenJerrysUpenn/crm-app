@@ -227,6 +227,14 @@ describe("GET /api/funnels", () => {
     expect(loop.suppression).toEqual({ total: 1, opt_out_events: 1, prospects_total: 3 });
   });
 
+  it("reports no last activity while the only outreach events are imports", async () => {
+    db.state.tables.outreach_events = [
+      { prospect_id: 10, event: "added", occurred_at: "2026-09-25T15:30:00Z" },
+    ];
+    const { loop } = await (await get()).json();
+    expect(loop.warm.last_activity_at).toBeNull();
+  });
+
   it("fails loudly when the last-activity read fails, rather than reporting no activity", async () => {
     db.state.readErrors["outreach_events:occurred_at"] = { message: "connection reset", code: "08006" };
     const res = await get();
