@@ -16,8 +16,9 @@
 // An owner is an off-roster (active = false) holder of the owner role
 // (migration 31) or of the manager role (lib/financeAccess.ts).
 // isManagerRole() counts both 'owner' and 'manager', so an off-roster person
-// of either is an owner here; migration 37's guard trigger holds the database
-// to it.
+// of either is an owner here. Migration 37's guard trigger still reads an
+// owner as role 'manager' and not active, so it does not recognise the owner
+// role.
 //
 // A Lyft ride report is not in here: it is Filed on upload and has no life.
 //
@@ -39,7 +40,7 @@ export const STATUS_LABEL: Record<ReimbursementStatus, string> = {
 
 export type Person = { id: string; role: string; active: boolean };
 
-/** An owner: the owner role, or a manager kept off the roster (lib/financeAccess.ts). */
+/** An owner: a manager or owner kept off the roster (active = false; lib/financeAccess.ts). */
 export function isOwner(p: Pick<Person, "role" | "active">): boolean {
   return isManagerRole(p.role) && p.active === false;
 }
