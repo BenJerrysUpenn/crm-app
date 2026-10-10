@@ -215,6 +215,16 @@ test("a manager can still make an employee a manager", async () => {
   assert.equal(roleOf(EMPLOYEE), "manager");
 });
 
+test("editing a team member who does not exist is a 404, and nothing is written", async () => {
+  db.signIn(OWNER);
+  const before = structuredClone(db.rows("profiles"));
+
+  const res = await profile.PATCH(send("PATCH", { role: "manager" }), { params: { id: NEWCOMER } });
+
+  assert.equal(res.status, 404);
+  assert.deepEqual(db.rows("profiles"), before);
+});
+
 test("an owner can make a manager an owner", async () => {
   db.signIn(OWNER);
 
