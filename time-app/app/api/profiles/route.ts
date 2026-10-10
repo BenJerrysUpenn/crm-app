@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   const full_name = (body.full_name || "").trim();
   if (!full_name || full_name.includes("@"))
     return NextResponse.json({ error: "Full name required (not an email)" }, { status: 400 });
-  // Anything unrecognised is an employee, as before. Only an owner may make
+  // Anything unrecognised is an employee. Only an owner may make
   // someone an owner (lib/roles.ts).
   const role: Role = (ROLES as unknown[]).includes(body.role) ? (body.role as Role) : "employee";
   if (!canAssignRole(me, role))
