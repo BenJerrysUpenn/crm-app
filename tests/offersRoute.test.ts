@@ -5,7 +5,7 @@ import { OFFERS_CONSENT_TEXT, OFFERS_PAGE_VERSION } from "@/lib/outreach/offersP
 
 const SECRET = "test-secret-not-a-real-one";
 const PROSPECT_ID = 25386;
-const EMAIL = "Pino@Example.com";
+const EMAIL = "Remy@Example.com";
 
 // A stand-in for the shared Supabase project, at the database boundary only.
 // The prospect lookup reads a table; the RPC answers with a canned outcome in
@@ -114,7 +114,7 @@ describe("GET — the page the footer link lands on", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(body).toContain("<h1>One seasonal menu a month?</h1>");
-    expect(body).toContain("Pino@Example.com");
+    expect(body).toContain("Remy@Example.com");
     expect(body).toContain("Nothing is signed up until you do.");
     expect(body).toContain('<form method="post">');
     expect(body).toContain('<button type="submit">Yes, send me offers</button>');
@@ -138,8 +138,8 @@ describe("POST — the button", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
     expect(body).toContain("<h1>You're on the list</h1>");
-    expect(body).toContain("Sent to Pino@Example.com.");
-    expect(body).toContain("Agreed by Pino@Example.com on Sunday, September 27, 2026 at 7:42 PM ET.");
+    expect(body).toContain("Sent to Remy@Example.com.");
+    expect(body).toContain("Agreed by Remy@Example.com on Sunday, September 27, 2026 at 7:42 PM ET.");
 
     expect(db.state.rpcCalls).toEqual([
       {
@@ -168,7 +168,7 @@ describe("POST — the button", () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toContain(
-      "Agreed by Pino@Example.com on Sunday, September 20, 2026 at 10:05 AM ET.",
+      "Agreed by Remy@Example.com on Sunday, September 20, 2026 at 10:05 AM ET.",
     );
   });
 
@@ -180,7 +180,7 @@ describe("POST — the button", () => {
 
     expect(response.status).toBe(200);
     expect(body).toContain("<h1>You're on the list</h1>");
-    expect(body).toContain("Agreed by Pino@Example.com on Sunday, September 27, 2026 at 7:42 PM ET.");
+    expect(body).toContain("Agreed by Remy@Example.com on Sunday, September 27, 2026 at 7:42 PM ET.");
   });
 
   it("404s a dead (test or invalid) row like any other bad link", async () => {
@@ -210,7 +210,7 @@ describe("rejected tokens", () => {
   const badTokens = (): Array<[string, string]> => [
     ["an UNSUBSCRIBE token for the same person", mintUnsubscribeToken(PROSPECT_ID, EMAIL, SECRET)],
     ["a bad MAC", mintOffersToken(PROSPECT_ID, EMAIL, "a-different-secret")],
-    ["another prospect's address", mintOffersToken(PROSPECT_ID, "someone@else.com", SECRET)],
+    ["another prospect's address", mintOffersToken(PROSPECT_ID, "someone@example.org", SECRET)],
     ["an unknown prospect id", mintOffersToken(999999, EMAIL, SECRET)],
     ["a malformed token", "not-a-real-token"],
   ];

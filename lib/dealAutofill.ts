@@ -70,7 +70,7 @@ export function describeSource(source: AutofillSource): string {
     : `prospect #${source.id}`;
 }
 
-/** "Dana Okafor-Reyes" → first "Dana", last "Okafor-Reyes". The same split the
+/** "Jordan Sample-Reyes" → first "Jordan", last "Sample-Reyes". The same split the
  *  call desk has always used to seed the form from a prospect's name. */
 export function splitName(full: string | null | undefined): {
   first: string;

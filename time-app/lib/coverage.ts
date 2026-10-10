@@ -299,33 +299,19 @@ export function uncovered(opens: number, closes: number, merged: { from: number;
 }
 
 /**
- * Split a padded query window into the two sets "publish week" needs.
- *
- *  - `publishable` — the drafts this publish will flip live: unpublished, and
- *    starting inside the week in New York. Exactly the set the route has always
- *    published; widening the query window must never widen this.
- *  - `forCoverage` — everything whose New York span touches the week at all,
- *    published or not. Wider on purpose: a shift starting Saturday evening and
- *    running into Sunday morning is not publishable here but is certainly
- *    standing in the store, and a check that could not see it would invent a
- *    gap at Sunday open.
- *
- * Pure, so the distinction can be tested without a database.
+ * The shifts whose New York span touches the week at all. Callers query a
+ * padded window; this trims it to what can matter. Wider than "starts in the
+ * week" on purpose: a shift starting Saturday evening and running into Sunday
+ * morning is standing in the store, and a check that could not see it would
+ * invent a gap at Sunday open.
  */
-export function selectWeekShifts<T extends { starts_at: string; ends_at: string; published?: boolean | null }>(
-  shifts: T[],
-  weekStart: string,
-): { publishable: T[]; forCoverage: T[] } {
+export function shiftsTouchingWeek<T extends { starts_at: string; ends_at: string }>(shifts: T[], weekStart: string): T[] {
   const weekEnd = addDays(weekStart, 7);
-  const publishable: T[] = [];
-  const forCoverage: T[] = [];
-  for (const shift of shifts) {
+  return shifts.filter((shift) => {
     const startDate = nyWallClock(shift.starts_at).date;
     const endDate = nyWallClock(shift.ends_at).date;
-    if (!shift.published && startDate >= weekStart && startDate < weekEnd) publishable.push(shift);
-    if (startDate < weekEnd && endDate >= weekStart) forCoverage.push(shift);
-  }
-  return { publishable, forCoverage };
+    return startDate < weekEnd && endDate >= weekStart;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +369,7 @@ export function checkWeekCoverage(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Plain-words formatting, for the publish dialog. Kept here (rather than in the
+// Plain-words formatting. Kept here (rather than in the
 // component) because it is pure and worth testing.
 // ---------------------------------------------------------------------------
 

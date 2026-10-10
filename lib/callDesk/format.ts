@@ -111,7 +111,7 @@ export function fmtLastContact(
 }
 
 /**
- * tel: URL for a stored phone. Phones arrive formatted — "(215) 665-5323" —
+ * tel: URL for a stored phone. Phones arrive formatted — "(215) 555-0123" —
  * so strip everything but digits, a leading +, and the pause chars iOS
  * understands. Same rule as DealDetailDrawer's telHref.
  */
@@ -121,7 +121,7 @@ export function telHref(raw: string | null | undefined): string | null {
   return cleaned ? `tel:${cleaned}` : null;
 }
 
-/** Digits only, for the search box to match "2156655323" against "(215) …". */
+/** Digits only, for the search box to match "2155550123" against "(215) …". */
 export function digitsOnly(raw: string | null | undefined): string {
   return (raw ?? "").replace(/\D/g, "");
 }

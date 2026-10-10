@@ -1,0 +1,33 @@
+-- ============================================================================
+-- Withers Time, migration 32: profiles.archived_at (Archive on the Team page)
+-- Run once in the Supabase SQL editor. Safe to re-run. Numbered 32 because
+-- open PR #44 (the owner role) already holds migration 31; this file does not
+-- depend on 30 or 31.
+--
+-- VERIFY. supabase/migration_32_verify.sql. ROLLBACK. supabase/migration_32_down.sql.
+--
+-- APPLIED BY HAND 2026-09-29 in production (this exact statement), with a
+-- one-off backfill of archived_at = now() on seven former staff. The backfill
+-- is deliberately NOT in this file: re-running it anywhere would archive
+-- whoever happens to be off the schedule that day.
+--
+-- WHY. PR #53 turned the Team page's "On roster" checkbox into Archive and
+-- read profiles.active = false as "archived". But active has always meant "on
+-- the schedule": the Schedule grid, availability, auto-fill, coverage,
+-- reminders and the payroll roster all read it, and the owners and office
+-- staff are active = false without having left. archived_at separates the two:
+--   active       on the schedule (unchanged everywhere)
+--   archived_at  left the team; hidden from the Team table. Set with
+--                active = false by Archive; Unarchive clears it and leaves
+--                active false.
+--
+-- RLS. None changed. Managers already update every profile column through
+-- profiles_manager_all (migration.sql), which is how the Team page PATCH
+-- /api/profiles/:id writes. Nullable with no default, so nobody is archived by
+-- adding the column.
+--
+-- APPLY ORDER. Either order. The code treats a missing column as "nobody is
+-- archived" and refuses Archive/Unarchive with "needs migration 32".
+-- ============================================================================
+
+alter table profiles add column if not exists archived_at timestamptz;

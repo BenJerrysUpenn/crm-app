@@ -49,7 +49,7 @@ describe("mintOffersToken", () => {
 
 describe("purpose separation from unsubscribe tokens", () => {
   const id = 25386;
-  const email = "pino@example.com";
+  const email = "remy@example.com";
 
   it("never mints the same token for the same person", () => {
     expect(mintOffersToken(id, email, SECRET)).not.toBe(

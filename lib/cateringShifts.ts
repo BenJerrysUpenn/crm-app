@@ -1,8 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Auto-creates open "draft" shifts in the time-app when a catering deal is
-// booked. A draft shift is simply published=false + employee_id=null, which the
-// time-app's RLS makes visible to managers only. We create one shift per crew
+// Auto-creates open shifts in the time-app when a catering deal is booked. An
+// open shift is employee_id=null; it is written live (published=true), like
+// every shift: the time-app has no drafts, so staff see it on the schedule.
+// They cannot claim or request it: the deal_id stamped below marks it as one a
+// manager assigns (time-app lib/managerAssigns.ts). We create one shift per crew
 // member (staff_count), each running for the deal's labor_hours, starting ~1
 // hour before the crew's departure_time.
 //
@@ -38,14 +40,16 @@ const DEFAULT_LABOR_HOURS = 4;
 const CART_STORAGE_PICKUP_MIN = 120;
 
 // At or above this many hours a shift is not credible and must be looked at by
-// a person. Deal 25156 (Terrain, 2026-09-27) had labor_hours = 26, which became
+// a person. Deal 25156 (2026-09-27) had labor_hours = 26, which became
 // shift 350 running 13:30 on the 27th to 15:30 on the 28th, and it was
 // published: no layer between the deal and the schedule ever asked whether a
 // human could work it.
 //
 // We still create the shifts — the crew must not lose their slot over a bad
 // number, and guessing a "sensible" length would quietly hide the error. We
-// just refuse to do it silently.
+// just refuse to do it silently. There is no publish step to stop it any more
+// (the time-app has no drafts), so the shift goes live carrying the marker in
+// its note, and the warning goes back to the route, cron or CLI that made it.
 //
 // The time-app repeats this number in time-app/lib/shiftChecks.ts. The two are
 // separate Next apps (the root tsconfig excludes time-app/), so they cannot
@@ -220,7 +224,7 @@ export type CreateResult =
   | { created: number; skipped?: false; warning?: string }
   | { created: 0; skipped: true; reason: string };
 
-// One draft shift, as it is written to the time-app's `shifts` table.
+// One catering shift, as it is written to the time-app's `shifts` table.
 export type ShiftRow = {
   employee_id: string | null;
   starts_at: string;
@@ -292,9 +296,9 @@ export function supabaseShiftStore(admin: SupabaseClient): ShiftStore {
   };
 }
 
-// Build the draft-shift rows a deal should get, or say why it gets none yet.
+// Build the shift rows a deal should get, or say why it gets none yet.
 // Pure: no database. Shared by every store so the rows cannot drift.
-export function planDraftShifts(
+export function planCateringShifts(
   deal: DealTimes,
 ): { rows: ShiftRow[]; warning?: string } | { skipped: true; reason: string } {
   const win = computeShiftWindow(deal);
@@ -338,7 +342,7 @@ export function planDraftShifts(
     ends_at: win.endISO,
     position: CATERING_POSITION,
     notes,
-    published: false,
+    published: true,
     deal_id: deal.id,
     deal_slot: i + 1,
   }));
@@ -346,9 +350,9 @@ export function planDraftShifts(
   return { rows, ...(marker ? { warning: `Deal #${deal.id}: ${marker}` } : {}) };
 }
 
-// Create the draft shifts for a booked deal through any store. Idempotent by
+// Create the shifts for a booked deal through any store. Idempotent by
 // deal_id.
-export async function createDraftShifts(
+export async function createCateringShifts(
   store: ShiftStore,
   deal: DealTimes,
 ): Promise<CreateResult> {
@@ -357,20 +361,20 @@ export async function createDraftShifts(
     return { created: 0, skipped: true, reason: "shifts already exist for this deal" };
   }
 
-  const plan = planDraftShifts(deal);
+  const plan = planCateringShifts(deal);
   if ("skipped" in plan) return { created: 0, skipped: true, reason: plan.reason };
 
   const created = await store.insertShiftsIgnoringDuplicates(plan.rows);
   return { created, ...(plan.warning ? { warning: plan.warning } : {}) };
 }
 
-// Create the draft shifts for a booked deal. Idempotent by deal_id. The
+// Create the shifts for a booked deal. Idempotent by deal_id. The
 // supabase-js entry point the booked-shifts route calls.
-export async function createDraftShiftsForDeal(
+export async function createCateringShiftsForDeal(
   admin: SupabaseClient,
   deal: DealTimes,
 ): Promise<CreateResult> {
-  return createDraftShifts(supabaseShiftStore(admin), deal);
+  return createCateringShifts(supabaseShiftStore(admin), deal);
 }
 
 // Columns we need off a deal to build its shifts. Shared by the instant trigger
@@ -391,7 +395,7 @@ export type ReconcileReport = {
 };
 
 // Sweep every booked deal that now has a departure_time (i.e. its picklist has
-// been generated) and create any missing draft shifts. Idempotent and safe to
+// been generated) and create any missing shifts. Idempotent and safe to
 // run on a schedule; it's how a deal gets its shifts when the picklist is
 // generated AFTER booking (the moment the stage-change trigger can't catch).
 //
@@ -409,7 +413,7 @@ export async function reconcileShifts(store: ShiftStore): Promise<ReconcileRepor
   for (const deal of deals) {
     let r: CreateResult;
     try {
-      r = await createDraftShifts(store, deal);
+      r = await createCateringShifts(store, deal);
     } catch (e) {
       failed.push({ dealId: deal.id, message: e instanceof Error ? e.message : String(e) });
       continue;

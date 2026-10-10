@@ -1,7 +1,7 @@
 // Sanity checks on a shift's own shape, as opposed to how a week of shifts
 // covers the store's opening hours (that is lib/coverage.ts).
 //
-// Why this exists: catering deal 25156 (Terrain, 2026-09-27) produced shift 350
+// Why this exists: catering deal 25156 (2026-09-27) produced shift 350
 // running 13:30 on the 27th to 15:30 on the 28th — twenty-six hours — and it was
 // published. The deal's labor_hours went straight into the shift's length with
 // nothing in between asking whether a human being could work it. Nothing here

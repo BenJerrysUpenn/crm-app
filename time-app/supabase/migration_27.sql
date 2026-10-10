@@ -16,9 +16,10 @@
 --        close, or a 4h+ solo tail with the closer out before 22:00) → pay
 --        the scheduled closer / pay an unpunched manager / skip. Default
 --        SKIP. Chosen on the schedule.
---   3.5  a catering event with no crew → who is paid its tip. Default Sophia.
+--   3.5  a catering event with no crew → who is paid its tip. Default: the designated
+--        tip payee.
 --   3.7  a period with no bake shift worked → who is paid stranded Olo tips.
---        Default Sophia.
+--        Default: the designated tip payee.
 --
 -- NOT CHOICES (ruling D, 2026-09-22): 1.4, a runaway punch with NO scheduled
 -- shift, and 1.5, a punch under 25% of its scheduled shift, have no default

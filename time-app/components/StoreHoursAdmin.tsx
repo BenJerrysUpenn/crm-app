@@ -27,7 +27,7 @@ function dateLabel(date: string): string {
 type DayDraft = { weekday: number; is_closed: boolean; opens: string; closes: string };
 
 // The store's opening hours: the normal week, plus one-off closures and
-// special hours for individual dates. Drives the coverage check on publish.
+// special hours for individual dates. Drives the store coverage checks.
 // Mounted from TeamAdmin; kept in its own file so the Team page's admin
 // sections stay separable, the same way ClockinRemindersAdmin is.
 export default function StoreHoursAdmin({
@@ -257,8 +257,8 @@ function WeeklyHoursEditor({
       </h3>
       {unsetWeekdays.length === 7 ? (
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">
-          No hours set yet. Until you set them and save, publishing a week doesn&rsquo;t check
-          store coverage.
+          No hours set yet. Until you set them and save, store coverage isn&rsquo;t
+          checked.
         </p>
       ) : unsetWeekdays.length > 0 ? (
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">

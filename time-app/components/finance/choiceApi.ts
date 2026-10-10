@@ -1,5 +1,5 @@
 // Browser-side calls for per-case payroll choices (bj-finance #519). Both the
-// Finance tab and the schedule's solo-close dropdowns use these, so a choice is
+// payroll page's checks and its solo-close dropdowns use these, so a choice is
 // recorded the same way wherever it is made. Each returns an error message, or
 // null when the server accepted it.
 

@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { notifyManagers } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
@@ -14,21 +13,6 @@ function addDays(d: string, n: number) {
 function todayEastern() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
-// The latest published shift date (Eastern); availability locks on/before it.
-// Uses the admin client so it sees every employee's shifts, not just the caller's.
-async function postedThrough(): Promise<string | null> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("shifts")
-    .select("starts_at")
-    .eq("published", true)
-    .order("starts_at", { ascending: false })
-    .limit(1);
-  return data?.[0]
-    ? new Date(data[0].starts_at as string).toLocaleDateString("en-CA", { timeZone: "America/New_York" })
-    : null;
-}
-
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -41,20 +25,8 @@ export async function POST(request: Request) {
     const start: string = body.start_date;
     const end: string = body.end_date && body.end_date >= start ? body.end_date : start;
 
-    // A day is locked only if THAT exact day already has a published shift.
-    const { data: pub } = await supabase
-      .from("shifts")
-      .select("starts_at")
-      .eq("published", true)
-      .gte("starts_at", start + "T00:00:00Z")
-      .lt("starts_at", addDays(end, 1) + "T00:00:00Z");
-    const lockedDays = new Set(
-      (pub ?? [])
-        .map((s) => new Date(s.starts_at as string).toLocaleDateString("en-CA", { timeZone: "America/New_York" }))
-        .filter((d) => d >= start && d <= end),
-    );
-
-    // Also block days inside a "don't allow time off" annotation range.
+    // Block days inside a manager's "don't allow time off" annotation range.
+    const noTimeOffDays = new Set<string>();
     const { data: anns } = await supabase
       .from("annotations")
       .select("start_date, end_date, no_time_off")
@@ -63,18 +35,16 @@ export async function POST(request: Request) {
       .gte("end_date", start);
     for (let d = start; d <= end; d = addDays(d, 1)) {
       if ((anns ?? []).some((a) => d >= (a.start_date as string) && d <= (a.end_date as string))) {
-        lockedDays.add(d);
+        noTimeOffDays.add(d);
       }
     }
 
     const today = todayEastern();
-    const pt = await postedThrough();
     const group = randomUUID();
     const rows: Record<string, unknown>[] = [];
     for (let d = start; d <= end; d = addDays(d, 1)) {
       if (d < today) continue; // can't request off for past days
-      if (pt && d <= pt) continue; // can't request off on/before the posted schedule
-      if (lockedDays.has(d)) continue; // belt and suspenders
+      if (noTimeOffDays.has(d)) continue; // manager blocked time off on this day
       rows.push({
         employee_id: profile.id,
         specific_date: d,
@@ -87,7 +57,7 @@ export async function POST(request: Request) {
     }
     if (rows.length === 0) {
       return NextResponse.json(
-        { error: "The schedule is already posted for those day(s), so you can't request them off. Ask a manager." },
+        { error: "Those day(s) are in the past or a manager has blocked time off on them, so you can't request them off. Ask a manager." },
         { status: 409 },
       );
     }
@@ -112,12 +82,11 @@ export async function POST(request: Request) {
 
   // Single preference insert (a calendar "Add Preference": unavailable/prefer,
   // optional time range, optional weekly repeat).
-  // Block adding a preference for a past day or one on/before the posted schedule.
+  // Block adding a preference for a past day.
   if (body.specific_date) {
-    const pt = await postedThrough();
-    if (body.specific_date < todayEastern() || (pt && body.specific_date <= pt)) {
+    if (body.specific_date < todayEastern()) {
       return NextResponse.json(
-        { error: "You can't change availability for a day that's passed or already scheduled." },
+        { error: "You can't change availability for a day that's passed." },
         { status: 409 },
       );
     }

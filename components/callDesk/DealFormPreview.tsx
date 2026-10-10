@@ -8,8 +8,8 @@ import GenerateDealForm, { type CallDeskProspect } from "./GenerateDealForm";
 // which is also why live writes would fail against it.
 const FAKE_PROSPECT: CallDeskProspect = {
   prospect_id: 0,
-  name: "Dana Whitfield",
-  company: "Rittenhouse Square Partners",
+  name: "Jordan Sample",
+  company: "Example Square Partners",
   email: "dana.whitfield@example.com",
   phone: "(215) 555-0142",
 };

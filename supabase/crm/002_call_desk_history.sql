@@ -181,17 +181,22 @@ COMMIT;
 -- 2. One import artefact: prospect #5's name carries a stray time prefix
 -- ---------------------------------------------------------------------------
 --
--- Stored as "10:00 AMDebra Young" — a column bled into the name during the
+-- Stored as "10:00 AM<name>" — a column bled into the name during the
 -- Salesforce import. Its own transaction, and guarded on the exact bad value,
 -- so re-running this file after the fix (or after someone corrects the name by
 -- hand) touches nothing.
+--
+-- REDACTED 2026-09-28: the version of this file applied to production used the
+-- prospect's real name here. It was replaced with a placeholder because this
+-- repository is public, so this block is no longer a faithful replay for that
+-- row: re-running it matches nothing.
 
 BEGIN;
 
 UPDATE public.outreach_prospects
-   SET name = 'Debra Young',
+   SET name = 'Prospect Name',
        updated_at = now()
  WHERE id = 5
-   AND name = '10:00 AMDebra Young';
+   AND name = '10:00 AMProspect Name';
 
 COMMIT;

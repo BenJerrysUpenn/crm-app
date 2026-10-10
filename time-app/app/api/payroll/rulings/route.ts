@@ -3,7 +3,7 @@ import { getProfile } from "@/lib/auth";
 import { financeAccess } from "@/lib/financeAccess";
 import { isMissingTable } from "@/lib/storeHours";
 import { RULING_CHOICES } from "@/lib/payroll/verify";
-import { validateChoice, type PayeeProfile } from "@/lib/payroll/choices";
+import { retiredChoice, validateChoice, type PayeeProfile } from "@/lib/payroll/choices";
 import { payWindowEnding } from "@/lib/payroll/window";
 import { NextResponse } from "next/server";
 
@@ -78,6 +78,12 @@ export async function POST(request: Request) {
 
   const target = parseTarget(body);
   if (typeof target === "string") return NextResponse.json({ error: target }, { status: 400 });
+
+  // From 2026-10-05 the solo-close dropdown and the crewless-tip picker are
+  // gone (ruled 2026-10-05). Clearing an old choice (DELETE) is still allowed.
+  const resolved = payWindowEnding(target.window_end);
+  const retired = resolved.ok ? retiredChoice(target.check_id, resolved.window) : null;
+  if (retired) return NextResponse.json({ error: retired }, { status: 400 });
 
   // The choice is validated against the rulebook's own vocabulary, never
   // against anything the browser offered, and a paying choice against the

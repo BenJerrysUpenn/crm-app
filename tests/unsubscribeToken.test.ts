@@ -30,10 +30,10 @@ describe("unsubscribeMac", () => {
   });
 
   it("changes with the id, the address and the secret", () => {
-    const base = unsubscribeMac(1, "a@b.com", SECRET);
-    expect(unsubscribeMac(2, "a@b.com", SECRET)).not.toBe(base);
-    expect(unsubscribeMac(1, "c@b.com", SECRET)).not.toBe(base);
-    expect(unsubscribeMac(1, "a@b.com", "other")).not.toBe(base);
+    const base = unsubscribeMac(1, "a@example.com", SECRET);
+    expect(unsubscribeMac(2, "a@example.com", SECRET)).not.toBe(base);
+    expect(unsubscribeMac(1, "c@example.com", SECRET)).not.toBe(base);
+    expect(unsubscribeMac(1, "a@example.com", "other")).not.toBe(base);
   });
 });
 
@@ -52,7 +52,7 @@ describe("mintUnsubscribeToken", () => {
   // tokens this endpoint rejects.
   it("matches the documented Python recipe byte for byte", () => {
     const prospectId = 25386;
-    const email = "  Pino@Example.com  ";
+    const email = "  Remy@Example.com  ";
     const mac = createHmac("sha256", Buffer.from(SECRET, "utf8"))
       .update(Buffer.from(`${prospectId}:${email.trim().toLowerCase()}`, "utf8"))
       .digest("hex");
@@ -103,9 +103,9 @@ describe("parseUnsubscribeToken", () => {
 
 describe("macMatches", () => {
   it("is true only for an exact match", () => {
-    const mac = unsubscribeMac(1, "a@b.com", SECRET);
+    const mac = unsubscribeMac(1, "a@example.com", SECRET);
     expect(macMatches(mac, mac)).toBe(true);
-    expect(macMatches(mac, unsubscribeMac(2, "a@b.com", SECRET))).toBe(false);
+    expect(macMatches(mac, unsubscribeMac(2, "a@example.com", SECRET))).toBe(false);
   });
 
   it("returns false rather than throwing on a length mismatch", () => {

@@ -1,4 +1,4 @@
-// Local catering-shift reconciler: creates missing draft shifts for booked
+// Local catering-shift reconciler: creates missing shifts for booked
 // catering deals, straight against Postgres. Replaces the Drive copy of
 // reconcile_catering_shifts.py (crm-app #33). All logic lives in lib/; this
 // file only wires it to the process.
