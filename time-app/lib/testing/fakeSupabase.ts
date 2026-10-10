@@ -563,6 +563,11 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   const request = new Request(input, init);
   const url = new URL(request.url);
   if (url.href === "https://api.resend.com/emails" && request.method === "POST") {
+    // A test that sets `external` captures Resend itself (with attachments and
+    // the raw body); only when it does not do the built-in `outbox` capture and
+    // `resendStatus` stand in. Delegate before reading the body so `external`
+    // still receives an unconsumed request.
+    if (fake.external) return fake.external(request);
     const { to, subject, text } = (await request.json()) as { to: string; subject: string; text: string };
     if (fake.resendStatus >= 300) return json(fake.resendStatus, { name: "validation_error", message: "refused" });
     fake.outbox.push({ to, subject, text });
