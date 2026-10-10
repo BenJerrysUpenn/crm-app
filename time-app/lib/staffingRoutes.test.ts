@@ -467,6 +467,31 @@ test("an automatic step cannot be ticked or reopened by hand; an unknown record 
   assert.equal((await runRecord(999)).status, 404);
 });
 
+// ---- the Team page's list of records ------------------------------------------------
+
+test("the Team page lists records newest first, each with its own steps in checklist order", async () => {
+  const { listLifecycles } = await loadAppModule<{
+    listLifecycles: (c: unknown, o?: { limit?: number }) => Promise<Rec[]>;
+  }>("lib/staffing/execute.ts");
+  const { createClient } = await loadAppModule<{ createClient: () => unknown }>("lib/supabase/server.ts");
+  const older = (await offboardSam({ last_day: "2999-12-31" })).json.record!;
+  const newer = await addRobin([]);
+  db.rows("staff_lifecycle").find((r) => r.id === older.id)!.created_at = "2026-09-01T12:00:00Z";
+  db.rows("staff_lifecycle").find((r) => r.id === newer.id)!.created_at = "2026-09-02T12:00:00Z";
+
+  const listed = await listLifecycles(createClient());
+  assert.deepEqual(
+    listed.map((r) => r.id),
+    [newer.id, older.id],
+  );
+  assert.deepEqual(listed[0].steps.map((s) => s.key), ["withers_time_invite"]);
+  assert.deepEqual(
+    listed[1].steps.map((s) => s.key).slice(0, 4),
+    ["auth_ban", "sessions_revoke", "role_employee", "mark_inactive"],
+  );
+  assert.deepEqual((await listLifecycles(createClient(), { limit: 1 })).map((r) => r.id), [newer.id]);
+});
+
 // ---- POST /api/profiles, which shares lib/team.ts with the invite step ----------------
 
 test("POST /api/profiles still invites and writes the profile", async () => {
