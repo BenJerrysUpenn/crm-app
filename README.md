@@ -51,6 +51,15 @@ Before the sender ships the headers, Alina must:
 
 Unset, the endpoint answers `503` rather than silently dropping opt-outs.
 
+### Short links (`benjerryphilly.com`)
+When the Host is `benjerryphilly.com` or `www.benjerryphilly.com`, the
+middleware serves nothing but redirects and never reaches the login gate: a
+slug in `SHORT_LINKS` (`lib/shortLinks.ts`, one line per link) logs a row in
+`short_link_clicks` and 302s to its destination; every other path 301s to
+`https://www.benjerry.com/upenn`. On every other host those paths stay behind
+the login. The insert uses `SUPABASE_SERVICE_ROLE_KEY` and never delays or
+blocks the redirect. Table: `supabase/crm/010_short_link_clicks.sql`.
+
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
 
