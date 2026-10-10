@@ -119,6 +119,25 @@ allows 100 deployments a day across the account. To get a preview URL for a prot
 a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
+## Travel Reimbursements (Withers Time)
+Staff log mileage, tolls and parking in `time-app/` at `/reimbursements`; Approvers decide
+them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. Decisions:
+`docs/adr/0001` (Receipts go to receipts@ but are never bank-matched) and `0002` (files live
+in a private Supabase Storage bucket). The lifecycle is enforced twice, in
+`time-app/lib/reimbursements/lifecycle.ts` and in the database trigger of migration 37.
+
+Setup, in the `time` Vercel project:
+
+| Name | Value |
+| --- | --- |
+| `GOOGLE_MAPS_API_KEY` | Routes API key. Server-only. Unset, "compute miles from stops" answers that it is not set up and staff type the miles |
+| `RESEND_API_KEY` | Already used for notifications; it also sends the Receipts and Lyft ride reports to receipts@withers-ventures.com |
+
+Apply `time-app/supabase/migration_37.sql` by hand in the Supabase SQL editor, after
+migration 36. It creates the tables, the payroll views, and the `travel-reimbursements`
+bucket; `migration_37_verify.sql` checks it and `migration_37_down.sql` reverses it. Until
+it is applied the reimbursement routes answer 503.
+
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`

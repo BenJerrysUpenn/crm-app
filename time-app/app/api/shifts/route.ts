@@ -9,9 +9,10 @@ import { NextResponse } from "next/server";
 // POST: create a shift (manager only). Body: employee_id, starts_at, ends_at,
 // position, notes, location_id, confirmLong.
 //
-// There are no drafts: every shift is written live (published = true) and an
-// assigned employee is told about it straight away. A `published` field in
-// the body, from a page loaded before drafts were removed, is ignored.
+// There are no drafts: every shift is written live (published = true). An
+// assigned employee sees it on their bell straight away and gets it by email
+// and text in that evening's 8pm summary (lib/shiftNotice.ts). A `published`
+// field in the body, from a page loaded before drafts were removed, is ignored.
 //
 // A shift of 15+ hours is refused with 409 unless the body carries
 // confirmLong: true. Nobody works a 26-hour shift on purpose, and one reached
@@ -70,8 +71,7 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   if (data && body.employee_id) {
-    const emp = (data as any).profiles;
-    await tellEmployeeAboutShift("posted", { ...data, employee_id: body.employee_id }, emp?.phone ?? null);
+    await tellEmployeeAboutShift("posted", { ...data, employee_id: body.employee_id });
   }
   return NextResponse.json({ shift: data });
 }

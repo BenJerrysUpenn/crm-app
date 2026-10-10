@@ -15,8 +15,8 @@ function nyDate(iso: string) {
 
 // Copy all shifts from the previous week into the given week. There are no
 // drafts: the copies are live as soon as they are written, and each assigned
-// employee gets the same "New shift posted" message creating the shift by hand
-// sends (and that publishing the week used to send).
+// employee is told about each copy as creating the shift by hand tells them
+// (lib/shiftNotice.ts: on the bell now, in the 8pm summary by email and text).
 // Body: { weekStart: "YYYY-MM-DD" }  -> source is weekStart - 7 days.
 export async function POST(request: Request) {
   const profile = await getProfile();
@@ -58,19 +58,13 @@ export async function POST(request: Request) {
   const { data: inserted, error: insErr } = await supabase
     .from("shifts")
     .insert(rows)
-    .select("employee_id, starts_at, ends_at, position");
+    .select("id, employee_id, starts_at, ends_at, position");
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
 
-  const copies = (inserted ?? []) as { employee_id: string | null; starts_at: string; ends_at: string; position: string | null }[];
-  const ids = Array.from(new Set(copies.map((s) => s.employee_id).filter((id): id is string => !!id)));
-  const phoneById = new Map<string, string | null>();
-  if (ids.length) {
-    const { data: people } = await supabase.from("profiles").select("id, phone").in("id", ids);
-    for (const p of (people ?? []) as { id: string; phone: string | null }[]) phoneById.set(p.id, p.phone);
-  }
+  const copies = (inserted ?? []) as { id: number; employee_id: string | null; starts_at: string; ends_at: string; position: string | null }[];
   for (const s of copies) {
     if (!s.employee_id) continue;
-    await tellEmployeeAboutShift("posted", { ...s, employee_id: s.employee_id }, phoneById.get(s.employee_id) ?? null);
+    await tellEmployeeAboutShift("posted", { ...s, employee_id: s.employee_id });
   }
 
   return NextResponse.json({ ok: true, copied: rows.length });

@@ -16,7 +16,7 @@ Every 5 minutes, make an HTTPS GET request to:
 https://time.withers-ventures.com/api/cron/missed-clockins?secret=PASTE_CRON_SECRET_HERE
 ```
 
-That endpoint looks for anyone who was scheduled but hasn't clocked in, and sends them and the managers an alert. It's safe to call any time; when nothing is due it does nothing. A successful call returns JSON like `{"checked":N,"flagged":[...]}`.
+That endpoint looks for anyone who was scheduled but hasn't clocked in, and sends them and the managers an alert. From 8pm New York time it also sends staff their once-a-day summary of new and changed shifts (once per person per day, however many times it is called). It's safe to call any time; when nothing is due it does nothing. A successful call returns JSON like `{"checked":N,"flagged":[...]}`.
 
 ### Requirements
 
@@ -39,7 +39,7 @@ That endpoint looks for anyone who was scheduled but hasn't clocked in, and send
 1. Run the script once by hand and show Alex the log line and the JSON response (a `200` with `{"checked":...}` means it works; a `401` means the secret is wrong).
 2. Confirm the LaunchAgent is loaded: `launchctl list | grep clockin`.
 3. Tell Alex two things in plain language:
-   - This only runs while the Mac is **powered on and logged in**. If the laptop is closed/asleep all evening, checks pause until it wakes. For a machine that's usually on during shop hours this is fine; if shifts run late and the Mac is off, mention that as a limitation.
+   - This only runs while the Mac is **powered on and logged in**. If the laptop is closed/asleep all evening, checks pause until it wakes. For a machine that's usually on during shop hours this is fine; if shifts run late and the Mac is off, mention that as a limitation. The 8pm shift summary needs at least one run between 8pm and midnight; if the Mac is asleep that whole time, the summary goes out the next evening.
    - To stop or remove it later, `launchctl bootout gui/$(id -u)/com.withers.clockin-cron` and delete the two files.
 
 ---

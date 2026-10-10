@@ -280,6 +280,27 @@ The app always shows notifications in the in-app bell (the little bell in the to
 
 Email also needs the service role key (Part 1d) to be set, because that's how the app looks up each person's email address.
 
+### Shift notices come once a day, at 8pm
+
+New and changed shifts are not emailed or texted one by one. Saving a shift puts
+it on the person's bell straight away; the email and text come in **one summary
+at 8pm New York time**, listing every shift of theirs saved since their last
+summary, each as it stands at 8pm. A shift edited five times is one line with
+the final times; a shift deleted or moved to someone else by then is left out.
+Everything waits for 8pm, even a change to a shift starting that evening, so if
+something is urgent, call or message the person yourself.
+
+1. One-time setup: in Supabase, **SQL Editor**, run `supabase/migration_38.sql`
+   (after `migration_37.sql`). It adds the queue and the once-a-day record.
+2. Nothing else to schedule: the summary rides the `missed-clockins` check
+   (Part 8). It goes out on that check's first run at or after 8pm, once per
+   person per day. If the check does not run between 8pm and midnight (the Mac
+   that runs it is asleep), that day's summary goes out the next evening instead.
+
+Each person's **Notifications** settings still apply: switching off *A new shift
+is posted for me* or *When my schedule changes* leaves those shifts out of the
+summary, and the email and text switches choose how it arrives.
+
 ---
 
 ## Part 8: The missed-clock-in checker (one note about your Vercel plan)
