@@ -13,11 +13,11 @@
 // another such manager: only an owner decides it (28). An employee's is
 // decided by any Approver.
 //
-// An owner holds the owner role (migration 31), or — before anyone was given
-// it — a manager kept off the roster: role 'manager' with active = false
-// (lib/financeAccess.ts). isManagerRole() counts both 'owner' and 'manager',
-// so an off-roster person of either is an owner here; migration 37's guard
-// trigger holds the database to it.
+// An owner is an off-roster (active = false) holder of the owner role
+// (migration 31) or of the manager role (lib/financeAccess.ts).
+// isManagerRole() counts both 'owner' and 'manager', so an off-roster person
+// of either is an owner here; migration 37's guard trigger holds the database
+// to it.
 //
 // A Lyft ride report is not in here: it is Filed on upload and has no life.
 //
