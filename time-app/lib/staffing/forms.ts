@@ -1,6 +1,6 @@
 // Parsing and validation of the invite / re-invite / offboard forms. Pure
 // functions: a request body in, a typed form or an error string out.
-import { normaliseEmail, normaliseRole, validName } from "@/lib/team";
+import { normaliseRole, validEmail, validName } from "@/lib/team";
 import {
   FINAL_PAY_NOTE_DEFAULT,
   SYSTEMS,
@@ -33,8 +33,7 @@ function date(b: Body, k: string): string | null {
   return DATE_RE.test(s) ? s : null;
 }
 function email(b: Body, k: string): string | null {
-  const s = normaliseEmail(str(b, k));
-  return s.includes("@") ? s : null;
+  return validEmail(str(b, k));
 }
 function uuid(b: Body, k: string): string | null {
   const s = str(b, k);

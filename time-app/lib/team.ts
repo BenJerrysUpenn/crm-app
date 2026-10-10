@@ -29,8 +29,10 @@ export type InviteResult =
   | { ok: true; user_id: string; email: string; delivery: Delivery }
   | { ok: false; error: string; status: number };
 
-export function normaliseEmail(raw: unknown): string {
-  return String(raw ?? "").trim().toLowerCase();
+// Trimmed and lower-cased; null unless it contains an "@".
+export function validEmail(raw: unknown): string | null {
+  const s = String(raw ?? "").trim().toLowerCase();
+  return s.includes("@") ? s : null;
 }
 
 export function validName(raw: unknown): string | null {
@@ -45,8 +47,8 @@ export function normaliseRole(raw: unknown): Role {
 }
 
 export async function inviteTeamMember(input: InviteInput): Promise<InviteResult> {
-  const email = normaliseEmail(input.email);
-  if (!email || !email.includes("@"))
+  const email = validEmail(input.email);
+  if (!email)
     return { ok: false, error: "Valid email required", status: 400 };
   // Required. Without it the handle_new_user trigger has no name to store.
   const full_name = validName(input.full_name);
