@@ -191,6 +191,27 @@ test("the access-removal chain stops at the first failure, and Run retries from 
   assert.equal(profile(SAM).active, false);
 });
 
+test("a login ban the auth service refuses stops the chain: nothing else changes until Run", async () => {
+  // A profile whose auth account the service cannot find: the ban fails.
+  const GONE = "00000000-0000-0000-0000-00000000000d";
+  db.rows("profiles").push({ id: GONE, role: "manager", active: true, full_name: "Lee Gone" });
+  const { json } = await submit({ kind: "offboarding", employee_id: GONE, last_day: "2026-09-15", reason: "Quit" });
+  const rec = json.record!;
+  assert.equal(step(rec, "auth_ban").status, "failed");
+  assert.match(step(rec, "auth_ban").result ?? "", /not found/i);
+  assert.equal(step(rec, "sessions_revoke").status, "pending");
+  assert.equal(step(rec, "mark_inactive").status, "pending");
+  assert.deepEqual(revoked, []);
+  assert.equal(profile(GONE).role, "manager");
+  assert.equal(profile(GONE).active, true);
+
+  db.authUsers.push({ id: GONE, email: "lee@example.test" });
+  const retried = (await runRecord(rec.id)).json.record!;
+  assert.equal(step(retried, "auth_ban").status, "done");
+  assert.equal(authUser(GONE).ban_duration, "876000h");
+  assert.equal(profile(GONE).active, false);
+});
+
 test("a manager cannot offboard themself", async () => {
   const { status, json } = await submit({ kind: "offboarding", employee_id: MANAGER, last_day: "2026-09-15", reason: "Quit" });
   assert.equal(status, 400);
