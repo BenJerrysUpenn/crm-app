@@ -105,7 +105,8 @@ go on the spot. A manager cannot offboard themself.
 The worker reads `public.staff_lifecycle_steps` where `mode = 'worker'` and
 `status = 'pending'`, oldest first, and only takes a step once every lower-seq
 `auto` step on the same record is done and every key in `payload.after` is
-done. It claims with one UPDATE (status `running`, `claimed_at`, `attempts`),
+done. A step `running` with a `claimed_at` over 30 minutes old counts as
+abandoned and is taken again. It claims with one UPDATE (status `running`, `claimed_at`, `attempts`),
 performs the flow, and writes `status` (`done` / `failed`), `result`,
 `worker_log`, `completed_at`. Three failed attempts hand the step back to the
 manager. The columns `system`, `action`, `payload` say what to do; `payload`
