@@ -58,9 +58,9 @@ export default function TopBar({
         {/* Desktop nav */}
         <nav className="hidden sm:flex items-center gap-1 flex-1 overflow-x-auto">
           {visible.map((l) => (
-            <NavLink
+            <Link
               key={l.href}
-              link={l}
+              href={l.href}
               className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap ${
                 isActive(l.href)
                   ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium"
@@ -68,7 +68,7 @@ export default function TopBar({
               }`}
             >
               {l.label}
-            </NavLink>
+            </Link>
           ))}
         </nav>
 
@@ -94,9 +94,9 @@ export default function TopBar({
       {open && (
         <nav className="sm:hidden border-t border-slate-200 dark:border-slate-800 px-2 py-2 flex flex-col gap-1">
           {visible.map((l) => (
-            <NavLink
+            <Link
               key={l.href}
-              link={l}
+              href={l.href}
               onClick={() => setOpen(false)}
               className={`px-3 py-2 rounded-md text-sm ${
                 isActive(l.href)
@@ -105,28 +105,10 @@ export default function TopBar({
               }`}
             >
               {l.label}
-            </NavLink>
+            </Link>
           ))}
         </nav>
       )}
     </header>
-  );
-}
-
-function NavLink({
-  link,
-  className,
-  onClick,
-  children,
-}: {
-  link: { href: string };
-  className: string;
-  onClick?: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link href={link.href} className={className} onClick={onClick}>
-      {children}
-    </Link>
   );
 }
