@@ -26,11 +26,19 @@ function fakeClient() {
     auth: { getUser: async () => ({ data: { user: who.user } }) },
     from(table: string) {
       if (table !== "profiles") throw new Error(`unexpected table ${table}`);
-      const row = who.user ? { role: who.role, active: who.active } : null;
+      // Like PostgREST, answer only for the row the query asks for: a gate
+      // that looked up anyone but the signed-in person finds no profile.
+      let row = who.user ? { role: who.role, active: who.active } : null;
       const b = {
         select: () => b,
-        eq: () => b,
-        single: async () => ({ data: row, error: null }),
+        eq: (column: string, value: unknown) => {
+          if (column !== "id" || value !== who.user?.id) row = null;
+          return b;
+        },
+        single: async () =>
+          row
+            ? { data: row, error: null }
+            : { data: null, error: { code: "PGRST116", message: "no rows" } },
         maybeSingle: async () => ({ data: row, error: null }),
       };
       return b;
