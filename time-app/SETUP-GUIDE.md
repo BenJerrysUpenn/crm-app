@@ -153,7 +153,7 @@ How the two hosts split (the rules are in `lib/hosts.ts`, enforced by `middlewar
 
 - On `finance.`: only `/payroll`, `/metrics`, sign-in (`/login`, `/auth/*`) and the APIs those use (`/api/payroll/*`, `/api/auth/*`, `/api/logout`). A staff page such as `/schedule` redirects to the same path on `time.`; a staff API answers 404.
 - On `time.`: `/finance` is a permanent redirect to `https://finance.withers-ventures.com/payroll` (`/finance?tab=metrics` goes to `/metrics`). The time app has no menu entry for it; open the finance site by its address.
-- Sign-in is per host. The session cookie belongs to the host that set it, so signing in on `time.` does not sign you in on `finance.`, and a staff session is never sent to the finance host. Only active managers see any finance page or API; anyone else signed in gets a "managers only" page or a 403.
+- Sign-in is per host. The session cookie belongs to the host that set it, so signing in on `time.` does not sign you in on `finance.`, and a staff session is never sent to the finance host. Only managers and owners see any finance page or API (`active` is not checked: `lib/financeAccess.ts`); anyone else signed in gets a "managers only" page or a 403.
 
 Testing without the real domain: every other host serves both sites, so on `localhost:3000` or a Vercel preview URL open `/payroll` and `/metrics` directly (`/finance` redirects to `/payroll`). To try the host split itself locally, run `npm run dev` and open `http://finance.localhost:3000` and `http://time.localhost:3000`; those two names behave like the production hosts.
 
