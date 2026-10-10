@@ -8,8 +8,18 @@
 //
 // The fake speaks just enough PostgREST for the routes under test (eq / gte /
 // lte / is / in filters and not.<filter>, order, limit and offset, single, maybeSingle, a head
-// request's exact count, insert and update with return=representation, and
-// the database functions in RPC below) and answers /auth/v1/user from the session cookie.
+// request's exact count, insert and update with return=representation, and the
+// database functions in RPC below) and answers /auth/v1/user from the session cookie.
+// GoTrue's admin side is the `authUsers` list: invite (a new address only, as
+// GoTrue refuses a registered one), list, get and update by id (a ban is the
+// update's ban_duration), and generate_link (an invite token for a new address
+// only, a magic-link token for a registered one). An id not in that list falls
+// back to the `emails` map (emailForUser, lib/notify.ts); an id in neither
+// answers 404. Resend's send endpoint is faked too: each email lands in
+// `outbox`, and `resendStatus` lets a test make Resend refuse. A Postgres
+// function is whatever a test puts in `rpc`, else one of the RPC functions
+// below; one in neither answers PGRST202, as hosted PostgREST does before the
+// migration that creates it.
 // Row Level Security is emulated for time_entries only, with the policies
 // migrations 12 and 30 install (supabase/migration_30_verify.sql proves those
 // against a real Postgres): anyone signed in reads their own punches, only a
@@ -53,15 +63,27 @@ export type FakeSupabase = {
   // Tables a migration has not created yet: every request to one is refused
   // as hosted PostgREST does (PGRST205, "schema cache").
   missingTables: string[];
+  // Auth users (auth.users), for the admin API. Each has at least id and email.
+  authUsers: Row[];
+  // Postgres functions callable through rpc(), by name. A test injects one here
+  // to stand in for a migration's function; one absent here and from RPC below
+  // answers PGRST202.
+  rpc: Record<string, (args: Row) => unknown>;
+  // Emails sent through Resend (api.resend.com), oldest first.
+  outbox: { to: string; subject: string; text: string }[];
+  // The HTTP status Resend answers with; anything but 2xx is a refusal.
+  resendStatus: number;
   // Storage objects, keyed "<bucket>/<path>". A signed upload URL does not
   // create one; a test puts the bytes here as the browser's upload would.
   storage: Record<string, Uint8Array>;
   // Paths a signed upload URL was minted for, as "<bucket>/<path>".
   signedUploads: string[];
-  // Requests to any origin but Supabase's. Null: such a request fails the test.
+  // Requests to any origin but Supabase's and Resend's. Null: such a request
+  // fails the test.
   external: ((request: Request) => Response | Promise<Response>) | null;
-  // auth.users emails by user id, for emailForUser (lib/notify.ts). Nobody
-  // listed here has an email, so their notifications go by text or not at all.
+  // auth.users emails by user id, for emailForUser (lib/notify.ts), used when
+  // the id is not in authUsers. Nobody listed here has an email otherwise, so
+  // their notifications go by text or not at all.
   emails: Record<string, string>;
   signIn(userId: string): void;
   // The Cookie header a browser with this session sends (for middleware).
@@ -284,6 +306,9 @@ const DEFAULTS: Record<string, () => Row> = {
   lyft_ride_reports: () => ({ filed_at: DB_NOW, emailed_at: null, deal_id: null, event_label: null, event_date: null, reason_note: null }),
   time_entries: () => ({ clock_in_at: DB_NOW, clock_out_at: null, status: "open", manual: false }),
   // Migration 36's column defaults: a new pay table row is a queued request.
+  // Migration 23's: a staffing record starts open, each of its steps pending.
+  staff_lifecycle: () => ({ status: "open", created_at: DB_NOW, updated_at: DB_NOW, completed_at: null }),
+  staff_lifecycle_steps: () => ({ status: "pending", claimed_at: null, attempts: 0, worker_log: null, result: null, completed_by: null, completed_at: null }),
   payroll_sheets: () => ({ status: "queued", requested_at: DB_NOW, started_at: null, built_at: null, built_by: null, source_fingerprint: null, open_items: null, error: null, sheet: null }),
 };
 
@@ -387,18 +412,64 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     if (caller.kind !== "user") return json(401, { code: 401, error_code: "bad_jwt", msg: "invalid JWT" });
     return json(200, { id: caller.id, aud: "authenticated", role: "authenticated", email: `${caller.id}@example.test` });
   }
-  // emailForUser's auth-admin lookup (lib/notify.ts): the address a test put
-  // in `emails`, or no such user.
-  if (url.pathname.startsWith("/auth/v1/admin/users/")) {
-    const id = decodeURIComponent(url.pathname.slice("/auth/v1/admin/users/".length));
+  // The auth admin API. Staffing uses `authUsers` (invite, list, get, ban via
+  // PUT); an id not seeded there falls back to the `emails` map, which is how
+  // emailForUser (lib/notify.ts) resolves a user's address. An id in neither
+  // answers 404.
+  const adminUser = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)$/);
+  if (adminUser) {
+    const id = decodeURIComponent(adminUser[1]);
+    const user = fake.authUsers.find((u) => u.id === id);
+    if (user) {
+      if (method === "PUT") Object.assign(user, JSON.parse(body ?? "{}") as Row);
+      else if (method !== "GET") throw new Error(`fake Supabase: unexpected ${method} ${url.pathname}`);
+      return json(200, user);
+    }
     const email = fake.emails[id];
-    if (!email) return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
-    return json(200, { id, aud: "authenticated", role: "authenticated", email });
+    if (email && method === "GET") return json(200, { id, aud: "authenticated", role: "authenticated", email });
+    return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+  }
+  if (url.pathname === "/auth/v1/admin/users" && method === "GET") {
+    return json(200, { users: fake.authUsers, aud: "authenticated" });
+  }
+  if (url.pathname === "/auth/v1/invite" && method === "POST") {
+    const { email, data } = JSON.parse(body ?? "{}") as { email: string; data?: Row };
+    if (fake.authUsers.some((u) => u.email === email)) {
+      return json(422, { code: 422, error_code: "email_exists", msg: "A user with this email address has already been registered" });
+    }
+    const user = { id: crypto.randomUUID(), email, user_metadata: data ?? {} };
+    fake.authUsers.push(user);
+    return json(200, user);
+  }
+  if (url.pathname === "/auth/v1/admin/generate_link" && method === "POST") {
+    const { type, email } = JSON.parse(body ?? "{}") as { type: string; email: string };
+    let user = fake.authUsers.find((u) => u.email === email);
+    if (type === "invite") {
+      if (user) return json(422, { code: 422, error_code: "email_exists", msg: "A user with this email address has already been registered" });
+      user = { id: crypto.randomUUID(), email };
+      fake.authUsers.push(user);
+    } else if (!user) {
+      return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+    }
+    const hashed_token = `hashed-${type}-${String(user.id)}`;
+    return json(200, { ...user, action_link: `${SUPABASE_URL}/auth/v1/verify?token=${hashed_token}`, email_otp: "000000", hashed_token, redirect_to: "", verification_type: type });
   }
   const fn = url.pathname.match(/^\/rest\/v1\/rpc\/(\w+)$/)?.[1];
-  if (fn && method === "POST") {
+  if (fn) {
+    // A test's injected function stands in for a migration's RPC; otherwise one
+    // of the module-level RPC functions; otherwise PGRST202, as hosted
+    // PostgREST answers before the migration that creates the function.
+    const impl = fake.rpc[fn];
+    if (impl) return json(200, impl(JSON.parse(body ?? "{}") as Row));
     const rpc = RPC[fn];
-    if (!rpc) throw new Error(`fake Supabase: unexpected rpc ${fn}`);
+    if (!rpc) {
+      return json(404, {
+        code: "PGRST202",
+        details: null,
+        hint: null,
+        message: `Could not find the function public.${fn} in the schema cache`,
+      });
+    }
     fake.beforeWrite?.(`rpc/${fn}`);
     return rpc(JSON.parse(body ?? "{}") as Row, callerOf(headers));
   }
@@ -456,8 +527,15 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
       });
     }
     const input = JSON.parse(body ?? "null") as Row | Row[];
+    // upsert(..., { onConflict }): a row matching on the conflict columns is
+    // merged into, as Prefer: resolution=merge-duplicates does.
+    const conflict = headers.get("prefer")?.includes("resolution=merge-duplicates")
+      ? (url.searchParams.get("on_conflict") ?? "id").split(",")
+      : null;
     const inserted = (Array.isArray(input) ? input : [input]).map((r) => {
-      const row = { ...(DEFAULTS[table]?.() ?? {}), ...r, id: all.length + 1 };
+      const same = conflict && all.find((x) => conflict.every((c) => x[c] === r[c]));
+      if (same) return Object.assign(same, r);
+      const row = { ...(DEFAULTS[table]?.() ?? {}), id: all.length + 1, ...r };
       all.push(row);
       return row;
     });
@@ -484,6 +562,17 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(input, init);
   const url = new URL(request.url);
+  if (url.href === "https://api.resend.com/emails" && request.method === "POST") {
+    // A test that sets `external` captures Resend itself (with attachments and
+    // the raw body); only when it does not do the built-in `outbox` capture and
+    // `resendStatus` stand in. Delegate before reading the body so `external`
+    // still receives an unconsumed request.
+    if (fake.external) return fake.external(request);
+    const { to, subject, text } = (await request.json()) as { to: string; subject: string; text: string };
+    if (fake.resendStatus >= 300) return json(fake.resendStatus, { name: "validation_error", message: "refused" });
+    fake.outbox.push({ to, subject, text });
+    return json(200, { id: `email-${fake.outbox.length}` });
+  }
   if (url.origin !== new URL(SUPABASE_URL).origin) {
     if (fake.external) return fake.external(request);
     throw new Error(`test tried to reach ${url.origin}`);
@@ -505,6 +594,10 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
     beforeWrite: null,
     missingColumns: {},
     missingTables: [],
+    authUsers: [],
+    rpc: {},
+    outbox: [],
+    resendStatus: 200,
     storage: {},
     signedUploads: [],
     external: null,

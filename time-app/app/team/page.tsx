@@ -9,6 +9,7 @@ import { isMissingTable } from "@/lib/storeHours";
 import TopBar from "@/components/TopBar";
 import TeamAdmin from "@/components/TeamAdmin";
 import type { ReminderWithAcks } from "@/components/ClockinRemindersAdmin";
+import { listLifecycles } from "@/lib/staffing/execute";
 import type {
   Profile,
   Location,
@@ -57,6 +58,9 @@ export default async function TeamPage() {
         acknowledged_at: a.acknowledged_at as string,
       })),
   }));
+
+  // Invite / re-invite / offboarding checklists (managers read all under RLS).
+  const records = await listLifecycles(supabase, { limit: 60 });
 
   // Store hours and the one-off overrides on top of them. Migration 24 creates
   // these tables; until the owner applies it by hand the queries come back with
@@ -112,6 +116,7 @@ export default async function TeamPage() {
             shiftTypes={(shiftTypes as ShiftType[]) ?? []}
             reminders={reminders}
             employeeCount={((emps as Profile[]) ?? []).filter((e) => e.active).length}
+            records={records}
             storeHours={storeHours}
             storeExceptions={storeExceptions}
             storeHoursReady={storeHoursReady}
