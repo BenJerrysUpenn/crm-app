@@ -16,7 +16,12 @@
 
 import type { Role } from "./types.ts";
 
-export const ROLES: readonly Role[] = ["owner", "manager", "employee"];
+const ROLES: readonly Role[] = ["owner", "manager", "employee"];
+
+/** Is `value` one of the roles a profile can hold? */
+export function isRole(value: unknown): value is Role {
+  return (ROLES as unknown[]).includes(value);
+}
 
 /** The roles that pass a manager gate. For `.in("role", MANAGER_ROLES)`. */
 export const MANAGER_ROLES: Role[] = ["manager", "owner"];
@@ -75,7 +80,7 @@ export function profilePatchRefusal(
 ): string | null {
   if (!canEditProfile(me, target)) return OWNER_ONLY_EDIT;
   if ("role" in patch && patch.role !== target?.role) {
-    if (!(ROLES as unknown[]).includes(patch.role)) return "Unknown role.";
+    if (!isRole(patch.role)) return "Unknown role.";
     if (!canAssignRole(me, patch.role)) return OWNER_ONLY_EDIT;
   }
   return null;
