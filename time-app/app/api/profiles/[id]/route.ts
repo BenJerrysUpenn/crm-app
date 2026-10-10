@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { validateFullName } from "@/lib/profileName";
 import { isMissingColumn } from "@/lib/storeHours";
 import { parseQboEmployeeId } from "@/lib/payroll/qboEmployee";
 import { parsePayType } from "@/lib/payroll/payType";
@@ -29,6 +30,15 @@ export async function PATCH(
   const patch: Record<string, unknown> = {};
   for (const k of EDITABLE) {
     if (k in body) patch[k] = body[k];
+  }
+
+  // Same rule as POST /api/profiles: a name can be changed but never cleared
+  // or replaced with an email address. Validated after the raw copy so the
+  // checked value overwrites what the EDITABLE loop put in patch.full_name.
+  if ("full_name" in body) {
+    const name = validateFullName(body.full_name);
+    if (!name.ok) return NextResponse.json({ error: name.error }, { status: 400 });
+    patch.full_name = name.name;
   }
 
   // The QBO employee id is the payroll roster join (spec 2.5), so it is

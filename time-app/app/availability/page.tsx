@@ -102,7 +102,7 @@ export default async function AvailabilityPage({
     );
     return (
       <div className="min-h-screen flex flex-col">
-        <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
+        <TopBar role={profile.role} name={profile.full_name} />
         <main className="flex-1">
           {/* Full page width so all seven days fit side by side. */}
           <div className="mx-auto px-4 sm:px-6 py-6">
@@ -151,7 +151,7 @@ export default async function AvailabilityPage({
 
   return (
     <div className="min-h-screen flex flex-col">
-      <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
+      <TopBar role={profile.role} name={profile.full_name} />
       <main className="flex-1">
         <div className="mx-auto max-w-5xl px-4 py-6">
           {isManager && <Tabs active="mine" />}

@@ -7,6 +7,7 @@ import StoreHoursAdmin from "@/components/StoreHoursAdmin";
 import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } from "@/lib/types";
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
+import { usableName, validateFullName } from "@/lib/profileName";
 import { PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/payroll/payType";
 import {
   ARCHIVE_NEEDS_MIGRATION,
@@ -95,9 +96,9 @@ export default function TeamAdmin({
       setAddErr("Enter a valid email.");
       return;
     }
-    const fullName = newName.trim();
-    if (!fullName || fullName.includes("@")) {
-      setAddErr("Enter the person's full name.");
+    const name = validateFullName(newName);
+    if (!name.ok) {
+      setAddErr(name.error);
       return;
     }
     setAddBusy(true);
@@ -106,7 +107,7 @@ export default function TeamAdmin({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
-        full_name: fullName,
+        full_name: name.name,
         role: newRole,
         phone: newPhone.trim() || undefined,
         hourly_rate: newRate ? Number(newRate) : undefined,
@@ -163,13 +164,18 @@ export default function TeamAdmin({
           hourly: the payroll sheet prints &ldquo;salary&rdquo; instead of hours
           for a salaried person. <strong>On schedule</strong> shows someone on the
           schedule and availability; <strong>Archive</strong> takes them off
-          everything, this list included, and deletes nothing.
+          everything, this list included, and deletes nothing. Anyone marked
+          Name missing needs their full name typed into the Name box.
         </p>
         {addOpen && (
-          <div className="mb-4 max-w-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2">
+          <form
+            onSubmit={(ev) => { ev.preventDefault(); addEmployee(); }}
+            className="mb-4 max-w-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 space-y-2"
+          >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
                 type="email"
+                required
                 placeholder="email (required)"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
@@ -178,6 +184,7 @@ export default function TeamAdmin({
               <input
                 type="text"
                 required
+                autoComplete="off"
                 placeholder="full name (required)"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
@@ -211,15 +218,14 @@ export default function TeamAdmin({
             {addOk && <div className="text-xs text-emerald-500">{addOk}</div>}
             <div className="flex justify-end">
               <button
-                type="button"
-                onClick={addEmployee}
+                type="submit"
                 disabled={addBusy}
                 className="text-xs rounded-md bg-emerald-500 text-slate-950 font-medium px-3 py-1.5 hover:bg-emerald-400 disabled:opacity-50"
               >
                 {addBusy ? "Inviting…" : "Send invite"}
               </button>
             </div>
-          </div>
+          </form>
         )}
         <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
@@ -502,7 +508,13 @@ function EmployeeRow({
   onSave: (id: string, patch: ProfilePatch) => Promise<string | null>;
   onResend: (id: string) => Promise<string>;
 }) {
-  const [name, setName] = useState(e.full_name ?? "");
+  // An email-like saved name is treated as no name: the box starts empty so
+  // the manager types the real one.
+  const usable = usableName(e.full_name);
+  const savedName = usable ?? "";
+  const nameMissing = usable === null;
+  const [name, setName] = useState(savedName);
+  const [nameErr, setNameErr] = useState<string | null>(null);
   const [phone, setPhone] = useState(e.phone ?? "");
   const [role, setRole] = useState(e.role);
   const [rate, setRate] = useState(e.hourly_rate?.toString() ?? "");
@@ -558,11 +570,33 @@ function EmployeeRow({
     setInviteMsg(msg);
   }
 
+  // Saves on blur, like the other fields, but only when the name changed.
+  async function saveName() {
+    if (name.trim() === savedName) {
+      setNameErr(null);
+      return;
+    }
+    const checked = validateFullName(name);
+    if (!checked.ok) {
+      setNameErr(checked.error);
+      return;
+    }
+    setNameErr(await onSave(e.id, { full_name: checked.name }));
+  }
+
   return (
     <tr className="border-t border-slate-200 dark:border-slate-800">
-      <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">{email || "—"}</td>
+      <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+        {email || "—"}
+        {nameMissing && (
+          <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-800 rounded px-1.5 py-0.5">
+            Name missing
+          </span>
+        )}
+      </td>
       <td className="px-3 py-2">
-        <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-48" />
+        <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={saveName} placeholder={nameMissing ? "Enter full name" : undefined} aria-invalid={nameMissing || !!nameErr} className={`bg-slate-100 dark:bg-slate-800 border rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-48 ${nameMissing || nameErr ? "border-amber-400 dark:border-amber-700" : "border-slate-300 dark:border-slate-700"}`} />
+        {nameErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[160px] whitespace-normal">{nameErr}</div>}
       </td>
       <td className="px-3 py-2">
         <input value={phone} onChange={(ev) => setPhone(ev.target.value)} onBlur={() => onSave(e.id, { phone })} placeholder="+1215..." className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100 w-32" />

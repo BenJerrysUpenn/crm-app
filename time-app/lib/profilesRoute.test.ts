@@ -1,6 +1,6 @@
 // PATCH /api/profiles/:id (the Team page's saves), driven through the real
 // route handler: On schedule and Archive/Unarchive, with and without
-// migration 32's profiles.archived_at.
+// migration 32's profiles.archived_at, and renaming (bj-finance #468).
 //
 // Stand-in Supabase: lib/testing/fakeSupabase.ts.
 //
@@ -91,6 +91,37 @@ test("only a manager may archive", async () => {
   assert.equal(res.status, 403);
   assert.equal(row(SAM).archived_at, null);
   assert.equal(row(SAM).active, true);
+});
+
+// ---- the name (bj-finance #468) ---------------------------------------------
+
+test("a renamed person is saved with the name trimmed", async () => {
+  const res = await patch(SAM, { full_name: "  Samantha Lee  " });
+  assert.equal(res.status, 200);
+  assert.equal(row(SAM).full_name, "Samantha Lee");
+});
+
+test("a name can't be replaced with an email address, and nothing is written", async () => {
+  const res = await patch(SAM, { full_name: "sam@example.com", active: false });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "Enter the person's name, not their email address.");
+  assert.equal(row(SAM).full_name, "Sam Lee");
+  assert.equal(row(SAM).active, true);
+});
+
+test("a name can't be cleared, and nothing is written", async () => {
+  for (const blank of ["", "   ", null]) {
+    const res = await patch(SAM, { full_name: blank });
+    assert.equal(res.status, 400, `full_name ${JSON.stringify(blank)}`);
+    assert.equal((await res.json()).error, "Full name is required.");
+    assert.equal(row(SAM).full_name, "Sam Lee");
+  }
+});
+
+test("a save that doesn't send a name leaves the name alone", async () => {
+  const res = await patch(SAM, { phone: "555-0100" });
+  assert.equal(res.status, 200);
+  assert.equal(row(SAM).full_name, "Sam Lee");
 });
 
 // ---- before migration 32 ----------------------------------------------------

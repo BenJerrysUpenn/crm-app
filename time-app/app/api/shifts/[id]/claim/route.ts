@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { displayName, UNNAMED_IN_ALERTS } from "@/lib/profileName";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
@@ -51,7 +52,7 @@ export async function POST(
     .from("profiles")
     .select("id, phone")
     .eq("role", "manager");
-  const who = profile.full_name ?? "An employee";
+  const who = displayName(profile.full_name, UNNAMED_IN_ALERTS);
   for (const m of managers ?? []) {
     const email = await emailForUser(m.id);
     await notify({

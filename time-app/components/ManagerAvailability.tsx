@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtDate } from "@/lib/format";
+import { displayNameOrId } from "@/lib/profileName";
 import type { Availability, Profile } from "@/lib/types";
 import type { AvailabilityRow } from "@/lib/availabilityCheck";
 import { buildTeamGrid, type RosterPerson } from "@/lib/teamAvailability";
@@ -79,7 +80,7 @@ export default function ManagerAvailability({
         return {
           key,
           anyId: arr[0].id,
-          name: arr[0].profiles?.full_name ?? arr[0].employee_id,
+          name: displayNameOrId(arr[0].profiles?.full_name, arr[0].employee_id),
           start: dates[0],
           end: dates[dates.length - 1],
           status: arr[0].status,

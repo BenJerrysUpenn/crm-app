@@ -62,8 +62,21 @@ test("every roster person gets a row, in roster order, even with nothing entered
     assert.equal(r.submitted, false);
     assert.ok(r.cells.every((c) => c.state === "none"));
   }
-  assert.equal(grid.rows[2].name, "c", "falls back to the id when there is no name");
+  assert.equal(
+    grid.rows[2].name,
+    "No name set (c)",
+    "a nameless person shows the neutral label (disambiguated by id), never a raw id (bj-finance #468)",
+  );
   assert.equal(summaryLine(grid), "0 of 3 submitted availability this week");
+});
+
+test("an email sitting in a roster name is never shown in the grid (bj-finance #468)", () => {
+  const grid = buildTeamGrid(
+    [{ id: "d0e1f2a3-0000-4000-8000-000000000004", full_name: "staff2@example.com" }],
+    WEEK,
+    [],
+  );
+  assert.equal(grid.rows[0].name, "No name set (d0e1f2a3)");
 });
 
 test("people off the roster are left out", () => {
