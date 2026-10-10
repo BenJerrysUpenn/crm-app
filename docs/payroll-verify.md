@@ -21,8 +21,8 @@ the person, with both options costed before they are shown.
 | Choices endpoint | `POST` / `DELETE /api/payroll/rulings` |
 | Submittal endpoint | `POST /api/payroll/submit` |
 | Event shift + punch, one save (from 2026-10-05) | `POST /api/payroll/event-punch`, shape in `time-app/lib/payroll/eventShift.ts` |
-| The page | `https://finance.withers-ventures.com/payroll` (`/payroll` on localhost and previews), manager-only |
-| Solo-close dropdowns | the **Schedule** view, manager-only (`components/SoloCloseNights.tsx`) |
+| The page | `https://finance.withers-ventures.com/payroll` (`/payroll` on localhost and previews), managers and owners only |
+| Solo-close dropdowns | the **Schedule** view, managers and owners only (`components/SoloCloseNights.tsx`) |
 | Tests | `time-app/lib/payroll/*.test.ts` — `npm test` |
 
 The rulebook is pure and dependency-free, like `lib/coverage.ts`: the route
