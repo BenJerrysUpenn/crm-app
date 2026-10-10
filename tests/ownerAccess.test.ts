@@ -243,6 +243,12 @@ describe("the page-level check (requirePfOwner)", () => {
 
   it("nothing else reads the feed", () => {
     // The three pages above are the only importers of loadPfData.
+    // Declared exception to CODING_STANDARDS.md:20 (a test may not infer
+    // behaviour from source text): this is an import rule in test form. "Only
+    // the three owner-gated pages reach the personal-finance feed" has no
+    // behavioural form, and the CRM ships no ESLint config where a
+    // no-restricted-imports rule for @/lib/pf/data could live, so the
+    // restriction is enforced here until one does.
     const root = join(__dirname, "..");
     const callers = ["app", "lib", "components"]
       .flatMap((d) =>

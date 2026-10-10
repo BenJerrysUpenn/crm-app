@@ -62,6 +62,14 @@ function sources(): { file: string; src: string }[] {
 // goes through lib/roles.ts instead; the invite route's parsing of a requested
 // role (body.role) is the one comparison with the word left, and it is not a
 // gate.
+//
+// Declared exception to CODING_STANDARDS.md:20 (a test may not infer behaviour
+// from source text): the next two tests are a lint rule written as a test.
+// They are kept here because the CRM root ships no ESLint config and time-app's
+// `next lint` would not cover the CRM app, so there is no non-interactive lint
+// path to hold the rule. The behavioural half lives in route-level owner tests
+// (ownerRoutes.test.ts here, tests/ownerAccess.test.ts in the CRM); the scans
+// are the net that catches a NEW route added later that forgets the shared gate.
 test("no gate compares a role to \"manager\" directly", () => {
   const offenders: string[] = [];
   for (const { file, src } of sources()) {

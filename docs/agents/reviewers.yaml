@@ -58,6 +58,27 @@ architecture_ground_truth:
 
 documentation_reference: README.md
 
+documentation_map:
+  - paths:
+      - lib/roles.ts
+      - lib/pf/access.ts
+      - middleware.ts
+      - lib/supabase/middleware.ts
+      - app/money/page.tsx
+      - app/dial/page.tsx
+      - app/safe/page.tsx
+      - app/no-access/page.tsx
+    docs:
+      - README.md
+  - paths:
+      - app/api/call-desk/**
+    docs:
+      - docs/call-desk.md
+  - paths:
+      - time-app/supabase/migration_*.sql
+    docs:
+      - docs/payroll-verify.md
+
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
   previews are SSO-gated with no CLI path, and end-to-end checks on a preview are
