@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { sendInvite, siteOrigin } from "@/lib/authLinks";
 import { NextResponse } from "next/server";
-import { isManager, canAssignRole, canEditProfile, OWNER_ONLY_EDIT } from "@/lib/roles";
+import { ROLES, isManager, canAssignRole, canEditProfile, OWNER_ONLY_EDIT } from "@/lib/roles";
 import type { Role } from "@/lib/types";
 
 // POST /api/profiles
@@ -51,8 +51,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Full name required (not an email)" }, { status: 400 });
   // Anything unrecognised is an employee, as before. Only an owner may make
   // someone an owner (lib/roles.ts).
-  const role: Role =
-    body.role === "owner" || body.role === "manager" ? body.role : "employee";
+  const role: Role = (ROLES as unknown[]).includes(body.role) ? (body.role as Role) : "employee";
   if (!canAssignRole(me, role))
     return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
   const phone = (body.phone || "").trim() || null;
