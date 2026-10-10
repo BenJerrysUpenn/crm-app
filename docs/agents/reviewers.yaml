@@ -76,8 +76,18 @@ documentation_map:
       - docs/call-desk.md
   - paths:
       - time-app/supabase/migration_*.sql
+      - time-app/lib/payroll/*.ts
     docs:
       - docs/payroll-verify.md
+  - paths:
+      - time-app/lib/financeAccess.ts
+    docs:
+      - time-app/SETUP-GUIDE.md
+  - paths:
+      - time-app/lib/reimbursements/*.ts
+    docs:
+      - README.md
+      - GLOSSARY.md
 
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
