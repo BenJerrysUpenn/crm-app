@@ -19,3 +19,14 @@ html.dark, html.dark body {
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 html.dark ::-webkit-scrollbar-thumb { background: #334155; }
 html.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* Modal panels never grow taller than the screen; they scroll inside so the
+   buttons at the bottom stay reachable on a phone. */
+@layer components {
+  .modal-panel {
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}

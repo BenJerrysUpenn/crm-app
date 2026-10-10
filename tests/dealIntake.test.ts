@@ -287,6 +287,28 @@ describe("buildDealInsert", () => {
   });
 });
 
+// crm/008. The guided form offers whatever pricing_packages holds, so the new
+// package needs no form code; what must hold is that nothing between the
+// chosen chip and the insert re-spells or drops the name, because the CHECK
+// constraint and Catering-Manager match it byte for byte.
+describe("Hot Chocolate Float Party through intake", () => {
+  const HOT_CHOC = "Hot Chocolate Float Party";
+
+  it("validates, is quote-ready, and reaches the insert unchanged", () => {
+    const payload = completePayload({
+      package_name: HOT_CHOC,
+      flavors: ["Vanilla", "Chocolate"],
+      toppings: [],
+      extras: ["Cookies", "Brownies"],
+    });
+    expect(hasErrors(validateDealPayload(payload))).toBe(false);
+    expect(isQuoteReady(payload)).toBe(true);
+    const row = buildDealInsert(payload, CTX);
+    expect(row.package_name).toBe(HOT_CHOC);
+    expect(disallowedInsertKeys(row)).toEqual([]);
+  });
+});
+
 describe("planDeal", () => {
   it("queues retriage then quote for a complete deal", () => {
     const plan = planDeal({

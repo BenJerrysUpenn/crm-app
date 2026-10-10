@@ -8,13 +8,16 @@ import type { Profile } from "@/lib/types";
 import ThemeToggle from "@/components/ThemeToggle";
 
 // The frame of the finance site (finance.withers-ventures.com, bj-finance #519):
-// its own header with the Payroll and Metrics tabs, a link back to Withers
-// Time, and the managers-only gate every finance page goes through.
+// its own header with the Payroll, Reimbursements and Metrics tabs, a link
+// back to Withers Time, and the managers-only gate every finance page goes
+// through. Reimbursements lives under /payroll so the finance host serves it
+// with no change to lib/hosts.ts.
 
-export type FinanceTab = "payroll" | "metrics";
+export type FinanceTab = "payroll" | "reimbursements" | "metrics";
 
 const TABS: { id: FinanceTab; label: string; href: string }[] = [
   { id: "payroll", label: "Payroll", href: "/payroll" },
+  { id: "reimbursements", label: "Reimbursements", href: "/payroll/reimbursements" },
   { id: "metrics", label: "Metrics", href: "/metrics" },
 ];
 

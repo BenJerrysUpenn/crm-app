@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { submittalBlocker, submittalSnapshot, paysSubmitter, validateChoice } from "./choices.ts";
+import { retiredChoice, submittalBlocker, submittalSnapshot, paysSubmitter, validateChoice } from "./choices.ts";
 import type { Finding } from "./verify.ts";
 import { payWindowEnding, type PayWindow } from "./window.ts";
 
@@ -160,4 +160,17 @@ test("submitting would pay you: crewless and Olo cases only", () => {
   const night = f({ check: "1.9", key: "1.9:d", effective: { choice: "unpunched_manager", payee: { id: "me", name: "Me" }, source: "recorded" } });
   const theirs = f({ effective: { choice: "staff", payee: { id: "them", name: "Them" }, source: "default" } });
   assert.deepEqual(paysSubmitter([mine, olo, night, theirs], "me"), [mine, olo]);
+});
+
+test("from 2026-10-05 the solo-close dropdown, the crewless-tip picker and the stranded-Olo picker take no choice (ruled 2026-10-05)", () => {
+  const after = payWindowEnding("2026-10-18");
+  const before = payWindowEnding("2026-10-04");
+  if (!after.ok || !before.ok) throw new Error("window");
+  assert.match(retiredChoice("1.9", after.window)!, /punches/);
+  assert.match(retiredChoice("3.5", after.window)!, /punch/);
+  assert.match(retiredChoice("3.7", after.window)!, /Pastry Opener punch/);
+  assert.equal(retiredChoice("3.7", before.window), null, "before the cutover stranded Olo tips still go to a picker");
+  assert.equal(retiredChoice("1.9", before.window), null);
+  assert.equal(retiredChoice("3.5", before.window), null);
+  assert.equal(retiredChoice("1.9", WINDOW), null);
 });

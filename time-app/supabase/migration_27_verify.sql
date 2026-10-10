@@ -111,6 +111,14 @@ begin
   insert into public.payroll_rulings (window_end, check_id, finding_key, choice)
   values (v_end, '1.9', '1.9:' || v_day, 'skip');
 
+  -- From migration 36 a run is submitted only over a built pay table with no
+  -- open items (migration_36_verify.sql checks that). Give it one.
+  if to_regclass('public.payroll_sheets') is not null then
+    execute $q$insert into public.payroll_sheets
+      (window_end, status, started_at, built_by, source_fingerprint, sheet, open_items)
+      values ($1, 'built', now(), 'migration_27_verify', 'x', '{}'::jsonb, 0)$q$ using v_end;
+  end if;
+
   perform set_config('request.jwt.claims',
     json_build_object('sub', mgr::text, 'role', 'authenticated')::text, true);
   set local role authenticated;
