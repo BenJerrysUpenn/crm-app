@@ -25,6 +25,15 @@ export function isPfPath(pathname: string): boolean {
   return PF_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+// Paths a signed-in person the role gate refuses must still reach: the
+// no-access page they are sent to, and sign-out. Listed once here so the
+// PF-host bounce (middleware.ts) and the role gate (lib/supabase/middleware.ts)
+// cannot drift — if they did, a refused manager loops between /safe and
+// /no-access, and sign-out breaks on the PF host.
+export function isGateExempt(pathname: string): boolean {
+  return pathname === "/no-access" || pathname.startsWith("/api/logout");
+}
+
 /**
  * The CRM's role gate for a signed-in person (lib/supabase/middleware.ts):
  * the personal-finance pages need an owner, everything else a manager or an

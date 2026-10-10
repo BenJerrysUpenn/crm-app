@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
-import { isPfPath } from "@/lib/roles";
+import { isPfPath, isGateExempt } from "@/lib/roles";
 
 // Personal-finance pages live on their own subdomain (same Vercel project,
 // host-routed) — mirroring how crm./time. split off this repo.
@@ -49,8 +49,7 @@ export async function middleware(request: NextRequest) {
       !isPfRoute &&
       pathname !== "/login" &&
       !pathname.startsWith("/auth") &&
-      pathname !== "/no-access" &&
-      pathname !== "/api/logout"
+      !isGateExempt(pathname)
     ) {
       return NextResponse.redirect(new URL("/safe", request.url));
     }

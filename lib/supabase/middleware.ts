@@ -1,6 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { crmAccess } from "@/lib/roles";
+import { crmAccess, isGateExempt } from "@/lib/roles";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -61,8 +61,7 @@ export async function updateSession(request: NextRequest) {
   if (
     user &&
     !isPublic &&
-    path !== "/no-access" &&
-    !path.startsWith("/api/logout")
+    !isGateExempt(path)
   ) {
     const { data: profile } = await supabase
       .from("profiles")
