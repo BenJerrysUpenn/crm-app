@@ -9,11 +9,13 @@ const EMAIL = "Remy@Example.com";
 
 // A stand-in for the shared Supabase project, at the database boundary only.
 // The prospect lookup reads a table; the RPC answers with a canned outcome in
-// the exact shape supabase/crm/007_offers_opt_in.sql returns (its RETURN
-// jsonb_build_object lines). The SQL's own decisions (idempotency, lifting a
-// suppression, the booked -> explicit_yes upgrade) are not re-implemented
-// here: a TypeScript copy of them would only test itself. What is under test
-// is what the route does with each outcome the function can return.
+// the exact shape outreach_offers_opt_in returns (the RETURN
+// jsonb_build_object lines of supabase/crm/009_offers_opt_in_signup_form.sql,
+// unchanged from crm/007). The SQL's own decisions (idempotency, lifting a
+// suppression, the booked -> explicit_yes upgrade, signup_form as already
+// explicit) are not re-implemented here: a TypeScript copy of them would only
+// test itself; tests/offersOptInSql.test.ts tests them in Postgres. What is
+// under test is what the route does with each outcome the function can return.
 const OUTCOME = {
   firstYes: {
     opted_in: true, already: false, refused: null, email_present: true,
@@ -26,6 +28,12 @@ const OUTCOME = {
   repeat: {
     opted_in: false, already: true, refused: null, email_present: true,
     lifted: false, opted_in_at: "2026-09-20T14:05:00Z",
+  },
+  // crm/009: a signup_form opt-in is already explicit. Same shape as repeat;
+  // opted_in_at is the form's date, which the function leaves untouched.
+  signupFormAlready: {
+    opted_in: false, already: true, refused: null, email_present: true,
+    lifted: false, opted_in_at: "2026-06-01T16:00:00Z",
   },
   dead: {
     opted_in: false, already: false, refused: "dead", email_present: true,
@@ -172,6 +180,16 @@ describe("POST — the button", () => {
     );
   });
 
+  it("confirms a signup_form opt-in as already on the list, with the form's date", async () => {
+    db.state.rpcData = { ...OUTCOME.signupFormAlready };
+    const response = await POST(buttonPost(token), ctx(token));
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain("<h1>You're on the list</h1>");
+    expect(body).toContain("Agreed by Remy@Example.com on Monday, June 1, 2026 at 12:00 PM ET.");
+  });
+
   it("shows a previously suppressed address the same confirmation", async () => {
     // Owners' ruling 2026-09-27: an opt-in after a suppression is an opt-in.
     db.state.rpcData = { ...OUTCOME.yesLiftingSuppression };
@@ -253,6 +271,20 @@ describe("failure modes", () => {
 
   it("500s on an RPC error", async () => {
     db.state.rpcError = { message: "boom" };
+    const response = await POST(buttonPost(token), ctx(token));
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("Offers sign-up failed.\n");
+  });
+
+  it("500s rather than fabricate a date when a success outcome carries none", async () => {
+    // crm/009 guarantees a date on every outcome that reaches the confirmation
+    // (the already branch requires opt_in_at IS NOT NULL; the write path sets
+    // now()). A dated-less success is a broken RPC/route invariant, so the
+    // route fails loudly instead of showing today as the agreement date.
+    db.state.rpcData = {
+      opted_in: true, already: false, refused: null, email_present: true,
+      lifted: false, opted_in_at: null,
+    };
     const response = await POST(buttonPost(token), ctx(token));
     expect(response.status).toBe(500);
     expect(await response.text()).toBe("Offers sign-up failed.\n");
