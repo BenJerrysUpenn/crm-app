@@ -305,7 +305,7 @@ summary, and the email and text switches choose how it arrives.
 
 ## Part 8: The missed-clock-in checker (one note about your Vercel plan)
 
-The app checks every few minutes for anyone who was scheduled but hasn't clocked in, and alerts them and you. Nothing on Vercel schedules this: `vercel.json` is empty, because the Hobby plan only allows a cron once a day, which is useless for shift alerts.
+The app checks every few minutes for anyone who was scheduled but hasn't clocked in, and alerts them and you. Nothing on Vercel schedules this: `vercel.json` has no `crons` entry, because the Hobby plan only allows a cron once a day, which is useless for shift alerts.
 
 Today the check runs from a LaunchAgent on the Mac, which calls this URL every 5 minutes (setup: `time-app/ALEX-CRON-SETUP.md`):
 
