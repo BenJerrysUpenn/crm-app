@@ -47,7 +47,9 @@ function fakeClient() {
 }
 
 vi.mock("@supabase/ssr", () => ({ createServerClient: () => fakeClient() }));
-vi.mock("@/lib/supabase/server", () => ({ createClient: () => fakeClient() }));
+// The pages' Supabase client (lib/supabase/server.ts) runs for real; only the
+// request's cookie jar, which Next supplies inside a request, is stood in for.
+vi.mock("next/headers", () => ({ cookies: () => ({ getAll: () => [], set: () => {} }) }));
 vi.mock("next/navigation", () => ({
   redirect: (to: string) => {
     throw new Error(`REDIRECT ${to}`);
