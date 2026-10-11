@@ -29,6 +29,7 @@ import {
   HELD_REASON_SHORT,
   WEEKDAYS_PER_MONTH,
   cadenceOf,
+  categorySteps,
   everyoneOf,
   groupStanding,
   statesAt,
@@ -453,7 +454,8 @@ type SeqStore = {
   edited: (key: string) => boolean;
   open: (t: EditorTarget) => void;
   /** The steps that apply to a tier's category: its own sequence if it has
-   * steps, otherwise the tier's Everyone sequence. */
+   * steps, otherwise the tier's Everyone sequence (never for a held category,
+   * see categorySteps). */
   stepsFor: (tier: TierKey) => StepsFor;
 };
 const SeqCtx = createContext<SeqStore>({
@@ -747,6 +749,7 @@ function CategoryCard({
         <MiniStat n={st.emailed} label="emailed" help={stateHelp("emailed", cadence)} onClick={people("emailed")} />
         <MiniStat n={st.held} label="held" help={stateHelp("held", cadence)} onClick={people("held")} align="right" />
       </div>
+      {cat.hold ? <HeldReasons heldBy={st.heldBy} /> : null}
       <Unaccounted n={st.unaccounted} />
       <div className="mt-auto pt-0.5">
         <SequenceControl tier={tier} catKey={cat.key} catLabel={cat.label} cadence={cadence} />
@@ -912,10 +915,8 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
   const closeEditor = useCallback(() => setEditor(null), []);
   const stepsFor = (tier: TierKey): StepsFor => {
     const everyone = (seqs.get(sequenceKey(tier, "everyone"))?.steps ?? []).map(stepKeys);
-    return (catKey: string) => {
-      const own = seqs.get(sequenceKey(tier, catKey));
-      return own && own.steps.length ? own.steps.map(stepKeys) : everyone;
-    };
+    return (catKey: string) =>
+      categorySteps(catKey, (seqs.get(sequenceKey(tier, catKey))?.steps ?? []).map(stepKeys), everyone);
   };
   const store: SeqStore = { get: seqs.get, edited: seqs.edited, open: setEditor, stepsFor };
   const editorKey = editor ? sequenceKey(editor.tier.key, editor.catKey) : null;

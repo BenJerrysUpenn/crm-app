@@ -38,6 +38,14 @@
 // so the model ships people in GROUPS (same category, same history, same
 // flags) and the client decides per group, with the current steps, which
 // state it is in (statesAt).
+//
+// Cake only (bj-finance #286, owner's ruling 2026-10-10): people who never
+// booked and only ever asked us about a cake are HELD out of the catering
+// email by Catering-Manager outreach/migrations/011 (the HOLD clause on
+// outreach_warm_eligible). Here they get their own "Cake only" card in Warm
+// and Offer, in no other category, with no sequence of their own (it does not
+// fall back to the tier's Everyone sequence), and they are left out of the
+// Everyone card, Needed and capacity. isCakeOnly is that clause, line for line.
 
 export type ProspectRow = {
   id: number;
@@ -56,6 +64,9 @@ export type ProspectRow = {
   opt_in_source: string | null;
   last_outreach_at: string | null;
   verify_status: string | null;
+  // The Salesforce lead status in `notes` is 'Cake Order' (leadStatusOf).
+  // Filled by the loader; absent counts as false.
+  cake_lead_status?: boolean;
 };
 
 export type DealRow = {
@@ -118,6 +129,9 @@ export type CategoryStat = {
   total: number; // people in it; suppressed already excluded
   groups: Group[];
   sources?: { label: string; n: number }[];
+  // A held category (Cake only): no sequence unless it gets its own, and left
+  // out of the Everyone card, Needed and capacity.
+  hold?: boolean;
 };
 
 export type Sequence = {
@@ -337,15 +351,26 @@ export function statesAt(c: CategoryStat, cadence: Cadence, stepsFor: StepsFor) 
   };
 }
 
-/** The Everyone card: every category's groups together. */
+/** The Everyone card: every category's groups together, except held
+ * categories (Cake only), which are not sent the tier's email. Needed and
+ * capacity are worked out from this card, so they leave held people out too. */
 export function everyoneOf(t: TierPayload): CategoryStat {
+  const sendable = t.categories.filter((c) => !c.hold);
   return {
     key: "everyone",
     label: "Everyone",
-    total: t.total,
-    groups: t.categories.flatMap((c) => c.groups),
+    total: sendable.reduce((s, c) => s + c.total, 0),
+    groups: sendable.flatMap((c) => c.groups),
     sources: t.sources,
   };
+}
+
+/** The steps that apply to a category: its own sequence if it has steps,
+ * otherwise the tier's Everyone sequence. A held category never falls back to
+ * Everyone, so with no sequence of its own it has nothing to send. */
+export function categorySteps(catKey: string, own: string[][], everyone: string[][]): string[][] {
+  if (own.length) return own;
+  return HOLD_CATEGORIES.has(catKey) ? [] : everyone;
 }
 
 /** Needed vs capacity for a tier at a cadence, in the tier's unit. Needed
@@ -397,6 +422,59 @@ const lc = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
  * seeded for past bookers is implied consent, not an opt-in to offers. */
 export const EXPLICIT_OPT_IN_SOURCES: ReadonlySet<string> = new Set(["explicit_yes", "signup_form"]);
 
+// --- cake only (bj-finance #286) ---------------------------------------------
+
+export const CAKE_ONLY = { key: "cake_only", label: "Cake only" } as const;
+/** Categories held out of the tier's email. Seeded on Warm and Offer so the
+ * card shows even when nobody is in it. */
+export const HOLD_CATEGORIES: ReadonlySet<string> = new Set([CAKE_ONLY.key]);
+
+/** The Salesforce lead status: the first `;` field of the first line of
+ * `notes`, where the master-base load (bj-finance #280) wrote
+ * `lead_status; lead_source`. SQL: split_part(split_part(notes, E'\n', 1), ';', 1). */
+export function leadStatusOf(notes: string | null | undefined): string {
+  return (notes ?? "").split("\n")[0].split(";")[0];
+}
+
+/** lower(btrim(x)): Postgres btrim strips spaces only. null stays null. */
+const sqlEmailKey = (s: string | null | undefined): string | null =>
+  s === null || s === undefined ? null : s.replace(/^ +| +$/g, "").toLowerCase();
+
+const NO_EVENT_TYPE: ReadonlySet<string> = new Set(["", "Cake Order", "--Pick One--"]);
+
+export type CakeEvidence = { cake: boolean; catering: boolean };
+
+/** What each address has enquired about, from its CRM deals: the `dk`
+ * subquery of migration 011. cake = a deal whose event type is exactly
+ * 'Cake Order'; catering = a deal of any other type. A blank type or the
+ * form's '--Pick One--' placeholder counts neither way. */
+export function cakeEvidenceByEmail(deals: Pick<DealRow, "contact_email" | "event_type">[]): Map<string, CakeEvidence> {
+  const out = new Map<string, CakeEvidence>();
+  for (const d of deals) {
+    const e = sqlEmailKey(d.contact_email);
+    if (e === null) continue;
+    const ev = out.get(e) ?? { cake: false, catering: false };
+    if (d.event_type === "Cake Order") ev.cake = true;
+    if (!NO_EVENT_TYPE.has((d.event_type ?? "").replace(/^ +| +$/g, ""))) ev.catering = true;
+    out.set(e, ev);
+  }
+  return out;
+}
+
+/** Cake only: never booked, cake evidence (lead status Cake Order, or a Cake
+ * Order deal) and no deal of any other type. The HOLD (#286) clause of
+ * Catering-Manager outreach/migrations/011_cake_hold_and_catering_first.sql;
+ * tests/emailCampaignsCakeOnly*.test.ts hold the two together. */
+export function isCakeOnly(
+  p: Pick<ProspectRow, "email" | "ever_booked" | "cake_lead_status">,
+  evidence: Map<string, CakeEvidence>,
+): boolean {
+  if (p.ever_booked) return false;
+  const key = sqlEmailKey(p.email);
+  const ev = key === null ? undefined : evidence.get(key);
+  return (!!p.cake_lead_status || !!ev?.cake) && !ev?.catering;
+}
+
 export const isExplicitOptIn = (p: Pick<ProspectRow, "marketing_opt_in" | "opt_in_source">) =>
   p.marketing_opt_in && !!p.opt_in_source && EXPLICIT_OPT_IN_SOURCES.has(p.opt_in_source);
 
@@ -428,6 +506,8 @@ export function compute(data: RawData, now: Date): Payload {
     h.forEach((k) => s.add(k));
     histByEmail.set(e, s);
   }
+
+  const cakeEvidence = cakeEvidenceByEmail(data.deals);
 
   // outreach_talked_recently, replicated (the view is not granted to the app).
   const talkedRecently = new Set<string>();
@@ -463,6 +543,12 @@ export function compute(data: RawData, now: Date): Payload {
   const tiers: Record<TierKey, TierAcc> = { cold: mk(), warm: mk(), offer: mk() };
   // Seed cold categories so empty segments still show.
   for (const [k, l] of Object.entries(COLD_LABELS)) tiers.cold.cats.set(k, newCat(k, l));
+  // Cake only is held, so its card shows on Warm and Offer even when empty.
+  for (const t of ["warm", "offer"] as const) {
+    const c = newCat(CAKE_ONLY.key, CAKE_ONLY.label);
+    c.stat.hold = true;
+    tiers[t].cats.set(CAKE_ONLY.key, c);
+  }
 
   const flows: Flows = {
     coldReplied: 0,
@@ -530,6 +616,11 @@ export function compute(data: RawData, now: Date): Payload {
       const b = eventBucket(d?.event_type);
       catKey = b.key;
       catLabel = b.label;
+    }
+    // Cake only takes them out of every other warm/offer category (#286).
+    if (tier !== "cold" && isCakeOnly(p, cakeEvidence)) {
+      catKey = CAKE_ONLY.key;
+      catLabel = CAKE_ONLY.label;
     }
     let cat = acc.cats.get(catKey);
     if (!cat) {
@@ -641,7 +732,8 @@ export function compute(data: RawData, now: Date): Payload {
     const acc = tiers[key];
     const categories = Array.from(acc.cats.values())
       .map(finish)
-      .sort((a, b) => b.total - a.total);
+      // Largest first; held categories last, after everything that is sent.
+      .sort((a, b) => +!!a.hold - +!!b.hold || b.total - a.total);
     // Only Apollo feeds the cold tier today; LinkedIn and other lists have no
     // import path yet, so they are not listed.
     const sources: TierPayload["sources"] =
@@ -725,6 +817,7 @@ export function compute(data: RawData, now: Date): Payload {
       "People who opted out, bounced or are on the suppression list are left out of every number.",
       "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",
       "Who got which email comes from the send history, across every tier and every contact record with the same email. Nobody is sent an email they already had.",
+      "Cake only (Warm and Offer): never booked, and only ever asked us about a cake (Salesforce lead status Cake Order or a Cake Order deal, and no deal of any other type). They are held out of the catering email (bj-finance #286), are in no other category, have no sequence of their own, and are not counted in Everyone, Needed or capacity.",
     ],
   };
 }
