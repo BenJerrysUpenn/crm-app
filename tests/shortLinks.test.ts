@@ -238,6 +238,39 @@ describe("slug routing on benjerryphilly.com", () => {
     expect(JSON.stringify(row)).not.toContain("203.0.113.7");
   });
 
+  it("keeps at most 500 characters of the user agent and the referer", async () => {
+    const longAgent = `${CHROME} ${"x".repeat(600)}`;
+    const longReferer = `https://mail.example.com/${"r".repeat(600)}`;
+    await run(request("/cake", { headers: { "user-agent": longAgent, referer: longReferer } }));
+
+    expect(db.rows[0].row.user_agent).toBe(longAgent.slice(0, 500));
+    expect(db.rows[0].row.referer).toBe(longReferer.slice(0, 500));
+    expect((db.rows[0].row.user_agent as string).length).toBe(500);
+  });
+
+  it("serves the short links on the domain with an explicit port too", async () => {
+    const { response } = await run(request("/cake", { host: "benjerryphilly.com:8443" }));
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(CAKE);
+    expect(gate.calls).toEqual([]);
+    expect(db.rows[0].row).toMatchObject({ slug: "cake" });
+  });
+
+  it("tells crawlers not to index a short link", async () => {
+    const { response } = await run(request("/cake"));
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
+  it("reaches Supabase when its URL is configured with a trailing slash", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.co/");
+    await run(request("/cake/k7m2qp"));
+
+    expect(db.lookups[0].url.startsWith("https://project.supabase.co/rest/v1/short_link_codes?")).toBe(true);
+    expect(db.rows[0].url).toBe("https://project.supabase.co/rest/v1/short_link_clicks");
+    expect(db.rows[0].row).toMatchObject({ code: "k7m2qp", deal_id: 4242 });
+  });
+
   it("hands the insert to waitUntil rather than awaiting it before the redirect", async () => {
     const { pending } = await run(request("/cake"));
     expect(pending).toHaveLength(1);
@@ -412,6 +445,8 @@ describe("every other path on the domain", () => {
 
     expect(response.status).toBe(301);
     expect(response.headers.get("location")).toBe(UPENN);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=3600");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(gate.calls).toEqual([]);
     expect(pending).toEqual([]);
     expect(db.rows).toEqual([]);
