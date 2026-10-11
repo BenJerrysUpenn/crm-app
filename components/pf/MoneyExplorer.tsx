@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ExplorerData, ExplorerRow } from "@/lib/pf/types";
+import { fmt2 } from "@/lib/pf/format";
 import {
   applyOverrides,
   type CorrectedRow,
@@ -56,13 +57,6 @@ const fmt = (n: number) =>
   (n < 0 ? "−" : "") +
   "$" +
   Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
-const fmt2 = (n: number) =>
-  (n < 0 ? "−" : "") +
-  "$" +
-  Math.abs(n).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 
 const W = 1080, H = 640, PT = 24, PB = 16, PH = H - PT - PB, NW = 14, GAP = 7;
 const XL = 130, XM = 430, XR = 760; // three column left-edges

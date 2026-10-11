@@ -8,14 +8,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { OverrideScope, PfOverride } from "@/lib/pf/overrides";
 import type { ExplorerRow } from "@/lib/pf/types";
-
-const fmt2 = (n: number) =>
-  (n < 0 ? "−" : "") +
-  "$" +
-  Math.abs(n).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+import { fmt2 } from "@/lib/pf/format";
 
 export default function ChangeCategory({
   row,
