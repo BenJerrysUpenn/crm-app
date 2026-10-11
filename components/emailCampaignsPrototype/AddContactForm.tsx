@@ -1,9 +1,11 @@
 "use client";
 
-// PROTOTYPE — Email campaigns tab (v5, v6): "+ Add contacts" on the Cold tier.
+// NOT MOUNTED (bj-finance #670). The "+ Add contacts" form for the Cold tier.
+// It saves nothing, so the production page does not offer it. Kept for the
+// build-or-drop call.
 //
-// Two modes (v6):
-//   * One contact (v5, unchanged): a working form that SAVES NOTHING. On
+// Two modes:
+//   * One contact: a working form that SAVES NOTHING. On
 //     submit it runs a read-only duplicate and suppression check
 //     (POST /api/email-campaigns/check-contact) and shows what WOULD happen:
 //     no Apollo call, no database write.
@@ -283,7 +285,7 @@ function Outcome({
   );
 }
 
-// --- Upload a list (v6) -----------------------------------------------------------
+// --- Upload a list -------------------------------------------------------------
 
 const IMPORT_REPO = "BenJerrysUpenn/Catering-Manager";
 

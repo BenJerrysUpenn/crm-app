@@ -3,10 +3,14 @@ import { getProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notify, emailForUser } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
+import { MANAGER_ASSIGNS_ERROR, managerAssignsOnly } from "@/lib/managerAssigns";
 import { NextResponse } from "next/server";
 
 // Employee claims an open (unassigned), published shift. Conditional update on
 // employee_id IS NULL prevents two people grabbing the same shift.
+//
+// A catering shift (one with a deal_id) is refused for anyone but a manager:
+// a manager assigns those (lib/managerAssigns.ts).
 export async function POST(
   _request: Request,
   { params }: { params: { id: string } },
@@ -15,6 +19,16 @@ export async function POST(
   if (!profile) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const supabase = createClient();
+  if (profile.role !== "manager") {
+    const { data: target } = await supabase
+      .from("shifts")
+      .select("deal_id")
+      .eq("id", params.id)
+      .maybeSingle();
+    if (target && managerAssignsOnly(target))
+      return NextResponse.json({ error: MANAGER_ASSIGNS_ERROR }, { status: 403 });
+  }
+
   const { data, error } = await supabase
     .from("shifts")
     .update({ employee_id: profile.id, updated_at: new Date().toISOString() })

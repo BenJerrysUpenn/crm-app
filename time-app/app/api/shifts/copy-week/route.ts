@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
 import { NextResponse } from "next/server";
 
 const TZ = "America/New_York";
@@ -12,7 +13,10 @@ function nyDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
 }
 
-// Copy all shifts from the previous week into the given week (as drafts).
+// Copy all shifts from the previous week into the given week. There are no
+// drafts: the copies are live as soon as they are written, and each assigned
+// employee is told about each copy as creating the shift by hand tells them
+// (lib/shiftNotice.ts: on the bell now, in the 8pm summary by email and text).
 // Body: { weekStart: "YYYY-MM-DD" }  -> source is weekStart - 7 days.
 export async function POST(request: Request) {
   const profile = await getProfile();
@@ -49,9 +53,19 @@ export async function POST(request: Request) {
     ends_at: new Date(new Date(s.ends_at as string).getTime() + 7 * 86400000).toISOString(),
     position: s.position,
     notes: s.notes,
-    published: false,
+    published: true,
   }));
-  const { error: insErr } = await supabase.from("shifts").insert(rows);
+  const { data: inserted, error: insErr } = await supabase
+    .from("shifts")
+    .insert(rows)
+    .select("id, employee_id, starts_at, ends_at, position");
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
+
+  const copies = (inserted ?? []) as { id: number; employee_id: string | null; starts_at: string; ends_at: string; position: string | null }[];
+  for (const s of copies) {
+    if (!s.employee_id) continue;
+    await tellEmployeeAboutShift("posted", { ...s, employee_id: s.employee_id });
+  }
+
   return NextResponse.json({ ok: true, copied: rows.length });
 }

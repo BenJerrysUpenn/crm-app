@@ -28,6 +28,7 @@ source is resolved in this order:
 | --- | --- |
 | `PF_DATA_PATH` | Local file path to `pf_data.json` (dev; point it at `fixtures/pf_data.sample.json` for synthetic data) |
 | `PF_GITHUB_TOKEN` | Fine-grained GitHub PAT with contents:read on the private data repo only; used to fetch the feed from its `pf-data` branch via the GitHub contents API (prod on Vercel; server-only, cached ~5 min) |
+| `PF_ALLOWED_USER_IDS` | Supabase auth user IDs (comma or space separated) allowed to open `/safe`, `/money`, `/dial`. Server-only. Unset or empty fails closed: nobody gets in, and any other signed-in user gets a 404. Enforced in `lib/pf/guard.ts` |
 
 With neither set, the pages render a "feed not wired yet" state. No real
 financial data or secrets are ever committed to this repo.
@@ -59,6 +60,19 @@ then `supabase/crm/009_offers_opt_in_signup_form.sql` (007 creates the function,
 replaces it). A repeat press by a dated `explicit_yes` or `signup_form` opt-in with no
 opt-out since writes nothing and shows the stored `opt_in_at`; an undated one is
 re-recorded as `explicit_yes` dated now.
+
+### Short links (`benjerryphilly.com`)
+When the Host is `benjerryphilly.com` or `www.benjerryphilly.com`, the
+middleware serves nothing but redirects and never reaches the login gate: a
+slug in `SHORT_LINKS` (`lib/shortLinks.ts`, one line per link) logs a row in
+`short_link_clicks` and 302s to its destination; every other path 301s to
+`https://www.benjerry.com/upenn`. On every other host those paths stay behind
+the login. `/<slug>/<code>` goes to the same place as `/<slug>`; the code is a
+per-deal code Catering-Manager mints into `short_link_codes`, and the click row
+records the code and its `deal_id`; HEAD requests and link scanners are logged
+with `is_probable_bot` true so counts can leave them out. The code lookup and the insert use
+`SUPABASE_SERVICE_ROLE_KEY` and never delay or block the redirect. Tables:
+`supabase/crm/010_short_link_clicks.sql`.
 
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
@@ -100,6 +114,14 @@ if the write fails.
 The board loads `archived = 0` rows only. Archived deals (9.5k+ historical rows)
 stay hidden. Within each column, cards sort by `event_date` ascending.
 
+## COI panel (deal drawer)
+`components/CoiPanel.tsx` renders on deals with `coi_required = 1` and assembles the
+Hartford certificate request from the deal (`buildCoiRequest` in `lib/coi.ts`). It never
+submits to The Hartford; the human sends. Its only write is `coi_sent_at` plus
+`updated_at` in one `deals` update (it never touches `stage`). A COI is urgent when
+required, unsent and the event is 0 to 14 days out (`COI_URGENT_WINDOW_DAYS`), the
+same window as Catering-Manager `revive.coi_required_unsent`.
+
 ## Local dev (optional)
 ```
 npm install
@@ -120,8 +142,27 @@ allows 100 deployments a day across the account. To get a preview URL for a prot
 a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
+## Travel Reimbursements (Withers Time)
+Staff log mileage, tolls and parking in `time-app/` at `/reimbursements`; Approvers decide
+them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. Decisions:
+`docs/adr/0001` (Receipts go to receipts@ but are never bank-matched) and `0002` (files live
+in a private Supabase Storage bucket). The lifecycle is enforced twice, in
+`time-app/lib/reimbursements/lifecycle.ts` and in the database trigger of migration 37.
+
+Setup, in the `time` Vercel project:
+
+| Name | Value |
+| --- | --- |
+| `GOOGLE_MAPS_API_KEY` | Routes API key. Server-only. Unset, "compute miles from stops" answers that it is not set up and staff type the miles |
+| `RESEND_API_KEY` | Already used for notifications; it also sends the Receipts and Lyft ride reports to receipts@withers-ventures.com |
+
+Apply `time-app/supabase/migration_37.sql` by hand in the Supabase SQL editor, after
+migration 36. It creates the tables, the payroll views, and the `travel-reimbursements`
+bucket; `migration_37_verify.sql` checks it and `migration_37_down.sql` reverses it. Until
+it is applied the reimbursement routes answer 503.
+
 ## Catering-shift reconciler (local command)
-Creates the manager-only draft shifts for booked catering deals that have a
+Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
 (`reconcileShifts` in `lib/cateringShifts.ts`: cart events start 120 min
 before departure, 15h+ shifts are flagged CHECK HOURS), run straight against

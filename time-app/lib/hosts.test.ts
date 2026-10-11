@@ -158,3 +158,25 @@ test("timeHomeHref: absolute on the finance host, relative everywhere else", () 
   assert.equal(timeHomeHref("localhost:3000"), "/");
   assert.equal(timeHomeHref(TIME), "/");
 });
+
+// ---- Travel Reimbursements (bj-finance #210) ------------------------------------
+
+test("reimbursements: staff file them on the time site; Approvers decide them on the finance site", () => {
+  // Staff's page and APIs: the time host serves them; the finance host sends the page home and 404s the APIs.
+  assert.deepEqual(routeForHost(TIME, "/reimbursements", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(TIME, "/api/reimbursements/events", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(FIN, "/reimbursements", ""), {
+    kind: "redirect",
+    location: "https://time.withers-ventures.com/reimbursements",
+    status: 307,
+  });
+  assert.deepEqual(routeForHost(FIN, "/api/reimbursements", ""), { kind: "not_found" });
+  // The Approvers' tab and its APIs live under /payroll: the finance host's.
+  assert.deepEqual(routeForHost(FIN, "/payroll/reimbursements", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(FIN, "/api/payroll/reimbursements/7/decide", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(TIME, "/payroll/reimbursements", ""), {
+    kind: "redirect",
+    location: "https://finance.withers-ventures.com/payroll/reimbursements",
+    status: 307,
+  });
+});

@@ -2,8 +2,16 @@
 // 2026-09-22). Pure and dependency-free so `node --test` runs it, and the
 // rulings route, the submit route and the UI all apply the same rules.
 
-import { RULING_CHOICES, choicePays, type SubmittalRow, type Finding, type VerifyResult } from "./verify.ts";
-import { firstSubmittalDay, periodEnded } from "./window.ts";
+import {
+  CREW_PUNCH_REQUIRED_FROM,
+  RULING_CHOICES,
+  choicePays,
+  crewPunchRequired,
+  type SubmittalRow,
+  type Finding,
+  type VerifyResult,
+} from "./verify.ts";
+import { firstSubmittalDay, periodEnded, type PayWindow } from "./window.ts";
 
 /** A payee as the route found it in `profiles`, or null if the id is unknown. */
 export type PayeeProfile = { id: string; role: string | null; active: boolean } | null;
@@ -28,6 +36,25 @@ export function validateChoice(check: string, choice: string, payeeId: string | 
   if (!payeeId) return "Pick the person this pays.";
   if (!payee || !payee.active) return "That person is not an active team member.";
   if (choice === "unpunched_manager" && payee.role !== "manager") return "Pick a manager: this pays a manager who closed without punching.";
+  return null;
+}
+
+/**
+ * Is this choice gone for this pay period? From the period starting
+ * CREW_PUNCH_REQUIRED_FROM (ruled 2026-10-05) the solo-close dropdown (1.9)
+ * is not asked, because the bonus is paid from punches alone, and an event's
+ * catering tip (3.5) splits by punches with no payee to pick, and stranded
+ * Olo tips (3.7) wait for the bake shift's punch. Returns the refusal, or null
+ * when the choice still exists.
+ */
+export function retiredChoice(check: string, window: PayWindow): string | null {
+  if (!crewPunchRequired(window)) return null;
+  if (check === "1.9")
+    return `From ${CREW_PUNCH_REQUIRED_FROM} there is no solo-close dropdown: the $30 bonus is paid from punches alone (out at or after 10 PM, alone 4h or more). Add the missing punch instead.`;
+  if (check === "3.5")
+    return `From ${CREW_PUNCH_REQUIRED_FROM} a catering tip goes to whoever punched for the event: add the missing punch instead of picking a payee.`;
+  if (check === "3.7")
+    return `From ${CREW_PUNCH_REQUIRED_FROM} stranded Olo tips have no payee to pick: add the Pastry Opener punch on the Timesheets page, then the tips split by bake shifts.`;
   return null;
 }
 

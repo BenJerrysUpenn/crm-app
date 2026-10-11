@@ -1,4 +1,4 @@
-// Client-side trigger: ask the server to create the time-app draft shifts for a
+// Client-side trigger: ask the server to create the time-app shifts for a
 // deal that just entered "Booked Unpaid". Fire-and-forget — the endpoint is
 // idempotent (create once, never touch), and any failure is swallowed so it can
 // never block or roll back the stage change itself.

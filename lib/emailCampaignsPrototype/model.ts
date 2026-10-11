@@ -1,13 +1,10 @@
-// PROTOTYPE — Email campaigns tab (branch prototype/email-campaigns). Throwaway.
-//
-// Question this answers: "does one screen let the owners see and manage the
-// whole email SYSTEM (tiers, categories, sequences, capacity) and drill into
-// the PEOPLE flowing through it?"
+// Email campaigns tab: the model. One screen to see the whole email system
+// (tiers, categories, sequences, capacity) and drill into the people in it.
 //
 // Pure functions only: rows in, payload out. Nothing here writes anywhere.
 // There are no tier/segment columns yet (bj-finance #438), so every tier and
 // warm/offer category below is DERIVED here from existing columns. Anything
-// the database cannot tell us is a named constant tagged "static" or "mock".
+// the database cannot tell us is a named constant.
 //
 // v2 (owner review 2026-09-27):
 // - Suppressed / opted-out people are dropped BEFORE counting, so every number
@@ -41,8 +38,17 @@
 // so the model ships people in GROUPS (same category, same history, same
 // flags) and the client decides per group, with the current steps, which
 // state it is in (statesAt).
-
-export type Tag = "live" | "derived" | "static" | "mock";
+//
+// Personal cake (bj-finance #286, owner's rulings 2026-10-10): people who
+// never booked, only ever asked us about a cake, and write from a consumer
+// mailbox (Gmail, iCloud, an ISP...) are HELD out of the catering email by
+// Catering-Manager outreach/migrations/012 (the HOLD clause on
+// outreach_warm_eligible). A cake-only lead on a company domain is a catering
+// prospect and is not held. Here the held get their own "Personal cake" card
+// in Warm and Offer, in no other category, with no sequence of their own (it
+// does not fall back to the tier's Everyone sequence), and they are left out
+// of the Everyone card, Needed and capacity. isCakeOnly is that clause, line
+// for line.
 
 export type ProspectRow = {
   id: number;
@@ -61,6 +67,9 @@ export type ProspectRow = {
   opt_in_source: string | null;
   last_outreach_at: string | null;
   verify_status: string | null;
+  // The Salesforce lead status in `notes` is 'Cake Order' (leadStatusOf).
+  // Filled by the loader; absent counts as false.
+  cake_lead_status?: boolean;
 };
 
 export type DealRow = {
@@ -122,16 +131,16 @@ export type CategoryStat = {
   label: string;
   total: number; // people in it; suppressed already excluded
   groups: Group[];
-  tag?: Tag; // shown when a category is static/mock (e.g. Seasonal menu list)
-  hint?: string;
-  sources?: { label: string; n: number; tag: Tag }[];
+  sources?: { label: string; n: number }[];
+  // A held category (Cake only): no sequence unless it gets its own, and left
+  // out of the Everyone card, Needed and capacity.
+  hold?: boolean;
 };
 
 export type Sequence = {
   name: string;
   steps: number;
   url: string | null;
-  tag: Tag;
   note: string;
 };
 
@@ -143,7 +152,7 @@ export type TierPayload = {
   blurb: string;
   definition: string;
   total: number; // Everyone: people in the tier, suppressed excluded
-  sources?: { label: string; n: number; tag: Tag }[];
+  sources?: { label: string; n: number }[];
   categories: CategoryStat[];
   sequence: Sequence | null; // the tier's Everyone sequence (Offer: none)
   defaultCadence: Cadence;
@@ -152,7 +161,6 @@ export type TierPayload = {
     mailboxes: number;
     perMailboxDay: number;
     capDay: number | null; // a global daily cap that binds before mailboxes
-    tag: Tag;
     source: string;
   };
   // Invariant, computed here, rendered only when broken.
@@ -180,7 +188,7 @@ export type Payload = {
   notes: string[];
 };
 
-// --- static / assumed values (rendered with their tag) -----------------------
+// --- static / assumed values ------------------------------------------------
 
 // Apollo, 2026-09-27: the only cold sequence. Not called from the app.
 export const COLD_SEQUENCE = {
@@ -346,15 +354,26 @@ export function statesAt(c: CategoryStat, cadence: Cadence, stepsFor: StepsFor) 
   };
 }
 
-/** The Everyone card: every category's groups together. */
+/** The Everyone card: every category's groups together, except held
+ * categories (Cake only), which are not sent the tier's email. Needed and
+ * capacity are worked out from this card, so they leave held people out too. */
 export function everyoneOf(t: TierPayload): CategoryStat {
+  const sendable = t.categories.filter((c) => !c.hold);
   return {
     key: "everyone",
     label: "Everyone",
-    total: t.total,
-    groups: t.categories.flatMap((c) => c.groups),
+    total: sendable.reduce((s, c) => s + c.total, 0),
+    groups: sendable.flatMap((c) => c.groups),
     sources: t.sources,
   };
+}
+
+/** The steps that apply to a category: its own sequence if it has steps,
+ * otherwise the tier's Everyone sequence. A held category never falls back to
+ * Everyone, so with no sequence of its own it has nothing to send. */
+export function categorySteps(catKey: string, own: string[][], everyone: string[][]): string[][] {
+  if (own.length) return own;
+  return HOLD_CATEGORIES.has(catKey) ? [] : everyone;
 }
 
 /** Needed vs capacity for a tier at a cadence, in the tier's unit. Needed
@@ -406,6 +425,89 @@ const lc = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
  * seeded for past bookers is implied consent, not an opt-in to offers. */
 export const EXPLICIT_OPT_IN_SOURCES: ReadonlySet<string> = new Set(["explicit_yes", "signup_form"]);
 
+// --- cake only (bj-finance #286) ---------------------------------------------
+
+// The key stays "cake_only" so sequences saved against it keep working; the
+// card is labelled for who is in it since 012 (personal mailboxes only).
+export const CAKE_ONLY = { key: "cake_only", label: "Personal cake" } as const;
+/** Categories held out of the tier's email. Seeded on Warm and Offer so the
+ * card shows even when nobody is in it. */
+export const HOLD_CATEGORIES: ReadonlySet<string> = new Set([CAKE_ONLY.key]);
+
+/** The Salesforce lead status: the first `;` field of the first line of
+ * `notes`, where the master-base load (bj-finance #280) wrote
+ * `lead_status; lead_source`. SQL: split_part(split_part(notes, E'\n', 1), ';', 1). */
+export function leadStatusOf(notes: string | null | undefined): string {
+  return (notes ?? "").split("\n")[0].split(";")[0];
+}
+
+/** lower(btrim(x)): Postgres btrim strips spaces only. null stays null. */
+const sqlEmailKey = (s: string | null | undefined): string | null =>
+  s === null || s === undefined ? null : s.replace(/^ +| +$/g, "").toLowerCase();
+
+const NO_EVENT_TYPE: ReadonlySet<string> = new Set(["", "Cake Order", "--Pick One--"]);
+
+/** Consumer mailbox providers: Catering-Manager outreach/consumer_domains.py,
+ * copied into migration 012's HOLD clause and here. Exact match on the domain;
+ * comcast.net is consumer, comcast.com (the employer) is not; .edu and .gov
+ * are organisations. tests/emailCampaignsCakeOnlyParity.test.ts fails if this
+ * set and the live view's ARRAY differ. */
+export const CONSUMER_DOMAINS: ReadonlySet<string> = new Set([
+  "126.com", "163.com", "aim.com", "aol.com", "att.net", "bellsouth.net", "btinternet.com",
+  "centurylink.net", "charter.net", "comcast.net", "cox.net", "currently.com", "duck.com",
+  "earthlink.net", "fastmail.com", "foxmail.com", "gmail.com", "gmx.com", "gmx.de", "gmx.us",
+  "googlemail.com", "hey.com", "hotmail.co.uk", "hotmail.com", "hotmail.fr", "icloud.com",
+  "juno.com", "live.ca", "live.cn", "live.co.uk", "live.com", "mac.com", "mail.com", "mail.ru",
+  "me.com", "mindspring.com", "msn.com", "naver.com", "netscape.net", "netzero.net",
+  "optonline.net", "outlook.com", "passport.com", "pipeline.com", "pm.me", "proton.me",
+  "protonmail.com", "ptd.net", "qq.com", "rcn.com", "rocketmail.com", "rr.com", "sbcglobal.net",
+  "sina.com", "tutanota.com", "twcny.rr.com", "verizon.net", "web.de", "windstream.net",
+  "yahoo.ca", "yahoo.co.in", "yahoo.co.uk", "yahoo.com", "yahoo.com.au", "yahoo.com.hk",
+  "yahoo.de", "yahoo.es", "yahoo.fr", "yahoo.it", "yandex.com", "yandex.ru", "ymail.com",
+  "zohomail.com",
+]);
+
+/** lower(split_part(btrim(email), '@', 2)) is a consumer mailbox provider. */
+export function isConsumerDomain(email: string | null | undefined): boolean {
+  const key = sqlEmailKey(email);
+  return key !== null && CONSUMER_DOMAINS.has(key.split("@")[1] ?? "");
+}
+
+export type CakeEvidence = { cake: boolean; catering: boolean };
+
+/** What each address has enquired about, from its CRM deals: the `dk`
+ * subquery of migration 011. cake = a deal whose event type is exactly
+ * 'Cake Order'; catering = a deal of any other type. A blank type or the
+ * form's '--Pick One--' placeholder counts neither way. */
+export function cakeEvidenceByEmail(deals: Pick<DealRow, "contact_email" | "event_type">[]): Map<string, CakeEvidence> {
+  const out = new Map<string, CakeEvidence>();
+  for (const d of deals) {
+    const e = sqlEmailKey(d.contact_email);
+    if (e === null) continue;
+    const ev = out.get(e) ?? { cake: false, catering: false };
+    if (d.event_type === "Cake Order") ev.cake = true;
+    if (!NO_EVENT_TYPE.has((d.event_type ?? "").replace(/^ +| +$/g, ""))) ev.catering = true;
+    out.set(e, ev);
+  }
+  return out;
+}
+
+/** Personal cake: never booked, cake evidence (lead status Cake Order, or a
+ * Cake Order deal), no deal of any other type, and a consumer mailbox domain.
+ * The HOLD (#286) clause of Catering-Manager
+ * outreach/migrations/012_cake_hold_personal_only.sql; a cake-only lead on a
+ * company, school or government domain is a catering prospect (owner's ruling
+ * 2026-10-10). tests/emailCampaignsCakeOnly*.test.ts hold the two together. */
+export function isCakeOnly(
+  p: Pick<ProspectRow, "email" | "ever_booked" | "cake_lead_status">,
+  evidence: Map<string, CakeEvidence>,
+): boolean {
+  if (p.ever_booked) return false;
+  const key = sqlEmailKey(p.email);
+  const ev = key === null ? undefined : evidence.get(key);
+  return (!!p.cake_lead_status || !!ev?.cake) && !ev?.catering && isConsumerDomain(p.email);
+}
+
 export const isExplicitOptIn = (p: Pick<ProspectRow, "marketing_opt_in" | "opt_in_source">) =>
   p.marketing_opt_in && !!p.opt_in_source && EXPLICIT_OPT_IN_SOURCES.has(p.opt_in_source);
 
@@ -437,6 +539,8 @@ export function compute(data: RawData, now: Date): Payload {
     h.forEach((k) => s.add(k));
     histByEmail.set(e, s);
   }
+
+  const cakeEvidence = cakeEvidenceByEmail(data.deals);
 
   // outreach_talked_recently, replicated (the view is not granted to the app).
   const talkedRecently = new Set<string>();
@@ -472,6 +576,12 @@ export function compute(data: RawData, now: Date): Payload {
   const tiers: Record<TierKey, TierAcc> = { cold: mk(), warm: mk(), offer: mk() };
   // Seed cold categories so empty segments still show.
   for (const [k, l] of Object.entries(COLD_LABELS)) tiers.cold.cats.set(k, newCat(k, l));
+  // Cake only is held, so its card shows on Warm and Offer even when empty.
+  for (const t of ["warm", "offer"] as const) {
+    const c = newCat(CAKE_ONLY.key, CAKE_ONLY.label);
+    c.stat.hold = true;
+    tiers[t].cats.set(CAKE_ONLY.key, c);
+  }
 
   const flows: Flows = {
     coldReplied: 0,
@@ -540,6 +650,11 @@ export function compute(data: RawData, now: Date): Payload {
       catKey = b.key;
       catLabel = b.label;
     }
+    // Cake only takes them out of every other warm/offer category (#286).
+    if (tier !== "cold" && isCakeOnly(p, cakeEvidence)) {
+      catKey = CAKE_ONLY.key;
+      catLabel = CAKE_ONLY.label;
+    }
     let cat = acc.cats.get(catKey);
     if (!cat) {
       cat = newCat(catKey, catLabel);
@@ -560,7 +675,7 @@ export function compute(data: RawData, now: Date): Payload {
     const unknown = ageDays !== null && received.length === 0;
 
     const facts: string[] = [];
-    if (isBlocked) facts.push("blocked provider (Yahoo/Microsoft)");
+    if (isBlocked) facts.push("Yahoo/Microsoft address");
     if (received.length) facts.push(`got ${received.join(", ")}`);
     else if (ageDays !== null) facts.push("emailed, send not in history");
     else if (tier === "cold") facts.push(p.email ? "never emailed, email ready" : "never emailed, needs Apollo email reveal");
@@ -650,27 +765,12 @@ export function compute(data: RawData, now: Date): Payload {
     const acc = tiers[key];
     const categories = Array.from(acc.cats.values())
       .map(finish)
-      .sort((a, b) => b.total - a.total);
-    if (key === "warm") {
-      // v5: people who opted in to the monthly seasonal menu / offers. There
-      // is no tag or column for it yet, so it is a mock category of 0.
-      categories.push({
-        key: "seasonal_menu",
-        label: "Seasonal menu list",
-        total: 0,
-        groups: [],
-        tag: "mock",
-        hint: "Opted in to the monthly seasonal menu / offers. No tag for this yet, so 0 (mock).",
-      });
-    }
+      // Largest first; held categories last, after everything that is sent.
+      .sort((a, b) => +!!a.hold - +!!b.hold || b.total - a.total);
+    // Only Apollo feeds the cold tier today; LinkedIn and other lists have no
+    // import path yet, so they are not listed.
     const sources: TierPayload["sources"] =
-      key === "cold"
-        ? [
-            { label: "Apollo", n: acc.total, tag: "derived" },
-            { label: "LinkedIn", n: 0, tag: "mock" },
-            { label: "Other lists", n: 0, tag: "mock" },
-          ]
-        : undefined;
+      key === "cold" ? [{ label: "Apollo", n: acc.total }] : undefined;
 
     // Invariant: routed = everyone + suppressed; everyone = sum of the
     // categories = sum of the groups; and (checked per card, cadence and
@@ -687,8 +787,7 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: COLD_MAILBOXES,
         perMailboxDay: COLD_PER_MAILBOX_DAY,
         capDay: null,
-        tag: "static",
-        source: `${COLD_MAILBOXES} Apollo mailboxes × ${COLD_PER_MAILBOX_DAY}/day (static). Cold Pilot A is inactive, so real sends today are 0.`,
+        source: `${COLD_MAILBOXES} Apollo mailboxes × ${COLD_PER_MAILBOX_DAY}/day, from Apollo's mailbox settings (entered by hand, not read live). Cold Pilot A was inactive when last checked on 2026-09-27, with no cold sends.`,
       };
     } else if (key === "warm") {
       capacity = {
@@ -696,8 +795,7 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: warmMailboxes.length,
         perMailboxDay: warmPerMailbox,
         capDay: WARM_GLOBAL_CAP_DAY,
-        tag: "live",
-        source: `${warmMailboxes.length} news.* mailboxes × ${warmPerMailbox}/day (live), capped at ${WARM_GLOBAL_CAP_DAY}/day by OUTREACH_DAILY_CAP (static), × ${WEEKDAYS_PER_MONTH} weekdays.`,
+        source: `${warmMailboxes.length} news.* mailboxes × ${warmPerMailbox}/day (read live), capped at ${WARM_GLOBAL_CAP_DAY}/day by OUTREACH_DAILY_CAP (the warm sender's default; its live setting can't be read from here), × ${WEEKDAYS_PER_MONTH} weekdays.`,
       };
     } else {
       capacity = {
@@ -705,8 +803,7 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: 0,
         perMailboxDay: warmPerMailbox,
         capDay: null,
-        tag: "mock",
-        source: `No offer lane exists (mock: 0 mailboxes). A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
+        source: `No offer lane yet, so 0 mailboxes. A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
       };
     }
 
@@ -722,15 +819,13 @@ export function compute(data: RawData, now: Date): Payload {
               name: COLD_SEQUENCE.name,
               steps: COLD_SEQUENCE.steps,
               url: COLD_SEQUENCE.url,
-              tag: "static",
-              note: `${COLD_SEQUENCE.steps} step, ${COLD_SEQUENCE.contacts} contacts, ${COLD_SEQUENCE.active ? "active" : "inactive"} (Apollo, 2026-09-27).`,
+              note: `${COLD_SEQUENCE.steps} step, ${COLD_SEQUENCE.contacts} contacts, ${COLD_SEQUENCE.active ? "active" : "inactive"} (last checked in Apollo on 2026-09-27).`,
             }
           : key === "warm"
             ? {
                 name: "warm_sender template",
                 steps: 1,
                 url: null,
-                tag: "static",
                 note: 'Single email, subject "Ice cream catering for holiday events", logged as template warm_holiday_2026. No follow-up step.',
               }
             : null,
@@ -750,11 +845,12 @@ export function compute(data: RawData, now: Date): Payload {
     flows,
     totals: { prospects: data.prospects.length },
     notes: [
-      "Tiers and warm/offer categories are worked out by this page; there are no tier or category columns yet (bj-finance #438).",
+      "Tiers and warm/offer categories are worked out by this page from existing columns; there are no tier or category columns yet.",
       "Cold categories are the Apollo segments stored on each prospect.",
       "People who opted out, bounced or are on the suppression list are left out of every number.",
       "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",
-      "Who got which email comes from the send history (outreach_events, template per send), across every tier and every prospect row with the same email. Nobody is sent an email they already had.",
+      "Who got which email comes from the send history, across every tier and every contact record with the same email. Nobody is sent an email they already had.",
+      "Personal cake (Warm and Offer): never booked, only ever asked us about a cake (Salesforce lead status Cake Order or a Cake Order deal, and no deal of any other type), and on a personal mailbox such as Gmail or iCloud; a cake-only contact on a company, school or government domain is a catering prospect instead. They are held out of the catering email (bj-finance #286), are in no other category, have no sequence of their own, and are not counted in Everyone, Needed or capacity.",
     ],
   };
 }

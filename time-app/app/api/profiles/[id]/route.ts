@@ -3,10 +3,20 @@ import { getProfile } from "@/lib/auth";
 import { isMissingColumn } from "@/lib/storeHours";
 import { parseQboEmployeeId } from "@/lib/payroll/qboEmployee";
 import { parsePayType } from "@/lib/payroll/payType";
+import { ARCHIVE_NEEDS_MIGRATION, parseArchivedAt } from "@/lib/teamArchive";
 import { NextResponse } from "next/server";
 
 // The fields a manager may set on somebody's profile from the Team page.
-const EDITABLE = ["full_name", "phone", "role", "hourly_rate", "active", "qbo_employee_id", "pay_type"] as const;
+const EDITABLE = [
+  "full_name",
+  "phone",
+  "role",
+  "hourly_rate",
+  "active",
+  "qbo_employee_id",
+  "pay_type",
+  "archived_at",
+] as const;
 
 export async function PATCH(
   request: Request,
@@ -41,6 +51,16 @@ export async function PATCH(
     patch.pay_type = parsed.value;
   }
 
+  // Archive (migration 32). true stamps the server's time and takes the person
+  // off the schedule in the same update; null unarchives and leaves active as
+  // it is, so coming back to the floor is the manager's separate tick.
+  if ("archived_at" in patch) {
+    const parsed = parseArchivedAt(patch.archived_at, new Date());
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    patch.archived_at = parsed.value;
+    if (parsed.value !== null) patch.active = false;
+  }
+
   const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
@@ -48,6 +68,10 @@ export async function PATCH(
     .eq("id", params.id)
     .select()
     .single();
+  // Migration 32 is applied by hand too. Checked first: the whole update is
+  // rejected, so active is not set on its own, and the manager is told why.
+  if ("archived_at" in patch && isMissingColumn(error, "archived_at"))
+    return NextResponse.json({ error: ARCHIVE_NEEDS_MIGRATION }, { status: 503 });
   // Migration 26 is applied by hand, so a deploy can land ahead of it. Saying
   // so beats a raw schema-cache error, and the rest of the row is untouched
   // because the update is rejected whole.

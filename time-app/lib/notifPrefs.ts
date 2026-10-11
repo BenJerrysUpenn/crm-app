@@ -10,13 +10,15 @@ export const CHANNELS: NotifPrefItem[] = [
 
 export const TYPES_BY_ROLE: Record<"manager" | "employee", NotifPrefItem[]> = {
   employee: [
-    { key: "shift_published", label: "A new shift is posted for me" },
-    { key: "schedule_change", label: "When my schedule changes" },
+    // Email and text for these two come in one summary at 8pm (lib/shiftNotice.ts).
+    { key: "shift_published", label: "A new shift is posted for me (email and text in the 8pm daily summary)" },
+    { key: "schedule_change", label: "When my schedule changes (email and text in the 8pm daily summary)" },
     { key: "shift_reminder", label: "Reminder before my shift starts" },
     { key: "missed_clockin", label: "Alert if I haven't clocked in" },
     { key: "clockout_reminder", label: "Reminder if I'm still clocked in after my shift ends" },
     { key: "drop_decision", label: "When my drop request is approved or denied" },
     { key: "timeoff_decision", label: "When my time-off request is approved or denied" },
+    { key: "reimbursement_decision", label: "When my Travel Reimbursement is rejected or adjusted" },
   ],
   manager: [
     { key: "missed_clockin", label: "When a staff member misses a clock-in" },
@@ -25,5 +27,7 @@ export const TYPES_BY_ROLE: Record<"manager" | "employee", NotifPrefItem[]> = {
     { key: "time_off_request", label: "Time-off requests" },
     { key: "availability_change", label: "When someone changes their availability" },
     { key: "timeoff_cancelled", label: "When approved time off is cancelled" },
+    { key: "reimbursement_submitted", label: "When a Travel Reimbursement is submitted" },
+    { key: "reimbursement_decision", label: "When my own Travel Reimbursement is rejected or adjusted" },
   ],
 };

@@ -1,42 +1,19 @@
 "use client";
 
-// PROTOTYPE — Email campaigns tab. Throwaway UI on branch
-// prototype/email-campaigns. v2 after the owners' review: one layout (the
-// owners' sketch: Cold, Warm and Offer tier containers side by side, an
-// Everyone card on top of each, category cards beneath, volume at the
-// bottom). The v1 "Ledger" table variant was dropped: it existed to show the
-// accounting, which the owners asked to hide.
+// Email campaigns tab: the Cold, Warm and Offer tiers side by side, an
+// Everyone card on top of each, category cards beneath, volume at the bottom.
+// States per tier period (its "Reach everyone" cadence): Up next / Emailed /
+// Held. Sequence dots and "+ Add sequence" open the in-CRM sequence editor
+// (SequenceEditor.tsx). Tier connections and "How the numbers are made" are
+// collapsed rows under the header; "Recipient pages" opens previews of the
+// warm opt-out page and the offers opt-in page.
 //
-// v3 after the owners' review of v2: three states defined by the tier's
-// period (its "Reach everyone" cadence): Up next / Emailed / Held.
-// One sequence control per card. Category cards show only the three numbers,
-// the note icon and the sequence control.
-//
-// v4: "Emailed this period" is now just "Emailed" (same definition). The
-// sequence dots and every "+ Add sequence" open one in-CRM sequence editor
-// (SequenceEditor.tsx); no links to GitHub source remain.
-//
-// v5: never resend the same email. Held = blocked provider OR finished the
-// sequence (or no sequence yet, or emailed with no history of what). States
-// are worked out per group with the CURRENT sequence (edits included), so
-// adding a step moves finished people back to Up next. Plus: lane signature
-// and footer editing, a tier connections panel, a "Seasonal menu list" warm
-// category (mock, 0) and a prototype "+ Add contacts" form (nothing saved).
-//
-// v6: the tier connections panel is a plain disclosure row under "How the
-// numbers are made", collapsed by default. A "Recipient pages" row in the
-// header opens previews of the warm opt-out page (the real markup) and the
-// proposed offers opt-in page. "+ Add contacts" gains an "Upload a list" mode:
-// the file would become a PR for the AFK Manager to clean and load (nothing
-// is uploaded).
-//
-// Client-only prototype state: the per-tier cadence (useState), card notes and
-// sequence edits (localStorage, this browser only). Nothing is written to the
-// database, Apollo or warm_sender.
+// Read-only against the database. Client-side state only: the per-tier cadence
+// (useState), card notes and sequence edits (localStorage, this browser only).
+// Nothing is written to the database, Apollo or warm_sender.
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import SequenceEditor, { type EditorTarget } from "./SequenceEditor";
-import AddContactForm from "./AddContactForm";
 import TierConnections from "./TierConnections";
 import {
   SEED_LANE_BLOCKS,
@@ -52,6 +29,7 @@ import {
   HELD_REASON_SHORT,
   WEEKDAYS_PER_MONTH,
   cadenceOf,
+  categorySteps,
   everyoneOf,
   groupStanding,
   statesAt,
@@ -62,7 +40,6 @@ import {
   type Payload,
   type Person,
   type StepsFor,
-  type Tag,
   type TierKey,
   type TierPayload,
 } from "@/lib/emailCampaignsPrototype/model";
@@ -71,31 +48,6 @@ const fmt = (n: number) => n.toLocaleString("en-US");
 const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
 
 // --- small pieces -------------------------------------------------------------
-
-const TAG_DOT: Record<Tag, string> = {
-  live: "bg-emerald-500",
-  derived: "bg-sky-500",
-  static: "bg-violet-500",
-  mock: "bg-amber-500",
-};
-const TAG_HELP: Record<Tag, string> = {
-  live: "Read straight from the database.",
-  derived: "Worked out by this page from database columns.",
-  static: "Hard-coded in the prototype.",
-  mock: "Placeholder: nothing real behind it yet.",
-};
-
-function TagPill({ tag }: { tag: Tag }) {
-  return (
-    <span
-      title={TAG_HELP[tag]}
-      className="inline-flex items-center gap-0.5 align-middle text-[9px] font-normal lowercase leading-none text-slate-500"
-    >
-      <span className={`h-1 w-1 rounded-full opacity-70 ${TAG_DOT[tag]}`} />
-      {tag}
-    </span>
-  );
-}
 
 function Tip({
   text,
@@ -165,32 +117,24 @@ function Unaccounted({ n }: { n: number }) {
   return <div className="text-[11px] text-rose-400">numbers don&apos;t add up: {fmt(n)} unaccounted</div>;
 }
 
-// --- notes (prototype: localStorage, this browser only) -----------------------
+// --- notes (localStorage, this browser only) ----------------------------------
 
 type Note = { text: string; at: string };
 const NOTE_PREFIX = "email-campaigns-proto:note:v1:";
-const SEED_NOTES: Record<string, Note> = {
-  "offer:tier": {
-    text: "Offer lane not built yet. Sending method TBD (mass email / Kit).",
-    at: "2026-09-27T12:00:00.000Z",
-  },
-};
-
 function useNote(id: string): [Note | null, (n: Note | null) => void] {
-  const [note, setNote] = useState<Note | null>(SEED_NOTES[id] ?? null);
+  const [note, setNote] = useState<Note | null>(null);
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(NOTE_PREFIX + id);
       if (raw !== null) setNote(JSON.parse(raw) as Note | null);
     } catch {
-      /* storage blocked: keep the seed */
+      /* storage blocked: no note */
     }
   }, [id]);
   const save = useCallback(
     (n: Note | null) => {
       setNote(n);
       try {
-        // null is stored too, so a deleted seed note stays deleted.
         window.localStorage.setItem(NOTE_PREFIX + id, JSON.stringify(n));
       } catch {
         /* storage blocked: the note lives until reload */
@@ -238,7 +182,7 @@ function NoteArea({
           onChange={(e) => setDraft(e.target.value)}
           rows={2}
           maxLength={280}
-          placeholder="Offer lane: mass email, maybe Kit, TBD"
+          placeholder="Add a note"
           className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 focus:border-slate-500 focus:outline-none"
         />
         <div className="flex items-center gap-2 text-[11px]">
@@ -501,7 +445,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-// --- sequences (prototype: localStorage, this browser only) ------------------
+// --- sequences (localStorage, this browser only) ------------------------------
 
 const SEQ_PREFIX = "email-campaigns-proto:sequence:v1:";
 
@@ -510,7 +454,8 @@ type SeqStore = {
   edited: (key: string) => boolean;
   open: (t: EditorTarget) => void;
   /** The steps that apply to a tier's category: its own sequence if it has
-   * steps, otherwise the tier's Everyone sequence. */
+   * steps, otherwise the tier's Everyone sequence (never for a held category,
+   * see categorySteps). */
   stepsFor: (tier: TierKey) => StepsFor;
 };
 const SeqCtx = createContext<SeqStore>({
@@ -562,9 +507,6 @@ function useSequenceStore() {
   }, []);
   return { get, edited, save, reset };
 }
-
-/** The signed-in user's name, for "Sourced by" on the add-contacts form. */
-const UserCtx = createContext<string>("you");
 
 const LANE_PREFIX = "email-campaigns-proto:lane:v1:";
 
@@ -624,15 +566,11 @@ function SequenceDots({ doc, edited, onClick }: { doc: SequenceDoc; edited: bool
         {n} {plural(n, "email")}
         {doc.name ? ` · ${doc.name}` : ""}
       </span>
-      <span className="ml-1 shrink-0">
-        {edited ? (
-          <span title="Edited in this browser (prototype)" className="text-[9px] lowercase text-amber-400/80">
-            edited here
-          </span>
-        ) : (
-          <TagPill tag="static" />
-        )}
-      </span>
+      {edited ? (
+        <span title="Edited in this browser" className="ml-1 shrink-0 text-[9px] lowercase text-amber-400/80">
+          edited here
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -706,8 +644,6 @@ function EveryoneCard({
   const st = statesAt(e, cadence, useContext(SeqCtx).stepsFor(tier.key));
   const [note, saveNote] = useNote(`${tier.key}:everyone`);
   const [editing, setEditing] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const sourcedBy = useContext(UserCtx);
   const people = (state: StateKey) => () => open({ kind: "people", tier, cat: e, state, cadence });
   return (
     <div className="flex flex-col gap-2 rounded-md border border-slate-700 bg-slate-900/80 p-2.5">
@@ -739,27 +675,10 @@ function EveryoneCard({
           {e.sources.map((s, i) => (
             <span key={s.label} className="whitespace-nowrap">
               {i ? <span className="mr-2 text-slate-600">·</span> : null}
-              {s.label} <span className="tabular-nums text-slate-200">{fmt(s.n)}</span>{" "}
-              {s.tag === "mock" ? <TagPill tag="mock" /> : null}
+              {s.label} <span className="tabular-nums text-slate-200">{fmt(s.n)}</span>
             </span>
           ))}
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            title="Prototype form: shows what would happen, saves nothing"
-            className="ml-auto whitespace-nowrap rounded border border-dashed border-slate-600 px-1.5 py-px text-slate-300 hover:border-slate-400 hover:text-slate-100"
-          >
-            + Add contacts
-          </button>
         </div>
-      ) : null}
-      {adding ? (
-        <Modal title="Add cold contacts" onClose={() => setAdding(false)}>
-          <AddContactForm
-            categories={tier.categories.map((c) => ({ key: c.key, label: c.label }))}
-            sourcedBy={sourcedBy}
-          />
-        </Modal>
       ) : null}
 
       <Unaccounted n={st.unaccounted} />
@@ -821,14 +740,7 @@ function CategoryCard({
     >
       <div className="flex items-start justify-between gap-1">
         <div className="min-w-0 text-sm font-medium leading-tight text-slate-100">
-          {cat.hint ? (
-            <Tip text={cat.hint}>
-              <span className="border-b border-dotted border-slate-600">{cat.label}</span>
-            </Tip>
-          ) : (
-            cat.label
-          )}{" "}
-          {cat.tag ? <TagPill tag={cat.tag} /> : null}
+          {cat.label}
         </div>
         <NoteButton has={!!note} onClick={() => setEditing(true)} />
       </div>
@@ -837,6 +749,7 @@ function CategoryCard({
         <MiniStat n={st.emailed} label="emailed" help={stateHelp("emailed", cadence)} onClick={people("emailed")} />
         <MiniStat n={st.held} label="held" help={stateHelp("held", cadence)} onClick={people("held")} align="right" />
       </div>
+      {cat.hold ? <HeldReasons heldBy={st.heldBy} /> : null}
       <Unaccounted n={st.unaccounted} />
       <div className="mt-auto pt-0.5">
         <SequenceControl tier={tier} catKey={cat.key} catLabel={cat.label} cadence={cadence} />
@@ -877,7 +790,13 @@ function Volume({
 
   let verdict: React.ReactNode = null;
   if (people === 0) {
-    verdict = <span className="text-slate-400">Nothing to send: nobody has a step left.</span>;
+    verdict = (
+      <span className="text-slate-400">
+        {st.heldBy.noSequence > 0 && st.heldBy.finished === 0
+          ? "Nothing to send: no sequence yet."
+          : "Nothing to send: nobody has a step left."}
+      </span>
+    );
   } else if (cadence === "daily") {
     verdict =
       v.capDay > 0 ? (
@@ -932,7 +851,7 @@ function Volume({
               <span className="ml-1 text-[11px] font-normal text-slate-400">/{unit}</span>
             </div>
             <div className="border-b border-dotted border-slate-600 text-[11px] text-slate-400">
-              capacity <TagPill tag={cap.tag} />
+              capacity
             </div>
           </div>
         </Tip>
@@ -987,7 +906,7 @@ function TierColumn({ tier, open }: { tier: TierPayload; open: (d: Drill) => voi
 
 // --- shell --------------------------------------------------------------------
 
-export default function EmailCampaignsPrototype({ payload, sourcedBy }: { payload: Payload; sourcedBy: string }) {
+export default function EmailCampaignsPrototype({ payload }: { payload: Payload }) {
   const [drill, setDrill] = useState<Drill | null>(null);
   const close = useCallback(() => setDrill(null), []);
   const seqs = useSequenceStore();
@@ -996,34 +915,20 @@ export default function EmailCampaignsPrototype({ payload, sourcedBy }: { payloa
   const closeEditor = useCallback(() => setEditor(null), []);
   const stepsFor = (tier: TierKey): StepsFor => {
     const everyone = (seqs.get(sequenceKey(tier, "everyone"))?.steps ?? []).map(stepKeys);
-    return (catKey: string) => {
-      const own = seqs.get(sequenceKey(tier, catKey));
-      return own && own.steps.length ? own.steps.map(stepKeys) : everyone;
-    };
+    return (catKey: string) =>
+      categorySteps(catKey, (seqs.get(sequenceKey(tier, catKey))?.steps ?? []).map(stepKeys), everyone);
   };
   const store: SeqStore = { get: seqs.get, edited: seqs.edited, open: setEditor, stepsFor };
   const editorKey = editor ? sequenceKey(editor.tier.key, editor.catKey) : null;
 
   return (
-    <UserCtx.Provider value={sourcedBy}>
     <SeqCtx.Provider value={store}>
     <div className="space-y-3 px-3 py-4 pb-12 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-semibold text-slate-100">Email campaigns</h2>
-          <span className="rounded border border-fuchsia-600 bg-fuchsia-600/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fuchsia-300">
-            Prototype
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-[10px] text-slate-500">
-          {(["live", "derived", "static", "mock"] as Tag[]).map((t) => (
-            <span key={t} title={TAG_HELP[t]}>
-              <TagPill tag={t} />
-            </span>
-          ))}
-          <span>✎ notes and sequence edits are saved in this browser only (prototype)</span>
+        <h2 className="text-xl font-semibold text-slate-100">Email campaigns</h2>
+        <div className="text-[11px] text-slate-400">
           <span>
-            as of{" "}
+            ✎ Notes and sequence edits are saved in this browser only · as of{" "}
             {new Date(payload.generated_at).toLocaleString("en-US", {
               timeZone: "America/New_York",
               month: "short",
@@ -1052,7 +957,7 @@ export default function EmailCampaignsPrototype({ payload, sourcedBy }: { payloa
           rel="noreferrer"
           className="text-slate-300 underline decoration-slate-600 hover:text-slate-100"
         >
-          Opt-in: seasonal menu with offers (proposed) ↗
+          Opt-in: seasonal menu with offers ↗
         </a>
         <span className="text-slate-600">· previews, nothing is written</span>
       </div>
@@ -1107,6 +1012,5 @@ export default function EmailCampaignsPrototype({ payload, sourcedBy }: { payloa
       ) : null}
     </div>
     </SeqCtx.Provider>
-    </UserCtx.Provider>
   );
 }

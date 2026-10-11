@@ -16,6 +16,11 @@ export type Profile = {
   // The payroll sheet reads it (bj-finance #519, ruled 2026-09-22). Optional
   // for the same reason as qbo_employee_id: it arrives in migration 26.
   pay_type?: "hourly" | "salaried" | null;
+  // When a manager archived this person (left the team); null = not archived.
+  // Only the Team page reads it: `active` still means "on the schedule"
+  // everywhere. Optional because the column arrives in migration 32;
+  // undefined means the column is not there yet (lib/teamArchive.ts).
+  archived_at?: string | null;
   notif_prefs: Record<string, boolean> | null;
   created_at: string;
 };
@@ -42,6 +47,9 @@ export type Shift = {
   acknowledged_at: string | null;
   created_at: string;
   updated_at: string;
+  // Set on the shifts the CRM writes for a booked catering deal; a manager
+  // assigns those (lib/managerAssigns.ts).
+  deal_id?: number | null;
 };
 
 export type TimeEntry = {

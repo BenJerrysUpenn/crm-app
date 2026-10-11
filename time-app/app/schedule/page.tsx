@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import ScheduleBoard from "@/components/ScheduleBoard";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Availability, Annotation } from "@/lib/types";
+import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
+import type { AvailabilityRow } from "@/lib/availabilityCheck";
+import { loadAvailabilityRows } from "@/lib/availabilityRows";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +47,9 @@ export default async function SchedulePage({
     .gte("starts_at", qStart)
     .lt("starts_at", qEnd)
     .order("starts_at", { ascending: true });
-  // Employees see their own published shifts plus any published open (unassigned) shifts.
+  // Employees see their own shifts plus any open (unassigned) ones. Every shift
+  // is written published (there are no drafts); the filter stays so a shift
+  // left over from before drafts were removed is still never shown half-made.
   if (!isManager)
     q = q.eq("published", true).or(`employee_id.eq.${profile.id},employee_id.is.null`);
   const { data: shifts } = await q;
@@ -87,7 +91,7 @@ export default async function SchedulePage({
 
   let employees: Profile[] = [];
   let locations: Location[] = [];
-  let availability: Availability[] = [];
+  let availability: AvailabilityRow[] = [];
   if (isManager) {
     const { data: emps } = await supabase
       .from("profiles")
@@ -97,20 +101,22 @@ export default async function SchedulePage({
     employees = (emps as Profile[]) ?? [];
     const { data: locs } = await supabase.from("locations").select("*").order("id");
     locations = (locs as Location[]) ?? [];
-    // Everyone's availability + time off for the week, to show while drafting.
-    const { data: avail } = await supabase
-      .from("availability")
-      .select("*")
-      .gte("specific_date", weekStart)
-      .lt("specific_date", weekEnd);
-    availability = (avail as Availability[]) ?? [];
+    // Everyone's availability + time off for the week, to show while scheduling:
+    // dated rows (padded a day each side for overnight shifts) AND weekly rows.
+    // Weekly rows are what the "Repeats every …" toggle writes; reading only
+    // dated rows made everyone on a weekly pattern look like they had nothing.
+    const load = await loadAvailabilityRows(supabase, { from: addDays(weekStart, -1), to: weekEnd });
+    availability = load.ok ? load.rows : [];
   }
 
   return (
     <div className="min-h-screen flex flex-col">
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
       <main className="flex-1">
-        <div className="mx-auto max-w-5xl px-4 py-6">
+        {/* Managers get the full width: the week grid is 7 days plus a staff
+            column and should not need a sideways scroll on a laptop. Staff
+            keep the narrow centred column. */}
+        <div className={isManager ? "px-4 lg:px-6 py-6" : "mx-auto max-w-5xl px-4 py-6"}>
           <ScheduleBoard
             isManager={isManager}
             weekStart={weekStart}
