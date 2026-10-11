@@ -60,6 +60,23 @@ begin
     refused := true;
   end;
   if not refused then raise exception 'a published snapshot was removed'; end if;
+  reset role;
+  -- The table's owner, the connection the Mac publishes over, is refused too.
+  begin
+    update public.metrics_snapshots set payload = '{"schema":1}' where id = s_daily;
+    refused := false;
+  exception when raise_exception then
+    refused := true;
+  end;
+  if not refused then raise exception 'the table owner changed a published snapshot'; end if;
+  begin
+    delete from public.metrics_snapshots where id = s_month;
+    refused := false;
+  exception when raise_exception then
+    refused := true;
+  end;
+  if not refused then raise exception 'the table owner removed a published snapshot'; end if;
+  set local role service_role;
 
   -- ---- 3. shape ----------------------------------------------------------------------
   begin
