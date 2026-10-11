@@ -26,7 +26,7 @@ export const SHORT_LINKS: Readonly<Record<string, string>> = {
 /** Where every path that is not a slug goes, with a 301. */
 export const SHORT_LINK_FALLBACK = "https://www.benjerry.com/upenn";
 
-export const SHORT_LINK_HOSTS: readonly string[] = [
+const SHORT_LINK_HOSTS: readonly string[] = [
   "benjerryphilly.com",
   "www.benjerryphilly.com",
 ];
@@ -43,7 +43,7 @@ export function isShortLinkHost(host: string | null): boolean {
 /** A per-deal code: 6 characters from abcdefghjkmnpqrstuvwxyz23456789 (no
  *  i, l, o, 0 or 1), stored lowercase. The same rule is a CHECK on
  *  short_link_codes.code. Anything else is never looked up. */
-export const SHORT_LINK_CODE = /^[a-hj-km-np-z2-9]{6}$/;
+const SHORT_LINK_CODE = /^[a-hj-km-np-z2-9]{6}$/;
 
 export function isShortLinkCode(code: string | null): code is string {
   return code !== null && SHORT_LINK_CODE.test(code);
@@ -93,7 +93,7 @@ function clip(value: string | null): string | null {
 }
 
 /** What the request said: which link, which code (if any), what fetched it. */
-export type ShortLinkVisit = {
+type ShortLinkVisit = {
   slug: string;
   code: string | null;
   user_agent: string | null;
@@ -104,7 +104,7 @@ export type ShortLinkVisit = {
 /** One short_link_clicks row: the visit plus the deal its code belongs to.
  *  deal_id is null for a bare link, a malformed code, an unknown code, or a
  *  lookup that failed. */
-export type ShortLinkClick = ShortLinkVisit & { deal_id: number | null };
+type ShortLinkClick = ShortLinkVisit & { deal_id: number | null };
 
 type Supabase = { base: string; key: string };
 
@@ -147,7 +147,7 @@ async function lookupDealId(db: Supabase, slug: string, code: string | null): Pr
  *  Plain PostgREST calls rather than lib/supabase/admin.ts, because they need
  *  the service role key itself: admin.ts falls back to the anon key, which RLS
  *  refuses here, so an unset key is reported as such instead of as a 401. */
-export async function recordShortLinkClick(visit: ShortLinkVisit): Promise<void> {
+async function recordShortLinkClick(visit: ShortLinkVisit): Promise<void> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
