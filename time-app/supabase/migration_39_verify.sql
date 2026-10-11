@@ -16,8 +16,9 @@
 --   5. Nobody signed in can delete a view: archiving is the only way out.
 --   6. widgets must be a JSON array of at most 24; a name must be 1-60 chars.
 --   7. A preference points only at the same person's own view.
---   8. The $600K seed: 24 months of stream 'all', each year summing to
---      600,000; managers read targets, nobody signed in writes them.
+--   8. The $600K seed: 24 months x 3 streams, each year summing to 600,000
+--      (in-store 397,730, catering 114,956, concessions 87,314), concessions
+--      marked provisional; managers read targets, nobody signed in writes them.
 -- ============================================================================
 
 begin;
@@ -133,9 +134,9 @@ begin
 
   -- ---- 8a. targets: managers read, nobody signed in writes --------------------------------
   select count(*) into n from public.sales_targets;
-  if n < 24 then raise exception 'a manager reads % target rows, expected the 24 seeded', n; end if;
+  if n < 72 then raise exception 'a manager reads % target rows, expected the 72 seeded', n; end if;
   begin
-    update public.sales_targets set amount = 1 where stream = 'all';
+    update public.sales_targets set amount = 1 where stream = 'in_store';
     refused := false;
   exception when insufficient_privilege then
     refused := true;
@@ -165,14 +166,19 @@ begin
   if n <> 1 then raise exception 'another manager''s view was changed'; end if;
 
   -- ---- 8b. the seed ---------------------------------------------------------------------------
-  select count(*) into n from public.sales_targets where stream = 'all' and month between date '2026-01-01' and date '2027-12-01';
-  if n <> 24 then raise exception 'expected 24 seeded months, found %', n; end if;
-  select sum(amount) into total from public.sales_targets where stream = 'all' and extract(year from month) = 2026;
+  select count(*) into n from public.sales_targets
+   where stream in ('in_store', 'catering', 'concessions') and month between date '2026-01-01' and date '2027-12-01';
+  if n <> 72 then raise exception 'expected 72 seeded rows (24 months x 3 streams), found %', n; end if;
+  select sum(amount) into total from public.sales_targets where extract(year from month) = 2026;
   if total <> 600000 then raise exception '2026 targets sum to %, not 600,000', total; end if;
-  select sum(amount) into total from public.sales_targets where stream = 'all' and extract(year from month) = 2027;
+  select sum(amount) into total from public.sales_targets where extract(year from month) = 2027;
   if total <> 600000 then raise exception '2027 targets sum to %, not 600,000', total; end if;
-  select amount into total from public.sales_targets where stream = 'all' and month = date '2026-10-01';
-  if total <> 38673 then raise exception 'October 2026 target is %, not 38,673', total; end if;
+  select sum(amount) into total from public.sales_targets where stream = 'in_store' and extract(year from month) = 2026;
+  if total <> 397730 then raise exception '2026 in-store targets sum to %, not 397,730', total; end if;
+  select sum(amount) into total from public.sales_targets where month = date '2026-12-01';
+  if total <> 40665 then raise exception 'December 2026 targets sum to %, not 40,665', total; end if;
+  select count(*) into n from public.sales_targets where provisional <> (stream = 'concessions');
+  if n <> 0 then raise exception 'provisional should mark the concessions rows and only them (% rows wrong)', n; end if;
   begin
     insert into public.sales_targets (month, stream, amount, basis) values (date '2026-10-02', 'all', 1, 'x');
     refused := false;

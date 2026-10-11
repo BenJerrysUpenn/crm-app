@@ -25,13 +25,18 @@
 --      page ARCHIVES it (archived_at): rows are never deleted through the API,
 --      the house rule for anything a person made.
 --   2. metric_preferences: one row per person, which view they last had open.
---   3. sales_targets: the target per calendar month and stream. stream 'all'
---      is the whole-business target; 'in_store', 'delivery', 'catering' and
---      'concessions' rows are optional and, when present, the page shows that
---      stream against its own target. Seeded with the $600K seasonal curve
---      (#671 frame of 2026-10-10: seven seller years, each weighted equally)
---      for every month of 2026 and 2027, stream 'all' only. A concessions
---      target is one INSERT here, no code change.
+--   3. sales_targets: the target per calendar month and stream ('in_store',
+--      'catering', 'concessions'; 'delivery' and 'all' are allowed for later
+--      use). The whole-business target for a month is the sum of its stream
+--      rows, unless an 'all' row overrides it. Seeded with the 3-stream $600K
+--      table (#671 frame of 2026-10-10, rebuilt from the seller's separate
+--      Penn and Ventures books: seven seller years, equal weights, concessions
+--      on our event calendar) for every month of 2026 and 2027. In-store
+--      covers delivery (the seller's Penn sales accounts). The concessions
+--      rows are PROVISIONAL (provisional = true): Alina has still to rule on
+--      the PAX sizing (Dec at Auto Show scale, $20,425, or the seller's scale,
+--      $3,937) and on gross vs Aramark's net settlement. Changing one is an
+--      UPDATE here, no code change.
 --
 -- WHO MAY TOUCH IT.
 --   metric_views, metric_preferences: a manager reads and writes only their
@@ -167,6 +172,8 @@ create table if not exists public.sales_targets (
   amount     numeric(12,2) not null,
   -- How the number was arrived at, for the person reading it later.
   basis      text          not null,
+  -- Not yet ruled on: the page labels it "provisional".
+  provisional boolean      not null default false,
   updated_at timestamptz   not null default now(),
   primary key (month, stream)
 );
@@ -192,14 +199,29 @@ create policy sales_targets_manager_select on public.sales_targets for select to
 revoke insert, update, delete, truncate on public.sales_targets from anon, authenticated;
 revoke all on public.sales_targets from anon;
 
--- The $600K seasonal curve (#671, 2026-10-10). Month share of annual sales,
--- mean of 2017-2019 and 2022-2025, times $600,000. The twelve sum to $600,000.
-insert into public.sales_targets (month, stream, amount, basis)
-select make_date(y, m, 1), 'all', amt,
-       '$600K year x seller-era seasonal share (2017-19, 2022-25, equal weights); bj-finance #671'
-  from (values (1, 20220.00), (2, 34948.00), (3, 38617.00), (4, 73796.00),
-               (5, 75848.00), (6, 73866.00), (7, 72419.00), (8, 66700.00),
-               (9, 54446.00), (10, 38673.00), (11, 26935.00), (12, 23532.00)) as c (m, amt)
+-- The $600K targets by month and stream (#671, 2026-10-10, 3-stream table).
+-- Each stream's twelve months: in-store $397,730, catering $114,956,
+-- concessions $87,314; together $600,000.
+insert into public.sales_targets (month, stream, amount, basis, provisional)
+select make_date(yrs.y, c.m, 1), c.stream, c.amt,
+       case when c.stream = 'concessions'
+            then '$600K year, seller-era share on our event calendar; PROVISIONAL: PAX sizing and gross vs net not ruled; bj-finance #671'
+            else '$600K year x seller-era share (Penn + Ventures books, 2017-19, 2022-25, equal weights); bj-finance #671' end,
+       c.stream = 'concessions'
+  from (values
+          ('in_store',  1, 16823.00), ('in_store',  2, 23939.00), ('in_store',  3, 31672.00),
+          ('in_store',  4, 46064.00), ('in_store',  5, 44393.00), ('in_store',  6, 45755.00),
+          ('in_store',  7, 46811.00), ('in_store',  8, 39784.00), ('in_store',  9, 36226.00),
+          ('in_store', 10, 28870.00), ('in_store', 11, 20995.00), ('in_store', 12, 16398.00),
+          ('catering',  1,  1156.00), ('catering',  2,  1559.00), ('catering',  3,  2220.00),
+          ('catering',  4, 12085.00), ('catering',  5, 17520.00), ('catering',  6, 19724.00),
+          ('catering',  7, 17224.00), ('catering',  8, 19000.00), ('catering',  9, 12111.00),
+          ('catering', 10,  5309.00), ('catering', 11,  3206.00), ('catering', 12,  3842.00),
+          ('concessions',  1, 17892.00), ('concessions',  2,     0.00), ('concessions',  3, 36132.00),
+          ('concessions',  4,   479.00), ('concessions',  5,  2542.00), ('concessions',  6,  2507.00),
+          ('concessions',  7,  1521.00), ('concessions',  8,   451.00), ('concessions',  9,  5354.00),
+          ('concessions', 10,    11.00), ('concessions', 11,     0.00), ('concessions', 12, 20425.00)
+       ) as c (stream, m, amt)
   cross join (values (2026), (2027)) as yrs (y)
 on conflict (month, stream) do nothing;
 
