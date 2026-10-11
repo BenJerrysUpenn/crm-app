@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   const saved = await saveOverride(
-    createAdminClient() as unknown as Parameters<typeof saveOverride>[0],
+    createAdminClient(),
     parsed.input,
     viewer.userId,
   );

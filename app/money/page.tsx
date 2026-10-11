@@ -14,9 +14,7 @@ export default async function MoneyPage() {
   // Saved corrections are laid over the rows' categories until the 08:00
   // bookkeeping pass folds them into the feed (bj-finance #223).
   const overrides = feed.ok
-    ? await loadOverrides(
-        createAdminClient() as unknown as Parameters<typeof loadOverrides>[0],
-      )
+    ? await loadOverrides(createAdminClient())
     : [];
 
   return (
