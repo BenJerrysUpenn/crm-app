@@ -184,8 +184,8 @@ test("reimbursements: staff file them on the time site; Approvers decide them on
 // ---- Metrics (bj-finance #671) --------------------------------------------------
 
 test("metrics: the finance host serves the Metrics page's APIs; the time host passes them through", () => {
-  // Before #671 only /api/payroll was let through, so these 404'd on
-  // finance.withers-ventures.com while working on localhost and previews.
+  // The Metrics page calls these on finance.withers-ventures.com, so the finance
+  // host must let them through as it does on localhost and previews.
   for (const path of ["/api/metrics", "/api/metrics/views", "/api/metrics/views/12", "/api/metrics/preferences"]) {
     assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
     assert.deepEqual(routeForHost(TIME, path, ""), { kind: "next" }, path);

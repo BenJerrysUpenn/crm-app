@@ -1,7 +1,7 @@
 // The Metrics page's arithmetic (bj-finance #671, rulings 2026-10-10):
 // pace against the $600K seasonal target, LER paid and unpaid, and catering
-// counted by event date. Written before the code (Alina's test-first rule for
-// metric math).
+// counted by event date. Each rule is pinned here before it is drawn on the
+// page (Alina's test-first rule for metric math).
 //
 //   npm test        (node --test; Node runs TypeScript directly)
 
