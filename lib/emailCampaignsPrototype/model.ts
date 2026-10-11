@@ -1,13 +1,10 @@
-// PROTOTYPE — Email campaigns tab (branch prototype/email-campaigns). Throwaway.
-//
-// Question this answers: "does one screen let the owners see and manage the
-// whole email SYSTEM (tiers, categories, sequences, capacity) and drill into
-// the PEOPLE flowing through it?"
+// Email campaigns tab: the model. One screen to see the whole email system
+// (tiers, categories, sequences, capacity) and drill into the people in it.
 //
 // Pure functions only: rows in, payload out. Nothing here writes anywhere.
 // There are no tier/segment columns yet (bj-finance #438), so every tier and
 // warm/offer category below is DERIVED here from existing columns. Anything
-// the database cannot tell us is a named constant tagged "static" or "mock".
+// the database cannot tell us is a named constant.
 //
 // v2 (owner review 2026-09-27):
 // - Suppressed / opted-out people are dropped BEFORE counting, so every number
@@ -41,8 +38,6 @@
 // so the model ships people in GROUPS (same category, same history, same
 // flags) and the client decides per group, with the current steps, which
 // state it is in (statesAt).
-
-export type Tag = "live" | "derived" | "static" | "mock";
 
 export type ProspectRow = {
   id: number;
@@ -122,16 +117,13 @@ export type CategoryStat = {
   label: string;
   total: number; // people in it; suppressed already excluded
   groups: Group[];
-  tag?: Tag; // shown when a category is static/mock (e.g. Seasonal menu list)
-  hint?: string;
-  sources?: { label: string; n: number; tag: Tag }[];
+  sources?: { label: string; n: number }[];
 };
 
 export type Sequence = {
   name: string;
   steps: number;
   url: string | null;
-  tag: Tag;
   note: string;
 };
 
@@ -143,7 +135,7 @@ export type TierPayload = {
   blurb: string;
   definition: string;
   total: number; // Everyone: people in the tier, suppressed excluded
-  sources?: { label: string; n: number; tag: Tag }[];
+  sources?: { label: string; n: number }[];
   categories: CategoryStat[];
   sequence: Sequence | null; // the tier's Everyone sequence (Offer: none)
   defaultCadence: Cadence;
@@ -152,7 +144,6 @@ export type TierPayload = {
     mailboxes: number;
     perMailboxDay: number;
     capDay: number | null; // a global daily cap that binds before mailboxes
-    tag: Tag;
     source: string;
   };
   // Invariant, computed here, rendered only when broken.
@@ -180,7 +171,7 @@ export type Payload = {
   notes: string[];
 };
 
-// --- static / assumed values (rendered with their tag) -----------------------
+// --- static / assumed values ------------------------------------------------
 
 // Apollo, 2026-09-27: the only cold sequence. Not called from the app.
 export const COLD_SEQUENCE = {
@@ -560,7 +551,7 @@ export function compute(data: RawData, now: Date): Payload {
     const unknown = ageDays !== null && received.length === 0;
 
     const facts: string[] = [];
-    if (isBlocked) facts.push("blocked provider (Yahoo/Microsoft)");
+    if (isBlocked) facts.push("Yahoo/Microsoft address");
     if (received.length) facts.push(`got ${received.join(", ")}`);
     else if (ageDays !== null) facts.push("emailed, send not in history");
     else if (tier === "cold") facts.push(p.email ? "never emailed, email ready" : "never emailed, needs Apollo email reveal");
@@ -651,26 +642,10 @@ export function compute(data: RawData, now: Date): Payload {
     const categories = Array.from(acc.cats.values())
       .map(finish)
       .sort((a, b) => b.total - a.total);
-    if (key === "warm") {
-      // v5: people who opted in to the monthly seasonal menu / offers. There
-      // is no tag or column for it yet, so it is a mock category of 0.
-      categories.push({
-        key: "seasonal_menu",
-        label: "Seasonal menu list",
-        total: 0,
-        groups: [],
-        tag: "mock",
-        hint: "Opted in to the monthly seasonal menu / offers. No tag for this yet, so 0 (mock).",
-      });
-    }
+    // Only Apollo feeds the cold tier today; LinkedIn and other lists have no
+    // import path yet, so they are not listed.
     const sources: TierPayload["sources"] =
-      key === "cold"
-        ? [
-            { label: "Apollo", n: acc.total, tag: "derived" },
-            { label: "LinkedIn", n: 0, tag: "mock" },
-            { label: "Other lists", n: 0, tag: "mock" },
-          ]
-        : undefined;
+      key === "cold" ? [{ label: "Apollo", n: acc.total }] : undefined;
 
     // Invariant: routed = everyone + suppressed; everyone = sum of the
     // categories = sum of the groups; and (checked per card, cadence and
@@ -687,8 +662,7 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: COLD_MAILBOXES,
         perMailboxDay: COLD_PER_MAILBOX_DAY,
         capDay: null,
-        tag: "static",
-        source: `${COLD_MAILBOXES} Apollo mailboxes × ${COLD_PER_MAILBOX_DAY}/day (static). Cold Pilot A is inactive, so real sends today are 0.`,
+        source: `${COLD_MAILBOXES} Apollo mailboxes × ${COLD_PER_MAILBOX_DAY}/day, from Apollo's mailbox settings (entered by hand, not read live). Cold Pilot A was inactive when last checked on 2026-09-27, with no cold sends.`,
       };
     } else if (key === "warm") {
       capacity = {
@@ -696,8 +670,7 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: warmMailboxes.length,
         perMailboxDay: warmPerMailbox,
         capDay: WARM_GLOBAL_CAP_DAY,
-        tag: "live",
-        source: `${warmMailboxes.length} news.* mailboxes × ${warmPerMailbox}/day (live), capped at ${WARM_GLOBAL_CAP_DAY}/day by OUTREACH_DAILY_CAP (static), × ${WEEKDAYS_PER_MONTH} weekdays.`,
+        source: `${warmMailboxes.length} news.* mailboxes × ${warmPerMailbox}/day (read live), capped at ${WARM_GLOBAL_CAP_DAY}/day by OUTREACH_DAILY_CAP (the warm sender's default; its live setting can't be read from here), × ${WEEKDAYS_PER_MONTH} weekdays.`,
       };
     } else {
       capacity = {
@@ -705,8 +678,7 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: 0,
         perMailboxDay: warmPerMailbox,
         capDay: null,
-        tag: "mock",
-        source: `No offer lane exists (mock: 0 mailboxes). A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
+        source: `No offer lane yet, so 0 mailboxes. A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
       };
     }
 
@@ -722,15 +694,13 @@ export function compute(data: RawData, now: Date): Payload {
               name: COLD_SEQUENCE.name,
               steps: COLD_SEQUENCE.steps,
               url: COLD_SEQUENCE.url,
-              tag: "static",
-              note: `${COLD_SEQUENCE.steps} step, ${COLD_SEQUENCE.contacts} contacts, ${COLD_SEQUENCE.active ? "active" : "inactive"} (Apollo, 2026-09-27).`,
+              note: `${COLD_SEQUENCE.steps} step, ${COLD_SEQUENCE.contacts} contacts, ${COLD_SEQUENCE.active ? "active" : "inactive"} (last checked in Apollo on 2026-09-27).`,
             }
           : key === "warm"
             ? {
                 name: "warm_sender template",
                 steps: 1,
                 url: null,
-                tag: "static",
                 note: 'Single email, subject "Ice cream catering for holiday events", logged as template warm_holiday_2026. No follow-up step.',
               }
             : null,
@@ -750,11 +720,11 @@ export function compute(data: RawData, now: Date): Payload {
     flows,
     totals: { prospects: data.prospects.length },
     notes: [
-      "Tiers and warm/offer categories are worked out by this page; there are no tier or category columns yet (bj-finance #438).",
+      "Tiers and warm/offer categories are worked out by this page from existing columns; there are no tier or category columns yet.",
       "Cold categories are the Apollo segments stored on each prospect.",
       "People who opted out, bounced or are on the suppression list are left out of every number.",
       "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",
-      "Who got which email comes from the send history (outreach_events, template per send), across every tier and every prospect row with the same email. Nobody is sent an email they already had.",
+      "Who got which email comes from the send history, across every tier and every contact record with the same email. Nobody is sent an email they already had.",
     ],
   };
 }

@@ -1,4 +1,4 @@
-// PROTOTYPE — Email campaigns tab. Read-only loader.
+// Email campaigns tab: read-only loader.
 //
 // Runs as the SIGNED-IN manager through the SSR client, like the call desk and
 // the Funnels tab: outreach_* and deals are gated by the existing

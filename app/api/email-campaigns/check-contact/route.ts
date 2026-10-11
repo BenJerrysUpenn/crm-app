@@ -3,8 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-// POST /api/email-campaigns/check-contact — PROTOTYPE (branch
-// prototype/email-campaigns, never main).
+// POST /api/email-campaigns/check-contact: read-only duplicate and
+// suppression check. Its only caller, AddContactForm, is not mounted on
+// /email-campaigns (bj-finance #670): adding contacts was never built.
 //
 // The "+ Add contacts" form on the Cold tier calls this to show what WOULD
 // happen if the contact were added. It is READ-ONLY: two selects, as the
