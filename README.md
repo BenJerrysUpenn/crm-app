@@ -59,7 +59,8 @@ slug in `SHORT_LINKS` (`lib/shortLinks.ts`, one line per link) logs a row in
 `https://www.benjerry.com/upenn`. On every other host those paths stay behind
 the login. `/<slug>/<code>` goes to the same place as `/<slug>`; the code is a
 per-deal code Catering-Manager mints into `short_link_codes`, and the click row
-records the code and its `deal_id`. The code lookup and the insert use
+records the code and its `deal_id`; HEAD requests and link scanners are logged
+with `is_probable_bot` true so counts can leave them out. The code lookup and the insert use
 `SUPABASE_SERVICE_ROLE_KEY` and never delay or block the redirect. Tables:
 `supabase/crm/010_short_link_clicks.sql`.
 
