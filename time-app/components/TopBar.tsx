@@ -12,6 +12,8 @@ import ThemeToggle from "@/components/ThemeToggle";
 // hamburger menu takes over the nav, keeping an Account entry (mobileOnly). The
 // row, the name and the hamburger must switch at the same breakpoint, or some
 // width is left with no route to /account.
+const ACCOUNT_HREF = "/account";
+
 const links: { href: string; label: string; managerOnly?: boolean; mobileOnly?: boolean }[] = [
   { href: "/", label: "Clock" },
   { href: "/schedule", label: "Schedule" },
@@ -20,7 +22,7 @@ const links: { href: string; label: string; managerOnly?: boolean; mobileOnly?: 
   { href: "/reimbursements", label: "Reimbursements" },
   { href: "/attendance", label: "Attendance", managerOnly: true },
   { href: "/team", label: "Team", managerOnly: true },
-  { href: "/account", label: "Account", mobileOnly: true },
+  { href: ACCOUNT_HREF, label: "Account", mobileOnly: true },
 ];
 
 export default function TopBar({
@@ -86,7 +88,7 @@ export default function TopBar({
         <NotificationBell />
 
         <Link
-          href="/account"
+          href={ACCOUNT_HREF}
           title={accountLabel}
           className="hidden md:flex flex-col items-end min-w-0 max-w-[10rem] leading-tight hover:opacity-80"
         >
