@@ -33,6 +33,8 @@ const FINANCE_PAGES = ["/payroll", "/metrics"];
 /** What the finance host serves besides its pages: sign-in and the APIs the pages call. */
 const FINANCE_HOST_ALSO = ["/login", "/auth", "/api/auth", "/api/logout", "/api/payroll", "/_next"];
 const FINANCE_HOST_FILES = new Set(["/favicon.ico", "/manifest.webmanifest", "/sw.js"]);
+/** The Metrics page's APIs (bj-finance #671): saved views and preferences. */
+const FINANCE_METRICS_APIS = ["/api/metrics"];
 
 function parseHost(host: string | null): { name: string; port: string } {
   const raw = (host ?? "").trim().toLowerCase();
@@ -96,6 +98,7 @@ export function routeForHost(host: string | null, pathname: string, search: stri
   if (isOldFinance) return { kind: "redirect", location: financeTabPath(search), status: 308 };
   if (FINANCE_PAGES.some((p) => under(pathname, p))) return { kind: "next" };
   if (FINANCE_HOST_ALSO.some((p) => under(pathname, p))) return { kind: "next" };
+  if (FINANCE_METRICS_APIS.some((p) => under(pathname, p))) return { kind: "next" };
   if (FINANCE_HOST_FILES.has(pathname)) return { kind: "next" };
   if (under(pathname, "/api")) return { kind: "not_found" };
   return { kind: "redirect", location: `${originFor("time", host)}${pathname}${search}`, status: 307 };

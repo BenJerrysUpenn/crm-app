@@ -180,3 +180,17 @@ test("reimbursements: staff file them on the time site; Approvers decide them on
     status: 307,
   });
 });
+
+// ---- Metrics (bj-finance #671) --------------------------------------------------
+
+test("metrics: the finance host serves the Metrics page's APIs; the time host passes them through", () => {
+  // Before #671 only /api/payroll was let through, so these 404'd on
+  // finance.withers-ventures.com while working on localhost and previews.
+  for (const path of ["/api/metrics", "/api/metrics/views", "/api/metrics/views/12", "/api/metrics/preferences"]) {
+    assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
+    assert.deepEqual(routeForHost(TIME, path, ""), { kind: "next" }, path);
+    assert.deepEqual(routeForHost("localhost:3000", path, ""), { kind: "next" }, path);
+  }
+  // Only the prefix itself, not look-alikes.
+  assert.deepEqual(routeForHost(FIN, "/api/metricsx", ""), { kind: "not_found" });
+});
