@@ -11,15 +11,20 @@
 --      and created_at does not.
 --   2. Two live views of the same person cannot share a name (any case); an
 --      archived view frees its name.
---   3. A manager cannot see, change or save a view as someone else.
---   4. An employee can neither read nor save views (managers only).
+--   3. A manager cannot see, change or save a view as someone else; no
+--      connection, not even the table owner, moves a view to another owner.
+--   4. An employee can neither read nor save views (managers only), not
+--      even a view of their own left from when they managed.
 --   5. Nobody signed in can delete a view: archiving is the only way out.
 --   6. widgets must be a JSON array of at most 24; a name must be 1-60 chars.
---   7. A preference points only at the same person's own view.
+--   7. A preference points only at the same person's own view; a manager
+--      neither sees nor writes another person's preference, an employee
+--      saves none, and nobody signed in deletes one.
 --   8. The seed: 24 months x 3 streams; each year's in-store 397,730,
 --      catering 114,956, concessions 71,889 (December PAX 5,000); all 'net';
 --      concessions marked provisional; managers read targets, nobody signed
---      in writes them.
+--      in writes them; a stream outside the five and a negative amount are
+--      refused.
 -- ============================================================================
 
 begin;
@@ -29,6 +34,7 @@ declare
   mgr      uuid;
   emp      uuid;
   other    uuid := gen_random_uuid();
+  stale    timestamptz := now() - interval '1 year';
   v1       bigint;
   v2       bigint;
   v_other  bigint;
@@ -48,6 +54,9 @@ begin
   values (other, 'verify-39@example.test', '{"full_name":"Verify 39"}');
   update public.profiles set role = 'manager' where id = other;
   insert into public.metric_views (owner_id, name) values (other, 'Theirs') returning id into v_other;
+  insert into public.metric_preferences (owner_id, active_view_id) values (other, v_other);
+  -- A view left behind by someone who is no longer a manager: it stays hidden from them.
+  insert into public.metric_views (owner_id, name) values (emp, 'From when I managed');
 
   -- ---- 1. a manager saves, renames and reorders their own view ---------------------
   perform set_config('request.jwt.claims', json_build_object('sub', mgr, 'role', 'authenticated')::text, true);
@@ -56,9 +65,11 @@ begin
   values (mgr, 'My finance view', 0, '[{"id":"a","metric":"catering_ar","settings":{"period":"8w"}}]')
   returning id, created_at into v1, c_at;
   insert into public.metric_views (owner_id, name, position) values (mgr, 'Catering', 1) returning id into v2;
-  update public.metric_views set name = 'Finance', position = 2, created_at = now() - interval '1 year' where id = v1;
+  update public.metric_views set name = 'Finance', position = 2, created_at = stale, updated_at = stale where id = v1;
   select count(*) into n from public.metric_views where id = v1 and name = 'Finance' and position = 2 and created_at = c_at;
   if n <> 1 then raise exception 'a manager could not rename and reorder their view, or created_at moved'; end if;
+  select count(*) into n from public.metric_views where id = v1 and updated_at > stale;
+  if n <> 1 then raise exception 'saving a view did not move updated_at'; end if;
 
   -- ---- 2. names are unique among live views ------------------------------------------
   begin
@@ -132,6 +143,23 @@ begin
     refused := true;
   end;
   if not refused then raise exception 'a preference pointed at someone else''s view'; end if;
+  select count(*) into n from public.metric_preferences where owner_id = other;
+  if n <> 0 then raise exception 'a manager can see another person''s preference'; end if;
+  update public.metric_preferences set active_view_id = null where owner_id = other;
+  begin
+    insert into public.metric_preferences (owner_id, active_view_id) values (emp, null);
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'a manager saved a preference as someone else'; end if;
+  begin
+    delete from public.metric_preferences where owner_id = mgr;
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'a signed-in user deleted a preference'; end if;
 
   -- ---- 8a. targets: managers read, nobody signed in writes --------------------------------
   select count(*) into n from public.sales_targets;
@@ -158,6 +186,13 @@ begin
     refused := true;
   end;
   if not refused then raise exception 'an employee saved a view'; end if;
+  begin
+    insert into public.metric_preferences (owner_id, active_view_id) values (emp, null);
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'an employee saved a preference'; end if;
   select count(*) into n from public.sales_targets;
   if n <> 0 then raise exception 'an employee can read sales targets'; end if;
   reset role;
@@ -165,6 +200,16 @@ begin
 
   select count(*) into n from public.metric_views where id = v_other and name = 'Theirs';
   if n <> 1 then raise exception 'another manager''s view was changed'; end if;
+  select count(*) into n from public.metric_preferences where owner_id = other and active_view_id = v_other;
+  if n <> 1 then raise exception 'another manager''s preference was changed'; end if;
+
+  begin
+    update public.metric_views set owner_id = mgr where id = v_other;
+    refused := false;
+  exception when raise_exception then
+    refused := true;
+  end;
+  if not refused then raise exception 'the table owner moved a view to another owner'; end if;
 
   -- ---- 8b. the seed ---------------------------------------------------------------------------
   select count(*) into n from public.sales_targets
@@ -189,6 +234,8 @@ begin
   if total <> 397730 then raise exception '2026 in-store targets sum to %, not 397,730', total; end if;
   select sum(amount) into total from public.sales_targets where month = date '2026-12-01';
   if total <> 25240 then raise exception 'December 2026 targets sum to %, not 25,240', total; end if;
+  select sum(amount) into total from public.sales_targets where month = date '2027-07-01';
+  if total <> 65556 then raise exception 'July 2027 targets sum to %, not 65,556', total; end if;
   select count(*) into n from public.sales_targets where provisional <> (stream = 'concessions');
   if n <> 0 then raise exception 'provisional should mark the concessions rows and only them (% rows wrong)', n; end if;
   begin
@@ -198,6 +245,20 @@ begin
     refused := true;
   end;
   if not refused then raise exception 'a target dated mid-month was accepted'; end if;
+  begin
+    insert into public.sales_targets (month, stream, amount, basis) values (date '2028-01-01', 'wholesale', 1, 'x');
+    refused := false;
+  exception when check_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a stream outside the five was accepted'; end if;
+  begin
+    insert into public.sales_targets (month, stream, amount, basis) values (date '2028-01-01', 'catering', -1, 'x');
+    refused := false;
+  exception when check_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a negative target was accepted'; end if;
 
   raise notice 'migration 39 verified';
 end $$;
