@@ -1,8 +1,8 @@
 // Sales targets and pace (bj-finance #671). A target is a row per calendar
 // month and stream (public.sales_targets, migration 39): in-store (delivery
 // included, as in the seller's Penn books), catering and concessions. The
-// whole-business target for a month is the sum of its stream rows, unless an
-// 'all' row is stored to override it. A row can be marked provisional (the
+// whole-business target for a month is the sum of its stream rows. A row can
+// be marked provisional (the
 // concessions rows are, until PAX sizing and gross vs net are ruled); the
 // page says so wherever it is used.
 
@@ -24,7 +24,7 @@ export const STREAM_LABEL: Record<StreamFilter, string> = {
 export type SalesTargetRow = {
   /** "YYYY-MM-01" */
   month: string;
-  stream: StreamFilter;
+  stream: Exclude<Stream, "delivery">;
   amount: number;
   basis: string;
   provisional?: boolean;
@@ -32,19 +32,20 @@ export type SalesTargetRow = {
   measure?: "net" | "gross";
 };
 
+/** A month's target as the page uses it: one stream's row, or the sum of them all. */
+export type MonthTarget = { month: string; amount: number; basis: string; provisional: boolean };
+
 /**
- * The month's target for a stream, or for the whole business ('all': an
- * explicit 'all' row, else the sum of the month's stream rows, provisional
- * when any part is). Null when nothing is set.
+ * The month's target for a stream, or for the whole business ('all': the sum
+ * of the month's stream rows, provisional when any part is). Null when
+ * nothing is set.
  */
-export function targetFor(rows: SalesTargetRow[], month: string, stream: StreamFilter): SalesTargetRow | null {
-  const own = rows.find((r) => r.month === month && r.stream === stream);
-  if (own || stream !== "all") return own ?? null;
-  const parts = rows.filter((r) => r.month === month && r.stream !== "all");
+export function targetFor(rows: SalesTargetRow[], month: string, stream: StreamFilter): MonthTarget | null {
+  const parts = rows.filter((r) => r.month === month && (stream === "all" || r.stream === stream));
   if (parts.length === 0) return null;
+  if (stream !== "all") return { month, amount: Number(parts[0].amount), basis: parts[0].basis, provisional: Boolean(parts[0].provisional) };
   return {
     month,
-    stream: "all",
     amount: Math.round(parts.reduce((s, r) => s + Number(r.amount), 0) * 100) / 100,
     basis: "Sum of the stream targets",
     provisional: parts.some((r) => r.provisional),

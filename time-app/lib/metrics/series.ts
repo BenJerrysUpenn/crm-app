@@ -8,7 +8,7 @@
 // business with the whole target.
 
 import { addMonths, daysInMonth, eachDay, lastMonths, monthEnd, monthLabel, monthStart, shortDay } from "./dates.ts";
-import { monthProgress, targetFor, STREAMS, STREAM_LABEL, type MonthProgress, type SalesTargetRow, type Stream, type StreamFilter } from "./targets.ts";
+import { monthProgress, targetFor, STREAMS, STREAM_LABEL, type MonthProgress, type MonthTarget, type SalesTargetRow, type Stream, type StreamFilter } from "./targets.ts";
 
 export type SalesStream = Exclude<Stream, "delivery">;
 /** Sales by day per stream; a stream that is absent has no data yet. */
@@ -33,7 +33,7 @@ export type SalesMtd = {
   pace: number[] | null;
   paceLabel: string;
   /** The month's target for the stream chosen (the tiles). */
-  target: SalesTargetRow | null;
+  target: MonthTarget | null;
   /** Month to date against target; null when a needed stream has no data. */
   progress: MonthProgress | null;
   /** Actual so far over the streams that have data. */
@@ -74,7 +74,7 @@ export function salesMonthToDate(sales: StreamDaily, targets: SalesTargetRow[], 
 
 /** The sum of the month's targets for some streams; null when none is set. */
 function sumTargets(targets: SalesTargetRow[], month: string, streams: SalesStream[]): number | null {
-  const parts = streams.map((s) => targetFor(targets, month, s)).filter((t): t is SalesTargetRow => t != null);
+  const parts = streams.map((s) => targetFor(targets, month, s)).filter((t): t is MonthTarget => t != null);
   return parts.length ? cents(parts.reduce((a, t) => a + t.amount, 0)) : null;
 }
 

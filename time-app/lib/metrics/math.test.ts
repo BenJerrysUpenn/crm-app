@@ -37,9 +37,6 @@ test("the whole-business target is the sum of the month's streams, provisional w
   assert.equal(dec?.provisional, true);
   assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "all")?.amount, 34_190);
   assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "in_store")?.provisional, false);
-  // An explicit 'all' row overrides the sum.
-  const rows: SalesTargetRow[] = [...SALES_TARGET_SEED, { month: "2026-10-01", stream: "all", amount: 50_000, basis: "x" }];
-  assert.equal(targetFor(rows, "2026-10-01", "all")?.amount, 50_000);
   assert.equal(targetFor([], "2026-10-01", "all"), null);
 });
 
