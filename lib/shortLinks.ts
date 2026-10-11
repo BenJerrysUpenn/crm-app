@@ -12,7 +12,8 @@ import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server
 // is minted by Catering-Manager into short_link_codes (supabase/crm/010), one
 // per catering deal, so a click ties back to the deal. The code never changes
 // where the link goes; it only adds code and deal_id to the click row. The
-// bare links keep working as before. No IP address is stored.
+// bare link (no code) is logged with code and deal_id null. No IP address is
+// stored.
 
 /** The link table. Adding a link is one line here: slug -> destination.
  *  Slugs are lowercase; a request matches case-insensitively. Destinations are
