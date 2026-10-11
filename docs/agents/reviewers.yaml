@@ -86,6 +86,12 @@ language_notes: >-
   sentence is written in bj-finance docs/agents/system-bom.md, not here, so it is NOT in
   this repo's ground truth and cannot be cited against a diff here.
 
+documentation_map:
+  - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
+    docs: [README.md]
+  - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
+    docs: [README.md]
+
 exclusions:
   - path: docs/unsubscribe.md
     why: >-
