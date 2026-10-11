@@ -8,9 +8,10 @@
 -- is personal: each manager saves their own pages ("my finance view", "my
 -- catering view") and swaps between them. A view is a named, ordered set of
 -- metric widgets, each with its own settings (period, stream). Sales are
--- measured against a $600K year spread over the seller-era seasonal curve, and
--- that target is DATA, not code, because the concessions stream is not in the
--- curve yet and its target is still being decided.
+-- measured against monthly targets per stream from the seller-era seasonal
+-- curve for a $600K year, and those targets are DATA, not code, because parts
+-- of them are still being decided (concessions gross vs net, and whether the
+-- year is rescaled after the PAX cut).
 --
 -- Until this is applied the page still works: views are kept in the browser
 -- and the targets come from a copy of the seed below bundled with the page
@@ -28,15 +29,20 @@
 --   3. sales_targets: the target per calendar month and stream ('in_store',
 --      'catering', 'concessions'; 'delivery' and 'all' are allowed for later
 --      use). The whole-business target for a month is the sum of its stream
---      rows, unless an 'all' row overrides it. Seeded with the 3-stream $600K
---      table (#671 frame of 2026-10-10, rebuilt from the seller's separate
---      Penn and Ventures books: seven seller years, equal weights, concessions
---      on our event calendar) for every month of 2026 and 2027. In-store
---      covers delivery (the seller's Penn sales accounts). The concessions
---      rows are PROVISIONAL (provisional = true): Alina has still to rule on
---      the PAX sizing (Dec at Auto Show scale, $20,425, or the seller's scale,
---      $3,937) and on gross vs Aramark's net settlement. Changing one is an
---      UPDATE here, no code change.
+--      rows, unless an 'all' row overrides it; nothing assumes a year total.
+--      Seeded from the 3-stream $600K table (#671 frame of 2026-10-10,
+--      rebuilt from the seller's separate Penn and Ventures books: seven
+--      seller years, equal weights, concessions on our event calendar) for
+--      every month of 2026 and 2027, with Alina's ruling of 2026-10-10:
+--      December concessions (PAX) = $5,000, not $20,425. The year is not
+--      rescaled after that cut (still open), so the seed sums to $584,575.
+--      In-store covers delivery (the seller's Penn sales accounts).
+--      measure says which basis a row is on, 'net' or 'gross'. Every seeded
+--      row is 'net': the seller booked Aramark's net settlement, and gross vs
+--      net for concessions is not ruled yet. The page measures concessions
+--      sales on the same basis as the target row, so switching is an UPDATE
+--      of measure and amount, no code change. Concessions rows are also
+--      marked provisional = true until that ruling.
 --
 -- WHO MAY TOUCH IT.
 --   metric_views, metric_preferences: a manager reads and writes only their
@@ -174,6 +180,9 @@ create table if not exists public.sales_targets (
   basis      text          not null,
   -- Not yet ruled on: the page labels it "provisional".
   provisional boolean      not null default false,
+  -- 'net' or 'gross': the basis the stream's sales are measured on against
+  -- this row (concessions: Aramark's net settlement, or register gross).
+  measure    text          not null default 'net',
   updated_at timestamptz   not null default now(),
   primary key (month, stream)
 );
@@ -185,6 +194,10 @@ alter table public.sales_targets add constraint sales_targets_month_check
 alter table public.sales_targets drop constraint if exists sales_targets_stream_check;
 alter table public.sales_targets add constraint sales_targets_stream_check
   check (stream in ('all', 'in_store', 'delivery', 'catering', 'concessions'));
+
+alter table public.sales_targets drop constraint if exists sales_targets_measure_check;
+alter table public.sales_targets add constraint sales_targets_measure_check
+  check (measure in ('net', 'gross'));
 
 alter table public.sales_targets drop constraint if exists sales_targets_amount_check;
 alter table public.sales_targets add constraint sales_targets_amount_check
@@ -199,13 +212,14 @@ create policy sales_targets_manager_select on public.sales_targets for select to
 revoke insert, update, delete, truncate on public.sales_targets from anon, authenticated;
 revoke all on public.sales_targets from anon;
 
--- The $600K targets by month and stream (#671, 2026-10-10, 3-stream table).
--- Each stream's twelve months: in-store $397,730, catering $114,956,
--- concessions $87,314; together $600,000.
+-- The targets by month and stream (#671, 2026-10-10, 3-stream table, with
+-- December concessions set to $5,000 by Alina's ruling). Each stream's twelve
+-- months: in-store $397,730, catering $114,956, concessions $71,889;
+-- together $584,575.
 insert into public.sales_targets (month, stream, amount, basis, provisional)
 select make_date(yrs.y, c.m, 1), c.stream, c.amt,
        case when c.stream = 'concessions'
-            then '$600K year, seller-era share on our event calendar; PROVISIONAL: PAX sizing and gross vs net not ruled; bj-finance #671'
+            then '$600K table, seller-era share on our event calendar, net of Aramark; Dec PAX $5,000 (ruled 2026-10-10); PROVISIONAL: gross vs net not ruled; bj-finance #671'
             else '$600K year x seller-era share (Penn + Ventures books, 2017-19, 2022-25, equal weights); bj-finance #671' end,
        c.stream = 'concessions'
   from (values
@@ -220,7 +234,7 @@ select make_date(yrs.y, c.m, 1), c.stream, c.amt,
           ('concessions',  1, 17892.00), ('concessions',  2,     0.00), ('concessions',  3, 36132.00),
           ('concessions',  4,   479.00), ('concessions',  5,  2542.00), ('concessions',  6,  2507.00),
           ('concessions',  7,  1521.00), ('concessions',  8,   451.00), ('concessions',  9,  5354.00),
-          ('concessions', 10,    11.00), ('concessions', 11,     0.00), ('concessions', 12, 20425.00)
+          ('concessions', 10,    11.00), ('concessions', 11,     0.00), ('concessions', 12,  5000.00)
        ) as c (stream, m, amt)
   cross join (values (2026), (2027)) as yrs (y)
 on conflict (month, stream) do nothing;
