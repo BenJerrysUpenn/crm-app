@@ -84,7 +84,14 @@ test("a long name is capped and truncated, with the full name as its tooltip", (
   assert.match(nameLink.attrs, new RegExp(`title="${long}"`));
 });
 
-test("with no name on the profile the link reads Account, never blank", () => {
+test("with no name on the profile the link shows the email", () => {
+  const nameLink = accountLinks(renderBar("employee", "/schedule", "", "sam@example.test")).find((l) => l.classes.includes("md:flex"));
+  assert.ok(nameLink, "the desktop account link still renders");
+  assert.match(nameLink.inner, /<span[^>]*>sam@example\.test<\/span>/);
+  assert.match(nameLink.attrs, /title="sam@example\.test"/);
+});
+
+test("with no name and no email on the profile the link reads Account, never blank", () => {
   const nameLink = accountLinks(renderBar("employee", "/schedule", "", "")).find((l) => l.classes.includes("md:flex"));
   assert.ok(nameLink, "the desktop account link still renders");
   assert.match(nameLink.inner, /<span[^>]*>Account<\/span>/);
