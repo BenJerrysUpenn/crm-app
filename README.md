@@ -57,8 +57,11 @@ middleware serves nothing but redirects and never reaches the login gate: a
 slug in `SHORT_LINKS` (`lib/shortLinks.ts`, one line per link) logs a row in
 `short_link_clicks` and 302s to its destination; every other path 301s to
 `https://www.benjerry.com/upenn`. On every other host those paths stay behind
-the login. The insert uses `SUPABASE_SERVICE_ROLE_KEY` and never delays or
-blocks the redirect. Table: `supabase/crm/010_short_link_clicks.sql`.
+the login. `/<slug>/<code>` goes to the same place as `/<slug>`; the code is a
+per-deal code Catering-Manager mints into `short_link_codes`, and the click row
+records the code and its `deal_id`. The code lookup and the insert use
+`SUPABASE_SERVICE_ROLE_KEY` and never delay or block the redirect. Tables:
+`supabase/crm/010_short_link_clicks.sql`.
 
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
