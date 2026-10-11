@@ -26,18 +26,17 @@ export function isTerminal(stage: string): boolean {
 // Cumulative funnel membership — "this stage is at or beyond X" — as opposed to
 // the point-in-time stage lists elsewhere (e.g. cateringShifts.BOOKED_STAGES is
 // "currently booked", two stages). A deal that reached Booked also counts as
-// having reached Quoted. Both the Funnels tab's conversion counts and any other
-// funnel reader share these so "quoted" and "booked" mean one thing.
-const QUOTED_OR_BEYOND: ReadonlySet<Stage> = new Set<Stage>([
-  "Sent Quote",
-  "Booked Unpaid",
-  "Booked Paid",
-  "Event Complete",
-]);
+// having reached Quoted, so the quoted set is built from the booked one. Both
+// the Funnels tab's conversion counts and any other funnel reader share these
+// so "quoted" and "booked" mean one thing.
 const BOOKED_OR_BEYOND: ReadonlySet<Stage> = new Set<Stage>([
   "Booked Unpaid",
   "Booked Paid",
   "Event Complete",
+]);
+const QUOTED_OR_BEYOND: ReadonlySet<Stage> = new Set<Stage>([
+  "Sent Quote",
+  ...BOOKED_OR_BEYOND,
 ]);
 
 export function reachedQuoted(stage: string): boolean {
