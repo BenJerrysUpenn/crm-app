@@ -6,7 +6,7 @@
 // category lens and a decision lens. The imperative SVG-string renderer is
 // kept nearly verbatim; React owns the navigation state.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ExplorerData, ExplorerRow } from "@/lib/pf/types";
 import {
   applyOverrides,
@@ -111,6 +111,14 @@ export default function MoneyExplorer({
   const [editing, setEditing] = useState<CorrectedRow | null>(null);
   const [announce, setAnnounce] = useState("");
   const returnFocus = useRef<HTMLButtonElement | null>(null);
+  // Focus goes back to the row's Change button once the dialog is gone: while
+  // the modal is still open the page behind is inert and cannot take focus.
+  useEffect(() => {
+    if (editing === null && returnFocus.current) {
+      returnFocus.current.focus();
+      returnFocus.current = null;
+    }
+  }, [editing]);
   const data = { ...feed, rows: applyOverrides(feed.rows, saved) as CorrectedRow[] };
   const months = data.months;
   const [lens, setLens] = useState<Lens>("cat");
@@ -520,17 +528,13 @@ export default function MoneyExplorer({
         <ChangeCategory
           row={editing}
           categories={categories}
-          onClose={() => {
-            setEditing(null);
-            returnFocus.current?.focus();
-          }}
+          onClose={() => setEditing(null)}
           onSaved={(o) => {
             setSaved((prev) => [...prev, o]);
             setAnnounce(
               `Saved. ${o.scope === "merchant" ? `Every charge from ${o.merchant}` : `This ${o.merchant} charge`} is now ${o.category.trim()}.`,
             );
             setEditing(null);
-            returnFocus.current?.focus();
           }}
         />
       )}
