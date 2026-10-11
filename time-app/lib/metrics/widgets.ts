@@ -43,6 +43,8 @@ export type MetricDef = {
   title: string;
   /** One line under the title. */
   blurb: string;
+  /** A different line for some periods. */
+  blurbs?: Partial<Record<Period, string>>;
   periods: Period[];
   defaultPeriod: Period;
   /** Whether the widget offers a stream filter. */
@@ -56,6 +58,7 @@ export const METRICS: Record<MetricId, MetricDef> = {
     code: "W1",
     title: "Sales vs target",
     blurb: "Month to date against the seasonal target, with pace. Catering by event date.",
+    blurbs: { "12m": "Each month against its seasonal target: the last 12 months and the next 3. Catering by event date." },
     periods: ["mtd", "12m"],
     defaultPeriod: "mtd",
     streams: true,
@@ -74,8 +77,8 @@ export const METRICS: Record<MetricId, MetricDef> = {
   catering_ar: {
     id: "catering_ar",
     code: "W2",
-    title: "Catering AR due this month",
-    blurb: "Balances owed on booked events, due by the event date: overdue and not yet due.",
+    title: "Catering balances owed",
+    blurb: "What customers still owe on booked events, due by the event date: overdue first, then this month.",
     periods: ["mtd"],
     defaultPeriod: "mtd",
     streams: false,
@@ -152,6 +155,10 @@ export const METRICS: Record<MetricId, MetricDef> = {
     source: "crm",
   },
 };
+
+export function blurbFor(def: MetricDef, period: Period): string {
+  return def.blurbs?.[period] ?? def.blurb;
+}
 
 export type WidgetSettings = { period: Period; stream?: StreamFilter };
 export type WidgetConfig = { id: string; metric: MetricId; settings: WidgetSettings };

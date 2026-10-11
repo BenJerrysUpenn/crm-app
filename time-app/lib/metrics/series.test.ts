@@ -30,7 +30,9 @@ test("all streams with only catering in: no whole-business progress, and it says
   assert.equal(m.progress, null);
   assert.deepEqual(m.waitingOn, ["in_store", "concessions"]);
   assert.equal(m.actualSoFar, 1500);
-  assert.equal(m.target?.amount, 34_190);
+  assert.equal(m.target?.amount, 34_190); // the tiles show the whole target
+  assert.equal(m.pace?.[30], 5_309); // the chart sets catering against catering's target
+  assert.equal(m.paceLabel, "Pace to catering target");
 });
 
 test("all streams once the feed is in: progress over the sum", () => {
@@ -52,8 +54,13 @@ test("by month: twelve back, three ahead; only catering is shown ahead; target p
   const store = m.actual.find((a) => a.stream === "in_store")!.values;
   assert.equal(store[11], 50);
   assert.equal(store[12], null);
-  assert.equal(m.target[13], 25_240);
+  // In-store and catering have data, concessions waits: the line is their targets.
+  assert.equal(m.target[13], 16_398 + 3_842);
+  assert.equal(m.targetLabel, "In-store and delivery and Catering target");
   assert.equal(m.provisional[13], true);
+  const all = salesByMonth({ catering, in_store: {}, concessions: {} }, SALES_TARGET_SEED, "all", "2026-10-10");
+  assert.equal(all.target[13], 25_240);
+  assert.equal(all.targetLabel, "Target");
   assert.equal(m.target[0], null); // no 2025 targets
   assert.deepEqual(m.waitingOn, ["concessions"]);
 });

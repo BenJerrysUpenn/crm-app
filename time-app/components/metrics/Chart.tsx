@@ -17,7 +17,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Chart as ChartType, ChartConfiguration } from "chart.js";
 
-export type SeriesColor = "in_store" | "catering" | "concessions" | "orange" | "target" | "serious" | "muted";
+export type SeriesColor = "in_store" | "catering" | "concessions" | "orange" | "target" | "serious" | "other";
 export type ValueFormat = "money" | "count" | "hours" | "ratio" | "pct";
 
 export type Series = {
@@ -47,7 +47,7 @@ const VAR: Record<SeriesColor, string> = {
   concessions: "--m-series-4",
   target: "--m-target",
   serious: "--m-serious",
-  muted: "--m-muted",
+  other: "--m-other",
 };
 
 export function formatValue(v: number | null | undefined, format: ValueFormat, compact = false): string {
@@ -55,8 +55,10 @@ export function formatValue(v: number | null | undefined, format: ValueFormat, c
   switch (format) {
     case "money": {
       const abs = Math.abs(v);
-      if (compact && abs >= 1000) return `${v < 0 ? "-" : ""}$${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1)}K`;
-      return `${v < 0 ? "-" : ""}$${abs.toLocaleString("en-US", { maximumFractionDigits: compact ? 0 : 2, minimumFractionDigits: compact ? 0 : abs % 1 ? 2 : 0 })}`;
+      const sign = v < 0 ? "-" : "";
+      if (compact && abs >= 1000) return `${sign}$${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1).replace(/\.0$/, "")}K`;
+      if (compact) return `${sign}$${Math.round(abs).toLocaleString("en-US")}`;
+      return `${sign}$${abs.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
     }
     case "count":
       return Math.round(v).toLocaleString("en-US");
@@ -91,6 +93,11 @@ export default function Chart({
   height = 240,
   beginAtZero = true,
   tableLabel = "Period",
+  heading,
+  emptyText,
+  horizontal = false,
+  dim,
+  tickChars = 24,
 }: {
   labels: string[];
   series: Series[];
@@ -101,6 +108,16 @@ export default function Chart({
   height?: number;
   beginAtZero?: boolean;
   tableLabel?: string;
+  /** A short visible title above the chart (for a card holding more than one chart). */
+  heading?: string;
+  /** Shown instead of the chart when every value is zero or missing. */
+  emptyText?: string;
+  /** Bars run left to right, one row per label (long labels such as customers). */
+  horizontal?: boolean;
+  /** Indexes drawn lighter: a week still in progress, months still to come. */
+  dim?: number[];
+  /** Longest category label drawn on the axis; the table always has the full text. */
+  tickChars?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<ChartType | null>(null);
@@ -109,11 +126,22 @@ export default function Chart({
   const tableId = useId();
   const hintId = useId();
 
-  const signature = useMemo(() => JSON.stringify({ labels, series, format, stacked, beginAtZero }), [labels, series, format, stacked, beginAtZero]);
+  const [theme, setTheme] = useState(0);
+  const signature = useMemo(
+    () => JSON.stringify({ labels, series, format, stacked, beginAtZero, horizontal, dim, tickChars }),
+    [labels, series, format, stacked, beginAtZero, horizontal, dim, tickChars],
+  );
+  const empty = series.every((s) => s.type === "line" || s.values.every((v) => v == null || v === 0));
+
+  // Light and dark are different colours, read from CSS: redraw the chart when the theme changes.
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme((t) => t + 1));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    let observer: MutationObserver | null = null;
     (async () => {
       const m = await chartJs();
       const canvas = canvasRef.current;
@@ -127,6 +155,16 @@ export default function Chart({
         series: series.map((s) => readVar(root, VAR[s.color])),
       });
       const c = colours();
+      const dimmed = new Set(dim ?? []);
+      const fillFor = (colour: string) => (ctx: { dataIndex: number }) => (dimmed.has(ctx.dataIndex) ? alpha(colour, 0.45) : colour);
+      const valueAxis = horizontal ? "x" : "y";
+      const categoryAxis = horizontal ? "y" : "x";
+      // Narrow screens get shorter axis labels, so the bars keep their room.
+      const maxChars = (canvas.parentElement?.clientWidth ?? 800) < 520 ? Math.min(tickChars, 18) : tickChars;
+      const short = (label: unknown) => {
+        const t = String(label ?? "");
+        return t.length > maxChars ? `${t.slice(0, maxChars - 1)}…` : t;
+      };
       const config: ChartConfiguration = {
         type: "bar",
         data: {
@@ -138,16 +176,17 @@ export default function Chart({
               type: line ? "line" : "bar",
               label: s.label,
               data: s.values,
-              backgroundColor: s.area ? alpha(c.series[i], 0.35) : line ? "transparent" : c.series[i],
+              backgroundColor: s.area ? alpha(c.series[i], 0.35) : line ? "transparent" : fillFor(c.series[i]),
               fill: s.area ? (firstArea ? "origin" : "-1") : false,
               borderColor: line ? c.series[i] : c.surface,
-              borderWidth: line ? 2 : stacked ? { top: 2 } : 0,
+              borderWidth: line ? 2 : stacked ? (horizontal ? { right: 2 } : { top: 2 }) : 0,
               borderDash: s.dashed ? [6, 4] : undefined,
               borderRadius: line ? 0 : 4,
-              borderSkipped: "bottom",
+              borderSkipped: horizontal ? "start" : "bottom",
               pointRadius: line ? (labels.length > 20 || s.area ? 0 : 3) : 0,
               pointHoverRadius: 5,
               pointBackgroundColor: c.series[i],
+              pointBorderColor: c.series[i],
               spanGaps: false,
               stack: s.stack ?? (stacked ? "all" : `s${i}`),
               order: s.type === "line" ? 0 : 1,
@@ -159,7 +198,8 @@ export default function Chart({
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
-          interaction: { mode: "index", intersect: false },
+          indexAxis: horizontal ? "y" : "x",
+          interaction: { mode: "index", intersect: false, axis: horizontal ? "y" : "x" },
           plugins: {
             legend: { display: false },
             tooltip: {
@@ -172,22 +212,40 @@ export default function Chart({
               titleFont: { size: 13, weight: "bold" },
               bodyFont: { size: 13 },
               boxPadding: 4,
-              callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${formatValue(ctx.parsed.y, format)}` },
+              callbacks: {
+                label: (ctx) => ` ${ctx.dataset.label}: ${formatValue(horizontal ? ctx.parsed.x : ctx.parsed.y, format)}`,
+              },
             },
           },
           scales: {
-            x: {
+            [categoryAxis]: {
               stacked,
               grid: { display: false },
               border: { color: c.grid },
-              ticks: { color: c.muted, font: { size: 12 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 },
+              ticks: {
+                color: c.muted,
+                font: { size: 12 },
+                maxRotation: 0,
+                autoSkip: !horizontal,
+                autoSkipPadding: 12,
+                callback(this: { getLabelForValue: (v: number) => string }, v: string | number) {
+                  return short(this.getLabelForValue(Number(v)));
+                },
+              },
             },
-            y: {
+            [valueAxis]: {
               stacked,
               beginAtZero,
               grid: { color: c.grid },
               border: { display: false },
-              ticks: { color: c.muted, font: { size: 12 }, maxTicksLimit: 6, callback: (v) => formatValue(Number(v), format, true) },
+              ticks: {
+                color: c.muted,
+                font: { size: 12 },
+                maxTicksLimit: 6,
+                // Whole units only: no "$1, $1, $1" on a small or empty scale.
+                precision: format === "ratio" || format === "pct" ? undefined : 0,
+                callback: (v: string | number) => formatValue(Number(v), format, true),
+              },
             },
           },
         },
@@ -195,39 +253,16 @@ export default function Chart({
       chartRef.current?.destroy();
       chartRef.current = new m.Chart(canvas, config);
 
-      observer = new MutationObserver(() => {
-        const chart = chartRef.current;
-        if (!chart) return;
-        const n = colours();
-        chart.data.datasets.forEach((ds, i) => {
-          const s = series[i];
-          const line = s.type === "line" || s.area;
-          (ds as { backgroundColor?: unknown }).backgroundColor = s.area ? alpha(n.series[i], 0.35) : line ? "transparent" : n.series[i];
-          (ds as { borderColor?: unknown }).borderColor = line ? n.series[i] : n.surface;
-          (ds as { pointBackgroundColor?: unknown }).pointBackgroundColor = n.series[i];
-        });
-        const o = chart.options as any;
-        o.plugins.tooltip.backgroundColor = n.surface;
-        o.plugins.tooltip.titleColor = n.text;
-        o.plugins.tooltip.bodyColor = n.text;
-        o.plugins.tooltip.borderColor = n.grid;
-        o.scales.x.ticks.color = n.muted;
-        o.scales.x.border.color = n.grid;
-        o.scales.y.ticks.color = n.muted;
-        o.scales.y.grid.color = n.grid;
-        chart.update("none");
-      });
-      observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     })();
     return () => {
       cancelled = true;
-      observer?.disconnect();
       chartRef.current?.destroy();
       chartRef.current = null;
     };
-    // `signature` stands for labels, series and the options built from them.
+    // `signature` stands for labels, series and the options built from them;
+    // `theme` redraws in the other theme's colours.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature]);
+  }, [signature, theme, empty]);
 
   function show(index: number | null) {
     const chart = chartRef.current;
@@ -238,7 +273,7 @@ export default function Chart({
       chart.tooltip?.setActiveElements([], { x: 0, y: 0 });
     } else {
       const els = chart.data.datasets.map((_, datasetIndex) => ({ datasetIndex, index })).filter((e) => chart.getDatasetMeta(e.datasetIndex).visible);
-      const meta = chart.getDatasetMeta(0).data[index];
+      const meta = chart.getDatasetMeta(0).data[index] as { x?: number; y?: number } | undefined;
       chart.setActiveElements(els);
       chart.tooltip?.setActiveElements(els, { x: meta?.x ?? 0, y: meta?.y ?? 0 });
     }
@@ -263,8 +298,17 @@ export default function Chart({
   const activeText =
     active == null ? "" : `${labels[active]}: ${series.map((s) => `${s.label} ${formatValue(s.values[active], format)}`).join(", ")}`;
 
+  if (empty && emptyText)
+    return (
+      <div>
+        {heading && <h3 className="text-sm font-medium text-slate-800 dark:text-slate-100 mb-1">{heading}</h3>}
+        <p className="text-sm text-slate-600 dark:text-slate-400 py-6 text-center">{emptyText}</p>
+      </div>
+    );
+
   return (
-    <div>
+    <div className="min-w-0">
+      {heading && <h3 className="text-sm font-medium text-slate-800 dark:text-slate-100 mb-1">{heading}</h3>}
       {series.length > 1 && (
         <ul className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-xs text-slate-600 dark:text-slate-300" aria-label="Legend">
           {series.map((s) => (
@@ -304,6 +348,7 @@ export default function Chart({
           onClick={() => setShowTable((v) => !v)}
           aria-expanded={showTable}
           aria-controls={tableId}
+          aria-label={`${showTable ? "Hide" : "Show"} numbers: ${heading ?? title}`}
           className="min-h-[44px] px-3 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white underline underline-offset-2"
         >
           {showTable ? "Hide numbers" : "Show numbers"}
@@ -311,20 +356,20 @@ export default function Chart({
       </div>
       {showTable && (
         <div id={tableId} className="overflow-x-auto max-w-full">
-          <table className="w-full text-sm tabular-nums">
+          <table className="w-full text-sm tabular-nums mb-2">
             <caption className="sr-only">{title}</caption>
             <thead>
               <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
                 <th scope="col" className="py-1 pr-3 font-medium">{tableLabel}</th>
                 {series.map((s) => (
-                  <th key={s.label} scope="col" className="py-1 pl-3 font-medium text-right">{s.label}</th>
+                  <th key={s.label} scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">{s.label}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {labels.map((l, i) => (
                 <tr key={`${l}-${i}`} className="border-t border-slate-100 dark:border-slate-800">
-                  <th scope="row" className="py-1 pr-3 text-left font-normal text-slate-600 dark:text-slate-300 whitespace-nowrap">{l}</th>
+                  <th scope="row" className="py-1 pr-3 text-left font-normal text-slate-600 dark:text-slate-300">{l}</th>
                   {series.map((s) => (
                     <td key={s.label} className="py-1 pl-3 text-right text-slate-900 dark:text-slate-100">{formatValue(s.values[i], format)}</td>
                   ))}

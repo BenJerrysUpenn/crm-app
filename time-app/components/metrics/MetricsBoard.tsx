@@ -9,10 +9,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MetricsData } from "@/lib/metrics/load";
-import { METRICS, METRIC_IDS, PERIOD_LABEL, type MetricId, type WidgetConfig, type WidgetSettings } from "@/lib/metrics/widgets";
+import { METRICS, METRIC_IDS, PERIOD_LABEL, blurbFor, type MetricId, type WidgetConfig, type WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, STREAMS, type StreamFilter } from "@/lib/metrics/targets";
 import {
-  MAX_VIEWS, MAX_WIDGETS, addWidget, cleanName, freeName, moveView, moveWidget, nameTaken, ordered, removeWidget,
+  MAX_VIEWS, MAX_WIDGETS, addWidget, cleanName, freeName, moveView, moveWidget, ordered, removeWidget, takenBy,
   updateWidgetSettings, type View,
 } from "@/lib/metrics/views";
 import type { ViewsState } from "@/lib/metrics/viewsServer";
@@ -23,6 +23,8 @@ import {
 
 const BTN =
   "inline-flex items-center justify-center min-h-[44px] min-w-[44px] px-3 rounded-md text-sm border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500";
+const BTN_DANGER =
+  "inline-flex items-center justify-center min-h-[44px] min-w-[44px] px-3 rounded-md text-sm border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500";
 const SELECT =
   "min-h-[44px] rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-800 dark:text-slate-100 px-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500";
 
@@ -53,6 +55,22 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
   const store: ViewStore = useMemo(() => (mode === "server" ? serverStore : localStore(() => viewsRef.current)), [mode]);
   const list = useMemo(() => ordered(views), [views]);
   const active = list.find((v) => v.id === activeId) ?? list[0] ?? null;
+
+  /** Move keyboard focus once React has drawn the change (an action must never drop focus to the page). */
+  const pendingFocus = useRef<string | null>(null);
+  const focusSoon = useCallback((id: string) => {
+    pendingFocus.current = id;
+  }, []);
+  // After every render: if an action asked for focus somewhere, put it there.
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    const el = document.getElementById(id) as HTMLElement | null;
+    if (el && !(el as HTMLButtonElement).disabled) {
+      el.focus();
+      pendingFocus.current = null;
+    }
+  });
 
   const say = useCallback((msg: string) => {
     setError("");
@@ -103,6 +121,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
     if (!view) return;
     setViews((vs) => [...vs, view]);
     setActiveId(view.id);
+    focusSoon(`view-tab-${view.id}`);
     await save((s) => s.setActive(view.id));
     say(`Saved new view ${view.name}.`);
     return view;
@@ -121,6 +140,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
       setActiveId(active.id);
       return;
     }
+    focusSoon(`view-tab-${rest[0].id}`);
     await save((s) => s.setActive(rest[0].id));
     say(`Deleted view ${active.name}.`);
   }
@@ -154,9 +174,8 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
         </p>
       )}
 
-      <ViewTabs list={list} activeId={active?.id ?? null} onSwitch={switchTo} />
-
       <div className="flex flex-wrap items-center gap-2">
+        <ViewTabs list={list} activeId={active?.id ?? null} onSwitch={switchTo} />
         <button type="button" className={BTN} aria-pressed={editing} onClick={() => setEditing((e) => !e)}>
           {editing ? "Done" : "Customize"}
         </button>
@@ -202,14 +221,25 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
           first={i === 0}
           last={i === active.widgets.length - 1}
           onSettings={(s) => changeWidgets(updateWidgetSettings(active, w.id, s), `${METRICS[w.metric].title}: ${PERIOD_LABEL[s.period ?? w.settings.period]}.`)}
-          onMove={(d) => changeWidgets(moveWidget(active, w.id, d), `Moved ${METRICS[w.metric].title} ${d < 0 ? "up" : "down"}.`)}
-          onRemove={() => changeWidgets(removeWidget(active, w.id), `Removed ${METRICS[w.metric].title}.`)}
+          onMove={(d) => {
+            const atEnd = d < 0 ? i + d <= 0 : i + d >= active.widgets.length - 1;
+            changeWidgets(moveWidget(active, w.id, d), `Moved ${METRICS[w.metric].title} ${d < 0 ? "up" : "down"}.`);
+            // Keep focus on the arrow pressed, or on the other one once this end is reached.
+            focusSoon(`${atEnd ? (d < 0 ? "down" : "up") : d < 0 ? "up" : "down"}-${w.id}`);
+          }}
+          onRemove={() => {
+            const next = active.widgets[i + 1] ?? active.widgets[i - 1];
+            changeWidgets(removeWidget(active, w.id), `Removed ${METRICS[w.metric].title}.`);
+            focusSoon(next ? `h-${next.id}` : "add-metric");
+          }}
         />
       ))}
 
       {data.problems.length > 0 && (
         <details className="text-xs text-slate-600 dark:text-slate-400">
-          <summary className="cursor-pointer min-h-[44px] inline-flex items-center">Some data could not be read ({data.problems.length})</summary>
+          <summary className="cursor-pointer min-h-[44px] inline-flex items-center">
+            Some numbers could not be loaded; reload the page to try again. Technical detail ({data.problems.length})
+          </summary>
           <ul className="list-disc pl-5 mt-1">
             {data.problems.map((p) => (
               <li key={p}>{p}</li>
@@ -244,6 +274,7 @@ function ViewTabs({ list, activeId, onSwitch }: { list: View[]; activeId: string
             ref={(el) => {
               refs.current[i] = el;
             }}
+            id={`view-tab-${v.id}`}
             role="tab"
             type="button"
             aria-selected={selected}
@@ -266,6 +297,18 @@ function ViewTabs({ list, activeId, onSwitch }: { list: View[]; activeId: string
 
 function NewViewButton({ list, onCreate }: { list: View[]; onCreate: (name: string) => Promise<View | undefined> }) {
   const [open, setOpen] = useState(false);
+  const opener = useRef<HTMLButtonElement>(null);
+  const [returnFocus, setReturnFocus] = useState(false);
+  useEffect(() => {
+    if (!open && returnFocus) {
+      opener.current?.focus();
+      setReturnFocus(false);
+    }
+  }, [open, returnFocus]);
+  const cancel = () => {
+    setOpen(false);
+    setReturnFocus(true);
+  };
   const [name, setName] = useState("");
   const [problem, setProblem] = useState("");
   const input = useRef<HTMLInputElement>(null);
@@ -275,10 +318,11 @@ function NewViewButton({ list, onCreate }: { list: View[]; onCreate: (name: stri
   if (!open)
     return (
       <button
+        ref={opener}
         type="button"
         className={BTN}
         onClick={() => {
-          setName(freeName(list, "New view"));
+          setName("");
           setProblem("");
           setOpen(true);
         }}
@@ -290,7 +334,8 @@ function NewViewButton({ list, onCreate }: { list: View[]; onCreate: (name: stri
     e.preventDefault();
     const n = cleanName(name);
     if (!n.ok) return setProblem(n.error);
-    if (nameTaken(list, n.name)) return setProblem(`You already have a view called "${n.name}".`);
+    const taken = takenBy(list, n.name);
+    if (taken) return setProblem(`You already have a view called "${taken.name}".`);
     const made = await onCreate(n.name);
     if (made) setOpen(false);
   }
@@ -305,7 +350,8 @@ function NewViewButton({ list, onCreate }: { list: View[]; onCreate: (name: stri
         value={name}
         maxLength={60}
         onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+        onKeyDown={(e) => e.key === "Escape" && cancel()}
+        placeholder={freeName(list, "e.g. My catering view")}
         className="min-h-[44px] w-56 max-w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         aria-invalid={Boolean(problem)}
         aria-describedby={problem ? "new-view-problem" : undefined}
@@ -313,7 +359,7 @@ function NewViewButton({ list, onCreate }: { list: View[]; onCreate: (name: stri
       <button type="submit" className={BTN}>
         Create
       </button>
-      <button type="button" className={BTN} onClick={() => setOpen(false)}>
+      <button type="button" className={BTN} onClick={cancel}>
         Cancel
       </button>
       {problem && (
@@ -346,7 +392,8 @@ function ViewEditor({
     e.preventDefault();
     const n = cleanName(name);
     if (!n.ok) return setProblem(n.error);
-    if (nameTaken(list, n.name, view.id)) return setProblem(`You already have a view called "${n.name}".`);
+    const taken = takenBy(list, n.name, view.id);
+    if (taken) return setProblem(`You already have a view called "${taken.name}".`);
     setProblem("");
     if (n.name !== view.name) onRename(n.name);
   }
@@ -388,16 +435,27 @@ function ViewEditor({
           Duplicate view
         </button>
         {!confirming ? (
-          <button type="button" className={`${BTN} text-red-700 dark:text-red-300`} onClick={() => setConfirming(true)} disabled={list.length <= 1}>
-            Delete view
-          </button>
+          <>
+            <button type="button" className={BTN_DANGER} onClick={() => setConfirming(true)} disabled={list.length <= 1} aria-describedby={list.length <= 1 ? "keep-one" : undefined}>
+              Delete view
+            </button>
+            {list.length <= 1 && (
+              <span id="keep-one" className="text-xs text-slate-600 dark:text-slate-400">
+                Keep at least one view.
+              </span>
+            )}
+          </>
         ) : (
           <span className="flex flex-wrap items-center gap-2" role="group" aria-label="Confirm delete">
             <span className="text-sm text-slate-700 dark:text-slate-200">Delete {view.name}?</span>
-            <button type="button" className={`${BTN} border-red-400 text-red-700 dark:text-red-300`} onClick={onDelete} autoFocus>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-md text-sm font-medium bg-red-700 hover:bg-red-800 text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              onClick={onDelete}
+            >
               Yes, delete
             </button>
-            <button type="button" className={BTN} onClick={() => setConfirming(false)}>
+            <button type="button" className={BTN} onClick={() => setConfirming(false)} autoFocus>
               Keep it
             </button>
           </span>
@@ -412,7 +470,8 @@ function ViewEditor({
           <select id="add-metric" className={`${SELECT} max-w-full`} value={metric} onChange={(e) => setMetric(e.target.value as MetricId)}>
             {METRIC_IDS.map((id) => (
               <option key={id} value={id}>
-                {METRICS[id].code}: {METRICS[id].title}
+                {METRICS[id].title}
+                {view.widgets.some((w) => w.metric === id) ? " (on this view)" : ""}
                 {METRICS[id].source === "feed" ? " (waiting on feed)" : ""}
               </option>
             ))}
@@ -444,13 +503,10 @@ function WidgetCard({
     <section aria-labelledby={headingId} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 min-w-0">
       <header className="flex flex-wrap items-start gap-x-4 gap-y-2 mb-3">
         <div className="flex-1 min-w-[12rem]">
-          <h2 id={headingId} className="text-base font-semibold text-slate-900 dark:text-slate-50">
-            <span className="mr-2 inline-block rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-300 align-middle">
-              {def.code}
-            </span>
+          <h2 id={headingId} tabIndex={-1} className="text-base font-semibold text-slate-900 dark:text-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded">
             {def.title}
           </h2>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">{def.blurb}</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">{blurbFor(def, widget.settings.period)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {def.periods.length > 1 && (
@@ -483,10 +539,10 @@ function WidgetCard({
           )}
           {editing && (
             <span className="flex gap-1" role="group" aria-label={`Arrange ${def.title}`}>
-              <button type="button" className={BTN} onClick={() => onMove(-1)} disabled={first} aria-label={`Move ${def.title} up`}>
+              <button id={`up-${widget.id}`} type="button" className={BTN} onClick={() => onMove(-1)} disabled={first} aria-label={`Move ${def.title} up`}>
                 ↑
               </button>
-              <button type="button" className={BTN} onClick={() => onMove(1)} disabled={last} aria-label={`Move ${def.title} down`}>
+              <button id={`down-${widget.id}`} type="button" className={BTN} onClick={() => onMove(1)} disabled={last} aria-label={`Move ${def.title} down`}>
                 ↓
               </button>
               <button type="button" className={BTN} onClick={onRemove} aria-label={`Remove ${def.title} from this view`}>

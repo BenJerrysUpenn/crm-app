@@ -8,7 +8,7 @@
 // business with the whole target.
 
 import { addMonths, daysInMonth, eachDay, lastMonths, monthEnd, monthLabel, monthStart, shortDay } from "./dates.ts";
-import { monthProgress, targetFor, STREAMS, type MonthProgress, type SalesTargetRow, type Stream, type StreamFilter } from "./targets.ts";
+import { monthProgress, targetFor, STREAMS, STREAM_LABEL, type MonthProgress, type SalesTargetRow, type Stream, type StreamFilter } from "./targets.ts";
 
 export type SalesStream = Exclude<Stream, "delivery">;
 /** Sales by day per stream; a stream that is absent has no data yet. */
@@ -25,8 +25,14 @@ export type SalesMtd = {
   days: string[];
   /** Cumulative actual per stream with data, null after the as-of day. */
   cumulative: { stream: SalesStream; values: (number | null)[] }[];
-  /** Cumulative straight-line pace to the month's target. */
+  /**
+   * Cumulative straight-line pace for the chart. While some streams wait on
+   * the feed it is the pace for the streams that have data, so the chart
+   * never sets part of the business against the whole target.
+   */
   pace: number[] | null;
+  paceLabel: string;
+  /** The month's target for the stream chosen (the tiles). */
   target: SalesTargetRow | null;
   /** Month to date against target; null when a needed stream has no data. */
   progress: MonthProgress | null;
@@ -56,17 +62,29 @@ export function salesMonthToDate(sales: StreamDaily, targets: SalesTargetRow[], 
     });
   const target = targetFor(targets, month, stream);
   const n = daysInMonth(month);
-  const pace = target ? days.map((_, i) => cents((target.amount * (i + 1)) / n)) : null;
+  const have = cumulative.map((c) => c.stream);
+  const partial = waitingOn.length > 0 && have.length > 0;
+  const chartTarget = partial ? sumTargets(targets, month, have) : (target?.amount ?? null);
+  const pace = chartTarget != null ? days.map((_, i) => cents((chartTarget * (i + 1)) / n)) : null;
+  const paceLabel = partial ? `Pace to ${have.map((h) => STREAM_LABEL[h].toLowerCase()).join(" and ")} target` : "Pace to target";
   const actualSoFar = cents(cumulative.reduce((s, c) => s + (c.values[days.indexOf(asOf)] ?? 0), 0));
   const progress = waitingOn.length === 0 ? monthProgress({ target: target?.amount ?? null, actual: actualSoFar, asOf }) : null;
-  return { labels: days.map(shortDay), days, cumulative, pace, target, progress, actualSoFar, waitingOn };
+  return { labels: days.map(shortDay), days, cumulative, pace, paceLabel, target, progress, actualSoFar, waitingOn };
+}
+
+/** The sum of the month's targets for some streams; null when none is set. */
+function sumTargets(targets: SalesTargetRow[], month: string, streams: SalesStream[]): number | null {
+  const parts = streams.map((s) => targetFor(targets, month, s)).filter((t): t is SalesTargetRow => t != null);
+  return parts.length ? cents(parts.reduce((a, t) => a + t.amount, 0)) : null;
 }
 
 export type SalesMonths = {
   months: string[];
   labels: string[];
   actual: { stream: SalesStream; values: (number | null)[] }[];
+  /** The target line: for the streams with data while others wait on the feed. */
   target: (number | null)[];
+  targetLabel: string;
   provisional: boolean[];
   /** Index of the current month: later months are booked catering so far. */
   currentIndex: number;
@@ -90,11 +108,14 @@ export function salesByMonth(sales: StreamDaily, targets: SalesTargetRow[], stre
       return { stream: s, values: months.map((m) => (m > monthStart(asOf) && s !== "catering" ? null : sums.get(m)!)) };
     });
   const ts = months.map((m) => targetFor(targets, m, stream));
+  const have = actual.map((a) => a.stream);
+  const partial = waitingOn.length > 0 && have.length > 0;
   return {
     months,
     labels: months.map(monthLabel),
     actual,
-    target: ts.map((t) => t?.amount ?? null),
+    target: partial ? months.map((m) => sumTargets(targets, m, have)) : ts.map((t) => t?.amount ?? null),
+    targetLabel: partial ? `${have.map((h) => STREAM_LABEL[h]).join(" and ")} target` : "Target",
     provisional: ts.map((t) => Boolean(t?.provisional)),
     currentIndex: months.indexOf(monthStart(asOf)),
     waitingOn,

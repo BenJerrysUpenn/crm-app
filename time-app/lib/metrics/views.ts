@@ -23,10 +23,15 @@ export function cleanName(raw: unknown): { ok: true; name: string } | { ok: fals
   return { ok: true, name };
 }
 
-/** True when `name` is taken by another of `views` (case and spacing ignored). */
-export function nameTaken(views: View[], name: string, exceptId?: string): boolean {
+/** The other view already called `name` (case and spacing ignored), if any. */
+export function takenBy(views: View[], name: string, exceptId?: string): View | null {
   const key = name.replace(/\s+/g, " ").trim().toLowerCase();
-  return views.some((v) => v.id !== exceptId && v.name.replace(/\s+/g, " ").trim().toLowerCase() === key);
+  return views.find((v) => v.id !== exceptId && v.name.replace(/\s+/g, " ").trim().toLowerCase() === key) ?? null;
+}
+
+/** True when `name` is taken by another of `views`. */
+export function nameTaken(views: View[], name: string, exceptId?: string): boolean {
+  return takenBy(views, name, exceptId) !== null;
 }
 
 function isMetric(x: unknown): x is MetricId {
@@ -87,12 +92,14 @@ export const DEFAULT_VIEWS: Omit<View, "id">[] = [
   {
     name: "Finance",
     position: 0,
+    // Live metrics first; the ones waiting on the finance feed after them.
     widgets: [
       widget("sales_vs_target"),
-      widget("cash_on_hand"),
-      widget("weekly_ler"),
+      widget("catering_ar"),
       widget("forward_cash"),
       widget("labour"),
+      widget("weekly_ler"),
+      widget("cash_on_hand"),
       widget("closed_month"),
     ],
   },
