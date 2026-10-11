@@ -49,7 +49,7 @@ describe("Email campaigns payload: only real categories and sources", () => {
       prospect({ engine: "cold", category: "university" }),
       prospect({ engine: "warm" }),
     ]);
-    expect(t.cold.sources).toEqual([{ label: "Apollo", n: 2, tag: "derived" }]);
+    expect(t.cold.sources).toEqual([{ label: "Apollo", n: 2 }]);
     expect(t.warm.sources).toBeUndefined();
     expect(t.offer.sources).toBeUndefined();
   });

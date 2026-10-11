@@ -4,7 +4,7 @@
 // Pure functions only: rows in, payload out. Nothing here writes anywhere.
 // There are no tier/segment columns yet (bj-finance #438), so every tier and
 // warm/offer category below is DERIVED here from existing columns. Anything
-// the database cannot tell us is a named constant tagged "static" or "mock".
+// the database cannot tell us is a named constant.
 //
 // v2 (owner review 2026-09-27):
 // - Suppressed / opted-out people are dropped BEFORE counting, so every number
@@ -38,8 +38,6 @@
 // so the model ships people in GROUPS (same category, same history, same
 // flags) and the client decides per group, with the current steps, which
 // state it is in (statesAt).
-
-export type Tag = "live" | "derived" | "static" | "mock";
 
 export type ProspectRow = {
   id: number;
@@ -119,14 +117,13 @@ export type CategoryStat = {
   label: string;
   total: number; // people in it; suppressed already excluded
   groups: Group[];
-  sources?: { label: string; n: number; tag: Tag }[];
+  sources?: { label: string; n: number }[];
 };
 
 export type Sequence = {
   name: string;
   steps: number;
   url: string | null;
-  tag: Tag;
   note: string;
 };
 
@@ -138,7 +135,7 @@ export type TierPayload = {
   blurb: string;
   definition: string;
   total: number; // Everyone: people in the tier, suppressed excluded
-  sources?: { label: string; n: number; tag: Tag }[];
+  sources?: { label: string; n: number }[];
   categories: CategoryStat[];
   sequence: Sequence | null; // the tier's Everyone sequence (Offer: none)
   defaultCadence: Cadence;
@@ -147,7 +144,6 @@ export type TierPayload = {
     mailboxes: number;
     perMailboxDay: number;
     capDay: number | null; // a global daily cap that binds before mailboxes
-    tag: Tag;
     source: string;
   };
   // Invariant, computed here, rendered only when broken.
@@ -175,7 +171,7 @@ export type Payload = {
   notes: string[];
 };
 
-// --- static / assumed values (rendered with their tag) -----------------------
+// --- static / assumed values ------------------------------------------------
 
 // Apollo, 2026-09-27: the only cold sequence. Not called from the app.
 export const COLD_SEQUENCE = {
@@ -649,7 +645,7 @@ export function compute(data: RawData, now: Date): Payload {
     // Only Apollo feeds the cold tier today; LinkedIn and other lists have no
     // import path yet, so they are not listed.
     const sources: TierPayload["sources"] =
-      key === "cold" ? [{ label: "Apollo", n: acc.total, tag: "derived" }] : undefined;
+      key === "cold" ? [{ label: "Apollo", n: acc.total }] : undefined;
 
     // Invariant: routed = everyone + suppressed; everyone = sum of the
     // categories = sum of the groups; and (checked per card, cadence and
@@ -666,7 +662,6 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: COLD_MAILBOXES,
         perMailboxDay: COLD_PER_MAILBOX_DAY,
         capDay: null,
-        tag: "static",
         source: `${COLD_MAILBOXES} Apollo mailboxes × ${COLD_PER_MAILBOX_DAY}/day, from Apollo's mailbox settings (entered by hand, not read live). Cold Pilot A was inactive when last checked on 2026-09-27, with no cold sends.`,
       };
     } else if (key === "warm") {
@@ -675,7 +670,6 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: warmMailboxes.length,
         perMailboxDay: warmPerMailbox,
         capDay: WARM_GLOBAL_CAP_DAY,
-        tag: "live",
         source: `${warmMailboxes.length} news.* mailboxes × ${warmPerMailbox}/day (read live), capped at ${WARM_GLOBAL_CAP_DAY}/day by OUTREACH_DAILY_CAP (the warm sender's default; its live setting can't be read from here), × ${WEEKDAYS_PER_MONTH} weekdays.`,
       };
     } else {
@@ -684,7 +678,6 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: 0,
         perMailboxDay: warmPerMailbox,
         capDay: null,
-        tag: "mock",
         source: `No offer lane yet, so 0 mailboxes. A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
       };
     }
@@ -701,7 +694,6 @@ export function compute(data: RawData, now: Date): Payload {
               name: COLD_SEQUENCE.name,
               steps: COLD_SEQUENCE.steps,
               url: COLD_SEQUENCE.url,
-              tag: "static",
               note: `${COLD_SEQUENCE.steps} step, ${COLD_SEQUENCE.contacts} contacts, ${COLD_SEQUENCE.active ? "active" : "inactive"} (last checked in Apollo on 2026-09-27).`,
             }
           : key === "warm"
@@ -709,7 +701,6 @@ export function compute(data: RawData, now: Date): Payload {
                 name: "warm_sender template",
                 steps: 1,
                 url: null,
-                tag: "static",
                 note: 'Single email, subject "Ice cream catering for holiday events", logged as template warm_holiday_2026. No follow-up step.',
               }
             : null,
