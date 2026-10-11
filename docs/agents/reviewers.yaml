@@ -122,6 +122,8 @@ documentation_map:
     docs: [indeed-cv-downloader/README.md]
   - paths: ["supabase/crm/backfills/*.py"]
     docs: [supabase/crm/backfills/README.md]
+  - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
+    docs: [README.md]
 
 exclusions:
   - path: docs/unsubscribe.md
