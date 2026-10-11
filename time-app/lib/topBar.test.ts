@@ -1,6 +1,7 @@
 // The time app's top bar: where a signed-in person finds their account page.
-// Account has no tab in the desktop row; from the sm breakpoint (640px, where
+// Account has no tab in the desktop row; from the md breakpoint (768px, where
 // that row appears) the name at the right of the bar is the link to /account.
+// Below md the hamburger menu holds the nav, Account included.
 //
 // Rendered with react-dom/server. The pathname Next's app router would supply
 // is given through its PathnameContext; Supabase is the fake one (the bell
@@ -26,19 +27,26 @@ const { default: TopBar } = await loadAppModule<{
 
 startFakeSupabase({ notifications: [] });
 
-function renderBar(role: "manager" | "employee", pathname = "/schedule") {
+function renderBar(role: "manager" | "employee", pathname = "/schedule", name = "Sam Lee", email = "sam@example.test") {
   return renderToStaticMarkup(
     createElement(
       PathnameContext.Provider,
       { value: pathname },
-      createElement(TopBar as never, { email: "sam@example.test", role, name: "Sam Lee" }),
+      createElement(TopBar as never, { email, role, name }),
     ),
   );
 }
 
-/** The desktop tab row: the <nav> shown from the sm breakpoint up. */
+/** Every <a href="/account"> in the bar, as [attributes, inner HTML]. */
+function accountLinks(html: string): { attrs: string; classes: string[]; inner: string }[] {
+  return [...html.matchAll(/<a ([^>]*)>([\s\S]*?)<\/a>/g)]
+    .filter((m) => /(^|\s)href="\/account"/.test(m[1]))
+    .map((m) => ({ attrs: m[1], classes: (m[1].match(/class="([^"]*)"/)?.[1] ?? "").split(/\s+/), inner: m[2] }));
+}
+
+/** The desktop tab row: the <nav> shown from the md breakpoint up. */
 function desktopTabs(html: string): string {
-  const row = html.match(/<nav class="hidden sm:flex[^"]*">([\s\S]*?)<\/nav>/);
+  const row = html.match(/<nav class="hidden md:flex[^"]*">([\s\S]*?)<\/nav>/);
   assert.ok(row, "the bar renders a desktop tab row");
   return row[1];
 }
@@ -52,13 +60,32 @@ for (const [role, who] of [["employee", "an employee"], ["manager", "a manager"]
   });
 }
 
-test("from the sm breakpoint the name in the bar links to /account", () => {
+test("from the md breakpoint the name in the bar links to /account", () => {
   const html = renderBar("employee");
-  const nameLink = [...html.matchAll(/<a class="([^"]*)" href="\/account">([\s\S]*?)<\/a>/g)].find((m) =>
-    m[2].includes("Sam Lee"),
-  );
+  const nameLink = accountLinks(html).find((l) => l.inner.includes("Sam Lee"));
   assert.ok(nameLink, "the name in the bar links to /account");
-  const classes = nameLink[1].split(/\s+/);
-  assert.ok(classes.includes("hidden") && classes.includes("sm:flex"), `shown from sm: ${nameLink[1]}`);
-  assert.ok(!classes.includes("md:flex"), `not held back to md: ${nameLink[1]}`);
+  const { classes, attrs } = nameLink;
+  assert.ok(classes.includes("hidden") && classes.includes("md:flex"), `shown from md: ${attrs}`);
+});
+
+test("the hamburger menu covers every width the name link does not", () => {
+  const html = renderBar("employee");
+  const menu = html.match(/<button class="([^"]*)"[^>]*aria-label="Menu"/);
+  assert.ok(menu, "the bar renders the Menu button");
+  assert.ok(menu[1].split(/\s+/).includes("md:hidden"), `hamburger hidden from md, where the name appears: ${menu[1]}`);
+});
+
+test("a long name is capped and truncated, with the full name as its tooltip", () => {
+  const long = "Maximiliana Christodoulopoulou-Washington";
+  const nameLink = accountLinks(renderBar("manager", "/schedule", long, long)).find((l) => l.inner.includes(long));
+  assert.ok(nameLink, "the long name links to /account");
+  assert.ok(nameLink.classes.some((c) => c.startsWith("max-w-")), `width capped: ${nameLink.attrs}`);
+  assert.match(nameLink.inner, /class="[^"]*\btruncate\b/);
+  assert.match(nameLink.attrs, new RegExp(`title="${long}"`));
+});
+
+test("with no name on the profile the link reads Account, never blank", () => {
+  const nameLink = accountLinks(renderBar("employee", "/schedule", "", "")).find((l) => l.classes.includes("md:flex"));
+  assert.ok(nameLink, "the desktop account link still renders");
+  assert.match(nameLink.inner, /<span[^>]*>Account<\/span>/);
 });
