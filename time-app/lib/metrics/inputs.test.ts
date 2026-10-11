@@ -47,7 +47,11 @@ test("hours split in-store and catering by the shift's deal; cost only for hourl
     salariedHours: 8,
     noRateHours: 2,
   });
+});
+
+test("sales per hour and labour % are unknown, never zero or infinite, without sales or hours", () => {
   assert.equal(salesPerHour(3000, 15), 200);
+  assert.equal(salesPerHour(3000, 0), null);
   assert.equal(salesPerHour(null, 15), null);
   assert.equal(labourPct(75, 3000), 0.025);
   assert.equal(labourPct(75, 0), null);
