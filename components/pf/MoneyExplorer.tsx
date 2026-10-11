@@ -109,6 +109,7 @@ export default function MoneyExplorer({
   // Corrections saved in this visit, laid over the server-corrected rows.
   const [saved, setSaved] = useState<PfOverride[]>([]);
   const [editing, setEditing] = useState<CorrectedRow | null>(null);
+  const [announce, setAnnounce] = useState("");
   const returnFocus = useRef<HTMLButtonElement | null>(null);
   const data = { ...feed, rows: applyOverrides(feed.rows, saved) as CorrectedRow[] };
   const months = data.months;
@@ -512,6 +513,9 @@ export default function MoneyExplorer({
       ) : (
         <div style={{ marginTop: 14 }} dangerouslySetInnerHTML={{ __html: panelHtml }} />
       )}
+      <p className="sr-only" aria-live="polite">
+        {announce}
+      </p>
       {editing && (
         <ChangeCategory
           row={editing}
@@ -522,6 +526,9 @@ export default function MoneyExplorer({
           }}
           onSaved={(o) => {
             setSaved((prev) => [...prev, o]);
+            setAnnounce(
+              `Saved. ${o.scope === "merchant" ? `Every charge from ${o.merchant}` : `This ${o.merchant} charge`} is now ${o.category.trim()}.`,
+            );
             setEditing(null);
             returnFocus.current?.focus();
           }}

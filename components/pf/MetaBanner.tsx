@@ -35,7 +35,7 @@ function fmtDay(ymd: string): string {
 export function categorizedStamp(meta: PfMeta): string {
   if (meta.categorized_through)
     return `Categorized through ${fmtDay(meta.categorized_through)}`;
-  return "Not categorized by the bookkeeping pass yet";
+  return "⚠ Not categorized by the bookkeeping pass yet";
 }
 
 // "Data as of …" line + a loud warning when the feed failed reconciliation.

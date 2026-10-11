@@ -243,7 +243,7 @@ describe("POST /api/pf/overrides", () => {
     state.insertError = { message: "missing", code: "42P01" };
     const pending = await post(good);
     expect(pending.status).toBe(503);
-    expect((await pending.json()).error).toContain("crm/011");
+    expect((await pending.json()).error).toContain("not switched on yet");
     state.insertError = { message: "boom" };
     expect((await post(good)).status).toBe(500);
   });

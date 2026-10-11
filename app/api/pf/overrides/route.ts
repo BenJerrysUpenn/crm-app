@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       {
         error:
           saved.reason === "missing_table"
-            ? "Corrections are not switched on yet (database migration crm/011 is pending)"
+            ? "Corrections are not switched on yet. Nothing was saved."
             : "Could not save the correction",
       },
       { status: saved.reason === "missing_table" ? 503 : 500 },

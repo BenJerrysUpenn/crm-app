@@ -34,17 +34,22 @@ export default function ChangeCategory({
   const [scope, setScope] = useState<OverrideScope>("merchant");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const selectRef = useRef<HTMLSelectElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const unchanged = category === row.c && scope === "transaction";
 
+  // A native modal dialog: the browser traps focus inside it, makes the page
+  // behind inert and turns Escape into a `cancel` event. The page behind does
+  // not scroll while it is open.
   useEffect(() => {
-    selectRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+    const dlg = dialogRef.current;
+    if (dlg && !dlg.open) dlg.showModal?.();
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -76,15 +81,20 @@ export default function ChangeCategory({
   }
 
   return (
-    <div className="pf-dialog-backdrop" onClick={onClose}>
-      <form
-        className="pf-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={save}
-      >
+    <dialog
+      ref={dialogRef}
+      className="pf-dialog"
+      aria-labelledby={titleId}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      onClick={(e) => {
+        // a click on the backdrop lands on the <dialog> element itself
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <form onSubmit={save}>
         <h2 id={titleId}>Change category</h2>
         <p className="pf-dialog-what">
           <b>{row.m}</b>
@@ -96,7 +106,7 @@ export default function ChangeCategory({
         <label className="pf-field">
           <span>Category</span>
           <select
-            ref={selectRef}
+            autoFocus
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             required
@@ -153,12 +163,12 @@ export default function ChangeCategory({
           <button
             type="submit"
             className="pf-btn primary"
-            disabled={!category || saving}
+            disabled={!category || saving || unchanged}
           >
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </form>
-    </div>
+    </dialog>
   );
 }
