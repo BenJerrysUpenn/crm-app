@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { salesByMonth, salesMonthToDate } from "./series.ts";
+import { lastN, periodCount, salesByMonth, salesMonthToDate } from "./series.ts";
 import { SALES_TARGET_SEED } from "./salesTargetsSeed.ts";
 
 const catering = { "2026-10-02": 1000, "2026-10-09": 500, "2026-10-20": 700, "2026-09-12": 300, "2026-12-05": 900 };
@@ -63,4 +63,12 @@ test("by month: twelve back, three ahead; only catering is shown ahead; target p
   assert.equal(all.targetLabel, "Target");
   assert.equal(m.target[0], null); // no 2025 targets
   assert.deepEqual(m.waitingOn, ["concessions"]);
+});
+
+test("a widget's period keeps that many of the latest weeks or months, or all there are", () => {
+  const weeks = ["w1", "w2", "w3", "w4", "w5", "w6", "w7", "w8", "w9", "w10"];
+  assert.deepEqual(lastN(weeks, periodCount("8w")), ["w3", "w4", "w5", "w6", "w7", "w8", "w9", "w10"]);
+  assert.deepEqual(lastN(["m1", "m2"], periodCount("12m")), ["m1", "m2"]);
+  assert.equal(periodCount("13w"), 13);
+  assert.equal(periodCount("mtd"), 0); // not a count
 });
