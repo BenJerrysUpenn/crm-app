@@ -12,7 +12,7 @@ import type { MetricsData } from "@/lib/metrics/load";
 import { METRICS, METRIC_IDS, PERIOD_LABEL, blurbFor, type MetricId, type WidgetConfig, type WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, STREAMS, type StreamFilter } from "@/lib/metrics/targets";
 import {
-  MAX_VIEWS, MAX_WIDGETS, addWidget, checkName, freeName, moveView, moveWidget, ordered, removeWidget,
+  MAX_NAME, MAX_VIEWS, MAX_WIDGETS, addWidget, checkName, freeName, moveView, moveWidget, ordered, removeWidget,
   updateWidgetSettings, type View,
 } from "@/lib/metrics/views";
 import type { ViewsState } from "@/lib/metrics/viewsServer";
@@ -346,7 +346,7 @@ function NewViewButton({ list, onCreate }: { list: View[]; onCreate: (name: stri
         id="new-view-name"
         ref={input}
         value={name}
-        maxLength={60}
+        maxLength={MAX_NAME}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && cancel()}
         placeholder={freeName(list, "e.g. My catering view")}
@@ -404,7 +404,7 @@ function ViewEditor({
           <input
             id="view-name"
             value={name}
-            maxLength={60}
+            maxLength={MAX_NAME}
             onChange={(e) => setName(e.target.value)}
             className="min-h-[44px] w-64 max-w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
             aria-invalid={Boolean(problem)}
