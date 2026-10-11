@@ -24,7 +24,7 @@
 --                          profit and the rolling twelve months.
 --   payload is bj-finance modules/metrics_publish.py's JSON, verbatim; its
 --   shape is versioned by payload->'schema' and documented (and parsed) in
---   time-app/lib/metrics/snapshot.ts. A payload the page cannot parse shows
+--   time-app/lib/metrics/feed.ts. A payload the page cannot parse shows
 --   as "feed format not recognised", never as zeros.
 --
 -- EVERY PUBLISH IS KEPT. Rows are never updated or deleted (a trigger refuses
