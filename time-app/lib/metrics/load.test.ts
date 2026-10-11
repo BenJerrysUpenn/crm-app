@@ -50,11 +50,26 @@ beforeEach(() => {
   db.signIn(MANAGER);
 });
 
-function managerClient() {
+// The network between the page and PostgREST, the system boundary: `answer`
+// may take over one request (return a Response, or throw as fetch does)
+// before it reaches the stand-in Supabase; undefined lets it through.
+type Answer = (url: URL) => Response | undefined;
+
+function managerClient(answer: Answer = () => undefined) {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-    global: { headers: { Authorization: `Bearer token-for-${MANAGER}` } },
+    global: {
+      headers: { Authorization: `Bearer token-for-${MANAGER}` },
+      fetch: (input, init) => {
+        const taken = answer(new URL(input instanceof Request ? input.url : String(input)));
+        return taken ? Promise.resolve(taken) : fetch(input, init);
+      },
+    },
     auth: { persistSession: false },
   });
+}
+
+function refusal(status: number, code: string, message: string): Response {
+  return new Response(JSON.stringify({ code, details: null, hint: null, message }), { status, headers: { "content-type": "application/json" } });
 }
 
 test("a deal in both the event-date and the created-date windows is counted once", async () => {
@@ -77,6 +92,40 @@ test("before the sales_targets table exists the bundled seed is used, and that i
   assert.equal(data.targetsSource, "seed");
   assert.equal(data.targets.length, 72); // two years of three streams
   assert.deepEqual(data.problems, []);
+});
+
+test("a sales_targets read that is refused shows the bundled seed and says so", async () => {
+  const client = managerClient((url) =>
+    url.pathname.endsWith("/sales_targets") ? refusal(403, "42501", "permission denied for table sales_targets") : undefined,
+  );
+  const data = buildMetricsData(await loadMetricsInputs(client, NOW));
+  assert.equal(data.targetsSource, "seed");
+  assert.equal(data.targets.length, 72);
+  assert.deepEqual(data.problems, ["sales targets: permission denied for table sales_targets; showing the bundled target table"]);
+});
+
+test("a sales_targets request that never completes shows the bundled seed and says so", async () => {
+  const client = managerClient((url) => {
+    if (url.pathname.endsWith("/sales_targets")) throw new DOMException("The request was aborted", "AbortError");
+    return undefined;
+  });
+  const data = buildMetricsData(await loadMetricsInputs(client, NOW));
+  assert.equal(data.targetsSource, "seed");
+  assert.equal(data.targets.length, 72);
+  assert.deepEqual(data.problems, ["sales targets: AbortError: The request was aborted; showing the bundled target table"]);
+});
+
+test("before profiles has pay_type the people read is a problem, never a read without it; labour and forward do not draw", async () => {
+  const client = managerClient((url) =>
+    url.pathname.endsWith("/profiles") && url.searchParams.get("select")?.includes("pay_type")
+      ? refusal(400, "42703", "column profiles.pay_type does not exist")
+      : undefined,
+  );
+  const data = buildMetricsData(await loadMetricsInputs(client, NOW));
+  assert.deepEqual(data.problems, ["people: column profiles.pay_type does not exist"]);
+  assert.equal(data.labour, null);
+  assert.equal(data.forward, null);
+  assert.equal(data.catering?.byDay["2026-10-04"], 1000);
 });
 
 test("a section that cannot load is null and named in problems, never zeros; the rest still draws", async () => {
