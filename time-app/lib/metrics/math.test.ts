@@ -40,6 +40,17 @@ test("the whole-business target is the sum of the month's streams, provisional w
   assert.equal(targetFor([], "2026-10-01", "all"), null);
 });
 
+test("a month's target from table rows: a stream's own row, unflagged means firm; the whole business summed to the cent", () => {
+  // Rows as the sales_targets table may hand them over: no provisional flag, amounts in cents.
+  const rows: SalesTargetRow[] = [
+    { month: "2026-10-01", stream: "in_store", amount: 0.1, basis: "test" },
+    { month: "2026-10-01", stream: "catering", amount: 0.2, basis: "test" },
+  ];
+  assert.deepEqual(targetFor(rows, "2026-10-01", "catering"), { month: "2026-10-01", amount: 0.2, basis: "test", provisional: false });
+  assert.equal(targetFor(rows, "2026-10-01", "all")?.amount, 0.3);
+  assert.equal(targetFor(rows, "2026-10-01", "all")?.provisional, false);
+});
+
 test("the seed matches migration 39's INSERT, so the bundled fallback and the table agree", async (t) => {
   const { readFile } = await import("node:fs/promises");
   const { fileURLToPath } = await import("node:url");
@@ -172,6 +183,18 @@ test("catering sales are the pre-tax subtotal, on the event date, booked deals o
   assert.equal(cateringValue(deal({ subtotal_pretax: null, total_with_tax: null })), null);
 });
 
+test("a booked deal with no quote total is named as missing and adds nothing to catering sales", () => {
+  const days = cateringByDay(
+    [deal({ id: 7, event_date: "2026-10-03", subtotal_pretax: null, total_with_tax: null }), deal({ id: 8, event_date: "2026-10-03", subtotal_pretax: 200 })],
+    "2026-10-01",
+    "2026-10-31",
+    TODAY,
+  );
+  assert.deepEqual(days.missingValueIds, [7]);
+  assert.equal(days.total, 200);
+  assert.equal(days.byDay["2026-10-03"], 200);
+});
+
 // ---- catering AR -------------------------------------------------------------------------
 
 test("AR: balance = total with tax - amount paid; Paid in Full owes nothing; due by the event date", () => {
@@ -190,6 +213,16 @@ test("AR: balance = total with tax - amount paid; Paid in Full owes nothing; due
   assert.equal(ar.notYetDueThisMonth, 500);
   assert.equal(ar.laterMonths, 500); // Nov 2
   assert.deepEqual(ar.rows.map((r) => r.id), [5, 1, 2, 4]);
+});
+
+test("AR: a booked deal with no total is named as missing, never given a balance", () => {
+  const ar = arSummary(
+    [deal({ id: 9, event_date: "2026-10-03", subtotal_pretax: null, total_with_tax: null, amount_paid: 0, payment_status: "Deposit Paid" })],
+    TODAY,
+  );
+  assert.deepEqual(ar.missingTotalIds, [9]);
+  assert.deepEqual(ar.rows, []);
+  assert.equal(ar.dueThisMonth, 0);
 });
 
 // ---- dates ----------------------------------------------------------------------------------
