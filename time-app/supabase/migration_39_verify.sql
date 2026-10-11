@@ -239,7 +239,7 @@ begin
   select count(*) into n from public.sales_targets where provisional <> (stream = 'concessions');
   if n <> 0 then raise exception 'provisional should mark the concessions rows and only them (% rows wrong)', n; end if;
   begin
-    insert into public.sales_targets (month, stream, amount, basis) values (date '2026-10-02', 'all', 1, 'x');
+    insert into public.sales_targets (month, stream, amount, basis) values (date '2026-10-02', 'catering', 1, 'x');
     refused := false;
   exception when check_violation then
     refused := true;
@@ -259,6 +259,11 @@ begin
     refused := true;
   end;
   if not refused then raise exception 'a negative target was accepted'; end if;
+
+  -- A hand edit moves updated_at.
+  update public.sales_targets set amount = amount where stream = 'concessions' and month = date '2026-12-01';
+  select count(*) into n from public.sales_targets where stream = 'concessions' and month = date '2026-12-01' and updated_at = now();
+  if n <> 1 then raise exception 'editing a target did not move its updated_at'; end if;
 
   raise notice 'migration 39 verified';
 end $$;

@@ -27,9 +27,8 @@
 --      the house rule for anything a person made.
 --   2. metric_preferences: one row per person, which view they last had open.
 --   3. sales_targets: the target per calendar month and stream ('in_store',
---      'catering', 'concessions'; 'delivery' and 'all' are allowed for later
---      use). The whole-business target for a month is the sum of its stream
---      rows, unless an 'all' row overrides it; nothing assumes a year total.
+--      'catering', 'concessions'). The whole-business target for a month is
+--      the sum of its stream rows; nothing assumes a year total.
 --      Seeded from the 3-stream $600K table (#671 frame of 2026-10-10,
 --      rebuilt from the seller's separate Penn and Ventures books: seven
 --      seller years, equal weights, concessions on our event calendar) for
@@ -193,7 +192,7 @@ alter table public.sales_targets add constraint sales_targets_month_check
 
 alter table public.sales_targets drop constraint if exists sales_targets_stream_check;
 alter table public.sales_targets add constraint sales_targets_stream_check
-  check (stream in ('all', 'in_store', 'delivery', 'catering', 'concessions'));
+  check (stream in ('in_store', 'catering', 'concessions'));
 
 alter table public.sales_targets drop constraint if exists sales_targets_measure_check;
 alter table public.sales_targets add constraint sales_targets_measure_check
@@ -202,6 +201,24 @@ alter table public.sales_targets add constraint sales_targets_measure_check
 alter table public.sales_targets drop constraint if exists sales_targets_amount_check;
 alter table public.sales_targets add constraint sales_targets_amount_check
   check (amount >= 0);
+
+-- updated_at says when a target was last changed (they are changed by hand).
+create or replace function public.touch_sales_target()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end
+$$;
+
+-- Trigger-only.
+revoke execute on function public.touch_sales_target() from public, anon, authenticated, service_role;
+
+drop trigger if exists sales_targets_touch on public.sales_targets;
+create trigger sales_targets_touch before update on public.sales_targets
+  for each row execute function public.touch_sales_target();
 
 alter table public.sales_targets enable row level security;
 

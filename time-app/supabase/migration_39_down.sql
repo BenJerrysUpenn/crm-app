@@ -18,5 +18,6 @@ drop function if exists public.guard_metric_preference();
 drop table if exists public.metric_views;
 drop function if exists public.touch_metric_view();
 drop table if exists public.sales_targets;
+drop function if exists public.touch_sales_target();
 
 commit;
