@@ -28,6 +28,7 @@ source is resolved in this order:
 | --- | --- |
 | `PF_DATA_PATH` | Local file path to `pf_data.json` (dev; point it at `fixtures/pf_data.sample.json` for synthetic data) |
 | `PF_GITHUB_TOKEN` | Fine-grained GitHub PAT with contents:read on the private data repo only; used to fetch the feed from its `pf-data` branch via the GitHub contents API (prod on Vercel; server-only, cached ~5 min) |
+| `PF_ALLOWED_USER_IDS` | Supabase auth user IDs (comma or space separated) allowed to open `/safe`, `/money`, `/dial`. Server-only. Unset or empty fails closed: nobody gets in, and any other signed-in user gets a 404. Enforced in `lib/pf/guard.ts` |
 
 With neither set, the pages render a "feed not wired yet" state. No real
 financial data or secrets are ever committed to this repo.
