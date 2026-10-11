@@ -53,6 +53,7 @@ describe("profile derivation", () => {
     expect(isBusinessDomain("acme.com")).toBe(true);
     expect(isBusinessDomain("gmail.com")).toBe(false);
     expect(isBusinessDomain("")).toBe(false);
+    expect(isBusinessDomain("localhost")).toBe(false); // no dot: not a real domain
   });
 
   it("follows the spec's literal precedence: occasion before channel", () => {
@@ -69,6 +70,7 @@ describe("profile derivation", () => {
   it("maps wedding / mitzvah / family event types", () => {
     expect(deriveProfile("Bridal Shower", "a@gmail.com")).toBe("wedding");
     expect(deriveProfile("Rehearsal Dinner", "a@gmail.com")).toBe("wedding");
+    expect(deriveProfile("Engagement Party", "a@gmail.com")).toBe("wedding");
     expect(deriveProfile("Bar or Bat Mitzvah", "a@gmail.com")).toBe("mitzvah");
     expect(deriveProfile("Birthday Party", "a@gmail.com")).toBe(
       "family_celebration",
@@ -115,6 +117,10 @@ describe("windows", () => {
     expect(semesterStart(new Date("2026-09-25T00:00:00Z")).toISOString()).toBe(
       "2026-08-01T00:00:00.000Z",
     );
+    // Aug 1 itself already counts as the fall semester.
+    expect(semesterStart(new Date("2026-08-01T00:00:00Z")).toISOString()).toBe(
+      "2026-08-01T00:00:00.000Z",
+    );
     // Before August -> Jan 1 of the same year.
     expect(semesterStart(new Date("2026-03-01T00:00:00Z")).toISOString()).toBe(
       "2026-01-01T00:00:00.000Z",
@@ -128,6 +134,8 @@ describe("helpers", () => {
   it("median handles odd, even and empty", () => {
     expect(median([3, 1, 2])).toBe(2);
     expect(median([1, 2, 3, 4])).toBe(2.5);
+    // Numeric order, not text order: as text, 10 would sort before 2 and 9.
+    expect(median([10, 9, 2])).toBe(9);
     expect(median([])).toBeNull();
   });
   it("pct guards divide-by-zero and rounds", () => {
@@ -144,6 +152,10 @@ describe("helpers", () => {
   it("weekStartISO snaps to Monday UTC", () => {
     // 2026-09-25 is a Friday -> Monday 2026-09-21.
     expect(weekStartISO(Date.parse("2026-09-25T12:00:00Z"))).toBe(
+      "2026-09-21T00:00:00.000Z",
+    );
+    // A Sunday belongs to the week that started six days earlier, not the next one.
+    expect(weekStartISO(Date.parse("2026-09-27T12:00:00Z"))).toBe(
       "2026-09-21T00:00:00.000Z",
     );
   });
@@ -320,6 +332,7 @@ describe("quote latency", () => {
         { created_at: "2026-09-11T00:00:00Z", quote_sent_at: "2026-09-11T06:00:00Z" }, // 6h
         { created_at: "2026-09-12T00:00:00Z", quote_sent_at: "2026-09-11T00:00:00Z" }, // negative -> dropped
         { created_at: "bad", quote_sent_at: "2026-09-11T00:00:00Z" }, // unparseable -> dropped
+        { created_at: "2026-09-13T00:00:00Z", quote_sent_at: "bad" }, // unparseable quote -> dropped
         { created_at: "2026-08-20T00:00:00Z", quote_sent_at: "2026-08-20T09:00:00Z" }, // before window -> dropped
       ],
       START,
