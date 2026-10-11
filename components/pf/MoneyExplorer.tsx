@@ -6,8 +6,14 @@
 // category lens and a decision lens. The imperative SVG-string renderer is
 // kept nearly verbatim; React owns the navigation state.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ExplorerData, ExplorerRow } from "@/lib/pf/types";
+import {
+  applyOverrides,
+  type CorrectedRow,
+  type PfOverride,
+} from "@/lib/pf/overrides";
+import ChangeCategory from "./ChangeCategory";
 import "./pf.css";
 
 type Lens = "cat" | "dec";
@@ -92,7 +98,19 @@ function stackY(items: [string, number][], sc: number, y0: number): Stacked[] {
   });
 }
 
-export default function MoneyExplorer({ data }: { data: ExplorerData }) {
+export default function MoneyExplorer({
+  data: feed,
+  categories = [],
+}: {
+  data: ExplorerData;
+  /** Monarch names the change-category button offers (meta.categories). */
+  categories?: string[];
+}) {
+  // Corrections saved in this visit, laid over the server-corrected rows.
+  const [saved, setSaved] = useState<PfOverride[]>([]);
+  const [editing, setEditing] = useState<CorrectedRow | null>(null);
+  const returnFocus = useRef<HTMLButtonElement | null>(null);
+  const data = { ...feed, rows: applyOverrides(feed.rows, saved) as CorrectedRow[] };
   const months = data.months;
   const [lens, setLens] = useState<Lens>("cat");
   const [nav, setNav] = useState<Nav>({
@@ -400,22 +418,13 @@ export default function MoneyExplorer({ data }: { data: ExplorerData }) {
             .join("")
         : `<tr><td colspan="3">none</td></tr>`) +
       `</tbody><tfoot><tr><th></th><th>net EF change (transfers)</th><th class="num">${net2 >= 0 ? "+" : ""}${fmt2(net2)}</th></tr></tfoot></table></div></div>`;
-  } else if (leaf && grp && sub) {
+  }
+  let txnRows: CorrectedRow[] | null = null;
+  if (grp !== "kept" && leaf && grp && sub) {
     const isFold = leaf.startsWith("…");
-    const shown = rowsOf(grp, sub)
+    txnRows = rowsOf(grp, sub)
       .filter((r) => (isFold ? true : r.m === leaf))
       .sort((a, b) => Math.abs(b.a) - Math.abs(a.a));
-    const tot = shown.reduce((a, r) => a + r.a, 0);
-    panelHtml =
-      `<div class="card"><div class="tablewrap"><table>` +
-      `<thead><tr><th>Date</th><th>Merchant</th><th class="num">Amount</th></tr></thead><tbody>` +
-      shown
-        .map(
-          (r) =>
-            `<tr><td>${r.d}</td><td>${esc(r.m)}</td><td class="num${r.a > 0 ? " pos" : ""}">${fmt2(r.a)}</td></tr>`,
-        )
-        .join("") +
-      `</tbody><tfoot><tr><th></th><th>${shown.length} transactions</th><th class="num">${fmt2(tot)}</th></tr></tfoot></table></div></div>`;
   }
 
   // ---- click handlers (delegation, port of the artifact listeners) ----
@@ -489,7 +498,112 @@ export default function MoneyExplorer({ data }: { data: ExplorerData }) {
           dangerouslySetInnerHTML={{ __html: s }}
         />
       </div>
-      <div style={{ marginTop: 14 }} dangerouslySetInnerHTML={{ __html: panelHtml }} />
+      {txnRows ? (
+        <div style={{ marginTop: 14 }}>
+          <TxnTable
+            rows={txnRows}
+            canEdit={categories.length > 0}
+            onEdit={(r, btn) => {
+              returnFocus.current = btn;
+              setEditing(r);
+            }}
+          />
+        </div>
+      ) : (
+        <div style={{ marginTop: 14 }} dangerouslySetInnerHTML={{ __html: panelHtml }} />
+      )}
+      {editing && (
+        <ChangeCategory
+          row={editing}
+          categories={categories}
+          onClose={() => {
+            setEditing(null);
+            returnFocus.current?.focus();
+          }}
+          onSaved={(o) => {
+            setSaved((prev) => [...prev, o]);
+            setEditing(null);
+            returnFocus.current?.focus();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+
+// The transactions under one merchant (or the "…N more" fold), with each
+// row's Monarch category and its change-category button.
+function TxnTable({
+  rows,
+  canEdit,
+  onEdit,
+}: {
+  rows: CorrectedRow[];
+  canEdit: boolean;
+  onEdit: (r: CorrectedRow, btn: HTMLButtonElement) => void;
+}) {
+  const tot = rows.reduce((a, r) => a + r.a, 0);
+  return (
+    <div className="card">
+      <div className="tablewrap">
+        <table className="txn">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Merchant</th>
+              <th>Category</th>
+              <th className="num">Amount</th>
+              {canEdit && (
+                <th>
+                  <span className="sr-only">Change category</span>
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.id ?? `${r.d}-${r.m}-${i}`}>
+                <td className="t-date">{r.d}</td>
+                <td className="t-merch">{r.m}</td>
+                <td className="t-cat">
+                  <span>{r.c?.trim() || "—"}</span>
+                  {r.b === 1 && <span className="tag">business</span>}
+                  {r.corrected && (
+                    <span className="tag changed" title="Saved. Totals update after the next 8:00 AM pass.">
+                      changed
+                    </span>
+                  )}
+                </td>
+                <td className={`num t-amt${r.a > 0 ? " pos" : ""}`}>{fmt2(r.a)}</td>
+                {canEdit && (
+                  <td className="t-act">
+                    {r.id ? (
+                      <button
+                        type="button"
+                        className="pf-btn small"
+                        aria-label={`Change category for ${r.m} on ${r.d}`}
+                        onClick={(e) => onEdit(r, e.currentTarget)}
+                      >
+                        Change
+                      </button>
+                    ) : null}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th></th>
+              <th>{rows.length} transactions</th>
+              <th></th>
+              <th className="num">{fmt2(tot)}</th>
+              {canEdit && <th></th>}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }

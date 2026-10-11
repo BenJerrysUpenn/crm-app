@@ -33,6 +33,19 @@ source is resolved in this order:
 With neither set, the pages render a "feed not wired yet" state. No real
 financial data or secrets are ever committed to this repo.
 
+**Change category on /money (bj-finance #223).** Each transaction under a
+merchant has a Change button. It saves a correction to
+`public.pf_category_overrides` (migration `supabase/crm/011_pf_category_overrides.sql`)
+through `POST /api/pf/overrides`: "every charge from this merchant" by default,
+or "just this one". The table admits no API role; the route checks
+`PF_ALLOWED_USER_IDS` through `lib/pf/guard.ts` and writes with
+`SUPABASE_SERVICE_ROLE_KEY`, so the one allowlist governs pages and table
+alike. The page shows a saved correction at once; the private repo's 08:00
+bookkeeping pass applies it to the feed and folds merchant corrections into
+its rules. The category list comes from the feed (`meta.categories`), so the
+button only appears once the feed publishes one. `/safe` shows
+"Categorized through <date>" from `meta.categorized_through`.
+
 ### One-click unsubscribe (`/api/unsubscribe/[token]`)
 The RFC 8058 unsubscribe control for the warm outreach lane (bj-finance #440).
 Full contract, including how `outreach/warm_sender.py` mints a matching token:

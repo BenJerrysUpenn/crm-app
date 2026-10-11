@@ -149,3 +149,70 @@
 .pfviz .hamt .over { color: var(--bad); }
 .pfviz .flexline { border-top: 1px solid var(--hair); margin-top: 4px; padding-top: 8px; }
 .pfviz .hnote { font-size: 10.5px; color: var(--muted); line-height: 1.45; margin-top: 6px; }
+
+/* ---- money explorer: transactions + change category (bj-finance #223) ---- */
+.pfviz .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.pfviz table.txn td { vertical-align: middle; }
+.pfviz table.txn .t-date { white-space: nowrap; color: var(--ink2); }
+.pfviz table.txn .t-cat { color: var(--ink2); }
+.pfviz table.txn .t-act { text-align: right; width: 1%; white-space: nowrap; }
+.pfviz .tag { display: inline-block; margin-left: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em; color: var(--muted); border: 1px solid var(--hair); border-radius: 999px; padding: 1px 7px; vertical-align: 1px; }
+.pfviz .tag.changed { color: var(--good); border-color: var(--good); }
+.pfviz .pf-btn {
+  font: 600 13px system-ui; min-height: 36px; padding: 6px 14px; border-radius: 999px;
+  border: 1px solid var(--hair); background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.pfviz .pf-btn:hover { background: var(--wash); }
+.pfviz .pf-btn:focus-visible, .pfviz .pf-dialog select:focus-visible, .pfviz .pf-choice input:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.pfviz .pf-btn.small { min-height: 32px; padding: 4px 12px; font-size: 12.5px; }
+.pfviz .pf-btn.primary { background: var(--ink); color: var(--page); border-color: var(--ink); }
+.pfviz .pf-btn.primary:hover { background: var(--ink2); }
+.pfviz .pf-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (pointer: coarse) { .pfviz .pf-btn, .pfviz .pf-btn.small { min-height: 44px; } }
+
+.pfviz .pf-dialog-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(2, 6, 23, 0.72); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.pfviz .pf-dialog {
+  width: 100%; max-width: 440px; max-height: calc(100vh - 32px); overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--hair); border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5); padding: 20px; display: flex; flex-direction: column; gap: 14px;
+}
+.pfviz .pf-dialog h2 { font-size: 17px; margin: 0; }
+.pfviz .pf-dialog-what { margin: 0; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.pfviz .pf-dialog-what span { color: var(--ink2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.pfviz .pf-field { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; font-size: 13px; }
+.pfviz .pf-field > span, .pfviz .pf-field legend { color: var(--ink2); font-weight: 600; font-size: 12.5px; padding: 0; margin-bottom: 6px; }
+.pfviz .pf-dialog select {
+  min-height: 44px; font: 15px system-ui; color: var(--ink); background: var(--page);
+  border: 1px solid var(--hair); border-radius: 10px; padding: 8px 10px;
+}
+.pfviz .pf-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px; font-size: 14px; cursor: pointer; border-radius: 8px; }
+.pfviz .pf-choice:hover { background: var(--wash); }
+.pfviz .pf-choice input { width: 18px; height: 18px; accent-color: var(--acc); flex: none; }
+.pfviz .pf-dialog-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.pfviz .pf-dialog-error { margin: 0; color: var(--bad); font-size: 13px; font-weight: 600; }
+.pfviz .pf-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.pfviz .pf-dialog-actions .pf-btn { min-height: 44px; padding: 8px 20px; }
+
+/* phones: each transaction becomes a two-line card instead of a 5-column row */
+@media (max-width: 640px) {
+  .pfviz table.txn thead { display: none; }
+  .pfviz table.txn tbody tr {
+    display: grid; grid-template-columns: 1fr auto; grid-template-areas: "merch amt" "cat act" "date act";
+    gap: 2px 12px; padding: 10px 4px; border-bottom: 1px solid var(--hair);
+  }
+  .pfviz table.txn tbody td { border: 0; padding: 0; }
+  .pfviz table.txn .t-merch { grid-area: merch; font-weight: 600; }
+  .pfviz table.txn .t-amt { grid-area: amt; }
+  .pfviz table.txn .t-cat { grid-area: cat; font-size: 12.5px; }
+  .pfviz table.txn .t-date { grid-area: date; font-size: 12px; color: var(--muted); }
+  .pfviz table.txn .t-act { grid-area: act; align-self: center; }
+  .pfviz table.txn .pf-btn.small { min-height: 44px; }
+  .pfviz table.txn tfoot tr { display: flex; justify-content: space-between; }
+  .pfviz table.txn tfoot th:empty { display: none; }
+  .pfviz .pf-dialog-backdrop { align-items: flex-end; padding: 0; }
+  .pfviz .pf-dialog { max-width: none; border-radius: 16px 16px 0 0; max-height: 92vh; }
+}
+
+/* safe to spend: "categorized through" stamp */
+.pfviz .meta-stamp { color: var(--muted); font-size: 12px; margin: -6px 0 10px; }
+.pfviz .meta-stamp.stale { color: var(--s4); }

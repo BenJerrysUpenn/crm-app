@@ -41,3 +41,19 @@ export async function loadPfForViewer(): Promise<{
 
   return { email: user.email ?? "", feed: await loadPfData() };
 }
+
+// The same door for API routes, which answer with a status instead of
+// redirecting: 401 signed out, 404 signed in but not listed. Allowed callers
+// get the feed too (the overrides route checks categories against it).
+export async function pfApiViewer(): Promise<
+  | { ok: true; userId: string; feed: PfLoadResult }
+  | { ok: false; status: 401 | 404 }
+> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, status: 401 };
+  if (!isPfViewerAllowed(user.id)) return { ok: false, status: 404 };
+  return { ok: true, userId: user.id, feed: await loadPfData() };
+}

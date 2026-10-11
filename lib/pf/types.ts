@@ -18,6 +18,13 @@ export interface PfMeta {
     raw_sum_cents: number;
     ledger_sum_cents: number;
   };
+  /** Newest date (YYYY-MM-DD) up to which the 08:00 bookkeeping pass has
+   *  given every transaction a category; null before its first run. Absent
+   *  on feeds published before bj-finance #223. */
+  categorized_through?: string | null;
+  /** Monarch category names the change-category button may offer, in the
+   *  rules doc's order (exact strings; one ends in a space). */
+  categories?: string[];
 }
 
 /** One classified transaction row (shape of make_explorer.py `rows`). */
@@ -36,6 +43,13 @@ export interface ExplorerRow {
   g2: string;
   /** Decision-lens subcategory label. */
   s2: string;
+  /** Monarch transaction Id. Absent on aggregated rows (401k contributions),
+   *  which cannot be corrected one by one. */
+  id?: string;
+  /** Monarch category name (override, then the pass's ledger, then Monarch). */
+  c?: string;
+  /** 1 when the charge is business, reimbursable. */
+  b?: 1;
 }
 
 export interface ExplorerData {
