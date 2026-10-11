@@ -1,8 +1,5 @@
-// PROTOTYPE — Email campaigns tab (branch prototype/email-campaigns). Throwaway.
-//
-// Question this answers: "does one screen let the owners see and manage the
-// whole email SYSTEM (tiers, categories, sequences, capacity) and drill into
-// the PEOPLE flowing through it?"
+// Email campaigns tab: the model. One screen to see the whole email system
+// (tiers, categories, sequences, capacity) and drill into the people in it.
 //
 // Pure functions only: rows in, payload out. Nothing here writes anywhere.
 // There are no tier/segment columns yet (bj-finance #438), so every tier and
@@ -122,7 +119,7 @@ export type CategoryStat = {
   label: string;
   total: number; // people in it; suppressed already excluded
   groups: Group[];
-  tag?: Tag; // shown when a category is static/mock (e.g. Seasonal menu list)
+  tag?: Tag;
   hint?: string;
   sources?: { label: string; n: number; tag: Tag }[];
 };
@@ -651,26 +648,10 @@ export function compute(data: RawData, now: Date): Payload {
     const categories = Array.from(acc.cats.values())
       .map(finish)
       .sort((a, b) => b.total - a.total);
-    if (key === "warm") {
-      // v5: people who opted in to the monthly seasonal menu / offers. There
-      // is no tag or column for it yet, so it is a mock category of 0.
-      categories.push({
-        key: "seasonal_menu",
-        label: "Seasonal menu list",
-        total: 0,
-        groups: [],
-        tag: "mock",
-        hint: "Opted in to the monthly seasonal menu / offers. No tag for this yet, so 0 (mock).",
-      });
-    }
+    // Only Apollo feeds the cold tier today; LinkedIn and other lists have no
+    // import path yet, so they are not listed.
     const sources: TierPayload["sources"] =
-      key === "cold"
-        ? [
-            { label: "Apollo", n: acc.total, tag: "derived" },
-            { label: "LinkedIn", n: 0, tag: "mock" },
-            { label: "Other lists", n: 0, tag: "mock" },
-          ]
-        : undefined;
+      key === "cold" ? [{ label: "Apollo", n: acc.total, tag: "derived" }] : undefined;
 
     // Invariant: routed = everyone + suppressed; everyone = sum of the
     // categories = sum of the groups; and (checked per card, cadence and
@@ -688,7 +669,7 @@ export function compute(data: RawData, now: Date): Payload {
         perMailboxDay: COLD_PER_MAILBOX_DAY,
         capDay: null,
         tag: "static",
-        source: `${COLD_MAILBOXES} Apollo mailboxes × ${COLD_PER_MAILBOX_DAY}/day (static). Cold Pilot A is inactive, so real sends today are 0.`,
+        source: `${COLD_MAILBOXES} Apollo mailboxes × ${COLD_PER_MAILBOX_DAY}/day, from Apollo's mailbox settings (entered by hand, not read live). Cold Pilot A was inactive when last checked on 2026-09-27, with no cold sends.`,
       };
     } else if (key === "warm") {
       capacity = {
@@ -697,7 +678,7 @@ export function compute(data: RawData, now: Date): Payload {
         perMailboxDay: warmPerMailbox,
         capDay: WARM_GLOBAL_CAP_DAY,
         tag: "live",
-        source: `${warmMailboxes.length} news.* mailboxes × ${warmPerMailbox}/day (live), capped at ${WARM_GLOBAL_CAP_DAY}/day by OUTREACH_DAILY_CAP (static), × ${WEEKDAYS_PER_MONTH} weekdays.`,
+        source: `${warmMailboxes.length} news.* mailboxes × ${warmPerMailbox}/day (read live), capped at ${WARM_GLOBAL_CAP_DAY}/day by OUTREACH_DAILY_CAP (the warm sender's default; its live setting can't be read from here), × ${WEEKDAYS_PER_MONTH} weekdays.`,
       };
     } else {
       capacity = {
@@ -706,7 +687,7 @@ export function compute(data: RawData, now: Date): Payload {
         perMailboxDay: warmPerMailbox,
         capDay: null,
         tag: "mock",
-        source: `No offer lane exists (mock: 0 mailboxes). A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
+        source: `No offer lane yet, so 0 mailboxes. A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
       };
     }
 
@@ -723,7 +704,7 @@ export function compute(data: RawData, now: Date): Payload {
               steps: COLD_SEQUENCE.steps,
               url: COLD_SEQUENCE.url,
               tag: "static",
-              note: `${COLD_SEQUENCE.steps} step, ${COLD_SEQUENCE.contacts} contacts, ${COLD_SEQUENCE.active ? "active" : "inactive"} (Apollo, 2026-09-27).`,
+              note: `${COLD_SEQUENCE.steps} step, ${COLD_SEQUENCE.contacts} contacts, ${COLD_SEQUENCE.active ? "active" : "inactive"} (last checked in Apollo on 2026-09-27).`,
             }
           : key === "warm"
             ? {
@@ -750,7 +731,7 @@ export function compute(data: RawData, now: Date): Payload {
     flows,
     totals: { prospects: data.prospects.length },
     notes: [
-      "Tiers and warm/offer categories are worked out by this page; there are no tier or category columns yet (bj-finance #438).",
+      "Tiers and warm/offer categories are worked out by this page from existing columns; there are no tier or category columns yet.",
       "Cold categories are the Apollo segments stored on each prospect.",
       "People who opted out, bounced or are on the suppression list are left out of every number.",
       "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",

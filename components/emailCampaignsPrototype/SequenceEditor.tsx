@@ -1,6 +1,6 @@
 "use client";
 
-// PROTOTYPE — Email campaigns tab (v4, v5): the in-CRM sequence editor.
+// Email campaigns tab: the in-CRM sequence editor.
 //
 // v5: the lane's signature and footer are editable blocks at the end of the
 // timeline (one pair per lane: cold = Apollo's, warm = warm_sender's, offer =
@@ -413,7 +413,7 @@ export default function SequenceEditor({
     setSteps(next);
   };
   const remove = (i: number) => {
-    if (!window.confirm(`Delete step ${i + 1}? (Prototype: this browser only.)`)) return;
+    if (!window.confirm(`Delete step ${i + 1}? (This browser only.)`)) return;
     setSteps(steps.filter((_, k) => k !== i));
   };
   const add = () => {
@@ -489,7 +489,7 @@ export default function SequenceEditor({
             </dd>
             {isEveryone && tier.sequence ? (
               <>
-                <dt className="text-slate-500">Live today</dt>
+                <dt className="text-slate-500">In use</dt>
                 <dd className="text-slate-400">{tier.sequence.note}</dd>
               </>
             ) : null}
@@ -541,8 +541,8 @@ export default function SequenceEditor({
         </div>
 
         <div className="border-b border-amber-700/50 bg-amber-500/10 px-5 py-2 text-xs text-amber-200">
-          Prototype: edits (steps, signature and footer) are saved in this browser only and are NOT sent to
-          Apollo or the warm sender.
+          Edits here (steps, signature and footer) are saved in this browser only. They do not change what Apollo
+          or the warm sender sends.
         </div>
 
         {/* timeline */}
@@ -551,7 +551,7 @@ export default function SequenceEditor({
             <div className="mb-4 rounded-md border border-dashed border-slate-700 px-4 py-6 text-center text-sm text-slate-400">
               No emails in this sequence yet.
               {tier.key === "offer" ? (
-                <div className="mt-1 text-xs text-slate-500">The offer lane is not built (mass email / Kit, TBD).</div>
+                <div className="mt-1 text-xs text-slate-500">There is no offer sending lane yet.</div>
               ) : null}
             </div>
           ) : null}

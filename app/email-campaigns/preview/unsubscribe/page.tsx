@@ -5,10 +5,11 @@ import { UNSUBSCRIBED_HTML, UNSUBSCRIBE_CONFIRM_HTML } from "@/lib/outreach/unsu
 
 export const dynamic = "force-dynamic";
 
-// /email-campaigns/preview/unsubscribe — PROTOTYPE (v6). The warm lane's REAL
-// opt-out page: the same markup /api/unsubscribe/[token] serves (shared from
-// lib/outreach/unsubscribePage.ts), shown with a fake token. No token is
-// verified, no endpoint is called and nothing is written.
+// /email-campaigns/preview/unsubscribe: staff-only preview of the warm lane's
+// real opt-out page, the same markup /api/unsubscribe/[token] serves (shared
+// from lib/outreach/unsubscribePage.ts). No token is verified, no endpoint is
+// called and nothing is written. Emails link to /api/unsubscribe/<token>,
+// never here.
 export default async function UnsubscribePreviewPage() {
   const supabase = createClient();
   const {

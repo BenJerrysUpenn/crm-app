@@ -1,6 +1,8 @@
 "use client";
 
-// PROTOTYPE — Email campaigns tab (v5, v6): "+ Add contacts" on the Cold tier.
+// NOT MOUNTED (bj-finance #670). The "+ Add contacts" form the Cold tier used
+// to open. It never saved anything, so it was taken off the production page
+// rather than shown with prototype banners. Kept for the build-or-drop call.
 //
 // Two modes (v6):
 //   * One contact (v5, unchanged): a working form that SAVES NOTHING. On
