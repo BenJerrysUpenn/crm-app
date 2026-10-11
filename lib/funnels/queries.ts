@@ -23,7 +23,7 @@ import {
   computeQuoteLatency,
   pairQuoteLatency,
 } from "./compute";
-import { REPLY_EVENTS } from "./types";
+import { IMPORT_EVENT, REPLY_EVENTS } from "./types";
 import type {
   DealRow,
   DoneQuoteJobRow,
@@ -134,7 +134,7 @@ export async function fetchLoopStatus(
   const { data: lastEvt, error: lastEvtError } = await supabase
     .from("outreach_events")
     .select("occurred_at")
-    .neq("event", "added")
+    .neq("event", IMPORT_EVENT)
     .order("occurred_at", { ascending: false })
     .limit(1);
   if (lastEvtError) throw lastEvtError;
@@ -180,11 +180,11 @@ async function fetchDeals(supabase: SupabaseClient): Promise<DealRow[]> {
 async function fetchOutreach(
   supabase: SupabaseClient,
 ): Promise<{ events: OutreachEventRow[]; prospects: ProspectRow[] }> {
-  // Only the funnel events matter; `added` (20k rows) is excluded.
+  // Only the funnel events matter; the import event (20k rows) is excluded.
   const { data: evRows, error: evErr } = await supabase
     .from("outreach_events")
     .select("prospect_id,event,occurred_at")
-    .neq("event", "added")
+    .neq("event", IMPORT_EVENT)
     .limit(PAGE);
   if (evErr) throw evErr;
   const events = (evRows ?? []) as OutreachEventRow[];

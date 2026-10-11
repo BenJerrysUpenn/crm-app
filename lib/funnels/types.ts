@@ -15,6 +15,10 @@ export type Engine = (typeof ENGINES)[number];
 // handling" agree on what a reply is.
 export const REPLY_EVENTS = ["replied", "interested"] as const;
 
+// The event the initial prospect import writes. It is not engine activity, so
+// both the "last engine activity" read and the funnel read leave it out.
+export const IMPORT_EVENT = "added";
+
 // --- Raw row projections -----------------------------------------------------
 
 export type ProspectRow = {
