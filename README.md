@@ -37,7 +37,8 @@ financial data or secrets are ever committed to this repo.
 merchant has a Change button. It saves a correction to
 `public.pf_category_overrides` (migration `supabase/crm/011_pf_category_overrides.sql`)
 through `POST /api/pf/overrides`: "every charge from this merchant" by default,
-or "just this one". The table admits no API role; the route checks
+or "just this one". The table admits only the service role (SELECT and INSERT,
+so corrections are append-only); the route checks
 `PF_ALLOWED_USER_IDS` through `lib/pf/guard.ts` and writes with
 `SUPABASE_SERVICE_ROLE_KEY`, so the one allowlist governs pages and table
 alike. The page shows a saved correction at once; the private repo's 08:00

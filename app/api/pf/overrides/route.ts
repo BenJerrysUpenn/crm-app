@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // Saves one category correction from /money (bj-finance #223). Only the
 // household accounts in PF_ALLOWED_USER_IDS get past lib/pf/guard; everyone
 // else gets the same 401/404 the pages give. The write goes through the
-// service role because the table admits no API role at all (crm/011).
+// service role because the table admits only that role (SELECT, INSERT; crm/011).
 //
 // The category must be one of the names the current feed publishes in
 // meta.categories, byte for byte. Corrections are append-only: a later one
