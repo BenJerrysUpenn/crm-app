@@ -119,8 +119,6 @@ export type CategoryStat = {
   label: string;
   total: number; // people in it; suppressed already excluded
   groups: Group[];
-  tag?: Tag;
-  hint?: string;
   sources?: { label: string; n: number; tag: Tag }[];
 };
 

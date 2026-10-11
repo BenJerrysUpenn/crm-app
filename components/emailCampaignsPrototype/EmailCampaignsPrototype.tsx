@@ -738,13 +738,7 @@ function CategoryCard({
     >
       <div className="flex items-start justify-between gap-1">
         <div className="min-w-0 text-sm font-medium leading-tight text-slate-100">
-          {cat.hint ? (
-            <Tip text={cat.hint}>
-              <span className="border-b border-dotted border-slate-600">{cat.label}</span>
-            </Tip>
-          ) : (
-            cat.label
-          )}
+          {cat.label}
         </div>
         <NoteButton has={!!note} onClick={() => setEditing(true)} />
       </div>
