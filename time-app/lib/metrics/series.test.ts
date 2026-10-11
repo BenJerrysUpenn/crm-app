@@ -42,6 +42,15 @@ test("all streams once the feed is in: progress over the sum", () => {
   assert.equal(m.progress?.paceToDate, 11029.03);
 });
 
+test("a feed stream stops at the day the feed runs to: no flat carry-forward to today", () => {
+  const in_store = { "2026-10-01": 2000, "2026-10-09": 1000 };
+  const m = salesMonthToDate({ catering, in_store, concessions: {} }, SALES_TARGET_SEED, "all", "2026-10-10", { in_store: "2026-10-09", concessions: "2026-10-09" });
+  const store = m.cumulative.find((c) => c.stream === "in_store")!.values;
+  assert.equal(store[8], 3000);
+  assert.equal(store[9], null);
+  assert.equal(m.actualSoFar, 4500);
+});
+
 test("by month: twelve back, three ahead; only catering is shown ahead; target per month, provisional flagged", () => {
   const m = salesByMonth({ catering, in_store: { "2026-10-01": 50 } }, SALES_TARGET_SEED, "all", "2026-10-10");
   assert.equal(m.months.length, 15);
@@ -56,7 +65,7 @@ test("by month: twelve back, three ahead; only catering is shown ahead; target p
   assert.equal(store[12], null);
   // In-store and catering have data, concessions waits: the line is their targets.
   assert.equal(m.target[13], 16_398 + 3_842);
-  assert.equal(m.targetLabel, "In-store and delivery and Catering target");
+  assert.equal(m.targetLabel, "Target, in-store and catering");
   assert.equal(m.provisional[13], true);
   const all = salesByMonth({ catering, in_store: {}, concessions: {} }, SALES_TARGET_SEED, "all", "2026-10-10");
   assert.equal(all.target[13], 25_240);

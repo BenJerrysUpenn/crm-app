@@ -174,3 +174,44 @@ test("a manager with no views is given Finance and Catering, saved as theirs; th
   assert.equal(again.mode === "server" && again.views.length, 2, "not seeded twice");
   assert.equal(again.mode === "server" && again.activeId, first.views[1].id);
 });
+
+// ---- the finance feed as the page reads it (migration 40) ----------------------------
+
+const { buildFeed } = await loadAppModule<typeof import("./metrics/load.ts")>("lib/metrics/load.ts");
+
+const DAILY = (asOf: string, onHand: number) => ({
+  schema: 1, kind: "daily", as_of: asOf,
+  cash: { as_of: asOf, bank_balance: onHand + 100, outstanding_cheques: 100, on_hand: onHand, day_in: 0, day_out: 0 },
+  sales_by_day: [{ date: asOf, in_store: 100, delivery: 0, concessions: null, basis: "booked" }],
+  wages_by_week: [], cogs_pct_trailing: null, forward_cash: null,
+});
+
+test("feed: not switched on, nothing published, or an unknown format each say so", () => {
+  assert.deepEqual(buildFeed({ status: "not_enabled" }), { status: "not_enabled" });
+  assert.deepEqual(buildFeed({ status: "read", latestDaily: null, cashHistory: [], closedMonths: [] }), { status: "empty" });
+  const odd = buildFeed({ status: "read", latestDaily: { period: "2026-10-09", built_at: "t", payload: { schema: 9 } }, cashHistory: [], closedMonths: [] });
+  assert.equal(odd.status, "unrecognised");
+});
+
+test("feed: the latest publish per day and per month wins; history comes out oldest first", () => {
+  const f = buildFeed({
+    status: "read",
+    latestDaily: { period: "2026-10-09", built_at: "2026-10-10T10:00:00Z", payload: DAILY("2026-10-09", 900) },
+    cashHistory: [
+      { period: "2026-10-08", built_at: "a", cash: DAILY("2026-10-08", 500).cash },
+      { period: "2026-10-09", built_at: "b", cash: DAILY("2026-10-09", 800).cash },
+      { period: "2026-10-09", built_at: "c", cash: DAILY("2026-10-09", 900).cash },
+      { period: "2026-10-07", built_at: "d", cash: null },
+    ],
+    closedMonths: [
+      { period: "2026-09-01", built_at: "a", payload: { schema: 1, month: "2026-09", revenue: 1, cogs: 0, gross_profit: 1, wages: 1, employer_tax: 0, pre_tax_profit: -5 } },
+      { period: "2026-09-01", built_at: "b", payload: { schema: 1, month: "2026-09", revenue: 1, cogs: 0, gross_profit: 1, wages: 1, employer_tax: 0, pre_tax_profit: -1760.16 } },
+      { period: "2026-08-01", built_at: "c", payload: { schema: 1, month: "2026-08", revenue: 1, cogs: 0, gross_profit: 1, wages: 1, employer_tax: 0, pre_tax_profit: -8908.69 } },
+    ],
+  });
+  assert.equal(f.status, "ok");
+  if (f.status !== "ok") return;
+  assert.deepEqual(f.cashHistory, [{ day: "2026-10-08", onHand: 500 }, { day: "2026-10-09", onHand: 900 }]);
+  assert.deepEqual(f.closedMonths.map((m) => [m.month, m.pre_tax_profit]), [["2026-08-01", -8908.69], ["2026-09-01", -1760.16]]);
+  assert.equal(f.daily?.sales_by_day[0].concessions, null);
+});
