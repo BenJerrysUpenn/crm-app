@@ -15,7 +15,7 @@ import { emailKey } from "@/lib/dealIntake";
 import type { Stage } from "@/lib/stages";
 import { reachedBooked, reachedQuoted } from "@/lib/stages";
 import { deriveProfile, PROFILES, type Profile } from "./profile";
-import { ENGINES, REPLY_EVENTS } from "./types";
+import { ENGINES, MAIL_EVENT, REPLY_EVENTS } from "./types";
 import type {
   BelowMinResult,
   DealFunnelRow,
@@ -124,7 +124,7 @@ export function computeOutreachFunnel(
   for (const e of events) {
     if (e.prospect_id == null) continue;
     const t = parseTs(e.occurred_at);
-    if (e.event === "sequenced" && inWindow(t, windowStartMs)) {
+    if (e.event === MAIL_EVENT && inWindow(t, windowStartMs)) {
       const prev = mailAt.get(e.prospect_id);
       if (prev === undefined || t < prev) mailAt.set(e.prospect_id, t);
     } else if ((REPLY_EVENTS as readonly string[]).includes(e.event)) {

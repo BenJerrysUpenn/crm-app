@@ -23,7 +23,7 @@ import {
   computeQuoteLatency,
   pairQuoteLatency,
 } from "./compute";
-import { IMPORT_EVENT, REPLY_EVENTS } from "./types";
+import { IMPORT_EVENT, MAIL_EVENT, REPLY_EVENTS } from "./types";
 import type {
   DealRow,
   DoneQuoteJobRow,
@@ -108,7 +108,7 @@ export async function fetchLoopStatus(
     prospectsTotal,
   ] = await Promise.all([
     count(supabase, "outreach_events", (q) =>
-      q.eq("event", "sequenced").gte("occurred_at", dayStart),
+      q.eq("event", MAIL_EVENT).gte("occurred_at", dayStart),
     ),
     count(supabase, "outreach_prospects", (q) =>
       q.eq("engine", "warm").eq("status", "sequenced"),
