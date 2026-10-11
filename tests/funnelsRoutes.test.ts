@@ -227,6 +227,18 @@ describe("GET /api/funnels", () => {
     expect(loop.suppression).toEqual({ total: 1, opt_out_events: 1, prospects_total: 3 });
   });
 
+  it("counts each lane's backlog on its own engine only", async () => {
+    // A cold prospect already sequenced and a warm one still queued must not
+    // leak into the other lane's "sequenced" / "queued" counts.
+    db.state.tables.outreach_prospects.push(
+      { id: 20, name: null, company: null, email: "c2@iota.com", engine: "cold", status: "sequenced" },
+      { id: 21, name: null, company: null, email: "w2@kappa.com", engine: "warm", status: "queued" },
+    );
+    const { loop } = await (await get()).json();
+    expect(loop.warm.sequenced_active).toBe(1);
+    expect(loop.cold.queued).toBe(1);
+  });
+
   it("counts a spam complaint as an opt-out, like an unsubscribe", async () => {
     db.state.tables.outreach_events.push(
       { prospect_id: 10, event: "complained", occurred_at: "2026-09-25T15:45:00Z" },
@@ -316,6 +328,16 @@ describe("GET /api/funnels", () => {
     expect(funnel.quote_latency).toMatchObject({ count: 1, median_hours: 3 });
   });
 
+  it("times the quote from the quote job, not from the retriage job queued ahead of it", async () => {
+    // Deal 1 (created 09-20T12:00Z) also had a retriage job done at 13:00Z; if
+    // that counted as the quote, the 7-day median would fall from 3h to 1h.
+    db.state.tables.quote_jobs.push(
+      { deal_id: 1, kind: "retriage", status: "done", processed_at: "2026-09-20T13:00:00Z" },
+    );
+    const { funnel } = await (await get("7")).json();
+    expect(funnel.quote_latency).toMatchObject({ count: 1, median_hours: 3 });
+  });
+
   it("skips a done quote whose processed time is unreadable instead of failing the tab", async () => {
     db.state.tables.quote_jobs.push(
       { deal_id: 2, kind: "quote", status: "done", processed_at: "not a date" },
@@ -386,6 +408,20 @@ describe("GET /api/funnels", () => {
         age_hours: 1,
         email: "ana@beta.com",
       },
+    ]);
+  });
+
+  it("lists the longest-parked draft first", async () => {
+    // Deal 8 has sat at Quote Review since 09-22, two days longer than deal 3.
+    db.state.tables.deals.push(
+      deal(8, { stage: "Quote Review", updated_at: "2026-09-22T16:00:00Z" }),
+    );
+    const { exceptions } = await (await get()).json();
+    expect(
+      exceptions.drafts_awaiting_send.map((d: Row) => [d.deal_id, d.age_hours]),
+    ).toEqual([
+      [8, 72],
+      [3, 24],
     ]);
   });
 
