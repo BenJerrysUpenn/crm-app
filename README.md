@@ -138,6 +138,14 @@ migration 36. It creates the tables, the payroll views, and the `travel-reimburs
 bucket; `migration_37_verify.sql` checks it and `migration_37_down.sql` reverses it. Until
 it is applied the reimbursement routes answer 503.
 
+## Metrics page tables (Withers Time, bj-finance #671)
+Apply `time-app/supabase/migration_39.sql` (saved views, preferences, `sales_targets`), then
+`migration_40.sql` (`metrics_snapshots`, the finance feed), by hand in the Supabase SQL editor,
+after migration 38. Each has `_verify.sql` and `_down.sql` beside it. Sales targets are data:
+change them with an UPDATE in the SQL editor. Snapshots are published by bj-finance, never
+written through the API, and never updated or deleted. `time-app/app/metrics/page.tsx` does
+not read any of these tables yet.
+
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
