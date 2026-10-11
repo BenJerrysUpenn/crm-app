@@ -3,12 +3,19 @@ import MetaBanner from "@/components/pf/MetaBanner";
 import FeedMissing from "@/components/pf/FeedMissing";
 import MoneyExplorer from "@/components/pf/MoneyExplorer";
 import { loadPfForViewer } from "@/lib/pf/guard";
+import { applyOverrides, loadOverrides } from "@/lib/pf/overrides";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Money explorer" };
 
 export default async function MoneyPage() {
   const { email, feed } = await loadPfForViewer();
+  // Saved corrections are laid over the rows' categories until the 08:00
+  // bookkeeping pass folds them into the feed (bj-finance #223).
+  const overrides = feed.ok
+    ? await loadOverrides(createAdminClient())
+    : [];
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -19,7 +26,13 @@ export default async function MoneyPage() {
             <div className="pfviz" style={{ paddingBottom: 0 }}>
               <MetaBanner meta={feed.data.meta} />
             </div>
-            <MoneyExplorer data={feed.data.explorer} />
+            <MoneyExplorer
+              data={{
+                ...feed.data.explorer,
+                rows: applyOverrides(feed.data.explorer.rows, overrides),
+              }}
+              categories={feed.data.meta.categories ?? []}
+            />
           </>
         ) : (
           <FeedMissing title="Money explorer" reason={feed.reason} />

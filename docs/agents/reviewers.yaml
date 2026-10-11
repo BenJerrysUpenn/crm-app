@@ -89,6 +89,14 @@ language_notes: >-
 documentation_map:
   - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
     docs: [README.md]
+  - paths:
+      - "app/api/pf/overrides/route.ts"
+      - "app/money/page.tsx"
+      - "app/safe/page.tsx"
+      - "components/pf/**"
+      - "lib/pf/**"
+      - "supabase/crm/011_pf_category_overrides*.sql"
+    docs: [README.md]
 
 exclusions:
   - path: docs/unsubscribe.md

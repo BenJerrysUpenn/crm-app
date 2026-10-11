@@ -28,16 +28,42 @@ export function isPfViewerAllowed(
     .includes(userId);
 }
 
-export async function loadPfForViewer(): Promise<{
-  email: string;
-  feed: PfLoadResult;
-}> {
+// Who is at the door: signed out (401), signed in but not listed (404), or
+// an allowed user. Pages and routes differ only in how they turn this away.
+async function pfViewer(): Promise<
+  | { ok: true; id: string; email: string }
+  | { ok: false; status: 401 | 404 }
+> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  if (!isPfViewerAllowed(user.id)) notFound();
+  if (!user) return { ok: false, status: 401 };
+  if (!isPfViewerAllowed(user.id)) return { ok: false, status: 404 };
+  return { ok: true, id: user.id, email: user.email ?? "" };
+}
 
-  return { email: user.email ?? "", feed: await loadPfData() };
+export async function loadPfForViewer(): Promise<{
+  email: string;
+  feed: PfLoadResult;
+}> {
+  const viewer = await pfViewer();
+  if (!viewer.ok) {
+    if (viewer.status === 401) redirect("/login");
+    notFound();
+  }
+
+  return { email: viewer.email, feed: await loadPfData() };
+}
+
+// The same door for API routes, which answer with a status instead of
+// redirecting: 401 signed out, 404 signed in but not listed. Allowed callers
+// get the feed too (the overrides route checks categories against it).
+export async function pfApiViewer(): Promise<
+  | { ok: true; userId: string; feed: PfLoadResult }
+  | { ok: false; status: 401 | 404 }
+> {
+  const viewer = await pfViewer();
+  if (!viewer.ok) return viewer;
+  return { ok: true, userId: viewer.id, feed: await loadPfData() };
 }

@@ -5,7 +5,9 @@ import { handleShortLinkRequest, isShortLinkHost } from "@/lib/shortLinks";
 // Personal-finance pages live on their own subdomain (same Vercel project,
 // host-routed) — mirroring how crm./time. split off this repo.
 const PF_HOST = "personal.withers-ventures.com";
-const PF_ROUTES = ["/money", "/dial", "/safe"];
+// The pf pages, plus the API the /money change-category button posts to
+// (bj-finance #223): on the personal host it must not bounce to /safe.
+const PF_ROUTES = ["/money", "/dial", "/safe", "/api/pf"];
 
 const CRON_CATERING_SHIFTS = "/api/cron/catering-shifts";
 
