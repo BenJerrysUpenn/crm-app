@@ -39,8 +39,9 @@ function tiers(prospects: ProspectRow[]) {
 describe("Email campaigns payload: only real categories and sources", () => {
   it("lists only the Warm categories people are in, with no empty Seasonal menu list", () => {
     const t = tiers([prospect({ ever_booked: true, last_event_date: "2025-03-14" })]);
-    expect(t.warm.categories.map((c) => c.key)).toEqual(["past_booker"]);
-    expect(t.warm.categories.every((c) => c.total > 0)).toBe(true);
+    // Cake only is the one card shown empty: it is held (bj-finance #286).
+    expect(t.warm.categories.map((c) => c.key)).toEqual(["past_booker", "cake_only"]);
+    expect(t.warm.categories.every((c) => c.total > 0 || c.hold)).toBe(true);
   });
 
   it("shows Apollo as the Cold tier's only source, counting everyone in the tier", () => {
