@@ -75,6 +75,25 @@ test("names: blank refused, and no two live views of one person share one", asyn
   assert.equal((await viewsRoute.POST(req("POST", "views", { name: "Alex's" }))).status, 201);
 });
 
+test("renaming a view onto another of your live views' names is a 409, and the view keeps its name", async () => {
+  db.signIn(ALINA);
+  await viewsRoute.POST(req("POST", "views", { name: "Finance" }));
+  const id = (await json(await viewsRoute.POST(req("POST", "views", { name: "Catering" })))).view.id as string;
+  const r = await viewRoute.PATCH(req("PATCH", `views/${id}`, { name: " FINANCE " }), { params: { id } });
+  assert.equal(r.status, 409);
+  assert.match((await json(r)).error, /already have a view called "FINANCE"/);
+  const state = await loadViews(signedInClient(ALINA), ALINA);
+  assert.deepEqual(state.mode === "server" && state.views.map((v) => v.name), ["Finance", "Catering"]);
+});
+
+test("a manager can keep twenty live views; the twenty-first is refused", async () => {
+  db.signIn(ALINA);
+  for (let i = 1; i <= 20; i++) assert.equal((await viewsRoute.POST(req("POST", "views", { name: `View ${i}` }))).status, 201, `view ${i}`);
+  const over = await viewsRoute.POST(req("POST", "views", { name: "View 21" }));
+  assert.equal(over.status, 409);
+  assert.match((await json(over)).error, /You have 20 views/);
+});
+
 test("rename, re-lay-out and reorder a view; archive it instead of deleting", async () => {
   db.signIn(ALINA);
   const id = (await json(await viewsRoute.POST(req("POST", "views", { name: "Mine" })))).view.id as string;
