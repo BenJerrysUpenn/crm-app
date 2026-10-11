@@ -16,22 +16,35 @@ export const MAX_VIEWS = 20;
 
 export type View = { id: string; name: string; position: number; widgets: WidgetConfig[] };
 
-export function cleanName(raw: unknown): { ok: true; name: string } | { ok: false; error: string } {
-  const name = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
+type NameCheck = { ok: true; name: string } | { ok: false; error: string };
+
+/** A name with its spacing collapsed: how names are stored and compared. */
+function tidy(name: string): string {
+  return name.replace(/\s+/g, " ").trim();
+}
+
+export function cleanName(raw: unknown): NameCheck {
+  const name = typeof raw === "string" ? tidy(raw) : "";
   if (!name) return { ok: false, error: "Give the view a name." };
   if (name.length > MAX_NAME) return { ok: false, error: `Keep the name to ${MAX_NAME} characters.` };
   return { ok: true, name };
 }
 
 /** The other view already called `name` (case and spacing ignored), if any. */
-export function takenBy(views: View[], name: string, exceptId?: string): View | null {
-  const key = name.replace(/\s+/g, " ").trim().toLowerCase();
-  return views.find((v) => v.id !== exceptId && v.name.replace(/\s+/g, " ").trim().toLowerCase() === key) ?? null;
+function takenBy(views: View[], name: string, exceptId?: string): View | null {
+  const key = tidy(name).toLowerCase();
+  return views.find((v) => v.id !== exceptId && tidy(v.name).toLowerCase() === key) ?? null;
 }
 
-/** True when `name` is taken by another of `views`. */
-export function nameTaken(views: View[], name: string, exceptId?: string): boolean {
-  return takenBy(views, name, exceptId) !== null;
+/**
+ * `raw` as the name of one of `views` (the view `exceptId` when renaming it):
+ * cleaned as cleanName does, and refused when another view already has it.
+ */
+export function checkName(views: View[], raw: unknown, exceptId?: string): NameCheck {
+  const n = cleanName(raw);
+  if (!n.ok) return n;
+  const taken = takenBy(views, n.name, exceptId);
+  return taken ? { ok: false, error: `You already have a view called "${taken.name}".` } : n;
 }
 
 function isMetric(x: unknown): x is MetricId {
@@ -165,10 +178,10 @@ export function moveView(views: View[], viewId: string, delta: -1 | 1): View[] {
 /** A free name based on `base`: "Finance copy", "Finance copy 2", ... */
 export function freeName(views: View[], base: string): string {
   const stem = base.slice(0, MAX_NAME - 3);
-  if (!nameTaken(views, stem)) return stem;
+  if (!takenBy(views, stem)) return stem;
   for (let n = 2; n < 100; n++) {
     const candidate = `${stem.slice(0, MAX_NAME - 3 - String(n).length)} ${n}`;
-    if (!nameTaken(views, candidate)) return candidate;
+    if (!takenBy(views, candidate)) return candidate;
   }
   return `${stem.slice(0, 40)} ${Date.now().toString(36)}`;
 }

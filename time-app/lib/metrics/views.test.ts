@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  DEFAULT_VIEWS, MAX_WIDGETS, addWidget, cleanName, cleanWidgets, freeName, moveView, moveWidget, nameTaken,
+  DEFAULT_VIEWS, MAX_WIDGETS, addWidget, checkName, cleanName, cleanWidgets, freeName, moveView, moveWidget,
   removeWidget, updateWidgetSettings, type View,
 } from "./views.ts";
 
@@ -22,8 +22,9 @@ test("names are trimmed, spaces collapsed, 1 to 60 characters", () => {
 
 test("a name is taken by another view regardless of case and spacing", () => {
   const views = [view({ id: "1", name: "Finance" }), view({ id: "2", name: "Catering" })];
-  assert.equal(nameTaken(views, " finance "), true);
-  assert.equal(nameTaken(views, "Finance", "1"), false); // renaming a view to itself
+  assert.deepEqual(checkName(views, " finance "), { ok: false, error: 'You already have a view called "Finance".' });
+  assert.deepEqual(checkName(views, "Finance", "1"), { ok: true, name: "Finance" }); // renaming a view to itself
+  assert.equal(checkName(views, "   ").ok, false); // still cleaned first
   assert.equal(freeName(views, "Finance"), "Finance 2");
   assert.equal(freeName(views, "New view"), "New view");
 });
