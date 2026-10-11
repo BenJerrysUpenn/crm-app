@@ -7,6 +7,8 @@
 //           (WEEKLY-01, Resolved), $6,396 a month (x 52 / 12);
 //   unpaid  owner comp 0.
 
+import { round2 } from "./round.ts";
+
 export const OWNER_COMP_WEEKLY = 630 + 846;
 export const OWNER_COMP_MONTHLY = Math.round((OWNER_COMP_WEEKLY * 52) / 12);
 
@@ -15,14 +17,12 @@ export const LER_FLOOR = 1.5;
 
 type N = number | null | undefined;
 
-const two = (n: number) => Math.round(n * 100) / 100;
-
 /** LER to two places, or null when an input is missing or there is no labour cost. */
 export function ler({ grossProfit, wages, employerTax, ownerComp }: { grossProfit: N; wages: N; employerTax: N; ownerComp: number }): number | null {
   if (grossProfit == null || wages == null || employerTax == null) return null;
   const labour = wages + employerTax + ownerComp;
   if (labour <= 0) return null;
-  return two(grossProfit / labour);
+  return round2(grossProfit / labour);
 }
 
 export function lerPair(

@@ -16,6 +16,7 @@
 
 import { mondayOf, monthStart, nyDay } from "./dates.ts";
 import { CLOSED_STAGES, QUOTED_STAGES, createdDay, isBooked, type DealRow } from "./catering.ts";
+import { round3 } from "./round.ts";
 
 export type LeadSource = "form" | "email" | "phone" | "other";
 export const LEAD_SOURCES: LeadSource[] = ["form", "email", "phone", "other"];
@@ -84,5 +85,5 @@ export function quoteToBooking(
 export function conversion(cohorts: QuoteCohort[]): number | null {
   const quoted = cohorts.reduce((s, c) => s + c.quoted, 0);
   if (quoted === 0) return null;
-  return Math.round((cohorts.reduce((s, c) => s + c.booked, 0) / quoted) * 1000) / 1000;
+  return round3(cohorts.reduce((s, c) => s + c.booked, 0) / quoted);
 }

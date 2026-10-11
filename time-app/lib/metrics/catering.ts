@@ -15,6 +15,7 @@
 // here repairs the rows.
 
 import { addMonths, monthEnd, monthStart, nyDay } from "./dates.ts";
+import { round2 } from "./round.ts";
 
 export type DealRow = {
   id: number;
@@ -77,12 +78,10 @@ export function suspectDeals(deals: DealRow[], today: string, bookedBefore?: Set
   return deals.filter((d) => !d.archived && bookedEvidence(d, today, bookedBefore) === "suspect_event_complete");
 }
 
-const cents = (n: number) => Math.round(n * 100) / 100;
-
 /** Sales value of a deal before tax: the subtotal, else the total with the 8% backed out (an estimate). */
 export function cateringValue(d: Pick<DealRow, "subtotal_pretax" | "total_with_tax">): number | null {
   if (d.subtotal_pretax != null) return d.subtotal_pretax;
-  if (d.total_with_tax != null) return cents(d.total_with_tax / (1 + PHILLY_TAX));
+  if (d.total_with_tax != null) return round2(d.total_with_tax / (1 + PHILLY_TAX));
   return null;
 }
 
@@ -111,8 +110,8 @@ export function cateringByDay(deals: DealRow[], from: string, to: string, today:
       continue;
     }
     if (d.subtotal_pretax == null) out.estimatedIds.push(d.id);
-    out.byDay[day] = cents((out.byDay[day] ?? 0) + value);
-    out.total = cents(out.total + value);
+    out.byDay[day] = round2((out.byDay[day] ?? 0) + value);
+    out.total = round2(out.total + value);
   }
   return out;
 }
@@ -124,7 +123,7 @@ export function cateringByMonth(deals: DealRow[], firstMonth: string, lastMonth:
   for (let m = firstMonth; m <= lastMonth; m = addMonths(m, 1)) out[m] = 0;
   for (const [day, v] of Object.entries(days.byDay)) {
     const m = monthStart(day);
-    out[m] = cents((out[m] ?? 0) + v);
+    out[m] = round2((out[m] ?? 0) + v);
   }
   return out;
 }
@@ -167,17 +166,17 @@ export function arSummary(deals: DealRow[], today: string, bookedBefore?: Set<nu
       continue;
     }
     const paidSoFar = d.amount_paid ?? 0;
-    const balance = cents(Math.max(0, total - paidSoFar));
+    const balance = round2(Math.max(0, total - paidSoFar));
     if (balance <= 0) continue;
     const overdue = day < today;
     out.rows.push({ id: d.id, company: d.company, eventDay: day, total, paid: paidSoFar, balance, overdue });
-    if (overdue) out.overdue = cents(out.overdue + balance);
+    if (overdue) out.overdue = round2(out.overdue + balance);
     if (monthStart(day) === month) {
-      out.dueThisMonth = cents(out.dueThisMonth + balance);
-      if (overdue) out.overdueThisMonth = cents(out.overdueThisMonth + balance);
-      else out.notYetDueThisMonth = cents(out.notYetDueThisMonth + balance);
+      out.dueThisMonth = round2(out.dueThisMonth + balance);
+      if (overdue) out.overdueThisMonth = round2(out.overdueThisMonth + balance);
+      else out.notYetDueThisMonth = round2(out.notYetDueThisMonth + balance);
     } else if (day > monthEnd(today)) {
-      out.laterMonths = cents(out.laterMonths + balance);
+      out.laterMonths = round2(out.laterMonths + balance);
     }
   }
   out.rows.sort((a, b) => (a.eventDay < b.eventDay ? -1 : a.eventDay > b.eventDay ? 1 : a.id - b.id));

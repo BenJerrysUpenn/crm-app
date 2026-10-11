@@ -7,16 +7,14 @@
 // placed on the day they are EARNED; they leave the bank on the next pay
 // date. Unassigned shifts and salaried staff are not costed.
 
-import { addDays } from "./dates.ts";
+import { addDays, nyDay } from "./dates.ts";
 import { arSummary, type DealRow } from "./catering.ts";
 import type { PersonRow } from "./labour.ts";
-import { nyDay } from "./dates.ts";
+import { round2 } from "./round.ts";
 
 export type ShiftRow = { id: number; employee_id: string | null; starts_at: string; ends_at: string; deal_id: number | null };
 
 export type ForwardDay = { day: string; cateringIn: number; scheduledWages: number };
-
-const two = (n: number) => Math.round(n * 100) / 100;
 
 export function forwardCatering(
   deals: DealRow[],
@@ -30,7 +28,7 @@ export function forwardCatering(
   const ar = arSummary(deals, today, bookedBefore);
   for (const r of ar.rows) {
     const d = index.get(r.eventDay);
-    if (d) d.cateringIn = two(d.cateringIn + r.balance);
+    if (d) d.cateringIn = round2(d.cateringIn + r.balance);
   }
   let uncostedShifts = 0;
   for (const s of shifts) {
@@ -42,7 +40,7 @@ export function forwardCatering(
       continue;
     }
     const hours = Math.max(0, (new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 3_600_000);
-    d.scheduledWages = two(d.scheduledWages + hours * person.hourly_rate);
+    d.scheduledWages = round2(d.scheduledWages + hours * person.hourly_rate);
   }
   return { days, overdue: ar.overdue, uncostedShifts };
 }

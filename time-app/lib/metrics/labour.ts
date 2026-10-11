@@ -13,6 +13,7 @@
 // (New York day). Open punches (still clocked in) are not counted.
 
 import { mondayOf, nyDay } from "./dates.ts";
+import { round2, round3 } from "./round.ts";
 
 export type PunchRow = { employee_id: string; clock_in_at: string; clock_out_at: string | null; shift_id: number | null };
 export type PersonRow = { id: string; hourly_rate: number | null; pay_type?: "hourly" | "salaried" | null };
@@ -29,8 +30,6 @@ export type LabourWeek = {
   /** Hours worked by people with no hourly rate (cost not included). */
   noRateHours: number;
 };
-
-const two = (n: number) => Math.round(n * 100) / 100;
 
 export function emptyLabourWeek(week: string): LabourWeek {
   return { week, inStoreHours: 0, cateringHours: 0, inStoreHourlyCost: 0, cateringHourlyCost: 0, salariedHours: 0, noRateHours: 0 };
@@ -65,12 +64,12 @@ export function labourByWeek(
     const w = byWeek.get(wk)!;
     return {
       week: wk,
-      inStoreHours: two(w.inStoreHours),
-      cateringHours: two(w.cateringHours),
-      inStoreHourlyCost: two(w.inStoreHourlyCost),
-      cateringHourlyCost: two(w.cateringHourlyCost),
-      salariedHours: two(w.salariedHours),
-      noRateHours: two(w.noRateHours),
+      inStoreHours: round2(w.inStoreHours),
+      cateringHours: round2(w.cateringHours),
+      inStoreHourlyCost: round2(w.inStoreHourlyCost),
+      cateringHourlyCost: round2(w.cateringHourlyCost),
+      salariedHours: round2(w.salariedHours),
+      noRateHours: round2(w.noRateHours),
     };
   });
   return { weeks: out, openPunches };
@@ -79,11 +78,11 @@ export function labourByWeek(
 /** Sales per scooper-hour; null without hours or sales. */
 export function salesPerHour(sales: number | null, hours: number): number | null {
   if (sales == null || hours <= 0) return null;
-  return two(sales / hours);
+  return round2(sales / hours);
 }
 
 /** Labour as a share of sales (0..1, three places); null without sales. */
 export function labourPct(cost: number | null, sales: number | null): number | null {
   if (cost == null || sales == null || sales <= 0) return null;
-  return Math.round((cost / sales) * 1000) / 1000;
+  return round3(cost / sales);
 }

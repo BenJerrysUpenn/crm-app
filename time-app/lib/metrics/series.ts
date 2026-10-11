@@ -9,12 +9,11 @@
 
 import { addMonths, daysInMonth, eachDay, lastMonths, monthEnd, monthLabel, monthStart, shortDay } from "./dates.ts";
 import { monthProgress, targetFor, STREAMS, STREAM_LABEL, type MonthProgress, type MonthTarget, type SalesTargetRow, type Stream, type StreamFilter } from "./targets.ts";
+import { round2 } from "./round.ts";
 
 export type SalesStream = Exclude<Stream, "delivery">;
 /** Sales by day per stream; a stream that is absent has no data yet. */
 export type StreamDaily = Partial<Record<SalesStream, Record<string, number>>>;
-
-const cents = (n: number) => Math.round(n * 100) / 100;
 
 export function streamsIn(filter: StreamFilter): SalesStream[] {
   return filter === "all" ? [...STREAMS] : [filter as SalesStream];
@@ -55,7 +54,7 @@ export function salesMonthToDate(sales: StreamDaily, targets: SalesTargetRow[], 
         stream: s,
         values: days.map((d) => {
           if (d > asOf) return null;
-          run = cents(run + (sales[s]![d] ?? 0));
+          run = round2(run + (sales[s]![d] ?? 0));
           return run;
         }),
       };
@@ -65,9 +64,9 @@ export function salesMonthToDate(sales: StreamDaily, targets: SalesTargetRow[], 
   const have = cumulative.map((c) => c.stream);
   const partial = waitingOn.length > 0 && have.length > 0;
   const chartTarget = partial ? sumTargets(targets, month, have) : (target?.amount ?? null);
-  const pace = chartTarget != null ? days.map((_, i) => cents((chartTarget * (i + 1)) / n)) : null;
+  const pace = chartTarget != null ? days.map((_, i) => round2((chartTarget * (i + 1)) / n)) : null;
   const paceLabel = partial ? `Pace to ${have.map((h) => STREAM_LABEL[h].toLowerCase()).join(" and ")} target` : "Pace to target";
-  const actualSoFar = cents(cumulative.reduce((s, c) => s + (c.values[days.indexOf(asOf)] ?? 0), 0));
+  const actualSoFar = round2(cumulative.reduce((s, c) => s + (c.values[days.indexOf(asOf)] ?? 0), 0));
   const progress = waitingOn.length === 0 ? monthProgress({ target: target?.amount ?? null, actual: actualSoFar, asOf }) : null;
   return { labels: days.map(shortDay), days, cumulative, pace, paceLabel, target, progress, actualSoFar, waitingOn };
 }
@@ -75,7 +74,7 @@ export function salesMonthToDate(sales: StreamDaily, targets: SalesTargetRow[], 
 /** The sum of the month's targets for some streams; null when none is set. */
 function sumTargets(targets: SalesTargetRow[], month: string, streams: SalesStream[]): number | null {
   const parts = streams.map((s) => targetFor(targets, month, s)).filter((t): t is MonthTarget => t != null);
-  return parts.length ? cents(parts.reduce((a, t) => a + t.amount, 0)) : null;
+  return parts.length ? round2(parts.reduce((a, t) => a + t.amount, 0)) : null;
 }
 
 export type SalesMonths = {
@@ -102,7 +101,7 @@ export function salesByMonth(sales: StreamDaily, targets: SalesTargetRow[], stre
       const sums = new Map(months.map((m) => [m, 0]));
       for (const [day, v] of Object.entries(sales[s]!)) {
         const m = monthStart(day);
-        if (sums.has(m)) sums.set(m, cents(sums.get(m)! + v));
+        if (sums.has(m)) sums.set(m, round2(sums.get(m)! + v));
       }
       // The feed's streams have nothing ahead of today; only catering is booked forward.
       return { stream: s, values: months.map((m) => (m > monthStart(asOf) && s !== "catering" ? null : sums.get(m)!)) };

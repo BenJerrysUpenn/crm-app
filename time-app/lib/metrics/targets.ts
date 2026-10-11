@@ -7,6 +7,7 @@
 // page says so wherever it is used.
 
 import { daysInMonth } from "./dates.ts";
+import { round2, round3 } from "./round.ts";
 
 /** The streams a target or a filter names. Delivery sales are counted in in-store. */
 export const STREAMS = ["in_store", "catering", "concessions"] as const;
@@ -46,14 +47,11 @@ export function targetFor(rows: SalesTargetRow[], month: string, stream: StreamF
   if (stream !== "all") return { month, amount: Number(parts[0].amount), basis: parts[0].basis, provisional: Boolean(parts[0].provisional) };
   return {
     month,
-    amount: Math.round(parts.reduce((s, r) => s + Number(r.amount), 0) * 100) / 100,
+    amount: round2(parts.reduce((s, r) => s + Number(r.amount), 0)),
     basis: "Sum of the stream targets",
     provisional: parts.some((r) => r.provisional),
   };
 }
-
-const cents = (n: number) => Math.round(n * 100) / 100;
-const ratio = (n: number) => Math.round(n * 1000) / 1000;
 
 export type MonthProgress = {
   /** Day of the month the actual runs through (the as-of day, included). */
@@ -74,17 +72,17 @@ export function monthProgress({ target, actual, asOf }: { target: number | null;
   const day = Number(asOf.slice(8, 10));
   const days = daysInMonth(asOf);
   if (target == null || target <= 0) {
-    return { day, days, target: target ?? null, actual: cents(actual), paceToDate: null, vsPace: null, pctOfPace: null, pctOfTarget: null };
+    return { day, days, target: target ?? null, actual: round2(actual), paceToDate: null, vsPace: null, pctOfPace: null, pctOfTarget: null };
   }
-  const paceToDate = cents((target * day) / days);
+  const paceToDate = round2((target * day) / days);
   return {
     day,
     days,
     target,
-    actual: cents(actual),
+    actual: round2(actual),
     paceToDate,
-    vsPace: cents(actual - paceToDate),
-    pctOfPace: paceToDate > 0 ? ratio(actual / paceToDate) : null,
-    pctOfTarget: ratio(actual / target),
+    vsPace: round2(actual - paceToDate),
+    pctOfPace: paceToDate > 0 ? round3(actual / paceToDate) : null,
+    pctOfTarget: round3(actual / target),
   };
 }
