@@ -143,12 +143,9 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
       ),
     ),
     attempt("people", async () => {
-      const full = await supabase.from("profiles").select("id, hourly_rate, pay_type");
-      if (!full.error) return (full.data ?? []) as PersonRow[];
-      // Before migration 26 there is no pay_type: everyone with a rate is hourly.
-      const bare = await supabase.from("profiles").select("id, hourly_rate");
-      if (bare.error) throw bare.error;
-      return (bare.data ?? []) as PersonRow[];
+      const { data, error } = await supabase.from("profiles").select("id, hourly_rate, pay_type");
+      if (error) throw error;
+      return (data ?? []) as PersonRow[];
     }),
     attempt("outreach", () =>
       paged<OutreachEventRow>(() =>
@@ -163,7 +160,8 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
           return { rows: SALES_TARGET_SEED, source: "seed" };
         }
         return { rows: ((data ?? []) as SalesTargetRow[]).map((r) => ({ ...r, amount: Number(r.amount) })), source: "table" };
-      } catch {
+      } catch (e) {
+        problems.push(`sales targets: ${(e as Error)?.message ?? String(e)}; showing the bundled target table`);
         return { rows: SALES_TARGET_SEED, source: "seed" };
       }
     })(),

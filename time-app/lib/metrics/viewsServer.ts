@@ -52,6 +52,9 @@ export async function loadViews(supabase: SupabaseClient, ownerId: string): Prom
     if (error) return { mode: "error", message: error.message };
   }
   const views = ordered(((data ?? []) as Row[]).map(rowToView));
+  // Which view was open last is a convenience: if it cannot be read, the page
+  // opens on the first view (the intended degradation), and the views
+  // themselves, read above, are unaffected.
   const pref = await supabase.from("metric_preferences").select("active_view_id").eq("owner_id", ownerId).maybeSingle();
   const wanted = pref.data?.active_view_id != null ? String(pref.data.active_view_id) : null;
   const activeId = views.some((v) => v.id === wanted) ? wanted : (views[0]?.id ?? null);
