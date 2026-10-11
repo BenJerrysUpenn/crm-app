@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // suppression check. Its only caller, AddContactForm, is not mounted on
 // /email-campaigns (bj-finance #670): adding contacts was never built.
 //
-// The "+ Add contacts" form on the Cold tier called this to show what WOULD
+// The "+ Add contacts" form on the Cold tier calls this to show what WOULD
 // happen if the contact were added. It is READ-ONLY: two selects, as the
 // signed-in manager (RLS `(select is_manager())`), and nothing is written.
 //
