@@ -10,7 +10,7 @@ import { CouldNotLoad, Empty, Method, Note, Tile, Tiles, WaitingOnFeed } from ".
 import type { MetricsData } from "@/lib/metrics/load";
 import type { WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, type StreamFilter } from "@/lib/metrics/targets";
-import { lastN, periodCount, salesByMonth, salesMonthToDate, type SalesStream, type StreamDaily } from "@/lib/metrics/series";
+import { lastN, periodCount, salesByMonth, salesMonthToDate, streamNames, type SalesStream, type StreamDaily } from "@/lib/metrics/series";
 import { daysBetween, mondayOf, monthLabel, shortDay } from "@/lib/metrics/dates";
 import { conversion, LEAD_SOURCES } from "@/lib/metrics/funnel";
 import { LER_FLOOR, LER_TARGET, OWNER_COMP_WEEKLY } from "@/lib/metrics/ler";
@@ -34,10 +34,6 @@ function partialWeek(weeks: { week: string }[], today: string): number[] {
 /** Sales by day per stream that the page has: catering from the CRM; the rest arrive with the feed. */
 function streamDaily(data: MetricsData): StreamDaily {
   return data.catering ? { catering: data.catering.byDay } : {};
-}
-
-function streamNames(streams: SalesStream[]): string {
-  return streams.map((s) => STREAM_LABEL[s].toLowerCase()).join(" and ");
 }
 
 // ---- Sales vs target ------------------------------------------------------------------

@@ -22,6 +22,11 @@ export type SalesStream = Exclude<Stream, "delivery">;
 /** Sales by day per stream; a stream that is absent has no data yet. */
 export type StreamDaily = Partial<Record<SalesStream, Record<string, number>>>;
 
+/** "catering and in-store and delivery": streams named in a sentence. */
+export function streamNames(streams: SalesStream[]): string {
+  return streams.map((s) => STREAM_LABEL[s].toLowerCase()).join(" and ");
+}
+
 export function streamsIn(filter: StreamFilter): SalesStream[] {
   return filter === "all" ? [...STREAMS] : [filter as SalesStream];
 }
@@ -72,7 +77,7 @@ export function salesMonthToDate(sales: StreamDaily, targets: SalesTargetRow[], 
   const partial = waitingOn.length > 0 && have.length > 0;
   const chartTarget = partial ? sumTargets(targets, month, have) : (target?.amount ?? null);
   const pace = chartTarget != null ? days.map((_, i) => round2((chartTarget * (i + 1)) / n)) : null;
-  const paceLabel = partial ? `Pace to ${have.map((h) => STREAM_LABEL[h].toLowerCase()).join(" and ")} target` : "Pace to target";
+  const paceLabel = partial ? `Pace to ${streamNames(have)} target` : "Pace to target";
   const actualSoFar = round2(cumulative.reduce((s, c) => s + (c.values[days.indexOf(asOf)] ?? 0), 0));
   const progress = waitingOn.length === 0 ? monthProgress({ target: target?.amount ?? null, actual: actualSoFar, asOf }) : null;
   return { labels: days.map(shortDay), days, cumulative, pace, paceLabel, target, progress, actualSoFar, waitingOn };
