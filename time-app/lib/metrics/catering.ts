@@ -14,7 +14,7 @@
 // and listed as "suspect" so the page can say how many and which. Nothing
 // here repairs the rows.
 
-import { addMonths, monthEnd, monthStart, nyDay } from "./dates.ts";
+import { monthEnd, monthStart, nyDay } from "./dates.ts";
 import { round2 } from "./round.ts";
 
 export type DealRow = {
@@ -92,19 +92,17 @@ export type CateringDays = {
   estimatedIds: number[];
   /** Booked deals with no value at all: counted as 0. */
   missingValueIds: number[];
-  dealIds: number[];
 };
 
 /** Booked catering sales by event day, from `from` to `to` inclusive. */
 export function cateringByDay(deals: DealRow[], from: string, to: string, today: string, bookedBefore?: Set<number>): CateringDays {
-  const out: CateringDays = { byDay: {}, total: 0, estimatedIds: [], missingValueIds: [], dealIds: [] };
+  const out: CateringDays = { byDay: {}, total: 0, estimatedIds: [], missingValueIds: [] };
   for (const d of deals) {
     if (d.archived) continue;
     const day = eventDay(d);
     if (!day || day < from || day > to) continue;
     if (!isBooked(d, today, bookedBefore)) continue;
     const value = cateringValue(d);
-    out.dealIds.push(d.id);
     if (value == null) {
       out.missingValueIds.push(d.id);
       continue;
@@ -112,18 +110,6 @@ export function cateringByDay(deals: DealRow[], from: string, to: string, today:
     if (d.subtotal_pretax == null) out.estimatedIds.push(d.id);
     out.byDay[day] = round2((out.byDay[day] ?? 0) + value);
     out.total = round2(out.total + value);
-  }
-  return out;
-}
-
-/** Booked catering sales by calendar month ("YYYY-MM-01" keys). */
-export function cateringByMonth(deals: DealRow[], firstMonth: string, lastMonth: string, today: string, bookedBefore?: Set<number>): Record<string, number> {
-  const days = cateringByDay(deals, firstMonth, monthEnd(lastMonth), today, bookedBefore);
-  const out: Record<string, number> = {};
-  for (let m = firstMonth; m <= lastMonth; m = addMonths(m, 1)) out[m] = 0;
-  for (const [day, v] of Object.entries(days.byDay)) {
-    const m = monthStart(day);
-    out[m] = round2((out[m] ?? 0) + v);
   }
   return out;
 }
