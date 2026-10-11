@@ -2,18 +2,21 @@ import { describe, expect, it } from "vitest";
 import postgres from "postgres";
 import {
   CAKE_ONLY,
+  CONSUMER_DOMAINS,
   cakeEvidenceByEmail,
   compute,
+  everyoneOf,
   isCakeOnly,
   leadStatusOf,
   type DealRow,
   type ProspectRow,
 } from "@/lib/emailCampaignsPrototype/model";
 
-// Live parity: the page's Cake only rule (isCakeOnly) against the HOLD (#286)
-// clause of outreach_warm_eligible, Catering-Manager
-// outreach/migrations/011_cake_hold_and_catering_first.sql, on the live
-// database. Read-only (a READ ONLY transaction). Skipped unless
+// Live parity: the page's Personal cake rule (isCakeOnly) against the HOLD
+// (#286) clause of outreach_warm_eligible, Catering-Manager
+// outreach/migrations/012_cake_hold_personal_only.sql, on the live database,
+// including the consumer mailbox list (CONSUMER_DOMAINS against the view's
+// ARRAY, read from pg_get_viewdef). Read-only (a READ ONLY transaction). Skipped unless
 // EMAIL_CAMPAIGNS_PARITY_DSN is set, so CI and a plain `npm test` never touch
 // the database:
 //
@@ -25,12 +28,29 @@ const DSN = process.env.EMAIL_CAMPAIGNS_PARITY_DSN;
 const cakeLead = (notes: string | null) =>
   (notes ?? "").startsWith("Cake Order") && leadStatusOf(notes) === "Cake Order";
 
-describe.skipIf(!DSN)("Cake only parity with the live outreach_warm_eligible hold", () => {
+/** The consumer domains in the live view: the one ARRAY that lists gmail.com. */
+async function liveConsumerDomains(sql: postgres.Sql): Promise<string[]> {
+  const [{ def }] = await sql<{ def: string }[]>`SELECT pg_get_viewdef('outreach_warm_eligible'::regclass) AS def`;
+  const arrays = [...def.matchAll(/ARRAY\[(.*?)\]/gs)].map((m) => m[1]).filter((a) => a.includes("'gmail.com'"));
+  expect(arrays).toHaveLength(1);
+  return [...arrays[0].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+}
+
+describe.skipIf(!DSN)("Personal cake parity with the live outreach_warm_eligible hold", () => {
+  it("uses exactly the view's consumer mailbox domains", async () => {
+    const sql = postgres(DSN!, { max: 1, prepare: false });
+    try {
+      expect([...(await liveConsumerDomains(sql))].sort()).toEqual([...CONSUMER_DOMAINS].sort());
+    } finally {
+      await sql.end();
+    }
+  }, 60_000);
+
   it("holds exactly the people the view holds out, person by person", async () => {
     const sql = postgres(DSN!, { max: 1, prepare: false });
     try {
       const [rows, deals] = await sql.begin("read only", async (tx) => [
-        // The 011 view's WHERE clause without its HOLD clause: everyone the
+        // The 012 view's WHERE clause without its HOLD clause: everyone the
         // view would list if there were no hold, and whether it lists them.
         await tx<{ id: number; email: string; ever_booked: boolean; notes: string | null; in_view: boolean }[]>`
           SELECT p.id, p.email, p.ever_booked, p.notes, (v.id IS NOT NULL) AS in_view
@@ -61,9 +81,10 @@ describe.skipIf(!DSN)("Cake only parity with the live outreach_warm_eligible hol
     }
   }, 120_000);
 
-  it("puts the same people on the Warm Cake only card as the SQL clause, suppressed excluded", async () => {
+  it("puts the same people on the Warm Personal cake card as the SQL clause, suppressed excluded", async () => {
     const sql = postgres(DSN!, { max: 1, prepare: false });
     try {
+      const consumer = await liveConsumerDomains(sql);
       const [prospects, cakeNotes, deals, sqlCount] = await sql.begin("read only", async (tx) => [
         await tx<ProspectRow[]>`
           SELECT id, name, company, email, status, engine, category, ever_booked, last_event_date::text,
@@ -90,7 +111,8 @@ describe.skipIf(!DSN)("Cake only parity with the live outreach_warm_eligible hol
              AND NOT COALESCE(p.ever_booked AND p.last_event_date >= current_date - interval '12 months', false)
              AND NOT p.ever_booked
              AND (split_part(split_part(COALESCE(p.notes, ''), E'\n', 1), ';', 1) = 'Cake Order' OR COALESCE(dk.cake, false))
-             AND NOT COALESCE(dk.catering, false)`,
+             AND NOT COALESCE(dk.catering, false)
+             AND lower(split_part(btrim(p.email), '@', 2)) = ANY (${consumer}::text[])`,
       ]);
       const suppression = await sql<{ email: string }[]>`SELECT email FROM outreach_suppression WHERE email IS NOT NULL`;
       const lead = new Set(cakeNotes.filter((r) => cakeLead(r.notes)).map((r) => r.id));
@@ -109,7 +131,7 @@ describe.skipIf(!DSN)("Cake only parity with the live outreach_warm_eligible hol
       const card = warm.categories.find((c) => c.key === CAKE_ONLY.key)!;
       const offerCard = payload.tiers.find((t) => t.key === "offer")!.categories.find((c) => c.key === CAKE_ONLY.key)!;
       console.log(
-        `[parity] Warm Cake only ${card.total} (SQL ${sqlCount[0].n}); Offer Cake only ${offerCard.total}; Warm everyone ${warm.total}`,
+        `[parity] Warm Personal cake ${card.total} (SQL ${sqlCount[0].n}); Offer Personal cake ${offerCard.total}; Warm total ${warm.total}; Warm Everyone ${everyoneOf(warm).total}`,
       );
       expect(card.total).toBe(sqlCount[0].n);
     } finally {

@@ -39,13 +39,16 @@
 // flags) and the client decides per group, with the current steps, which
 // state it is in (statesAt).
 //
-// Cake only (bj-finance #286, owner's ruling 2026-10-10): people who never
-// booked and only ever asked us about a cake are HELD out of the catering
-// email by Catering-Manager outreach/migrations/011 (the HOLD clause on
-// outreach_warm_eligible). Here they get their own "Cake only" card in Warm
-// and Offer, in no other category, with no sequence of their own (it does not
-// fall back to the tier's Everyone sequence), and they are left out of the
-// Everyone card, Needed and capacity. isCakeOnly is that clause, line for line.
+// Personal cake (bj-finance #286, owner's rulings 2026-10-10): people who
+// never booked, only ever asked us about a cake, and write from a consumer
+// mailbox (Gmail, iCloud, an ISP...) are HELD out of the catering email by
+// Catering-Manager outreach/migrations/012 (the HOLD clause on
+// outreach_warm_eligible). A cake-only lead on a company domain is a catering
+// prospect and is not held. Here the held get their own "Personal cake" card
+// in Warm and Offer, in no other category, with no sequence of their own (it
+// does not fall back to the tier's Everyone sequence), and they are left out
+// of the Everyone card, Needed and capacity. isCakeOnly is that clause, line
+// for line.
 
 export type ProspectRow = {
   id: number;
@@ -424,7 +427,9 @@ export const EXPLICIT_OPT_IN_SOURCES: ReadonlySet<string> = new Set(["explicit_y
 
 // --- cake only (bj-finance #286) ---------------------------------------------
 
-export const CAKE_ONLY = { key: "cake_only", label: "Cake only" } as const;
+// The key stays "cake_only" so sequences saved against it keep working; the
+// card is labelled for who is in it since 012 (personal mailboxes only).
+export const CAKE_ONLY = { key: "cake_only", label: "Personal cake" } as const;
 /** Categories held out of the tier's email. Seeded on Warm and Offer so the
  * card shows even when nobody is in it. */
 export const HOLD_CATEGORIES: ReadonlySet<string> = new Set([CAKE_ONLY.key]);
@@ -441,6 +446,32 @@ const sqlEmailKey = (s: string | null | undefined): string | null =>
   s === null || s === undefined ? null : s.replace(/^ +| +$/g, "").toLowerCase();
 
 const NO_EVENT_TYPE: ReadonlySet<string> = new Set(["", "Cake Order", "--Pick One--"]);
+
+/** Consumer mailbox providers: Catering-Manager outreach/consumer_domains.py,
+ * copied into migration 012's HOLD clause and here. Exact match on the domain;
+ * comcast.net is consumer, comcast.com (the employer) is not; .edu and .gov
+ * are organisations. tests/emailCampaignsCakeOnlyParity.test.ts fails if this
+ * set and the live view's ARRAY differ. */
+export const CONSUMER_DOMAINS: ReadonlySet<string> = new Set([
+  "126.com", "163.com", "aim.com", "aol.com", "att.net", "bellsouth.net", "btinternet.com",
+  "centurylink.net", "charter.net", "comcast.net", "cox.net", "currently.com", "duck.com",
+  "earthlink.net", "fastmail.com", "foxmail.com", "gmail.com", "gmx.com", "gmx.de", "gmx.us",
+  "googlemail.com", "hey.com", "hotmail.co.uk", "hotmail.com", "hotmail.fr", "icloud.com",
+  "juno.com", "live.ca", "live.cn", "live.co.uk", "live.com", "mac.com", "mail.com", "mail.ru",
+  "me.com", "mindspring.com", "msn.com", "naver.com", "netscape.net", "netzero.net",
+  "optonline.net", "outlook.com", "passport.com", "pipeline.com", "pm.me", "proton.me",
+  "protonmail.com", "ptd.net", "qq.com", "rcn.com", "rocketmail.com", "rr.com", "sbcglobal.net",
+  "sina.com", "tutanota.com", "twcny.rr.com", "verizon.net", "web.de", "windstream.net",
+  "yahoo.ca", "yahoo.co.in", "yahoo.co.uk", "yahoo.com", "yahoo.com.au", "yahoo.com.hk",
+  "yahoo.de", "yahoo.es", "yahoo.fr", "yahoo.it", "yandex.com", "yandex.ru", "ymail.com",
+  "zohomail.com",
+]);
+
+/** lower(split_part(btrim(email), '@', 2)) is a consumer mailbox provider. */
+export function isConsumerDomain(email: string | null | undefined): boolean {
+  const key = sqlEmailKey(email);
+  return key !== null && CONSUMER_DOMAINS.has(key.split("@")[1] ?? "");
+}
 
 export type CakeEvidence = { cake: boolean; catering: boolean };
 
@@ -461,10 +492,12 @@ export function cakeEvidenceByEmail(deals: Pick<DealRow, "contact_email" | "even
   return out;
 }
 
-/** Cake only: never booked, cake evidence (lead status Cake Order, or a Cake
- * Order deal) and no deal of any other type. The HOLD (#286) clause of
- * Catering-Manager outreach/migrations/011_cake_hold_and_catering_first.sql;
- * tests/emailCampaignsCakeOnly*.test.ts hold the two together. */
+/** Personal cake: never booked, cake evidence (lead status Cake Order, or a
+ * Cake Order deal), no deal of any other type, and a consumer mailbox domain.
+ * The HOLD (#286) clause of Catering-Manager
+ * outreach/migrations/012_cake_hold_personal_only.sql; a cake-only lead on a
+ * company, school or government domain is a catering prospect (owner's ruling
+ * 2026-10-10). tests/emailCampaignsCakeOnly*.test.ts hold the two together. */
 export function isCakeOnly(
   p: Pick<ProspectRow, "email" | "ever_booked" | "cake_lead_status">,
   evidence: Map<string, CakeEvidence>,
@@ -472,7 +505,7 @@ export function isCakeOnly(
   if (p.ever_booked) return false;
   const key = sqlEmailKey(p.email);
   const ev = key === null ? undefined : evidence.get(key);
-  return (!!p.cake_lead_status || !!ev?.cake) && !ev?.catering;
+  return (!!p.cake_lead_status || !!ev?.cake) && !ev?.catering && isConsumerDomain(p.email);
 }
 
 export const isExplicitOptIn = (p: Pick<ProspectRow, "marketing_opt_in" | "opt_in_source">) =>
@@ -817,7 +850,7 @@ export function compute(data: RawData, now: Date): Payload {
       "People who opted out, bounced or are on the suppression list are left out of every number.",
       "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",
       "Who got which email comes from the send history, across every tier and every contact record with the same email. Nobody is sent an email they already had.",
-      "Cake only (Warm and Offer): never booked, and only ever asked us about a cake (Salesforce lead status Cake Order or a Cake Order deal, and no deal of any other type). They are held out of the catering email (bj-finance #286), are in no other category, have no sequence of their own, and are not counted in Everyone, Needed or capacity.",
+      "Personal cake (Warm and Offer): never booked, only ever asked us about a cake (Salesforce lead status Cake Order or a Cake Order deal, and no deal of any other type), and on a personal mailbox such as Gmail or iCloud; a cake-only contact on a company, school or government domain is a catering prospect instead. They are held out of the catering email (bj-finance #286), are in no other category, have no sequence of their own, and are not counted in Everyone, Needed or capacity.",
     ],
   };
 }

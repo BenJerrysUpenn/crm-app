@@ -4,9 +4,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import EmailCampaignsPrototype from "@/components/emailCampaignsPrototype/EmailCampaignsPrototype";
 import {
   CAKE_ONLY,
+  CONSUMER_DOMAINS,
   categorySteps,
   compute,
   everyoneOf,
+  isConsumerDomain,
   leadStatusOf,
   statesAt,
   volumeAt,
@@ -18,9 +20,13 @@ import { SEED_SEQUENCES, stepKeys } from "@/lib/emailCampaignsPrototype/sequence
 
 // Cake only (bj-finance #286, owner's ruling 2026-10-10): "cake only needs a
 // card category in the warm and offer funnels. then all 3680 can hold there in
-// that queue." The membership rule is the HOLD clause of Catering-Manager
-// outreach/migrations/011_cake_hold_and_catering_first.sql; the live parity
-// check is tests/emailCampaignsCakeOnlyParity.test.ts. Synthetic rows only.
+// that queue." Narrowed the same day: "keep the company domain contacts in the
+// loop for catering, but the rest are all safe for a single personal-cake
+// population." The membership rule is the HOLD clause of Catering-Manager
+// outreach/migrations/012_cake_hold_personal_only.sql (011 plus a consumer
+// mailbox domain); the live parity check is
+// tests/emailCampaignsCakeOnlyParity.test.ts. Synthetic rows only, on gmail.com
+// unless a test is about the domain.
 
 const NOW = new Date("2026-10-10T12:00:00Z");
 
@@ -31,7 +37,7 @@ function prospect(over: Partial<ProspectRow> = {}): ProspectRow {
     id,
     name: `Person ${id}`,
     company: null,
-    email: `p${id}@example.com`,
+    email: `p${id}@gmail.com`,
     status: "raw",
     engine: "warm",
     category: null,
@@ -98,8 +104,8 @@ describe("Cake only membership: the 011 HOLD clause", () => {
   });
 
   it("matches deals on lower(btrim(email))", () => {
-    const p = prospect({ email: "Mixed.Case@Example.com" });
-    expect(catOf(p, [deal("  mixed.case@example.com ", "Cake Order")])).toBe(CAKE_ONLY.key);
+    const p = prospect({ email: "Mixed.Case@GMail.com" });
+    expect(catOf(p, [deal("  mixed.case@gmail.com ", "Cake Order")])).toBe(CAKE_ONLY.key);
   });
 
   it("keeps a cake lead who also has a catering deal in catering", () => {
@@ -139,6 +145,44 @@ describe("Cake only membership: the 011 HOLD clause", () => {
     const c = prospect({ cake_lead_status: true });
     const t = run([a, b, c], [], [c.email!]);
     expect(t.warm.categories.find((x) => x.key === CAKE_ONLY.key)?.total).toBe(1);
+  });
+});
+
+describe("Personal cake: only consumer mailbox domains are held (012)", () => {
+  it("knows the obvious consumer providers, and that organisations are not", () => {
+    for (const d of ["gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "aol.com", "outlook.com",
+      "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com", "comcast.net",
+      "verizon.net", "att.net", "sbcglobal.net", "protonmail.com", "proton.me"]) {
+      expect(isConsumerDomain(`x@${d}`), d).toBe(true);
+    }
+    for (const d of ["upenn.edu", "sas.upenn.edu", "phila.gov", "deloitte.com", "comcast.com", "example.com"]) {
+      expect(isConsumerDomain(`x@${d}`), d).toBe(false);
+    }
+    expect(CONSUMER_DOMAINS.size).toBe(73);
+  });
+
+  it("reads the domain the way the view does: lower(split_part(btrim(email), '@', 2))", () => {
+    expect(isConsumerDomain("  Someone@GMail.COM ")).toBe(true);
+    expect(isConsumerDomain("no-at-sign")).toBe(false);
+    expect(isConsumerDomain(null)).toBe(false);
+  });
+
+  it("does not hold a company-domain cake lead: they are a catering prospect", () => {
+    const sf = prospect({ email: "office@deloitte.com", cake_lead_status: true });
+    expect(catOf(sf)).not.toBe(CAKE_ONLY.key);
+    const crm = prospect({ email: "admin@sas.upenn.edu" });
+    expect(catOf(crm, [deal(crm.email, "Cake Order")])).not.toBe(CAKE_ONLY.key);
+    expect(catOf(prospect({ email: "clerk@phila.gov", cake_lead_status: true }))).not.toBe(CAKE_ONLY.key);
+  });
+
+  it("holds consumer-domain cake leads whatever the case, and counts the company ones in Everyone", () => {
+    const held = ["b@Comcast.NET", " c@icloud.com", "d@yahoo.co.uk"].map((email) =>
+      prospect({ email, cake_lead_status: true }),
+    );
+    const work = prospect({ email: "work@comcast.com", cake_lead_status: true });
+    const t = run([...held, work]);
+    expect(t.warm.categories.find((c) => c.key === CAKE_ONLY.key)?.total).toBe(3);
+    expect(everyoneOf(t.warm).total).toBe(1);
   });
 });
 
@@ -194,7 +238,7 @@ describe("Cake only cards: one card each on Warm and Offer, held", () => {
         ),
       }),
     );
-    expect(html).toContain(">Cake only<");
+    expect(html).toContain(">Personal cake<");
     // Warm's Everyone counts the 2 who are sent to, not the 2 held cake-only.
     expect(html).toMatch(/Everyone <span[^>]*>· 2 people<\/span>/);
     expect(html).toContain("no sequence yet");
