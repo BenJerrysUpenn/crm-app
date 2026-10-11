@@ -227,6 +227,14 @@ describe("GET /api/funnels", () => {
     expect(loop.suppression).toEqual({ total: 1, opt_out_events: 1, prospects_total: 3 });
   });
 
+  it("counts a spam complaint as an opt-out, like an unsubscribe", async () => {
+    db.state.tables.outreach_events.push(
+      { prospect_id: 10, event: "complained", occurred_at: "2026-09-25T15:45:00Z" },
+    );
+    const { loop } = await (await get()).json();
+    expect(loop.suppression.opt_out_events).toBe(2);
+  });
+
   it("reports no last activity while the only outreach events are imports", async () => {
     db.state.tables.outreach_events = [
       { prospect_id: 10, event: "added", occurred_at: "2026-09-25T15:30:00Z" },
