@@ -60,7 +60,8 @@ test("a manager saves a view: name cleaned, widgets cleaned, placed last, theirs
   assert.deepEqual(v1.widgets, [{ id: "a", metric: "catering_ar", settings: { period: "mtd" } }]);
   const r2 = await viewsRoute.POST(req("POST", "views", { name: "Second" }));
   assert.equal((await json(r2)).view.position, 1);
-  assert.deepEqual(db.rows("metric_views").filter((r) => r.owner_id === ALINA).map((r) => r.name), ["My catering view", "Second"]);
+  const mine = await loadViews(signedInClient(ALINA), ALINA);
+  assert.deepEqual(mine.mode === "server" && mine.views.map((v) => v.name), ["My catering view", "Second"]);
 });
 
 test("names: blank refused, and no two live views of one person share one", async () => {
@@ -84,7 +85,9 @@ test("rename, re-lay-out and reorder a view; archive it instead of deleting", as
   assert.equal(archived.status, 200);
   const row = db.rows("metric_views").find((r) => String(r.id) === id)!;
   assert.ok(row.archived_at, "archived, not removed");
-  // Archived views are gone from the API's reach.
+  // Archived views are gone from the page and the API's reach.
+  const after = await loadViews(signedInClient(ALINA), ALINA);
+  assert.equal(after.mode === "server" && after.views.some((v) => v.id === id), false);
   assert.equal((await viewRoute.PATCH(req("PATCH", `views/${id}`, { name: "Back" }), { params: { id } })).status, 404);
   assert.equal((await viewRoute.PATCH(req("PATCH", `views/${id}`, { archived: false }), { params: { id } })).status, 400);
 });
@@ -93,8 +96,11 @@ test("another manager's view is invisible: changing it is a 404 and it stays as 
   db.signIn(ALINA);
   const r = await viewRoute.PATCH(req("PATCH", "views/1", { name: "Hijacked" }), { params: { id: "1" } });
   assert.equal(r.status, 404);
-  assert.equal(db.rows("metric_views").find((x) => x.id === 1)!.name, "Alex's");
   assert.equal((await prefsRoute.PUT(req("PUT", "preferences", { active_view_id: "1" }))).status, 404);
+  // Alex still sees his view under its own name.
+  db.signIn(ALEX);
+  const alexs = await loadViews(signedInClient(ALEX), ALEX);
+  assert.deepEqual(alexs.mode === "server" && alexs.views.map((v) => v.name), ["Alex's"]);
 });
 
 test("bad PATCH bodies are refused", async () => {
@@ -112,9 +118,9 @@ test("the open view is remembered per person: insert the first time, update afte
   const b = (await json(await viewsRoute.POST(req("POST", "views", { name: "B" })))).view.id as string;
   assert.equal((await prefsRoute.PUT(req("PUT", "preferences", { active_view_id: a }))).status, 200);
   assert.equal((await prefsRoute.PUT(req("PUT", "preferences", { active_view_id: b }))).status, 200);
-  const prefs = db.rows("metric_preferences");
-  assert.equal(prefs.length, 1);
-  assert.equal(prefs[0].active_view_id, Number(b));
+  // Two preference rows would make the read ambiguous and open the first view, not B.
+  const state = await loadViews(signedInClient(ALINA), ALINA);
+  assert.equal(state.mode === "server" && state.activeId, b);
 });
 
 test("before migration 39 every route answers 503 views_not_enabled, and the loader says 'local'", async () => {
@@ -144,7 +150,7 @@ test("a manager with no views is given Finance and Catering, saved as theirs; th
   if (first.mode !== "server") return;
   assert.deepEqual(first.views.map((v) => v.name), ["Finance", "Catering"]);
   assert.equal(first.activeId, first.views[0].id);
-  db.rows("metric_preferences").push({ owner_id: ALINA, active_view_id: Number(first.views[1].id) });
+  assert.equal((await prefsRoute.PUT(req("PUT", "preferences", { active_view_id: first.views[1].id }))).status, 200);
   const again = await loadViews(supabase, ALINA);
   assert.equal(again.mode === "server" && again.views.length, 2, "not seeded twice");
   assert.equal(again.mode === "server" && again.activeId, first.views[1].id);
