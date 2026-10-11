@@ -3,7 +3,7 @@ import { getProfile } from "@/lib/auth";
 import { financeAccess } from "@/lib/financeAccess";
 import { isMissingTable } from "@/lib/storeHours";
 import { MAX_VIEWS, cleanName, cleanWidgets } from "@/lib/metrics/views";
-import { NOT_ENABLED, VIEW_COLUMNS, rowToView } from "@/lib/metrics/viewsServer";
+import { NOT_ENABLED, UNIQUE_VIOLATION, VIEW_COLUMNS, rowToView } from "@/lib/metrics/viewsServer";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -11,9 +11,6 @@ export const dynamic = "force-dynamic";
 // (see app/api/payroll/verify/route.ts); a stale read here would hide a view
 // just saved.
 export const fetchCache = "force-no-store";
-
-/** Postgres: unique_violation (two live views with one name). */
-const UNIQUE_VIOLATION = "23505";
 
 // POST /api/metrics/views   Body: { name, widgets? }
 //

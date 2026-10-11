@@ -3,13 +3,11 @@ import { getProfile } from "@/lib/auth";
 import { financeAccess } from "@/lib/financeAccess";
 import { isMissingTable } from "@/lib/storeHours";
 import { cleanName, cleanWidgets } from "@/lib/metrics/views";
-import { NOT_ENABLED, VIEW_COLUMNS, rowToView } from "@/lib/metrics/viewsServer";
+import { NOT_ENABLED, UNIQUE_VIOLATION, VIEW_COLUMNS, isViewId, rowToView } from "@/lib/metrics/viewsServer";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
-
-const UNIQUE_VIOLATION = "23505";
 
 type Body = { name?: unknown; widgets?: unknown; position?: unknown; archived?: unknown };
 
@@ -22,7 +20,7 @@ type Body = { name?: unknown; widgets?: unknown; position?: unknown; archived?: 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const me = await getProfile();
   if (!me || financeAccess(me) !== "allowed") return NextResponse.json({ error: "Managers only" }, { status: 403 });
-  if (!/^\d{1,18}$/.test(params.id)) return NextResponse.json({ error: "No such view." }, { status: 404 });
+  if (!isViewId(params.id)) return NextResponse.json({ error: "No such view." }, { status: 404 });
 
   const body = (await request.json().catch(() => null)) as Body | null;
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });

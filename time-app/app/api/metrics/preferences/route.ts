@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { financeAccess } from "@/lib/financeAccess";
 import { isMissingTable } from "@/lib/storeHours";
-import { NOT_ENABLED } from "@/lib/metrics/viewsServer";
+import { NOT_ENABLED, isViewId } from "@/lib/metrics/viewsServer";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export async function PUT(request: Request) {
 
   const body = (await request.json().catch(() => null)) as { active_view_id?: unknown } | null;
   const id = body?.active_view_id;
-  if (typeof id !== "string" || !/^\d{1,18}$/.test(id))
+  if (!isViewId(id))
     return NextResponse.json({ error: "active_view_id must be one of your views." }, { status: 400 });
 
   const supabase = createClient();

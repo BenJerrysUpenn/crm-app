@@ -23,6 +23,14 @@ export const NOT_ENABLED = {
 
 export const VIEW_COLUMNS = "id, name, position, widgets";
 
+/** Postgres: unique_violation (two live views with one name). */
+export const UNIQUE_VIOLATION = "23505";
+
+/** A view id as the API takes it: the digits of a metric_views id. */
+export function isViewId(x: unknown): x is string {
+  return typeof x === "string" && /^\d{1,18}$/.test(x);
+}
+
 export function rowToView(r: Row): View {
   return { id: String(r.id), name: r.name, position: r.position, widgets: cleanWidgets(r.widgets) };
 }
