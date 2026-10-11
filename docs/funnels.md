@@ -59,8 +59,8 @@ dirty free-text and is normalized before matching.
 - Warm daily cap is a constant (`WARM_DAILY_CAP`), because Vercel can't read the droplet
   env; the proposed `sweep_runs` table would carry the live value.
 - "Drafts awaiting send" is the Quote-Review stage, not real Gmail drafts.
-- Quote latency uses the earliest **done** `quote_jobs` row per deal as the "quote sent"
-  instant (the artifact is produced right before the human send).
+- Quote latency uses the earliest **done** `quote_jobs` row of `kind = 'quote'` per deal as
+  the "quote sent" instant (the artifact is produced right before the human send).
 - Seed/DMARC is a static note, not live-polled.
 
 ## Deferred (layer 2 — `supabase/crm/proposed/007_funnels_layer2.sql`, DO NOT RUN)
