@@ -248,7 +248,7 @@ export function ForwardWidget({ data }: { data: MetricsData }) {
       <Tiles>
         <Tile label="Catering due in" value={money(cateringIn)} sub="events in the next 14 days" />
         <Tile label="Hourly wages earned" value={money(wages)} sub="shifts scheduled" />
-        <Tile label="Overdue catering" value={money(f.overdue)} sub="past events, date unknown" />
+        <Tile label="Overdue catering" value={money(f.overdue)} sub="events already held; not on a day" />
         <Tile label="Opening cash" value="–" sub="waiting on the finance feed" />
       </Tiles>
       <Chart

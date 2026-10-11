@@ -165,7 +165,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
     <div className="metrics-root space-y-4">
       {mode === "local" && (
         <p className="text-xs rounded-md bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 px-3 py-2">
-          Your views are saved in this browser only, until saved views are switched on for your account (migration 39).
+          Your views are saved in this browser only for now. Once saved views are switched on, they follow you to any device.
         </p>
       )}
       {initial.mode === "error" && (

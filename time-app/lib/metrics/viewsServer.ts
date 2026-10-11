@@ -17,7 +17,7 @@ type Row = { id: number; name: string; position: number; widgets: unknown };
 
 /** What the API answers (503) before migration 39 is applied. */
 export const NOT_ENABLED = {
-  error: "Saved views are not switched on yet (migration 39). Your views are kept in this browser.",
+  error: "Saved views are not switched on yet. Your views are kept in this browser.",
   code: "views_not_enabled",
 };
 
