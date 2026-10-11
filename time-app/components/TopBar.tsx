@@ -7,7 +7,10 @@ import type { Role } from "@/lib/types";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
 
-const links: { href: string; label: string; managerOnly?: boolean }[] = [
+// Account has no desktop tab: from the sm breakpoint up, the name at the right
+// of the bar links to /account. Below sm the name is hidden, so the hamburger
+// menu keeps an Account entry (mobileOnly).
+const links: { href: string; label: string; managerOnly?: boolean; mobileOnly?: boolean }[] = [
   { href: "/", label: "Clock" },
   { href: "/schedule", label: "Schedule" },
   { href: "/availability", label: "Availability" },
@@ -15,7 +18,7 @@ const links: { href: string; label: string; managerOnly?: boolean }[] = [
   { href: "/reimbursements", label: "Reimbursements" },
   { href: "/attendance", label: "Attendance", managerOnly: true },
   { href: "/team", label: "Team", managerOnly: true },
-  { href: "/account", label: "Account" },
+  { href: "/account", label: "Account", mobileOnly: true },
 ];
 
 export default function TopBar({
@@ -57,7 +60,7 @@ export default function TopBar({
 
         {/* Desktop nav */}
         <nav className="hidden sm:flex items-center gap-1 flex-1 overflow-x-auto">
-          {visible.map((l) => (
+          {visible.filter((l) => !l.mobileOnly).map((l) => (
             <Link
               key={l.href}
               href={l.href}
@@ -78,7 +81,7 @@ export default function TopBar({
         <ThemeToggle />
         <NotificationBell />
 
-        <Link href="/account" className="hidden md:flex flex-col items-end leading-tight hover:opacity-80">
+        <Link href="/account" className="hidden sm:flex flex-col items-end leading-tight hover:opacity-80">
           <span className="text-xs text-slate-700 dark:text-slate-300">{name || email}</span>
           <span className="text-[10px] text-slate-500 capitalize">{role} · account</span>
         </Link>
