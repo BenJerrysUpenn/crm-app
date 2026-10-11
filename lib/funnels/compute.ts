@@ -66,8 +66,8 @@ function roundTo(v: number, precision: number): number {
 
 /**
  * Stage-to-stage conversion %, guarding divide-by-zero. `precision` is the
- * number of decimal places (default 1 dp, so existing callers are unchanged);
- * pass 0 for the whole-percent funnel-table captions.
+ * number of decimal places (default 1 dp); pass 0 for the whole-percent
+ * funnel-table captions.
  */
 export function pct(
   numerator: number,
