@@ -16,7 +16,7 @@ import {
   updateWidgetSettings, type View,
 } from "@/lib/metrics/views";
 import type { ViewsState } from "@/lib/metrics/viewsServer";
-import { NotEnabled, localStore, readLocal, serverStore, writeLocal, type ViewPatch, type ViewStore } from "./viewStore";
+import { NotEnabled, applyPatch, localStore, readLocal, serverStore, writeLocal, type ViewPatch, type ViewStore } from "./viewStore";
 import {
   ArWidget, CashWidget, ClosedMonthWidget, ForwardWidget, LabourWidget, LeadsWidget, LerWidget, OutreachWidget, QuotesWidget, SalesWidget,
 } from "./widgets";
@@ -94,7 +94,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
 
   async function patchView(view: View, patch: ViewPatch, message: string) {
     const before = views;
-    setViews((vs) => vs.map((v) => (v.id === view.id ? { ...v, ...(patch.name !== undefined && { name: patch.name }), ...(patch.widgets && { widgets: patch.widgets }), ...(patch.position !== undefined && { position: patch.position }) } : v)));
+    setViews((vs) => vs.map((v) => (v.id === view.id ? applyPatch(v, patch) : v)));
     const out = await save((s) => s.patch(view.id, patch));
     if (out === undefined) setViews(before);
     else say(message);

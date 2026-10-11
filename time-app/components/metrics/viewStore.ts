@@ -17,6 +17,16 @@ export class NotEnabled extends Error {}
 
 export type ViewPatch = { name?: string; widgets?: WidgetConfig[]; position?: number; archived?: true };
 
+/** A view with a patch's name, widgets and position applied; archiving is the caller's to handle. */
+export function applyPatch(view: View, patch: ViewPatch): View {
+  return {
+    ...view,
+    ...(patch.name !== undefined && { name: patch.name }),
+    ...(patch.widgets && { widgets: patch.widgets }),
+    ...(patch.position !== undefined && { position: patch.position }),
+  };
+}
+
 export interface ViewStore {
   readonly kind: "server" | "local";
   create(name: string, widgets: WidgetConfig[]): Promise<View>;
@@ -98,12 +108,7 @@ export function localStore(snapshot: () => View[]): ViewStore {
       if (patch.archived) return null;
       const v = snapshot().find((x) => x.id === id);
       if (!v) return null;
-      return {
-        ...v,
-        ...(patch.name !== undefined && { name: patch.name }),
-        ...(patch.widgets && { widgets: cleanWidgets(patch.widgets) }),
-        ...(patch.position !== undefined && { position: patch.position }),
-      };
+      return applyPatch(v, patch.widgets ? { ...patch, widgets: cleanWidgets(patch.widgets) } : patch);
     },
     async setActive() {},
   };
