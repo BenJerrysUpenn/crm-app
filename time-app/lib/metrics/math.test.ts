@@ -43,12 +43,13 @@ test("the whole-business target is the sum of the month's streams, provisional w
   assert.equal(targetFor([], "2026-10-01", "all"), null);
 });
 
-test("the seed matches migration 39's INSERT, so the bundled fallback and the table agree", async () => {
+test("the seed matches migration 39's INSERT, so the bundled fallback and the table agree", async (t) => {
   const { readFile } = await import("node:fs/promises");
   const { fileURLToPath } = await import("node:url");
   const path = fileURLToPath(new URL("../../supabase/migration_39.sql", import.meta.url));
   const sql = await readFile(path, "utf8").catch(() => null);
-  if (sql === null) return; // the migration ships in its own pull request
+  // Reported as skipped, not passed: with no migration file nothing was checked.
+  if (sql === null) return t.skip("supabase/migration_39.sql is not in this tree; the migration ships in its own pull request");
   const rows = [...sql.matchAll(/\('(in_store|catering|concessions)',\s*(\d{1,2}),\s*(\d+\.\d{2})\)/g)];
   assert.equal(rows.length, 36);
   for (const [, stream, month, amount] of rows) {
