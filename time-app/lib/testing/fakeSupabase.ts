@@ -124,7 +124,8 @@ function registerResolveHooks() {
       if (specifier === "next/headers") {
         return { url: pathToFileURL(join(TIME, "lib", "testing", "nextHeaders.ts")).href, shortCircuit: true };
       }
-      if (specifier === "next/server") return next("next/server.js", context);
+      // next/* entry points are CommonJS files without an exports map: name the .js.
+      if (/^next\/[a-z-]+$/.test(specifier)) return next(`${specifier}.js`, context);
       const parent = context.parentURL?.startsWith("file:") ? fileURLToPath(context.parentURL) : null;
       if (parent && parent.startsWith(TIME) && !parent.includes("node_modules")) {
         const base = specifier.startsWith("@/")
