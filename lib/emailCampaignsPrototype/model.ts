@@ -557,7 +557,7 @@ export function compute(data: RawData, now: Date): Payload {
     const unknown = ageDays !== null && received.length === 0;
 
     const facts: string[] = [];
-    if (isBlocked) facts.push("blocked provider (Yahoo/Microsoft)");
+    if (isBlocked) facts.push("Yahoo/Microsoft address");
     if (received.length) facts.push(`got ${received.join(", ")}`);
     else if (ageDays !== null) facts.push("emailed, send not in history");
     else if (tier === "cold") facts.push(p.email ? "never emailed, email ready" : "never emailed, needs Apollo email reveal");
@@ -735,7 +735,7 @@ export function compute(data: RawData, now: Date): Payload {
       "Cold categories are the Apollo segments stored on each prospect.",
       "People who opted out, bounced or are on the suppression list are left out of every number.",
       "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",
-      "Who got which email comes from the send history (outreach_events, template per send), across every tier and every prospect row with the same email. Nobody is sent an email they already had.",
+      "Who got which email comes from the send history, across every tier and every contact record with the same email. Nobody is sent an email they already had.",
     ],
   };
 }

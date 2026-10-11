@@ -793,7 +793,13 @@ function Volume({
 
   let verdict: React.ReactNode = null;
   if (people === 0) {
-    verdict = <span className="text-slate-400">Nothing to send: nobody has a step left.</span>;
+    verdict = (
+      <span className="text-slate-400">
+        {st.heldBy.noSequence > 0 && st.heldBy.finished === 0
+          ? "Nothing to send: no sequence yet."
+          : "Nothing to send: nobody has a step left."}
+      </span>
+    );
   } else if (cadence === "daily") {
     verdict =
       v.capDay > 0 ? (
@@ -925,10 +931,9 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
     <div className="space-y-3 px-3 py-4 pb-12 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xl font-semibold text-slate-100">Email campaigns</h2>
-        <div className="flex flex-wrap items-center gap-3 text-[10px] text-slate-500">
-          <span>✎ Notes and sequence edits are saved in this browser only</span>
+        <div className="text-[11px] text-slate-400">
           <span>
-            as of{" "}
+            ✎ Notes and sequence edits are saved in this browser only · as of{" "}
             {new Date(payload.generated_at).toLocaleString("en-US", {
               timeZone: "America/New_York",
               month: "short",

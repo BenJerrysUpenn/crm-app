@@ -194,7 +194,7 @@ function RecipientPreview({ step, lane, blocks }: { step: SeqStep; lane: Lane; b
             {footerLines.map((line, i) =>
               lane.proposedTags.some((t) => line.includes(`{{${t}}}`)) ? (
                 <div key={i} className="rounded border border-dashed border-amber-400 bg-amber-50 px-2 py-1">
-                  <BlockLabel tone="amber">proposed footer line · not live yet</BlockLabel>
+                  <BlockLabel tone="amber">footer line not in sent emails yet</BlockLabel>
                   <div className="text-[12px] text-slate-600">
                     <Filled text={line} />
                   </div>

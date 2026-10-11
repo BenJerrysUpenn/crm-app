@@ -24,8 +24,8 @@ export default async function UnsubscribePreviewPage() {
         <>
           <p>
             This is the real page the warm lane&apos;s Unsubscribe link opens, served by{" "}
-            <code className="font-mono">/api/unsubscribe/&lt;token&gt;</code> (live since 09-26). Here it is shown with
-            a fake token (<code className="font-mono">preview-token</code>): nothing is verified, posted or written.
+            <code className="font-mono">/api/unsubscribe/&lt;token&gt;</code> (live since 09-26). Here it is shown without a
+            real token: nothing is verified, posted or written.
           </p>
           <p>
             A mail app&apos;s own one-click &ldquo;Unsubscribe&rdquo; button (RFC 8058) posts straight to the same
