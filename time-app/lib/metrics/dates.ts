@@ -19,6 +19,11 @@ export function nyDay(iso: string): string {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
 
+/** Hours from one ISO instant to another; 0 when the second is not after the first. */
+export function spanHours(startIso: string, endIso: string): number {
+  return Math.max(0, (new Date(endIso).getTime() - new Date(startIso).getTime()) / 3_600_000);
+}
+
 function toUtc(day: string): number {
   const [y, m, d] = day.split("-").map(Number);
   return Date.UTC(y, m - 1, d);

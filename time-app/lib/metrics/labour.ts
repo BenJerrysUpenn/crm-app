@@ -12,7 +12,7 @@
 // (shifts.deal_id), otherwise in-store. It falls in the week of its clock-in
 // (New York day). Open punches (still clocked in) are not counted.
 
-import { mondayOf, nyDay } from "./dates.ts";
+import { mondayOf, nyDay, spanHours } from "./dates.ts";
 import { round2, round3 } from "./round.ts";
 
 export type PunchRow = { employee_id: string; clock_in_at: string; clock_out_at: string | null; shift_id: number | null };
@@ -50,7 +50,7 @@ export function labourByWeek(
     }
     const w = byWeek.get(mondayOf(nyDay(p.clock_in_at)));
     if (!w) continue;
-    const hours = Math.max(0, (new Date(p.clock_out_at).getTime() - new Date(p.clock_in_at).getTime()) / 3_600_000);
+    const hours = spanHours(p.clock_in_at, p.clock_out_at);
     const catering = p.shift_id != null && shiftDeal.get(p.shift_id) != null;
     const person = people.get(p.employee_id);
     if (catering) w.cateringHours += hours;

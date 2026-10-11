@@ -7,7 +7,7 @@
 // placed on the day they are EARNED; they leave the bank on the next pay
 // date. Unassigned shifts and salaried staff are not costed.
 
-import { addDays, nyDay } from "./dates.ts";
+import { addDays, nyDay, spanHours } from "./dates.ts";
 import { arSummary, type DealRow } from "./catering.ts";
 import type { PersonRow } from "./labour.ts";
 import { round2 } from "./round.ts";
@@ -39,7 +39,7 @@ export function forwardCatering(
       uncostedShifts++;
       continue;
     }
-    const hours = Math.max(0, (new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 3_600_000);
+    const hours = spanHours(s.starts_at, s.ends_at);
     d.scheduledWages = round2(d.scheduledWages + hours * person.hourly_rate);
   }
   return { days, overdue: ar.overdue, uncostedShifts };
