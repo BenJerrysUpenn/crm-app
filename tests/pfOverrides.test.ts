@@ -1,9 +1,15 @@
 // Category corrections on /money (bj-finance #223): validation, how saved
 // corrections lay over the feed, the overrides table I/O, the POST route's
-// access rules, and the /safe "categorized through" stamp. Supabase, the
-// feed loader and the admin client are stood in for; nothing touches a
-// database.
+// access rules, and the /safe "categorized through" stamp. Supabase (auth and
+// the admin client) and Next's navigation throws are stood in for; nothing
+// touches a database. The feed is read by the real loader from a synthetic
+// file (PF_DATA_PATH): the committed sample, or a copy of it with
+// meta.categories removed.
 
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExplorerRow, PfMeta } from "@/lib/pf/types";
 
@@ -11,11 +17,24 @@ const ALLOWED = "00000000-0000-0000-0000-0000000000a1";
 const STAFF = "00000000-0000-0000-0000-0000000000b1";
 const CATS = ["Groceries", "Household Employees ", "Restaurants & Bars"];
 
+// The committed synthetic feed (its meta.categories includes the trailing-
+// space "Household Employees ", and categorized_through is 2026-08-14), and
+// a copy of it published before #223, with no category list.
+const SAMPLE_FEED = resolve(__dirname, "../fixtures/pf_data.sample.json");
+const FEED_WITHOUT_CATEGORIES = (() => {
+  const feed = JSON.parse(readFileSync(SAMPLE_FEED, "utf-8"));
+  delete feed.meta.categories;
+  const path = join(mkdtempSync(join(tmpdir(), "pf-feed-")), "pf_data.json");
+  writeFileSync(path, JSON.stringify(feed));
+  return path;
+})();
+
 const state = vi.hoisted(() => ({
   user: null as null | { id: string; email: string },
-  feed: null as unknown,
   inserted: [] as Record<string, unknown>[],
   insertError: null as null | { message: string; code?: string },
+  saved: [] as unknown[],
+  readError: null as unknown,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -30,10 +49,10 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("NOT_FOUND");
   },
+  usePathname: () => "/safe",
 }));
-vi.mock("@/lib/pf/data", () => ({ loadPfData: async () => state.feed }));
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => fakeDb(),
+  createAdminClient: () => fakeDb(state.saved, state.readError),
 }));
 
 function fakeDb(rows: unknown[] | null = [], readError: unknown = null) {
@@ -67,6 +86,8 @@ const {
 } = await import("@/lib/pf/overrides");
 const { POST } = await import("@/app/api/pf/overrides/route");
 const { categorizedStamp } = await import("@/components/pf/MetaBanner");
+const SafePage = (await import("@/app/safe/page")).default;
+const MoneyPage = (await import("@/app/money/page")).default;
 
 const row = (over: Partial<ExplorerRow> = {}): ExplorerRow => ({
   d: "2026-10-01",
@@ -88,13 +109,6 @@ const good = {
   category: "Household Employees ",
 };
 
-function feedWith(categories?: string[]) {
-  return {
-    ok: true,
-    data: { meta: { categories }, explorer: { rows: [] } },
-  };
-}
-
 function post(body: unknown) {
   return POST(
     new Request("http://x/api/pf/overrides", {
@@ -106,10 +120,13 @@ function post(body: unknown) {
 
 beforeEach(() => {
   state.user = null;
-  state.feed = feedWith(CATS);
   state.inserted = [];
   state.insertError = null;
+  state.saved = [];
+  state.readError = null;
   vi.stubEnv("PF_ALLOWED_USER_IDS", ALLOWED);
+  vi.stubEnv("PF_DATA_PATH", SAMPLE_FEED);
+  vi.stubEnv("PF_GITHUB_TOKEN", "");
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -154,19 +171,42 @@ describe("applyOverrides", () => {
     expect((r as { corrected?: string }).corrected).toBe("merchant");
   });
 
-  it("lets a transaction correction beat a merchant one, and newest win", () => {
+  it("matches a merchant on its first 38 characters, as the feed truncates it", () => {
+    const full = "Fixture Neighbourhood Hardware & Garden Supply Co";
+    expect(merchantKey(full)).toBe("fixture neighbourhood hardware & garde");
+    const [r] = applyOverrides(
+      [row({ m: "Fixture Neighbourhood Hardware & Garde" })],
+      [o({ merchant: full })],
+    );
+    expect(r.c).toBe("Restaurants & Bars");
+  });
+
+  it("lets the newest merchant correction win, whatever order they arrive in", () => {
+    const [r] = applyOverrides(
+      [row()],
+      [
+        o({ id: "late", created_at: "2026-10-05T00:00:00Z", category: "Household Employees " }),
+        o({ id: "early", created_at: "2026-10-01T00:00:00Z", category: "Restaurants & Bars" }),
+      ],
+    );
+    expect(r.c).toBe("Household Employees ");
+  });
+
+  it("lets a transaction correction beat a newer merchant one", () => {
     const rows = applyOverrides(
       [row(), row({ id: "t2" })],
       [
-        o({ id: "late", created_at: "2026-10-05T00:00:00Z", category: "Groceries" }),
-        o({ id: "early", created_at: "2026-10-01T00:00:00Z" }),
-        o({ id: "txn", scope: "transaction", txn_id: "t2", category: "Household Employees " }),
-        o({ id: "tie", created_at: "2026-10-05T00:00:00Z", category: "Groceries" }),
+        o({ id: "txn", scope: "transaction", txn_id: "t2", category: "Household Employees ", created_at: "2026-10-01T00:00:00Z" }),
+        o({ id: "merchant", created_at: "2026-10-05T00:00:00Z", category: "Restaurants & Bars" }),
       ],
     );
-    // t1: the newest merchant correction is Groceries, already its category
-    expect(rows[0]).toEqual(row());
-    expect(rows[1].c).toBe("Household Employees ");
+    expect(rows[0]).toMatchObject({ c: "Restaurants & Bars", corrected: "merchant" });
+    expect(rows[1]).toMatchObject({ c: "Household Employees ", corrected: "transaction" });
+  });
+
+  it("leaves a row unflagged when the correction names the category it already has", () => {
+    const r = row();
+    expect(applyOverrides([r], [o({ category: "Groceries" })])[0]).toEqual(r);
   });
 
   it("leaves rows without an id (aggregated 401k rows) alone", () => {
@@ -174,8 +214,8 @@ describe("applyOverrides", () => {
     expect(applyOverrides([r], [o({})])[0]).toBe(r);
   });
 
-  it("ignores a transaction correction that lost its id", () => {
-    const r = row({ m: "Elsewhere" });
+  it("does not widen a transaction correction that lost its id to the whole merchant", () => {
+    const r = row();
     expect(
       applyOverrides([r], [o({ scope: "transaction", txn_id: null })])[0],
     ).toBe(r);
@@ -231,9 +271,9 @@ describe("POST /api/pf/overrides", () => {
     state.user = { id: ALLOWED, email: "a@example.test" };
     expect((await post("{nope")).status).toBe(400);
     expect((await post({ ...good, category: "Snacks" })).status).toBe(400);
-    state.feed = feedWith(undefined);
+    vi.stubEnv("PF_DATA_PATH", FEED_WITHOUT_CATEGORIES);
     expect((await post(good)).status).toBe(409);
-    state.feed = { ok: false, reason: "missing" };
+    vi.stubEnv("PF_DATA_PATH", "");
     expect((await post(good)).status).toBe(409);
     expect(state.inserted).toEqual([]);
   });
@@ -266,5 +306,25 @@ describe("categorized-through stamp", () => {
 
   it("passes an unparseable date through", () => {
     expect(categorizedStamp(meta("someday"))).toBe("Categorized through someday");
+  });
+});
+
+describe("the pages", () => {
+  const render = async (page: () => Promise<unknown>) => {
+    state.user = { id: ALLOWED, email: "a@example.test" };
+    return renderToStaticMarkup((await page()) as Parameters<typeof renderToStaticMarkup>[0]);
+  };
+
+  it("shows the categorized-through stamp on /safe, from the feed", async () => {
+    expect(await render(SafePage)).toContain("Categorized through Aug 14, 2026");
+  });
+
+  it("does not show the stamp on /money", async () => {
+    expect(await render(MoneyPage)).not.toContain("Categorized through");
+  });
+
+  it("still renders /money when the corrections cannot be read", async () => {
+    state.readError = { message: "relation does not exist" };
+    expect(await render(MoneyPage)).toContain("Data as of");
   });
 });
