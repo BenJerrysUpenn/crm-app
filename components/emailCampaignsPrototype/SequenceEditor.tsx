@@ -2,7 +2,7 @@
 
 // Email campaigns tab: the in-CRM sequence editor.
 //
-// v5: the lane's signature and footer are editable blocks at the end of the
+// The lane's signature and footer are editable blocks at the end of the
 // timeline (one pair per lane: cold = Apollo's, warm = warm_sender's, offer =
 // empty), and the supported merge tags are shown as chips.
 //
