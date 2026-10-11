@@ -11,6 +11,13 @@ import { addMonths, daysInMonth, eachDay, lastMonths, monthEnd, monthLabel, mont
 import { monthProgress, targetFor, STREAMS, STREAM_LABEL, type MonthProgress, type MonthTarget, type SalesTargetRow, type Stream, type StreamFilter } from "./targets.ts";
 import { round2 } from "./round.ts";
 
+/** Weeks of history the weekly widgets can show (their longest period). */
+export const WEEKS = 13;
+/** Months of history the monthly widgets can show. */
+export const MONTHS = 12;
+/** Months of booked catering ahead shown on the 12-month sales chart. */
+export const MONTHS_AHEAD = 3;
+
 export type SalesStream = Exclude<Stream, "delivery">;
 /** Sales by day per stream; a stream that is absent has no data yet. */
 export type StreamDaily = Partial<Record<SalesStream, Record<string, number>>>;
@@ -90,9 +97,9 @@ export type SalesMonths = {
   waitingOn: SalesStream[];
 };
 
-/** The last `back` months and `ahead` months to come: actual per stream against each month's target. */
-export function salesByMonth(sales: StreamDaily, targets: SalesTargetRow[], stream: StreamFilter, asOf: string, back = 12, ahead = 3): SalesMonths {
-  const months = [...lastMonths(asOf, back), ...Array.from({ length: ahead }, (_, i) => addMonths(asOf, i + 1))];
+/** The months the page loads (MONTHS back, MONTHS_AHEAD to come): actual per stream against each month's target. */
+export function salesByMonth(sales: StreamDaily, targets: SalesTargetRow[], stream: StreamFilter, asOf: string): SalesMonths {
+  const months = [...lastMonths(asOf, MONTHS), ...Array.from({ length: MONTHS_AHEAD }, (_, i) => addMonths(asOf, i + 1))];
   const wanted = streamsIn(stream);
   const waitingOn = wanted.filter((s) => !sales[s]);
   const actual = wanted

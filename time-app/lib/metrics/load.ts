@@ -20,15 +20,16 @@ import { arSummary, cateringByDay, suspectDeals, type ArSummary, type DealRow } 
 import { labourByWeek, type LabourWeek, type PersonRow, type PunchRow } from "./labour.ts";
 import { forwardCatering, type ForwardDay, type ShiftRow } from "./forward.ts";
 import { leadsByWeek, outreachByWeek, quoteToBooking, type LeadWeek, type OutreachEventRow, type OutreachWeek, type QuoteCohort } from "./funnel.ts";
+import { MONTHS, MONTHS_AHEAD, WEEKS } from "./series.ts";
 import { SALES_TARGET_SEED } from "./salesTargetsSeed.ts";
 import type { SalesTargetRow } from "./targets.ts";
 
-/** Weeks of history the weekly widgets can show (their longest period). */
-export const WEEKS = 13;
-/** Months of history the monthly widgets can show. */
-export const MONTHS = 12;
-/** Months of booked catering ahead shown on the 12-month sales chart. */
-export const MONTHS_AHEAD = 3;
+/** What the page's data spans on `today`: the weeks and months behind it, and the days from the first of those months to the end of the last month ahead. */
+function metricsWindow(today: string): { weeks: string[]; months: string[]; from: string; to: string } {
+  const weeks = lastWeeks(today, WEEKS);
+  const months = lastMonths(today, MONTHS);
+  return { weeks, months, from: months[0], to: monthEnd(addMonths(today, MONTHS_AHEAD)) };
+}
 
 export type StageEventRow = { deal_id: number; new_value: string | null };
 
@@ -93,9 +94,8 @@ function nyMidnight(day: string): string {
 
 export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = new Date()): Promise<MetricsInputs> {
   const today = nyToday(now);
-  const firstMonth = addMonths(today, -(MONTHS - 1));
-  const firstWeek = lastWeeks(today, WEEKS)[0];
-  const lastDay = monthEnd(addMonths(today, MONTHS_AHEAD));
+  const { weeks, from: firstMonth, to: lastDay } = metricsWindow(today);
+  const firstWeek = weeks[0];
   const problems: string[] = [];
 
   async function attempt<T>(label: string, run: () => Promise<T>): Promise<T | null> {
@@ -181,10 +181,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
 
 export function buildMetricsData(inputs: MetricsInputs): MetricsData {
   const { today } = inputs;
-  const weeks = lastWeeks(today, WEEKS);
-  const months = lastMonths(today, MONTHS);
-  const from = months[0];
-  const to = monthEnd(addMonths(today, MONTHS_AHEAD));
+  const { weeks, months, from, to } = metricsWindow(today);
 
   const bookedBefore = new Set<number>();
   const quotedBefore = new Set<number>();
