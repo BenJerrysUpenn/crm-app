@@ -1,13 +1,13 @@
-// The $650K sales targets by month and stream (bj-finance #671, frame of
-// 2026-10-10, the 3-stream table): rebuilt from the seller's separate books,
-// Three Scoops Penn (in-store, delivery included) and Three Scoops Ventures
-// (catering, concessions). Seven seller years (2017-19, 2022-25), each
-// weighted equally; concessions placed on our event calendar (Auto Show Jan,
-// Flower Show Mar, PAX Dec).
+// Test fixture: the $650K sales targets by month and stream (bj-finance #671),
+// the same 72 rows migration 39 seeds into public.sales_targets. The page
+// reads only the table; this copy exists so the target and pace tests run
+// against the real seasonal shape, and math.test.ts keeps it equal to the
+// migration's INSERT. Never import it from page code.
 //
-// This is DATA, the same rows migration 39 seeds into public.sales_targets.
-// The page reads the table; this copy is used only while the table does not
-// exist yet, and math.test.ts keeps the two equal.
+// Rebuilt from the seller's separate books, Three Scoops Penn (in-store,
+// delivery included) and Three Scoops Ventures (catering, concessions). Seven
+// seller years (2017-19, 2022-25), each weighted equally; concessions placed
+// on our event calendar (Auto Show Jan, Flower Show Mar, PAX Dec).
 //
 // Alina, 2026-10-10: December concessions (PAX) = $5,000, replacing the
 // table's $20,425; the seller-era summer events stay in. Alina, 2026-10-12:
@@ -33,7 +33,7 @@ const MONTHLY: Record<Exclude<Stream, "delivery">, number[]> = {
   concessions: [19912, 0, 40211, 533, 2829, 2790, 1693, 502, 5958, 12, 0, 5000],
 };
 
-export const SALES_TARGET_SEED: SalesTargetRow[] = [2026, 2027].flatMap((year) =>
+export const TEST_TARGETS: SalesTargetRow[] = [2026, 2027].flatMap((year) =>
   (Object.keys(MONTHLY) as (keyof typeof MONTHLY)[]).flatMap((stream) =>
     MONTHLY[stream].map((amount, i) => ({
       month: `${year}-${String(i + 1).padStart(2, "0")}-01`,

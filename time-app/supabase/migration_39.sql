@@ -13,8 +13,10 @@
 -- of them are still being decided (concessions gross vs net).
 --
 -- Until this is applied the page still works: views are kept in the browser
--- and the targets come from a copy of the seed below bundled with the page
--- (time-app/lib/metrics/salesTargetsSeed.ts; a unit test keeps the two equal).
+-- and the sales widget shows no targets, saying they could not be loaded. The
+-- table is the only source of targets; the page carries no copy. The tests'
+-- fixture (time-app/lib/metrics/targets.fixture.ts) is kept equal to the seed
+-- below by a unit test.
 --
 -- WHAT THIS ADDS
 --   1. metric_views: one row per saved view. widgets is the ordered list the

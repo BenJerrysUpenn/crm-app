@@ -35,7 +35,7 @@ function partialWeek(weeks: { week: string }[], today: string): number[] {
 
 /** Sales by day per stream that the page has: catering from the CRM; in-store and concessions from the feed once it publishes them. */
 function streamDaily(data: MetricsData): StreamDaily {
-  const fromFeed = data.feed.status === "ok" && data.feed.daily ? feedSales(data.feed.daily, data.targets) : {};
+  const fromFeed = data.feed.status === "ok" && data.feed.daily ? feedSales(data.feed.daily, data.targets ?? []) : {};
   return data.catering ? { ...fromFeed, catering: data.catering.byDay } : fromFeed;
 }
 
@@ -45,6 +45,9 @@ export function SalesWidget({ data, settings }: { data: MetricsData; settings: W
   if (!data.catering) return <CouldNotLoad what="catering deals" />;
   const stream: StreamFilter = settings.stream ?? "all";
   const sales = streamDaily(data);
+  // The targets come only from the sales_targets table; when it could not be read the chart draws sales alone and says so.
+  const targets = data.targets ?? [];
+  const noTargets = data.targets === null && <Note>Sales targets could not be loaded, so no target or pace is shown. Reload the page to try again.</Note>;
   const method = (
     <>
       <p>
@@ -53,16 +56,14 @@ export function SalesWidget({ data, settings }: { data: MetricsData; settings: W
       </p>
       <p>
         Targets are monthly, per stream, from the seller-era seasonal curve for a $600K year, with December concessions (PAX) set at
-        $5,000.
-        {data.targetsSource === "seed" ? " They are the copy bundled with the page until the targets table is switched on." : ""}{" "}
-        Concessions targets are provisional and on Aramark&rsquo;s net basis until gross vs net is settled.
+        $5,000. Concessions targets are provisional and on Aramark&rsquo;s net basis until gross vs net is settled.
       </p>
       <CateringCaveats data={data} />
     </>
   );
 
   if (settings.period === "12m") {
-    const m = salesByMonth(sales, data.targets, stream, data.today);
+    const m = salesByMonth(sales, targets, stream, data.today);
     const future = m.months.map((_, i) => i).filter((i) => i > m.currentIndex);
     if (m.actual.length === 0)
       return <WaitingOnFeed what={`${STREAM_LABEL[stream]} sales come from QBO and Square; the bars appear when the feed runs.`} detail={method} />;
@@ -83,22 +84,23 @@ export function SalesWidget({ data, settings }: { data: MetricsData; settings: W
         <Note>
           Lighter bars are months to come: catering booked so far.
           {m.waitingOn.length > 0 && ` Waiting on the finance feed for ${streamNames(m.waitingOn)}.`}
-          {m.target.slice(0, m.currentIndex).some((t) => t == null) && " No targets are set before 2026."}
+          {data.targets !== null && m.target.slice(0, m.currentIndex).some((t) => t == null) && " No targets are set before 2026."}
         </Note>
+        {noTargets}
         <Method>{method}</Method>
       </div>
     );
   }
 
   const feedThrough = data.feed.status === "ok" && data.feed.daily ? data.feed.daily.as_of : undefined;
-  const m = salesMonthToDate(sales, data.targets, stream, data.today, feedThrough ? { in_store: feedThrough, concessions: feedThrough } : {});
+  const m = salesMonthToDate(sales, targets, stream, data.today, feedThrough ? { in_store: feedThrough, concessions: feedThrough } : {});
   const p = m.progress;
   const day = Number(data.today.slice(8));
   const waitingAll = m.cumulative.length === 0;
   return (
     <div>
       <Tiles>
-        <Tile label={`${monthLabel(data.today)} target`} value={money(m.target?.amount)} sub={m.target?.provisional ? "includes a provisional figure" : STREAM_LABEL[stream]} />
+        <Tile label={`${monthLabel(data.today)} target`} value={money(m.target?.amount)} sub={data.targets === null ? "targets could not be loaded" : m.target?.provisional ? "includes a provisional figure" : STREAM_LABEL[stream]} />
         <Tile label={`Pace to ${shortDay(data.today)}`} value={m.target ? money((m.target.amount * day) / m.days.length) : "–"} sub={`day ${day} of ${m.days.length}, ${STREAM_LABEL[stream].toLowerCase()}`} />
         <Tile
           label="Actual to date"
@@ -108,7 +110,7 @@ export function SalesWidget({ data, settings }: { data: MetricsData; settings: W
         <Tile
           label={p?.vsPace == null ? "Ahead or behind pace" : p.vsPace >= 0 ? "Ahead of pace" : "Behind pace"}
           value={p?.vsPace == null ? "–" : money(Math.abs(p.vsPace))}
-          sub={p?.vsPace == null ? (m.waitingOn.length ? `waiting on ${streamNames(m.waitingOn)} from the feed` : "no target set") : p.pctOfPace != null ? `${formatValue(p.pctOfPace, "pct")} of pace` : undefined}
+          sub={p?.vsPace == null ? (m.waitingOn.length ? `waiting on ${streamNames(m.waitingOn)} from the feed` : data.targets === null ? "targets could not be loaded" : "no target set") : p.pctOfPace != null ? `${formatValue(p.pctOfPace, "pct")} of pace` : undefined}
         />
       </Tiles>
       {waitingAll ? (
@@ -130,6 +132,7 @@ export function SalesWidget({ data, settings }: { data: MetricsData; settings: W
             Running total of sales this month against a straight line to the target.
             {m.waitingOn.length > 0 && ` Waiting on the finance feed for ${streamNames(m.waitingOn)}, so the gap to the whole target is not worked out yet.`}
           </Note>
+          {noTargets}
           <Method>{method}</Method>
         </>
       )}
