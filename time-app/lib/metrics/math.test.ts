@@ -16,26 +16,26 @@ import { addDays, daysInMonth, lastWeeks, mondayOf } from "./dates.ts";
 
 // ---- targets and pace -----------------------------------------------------------
 
-test("the seed is the 3-stream table with December PAX at $5,000; the year is not rescaled", () => {
+test("the seed is the 3-stream table rescaled to $600,000 with December PAX held at $5,000", () => {
   for (const year of ["2026", "2027"]) {
     const rows = SALES_TARGET_SEED.filter((r) => r.month.startsWith(year));
     assert.equal(rows.length, 36, year);
-    assert.equal(rows.reduce((s, r) => s + r.amount, 0), 584_575, year);
+    assert.equal(rows.reduce((s, r) => s + r.amount, 0), 600_000, year);
     const sum = (stream: string) => rows.filter((r) => r.stream === stream).reduce((s, r) => s + r.amount, 0);
-    assert.equal(sum("in_store"), 397_730);
-    assert.equal(sum("catering"), 114_956);
-    assert.equal(sum("concessions"), 71_889);
+    assert.equal(sum("in_store"), 408_315);
+    assert.equal(sum("catering"), 118_015);
+    assert.equal(sum("concessions"), 73_670);
   }
-  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "catering")?.amount, 5_309);
+  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "catering")?.amount, 5_450);
   assert.equal(targetFor(SALES_TARGET_SEED, "2026-12-01", "concessions")?.amount, 5_000);
   assert.ok(SALES_TARGET_SEED.every((r) => r.measure === "net"));
 });
 
 test("the whole-business target is the sum of the month's streams, provisional when concessions are", () => {
   const dec = targetFor(SALES_TARGET_SEED, "2026-12-01", "all");
-  assert.equal(dec?.amount, 25_240);
+  assert.equal(dec?.amount, 25_778);
   assert.equal(dec?.provisional, true);
-  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "all")?.amount, 34_190);
+  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "all")?.amount, 35_099);
   assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "in_store")?.provisional, false);
   assert.equal(targetFor([], "2026-10-01", "all"), null);
 });

@@ -19,9 +19,9 @@ test("catering alone: cumulative to the as-of day, then nothing; pace to the cat
   assert.equal(c[1], 1000);
   assert.equal(c[9], 1500);
   assert.equal(c[10], null); // after today: booked events are not sales yet
-  assert.equal(m.pace?.[30], 5309);
-  assert.equal(m.progress?.paceToDate, 1712.58); // 5,309 x 10/31
-  assert.equal(m.progress?.vsPace, -212.58);
+  assert.equal(m.pace?.[30], 5450);
+  assert.equal(m.progress?.paceToDate, 1758.06); // 5,450 x 10/31
+  assert.equal(m.progress?.vsPace, -258.06);
   assert.deepEqual(m.waitingOn, []);
 });
 
@@ -30,8 +30,8 @@ test("all streams with only catering in: no whole-business progress, and it says
   assert.equal(m.progress, null);
   assert.deepEqual(m.waitingOn, ["in_store", "concessions"]);
   assert.equal(m.actualSoFar, 1500);
-  assert.equal(m.target?.amount, 34_190); // the tiles show the whole target
-  assert.equal(m.pace?.[30], 5_309); // the chart sets catering against catering's target
+  assert.equal(m.target?.amount, 35_099); // the tiles show the whole target
+  assert.equal(m.pace?.[30], 5_450); // the chart sets catering against catering's target
   assert.equal(m.paceLabel, "Pace to catering target");
 });
 
@@ -39,7 +39,7 @@ test("all streams once the feed is in: progress over the sum", () => {
   const in_store = { "2026-10-01": 2000, "2026-10-10": 1000 };
   const m = salesMonthToDate({ catering, in_store, concessions: {} }, SALES_TARGET_SEED, "all", "2026-10-10");
   assert.equal(m.progress?.actual, 4500);
-  assert.equal(m.progress?.paceToDate, 11029.03);
+  assert.equal(m.progress?.paceToDate, 11322.26);
 });
 
 test("by month: twelve back, three ahead; only catering is shown ahead; target per month, provisional flagged", () => {
@@ -55,11 +55,11 @@ test("by month: twelve back, three ahead; only catering is shown ahead; target p
   assert.equal(store[11], 50);
   assert.equal(store[12], null);
   // In-store and catering have data, concessions waits: the line is their targets.
-  assert.equal(m.target[13], 16_398 + 3_842);
+  assert.equal(m.target[13], 16_834 + 3_944);
   assert.equal(m.targetLabel, "In-store and delivery and Catering target");
   assert.equal(m.provisional[13], true);
   const all = salesByMonth({ catering, in_store: {}, concessions: {} }, SALES_TARGET_SEED, "all", "2026-10-10");
-  assert.equal(all.target[13], 25_240);
+  assert.equal(all.target[13], 25_778);
   assert.equal(all.targetLabel, "Target");
   assert.equal(m.target[0], null); // no 2025 targets
   assert.deepEqual(m.waitingOn, ["concessions"]);
