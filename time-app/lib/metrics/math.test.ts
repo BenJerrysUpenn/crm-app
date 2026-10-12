@@ -16,22 +16,22 @@ import { addDays, daysInMonth, lastWeeks, mondayOf } from "./dates.ts";
 
 // ---- targets and pace -----------------------------------------------------------
 
-test("the seed is the 3-stream table rescaled to $600,000 with December PAX held at $5,000", () => {
+test("the seed is the 3-stream table rescaled to $650,000 with December PAX held at $5,000", () => {
   for (const year of ["2026", "2027"]) {
     const rows = SALES_TARGET_SEED.filter((r) => r.month.startsWith(year));
     assert.equal(rows.length, 36, year);
-    assert.equal(rows.reduce((s, r) => s + r.amount, 0), 600_000, year);
+    assert.equal(rows.reduce((s, r) => s + r.amount, 0), 650_000, year);
     const sum = (stream: string) => rows.filter((r) => r.stream === stream).reduce((s, r) => s + r.amount, 0);
-    assert.equal(sum("in_store"), 408_315);
-    assert.equal(sum("catering"), 118_015);
-    assert.equal(sum("concessions"), 73_670);
+    assert.equal(sum("in_store"), 442_626);
+    assert.equal(sum("catering"), 127_934);
+    assert.equal(sum("concessions"), 79_440);
   }
-  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "catering")?.amount, 5_450);
+  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "catering")?.amount, 5_908);
   assert.equal(targetFor(SALES_TARGET_SEED, "2026-12-01", "concessions")?.amount, 5_000);
   assert.ok(SALES_TARGET_SEED.every((r) => r.measure === "net"));
 });
 
-test("every seed month except December PAX is the 2026-10-10 table scaled by 595,000 / 579,575, to the dollar", () => {
+test("every seed month except December PAX is the 2026-10-10 table scaled by 645,000 / 579,575, to the dollar", () => {
   // The 3-stream table as ruled on 2026-10-10 (December PAX already $5,000), Jan..Dec.
   // The sums alone cannot see two months swapped; this pins the seasonal shape cell by cell.
   const ruled: Record<"in_store" | "catering" | "concessions", number[]> = {
@@ -44,7 +44,7 @@ test("every seed month except December PAX is the 2026-10-10 table scaled by 595
       months.forEach((before, i) => {
         const month = `${year}-${String(i + 1).padStart(2, "0")}-01`;
         const now = targetFor(SALES_TARGET_SEED, month, stream)?.amount;
-        const scaled = stream === "concessions" && i === 11 ? 5_000 : (before * 595_000) / 579_575;
+        const scaled = stream === "concessions" && i === 11 ? 5_000 : (before * 645_000) / 579_575;
         assert.ok(now !== undefined && Math.abs(now - scaled) < 1, `${stream} ${month}: ${now} vs ${scaled.toFixed(2)}`);
       });
     }
@@ -53,9 +53,9 @@ test("every seed month except December PAX is the 2026-10-10 table scaled by 595
 
 test("the whole-business target is the sum of the month's streams, provisional when concessions are", () => {
   const dec = targetFor(SALES_TARGET_SEED, "2026-12-01", "all");
-  assert.equal(dec?.amount, 25_778);
+  assert.equal(dec?.amount, 27_525);
   assert.equal(dec?.provisional, true);
-  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "all")?.amount, 35_099);
+  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "all")?.amount, 38_049);
   assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "in_store")?.provisional, false);
   assert.equal(targetFor([], "2026-10-01", "all"), null);
 });
