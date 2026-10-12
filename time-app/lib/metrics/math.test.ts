@@ -31,6 +31,26 @@ test("the seed is the 3-stream table rescaled to $600,000 with December PAX held
   assert.ok(SALES_TARGET_SEED.every((r) => r.measure === "net"));
 });
 
+test("every seed month except December PAX is the 2026-10-10 table scaled by 595,000 / 579,575, to the dollar", () => {
+  // The 3-stream table as ruled on 2026-10-10 (December PAX already $5,000), Jan..Dec.
+  // The sums alone cannot see two months swapped; this pins the seasonal shape cell by cell.
+  const ruled: Record<"in_store" | "catering" | "concessions", number[]> = {
+    in_store: [16823, 23939, 31672, 46064, 44393, 45755, 46811, 39784, 36226, 28870, 20995, 16398],
+    catering: [1156, 1559, 2220, 12085, 17520, 19724, 17224, 19000, 12111, 5309, 3206, 3842],
+    concessions: [17892, 0, 36132, 479, 2542, 2507, 1521, 451, 5354, 11, 0, 5000],
+  };
+  for (const year of ["2026", "2027"]) {
+    for (const [stream, months] of Object.entries(ruled) as ["in_store" | "catering" | "concessions", number[]][]) {
+      months.forEach((before, i) => {
+        const month = `${year}-${String(i + 1).padStart(2, "0")}-01`;
+        const now = targetFor(SALES_TARGET_SEED, month, stream)?.amount;
+        const scaled = stream === "concessions" && i === 11 ? 5_000 : (before * 595_000) / 579_575;
+        assert.ok(now !== undefined && Math.abs(now - scaled) < 1, `${stream} ${month}: ${now} vs ${scaled.toFixed(2)}`);
+      });
+    }
+  }
+});
+
 test("the whole-business target is the sum of the month's streams, provisional when concessions are", () => {
   const dec = targetFor(SALES_TARGET_SEED, "2026-12-01", "all");
   assert.equal(dec?.amount, 25_778);
