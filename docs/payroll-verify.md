@@ -164,7 +164,11 @@ built on the Mac, published to `payroll_sheets` (migration 36) by
 
 - one row per person, columns in QBO's Run Payroll order (Regular hours,
   Overtime hours, Paycheck tips, Solo close, Catering premium, Catering
-  premium OT, Travel reimbursement), then the rate and the wages
+  premium OT, Travel reimbursement). Three info columns sit among them,
+  never keyed into QBO and never in a pay total (2026-10-12): Catering
+  hours (the premium hours) just before Catering premium, and Marketing
+  hours and Marketing cost (marketing labour booked toward the 2% marketing
+  obligation) after Catering premium OT. Then the rate and the wages
   (rate × regular + 1.5 × rate × OT, from the sheet; "salary"; or "no rate");
   a totals row;
 - each row opens onto its punches (date, in, out, paid-to when cut back,

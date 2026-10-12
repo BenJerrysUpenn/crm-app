@@ -65,6 +65,9 @@ export type SheetRow = {
   premium_cents: number;
   premium_ot_cents: number;
   premium_ot: { week_start: string; week_end: string; week_hours: number; overtime_hours: number; cents: number }[];
+  /** Marketing labour, booked as a marketing cost too (the 2% obligation). Not a pay line. */
+  marketing_hours?: number;
+  marketing_cents?: number;
   evidence: {
     punch_ids: number[];
     punches?: SheetPunch[];
@@ -112,6 +115,8 @@ export type PaySheetJson = {
     catering_hours: number;
     premium_cents: number;
     premium_ot_cents: number;
+    marketing_hours?: number;
+    marketing_cents?: number;
   };
   solo_close_nights: SheetSoloNight[];
   open_items: SheetItem[];
@@ -163,27 +168,53 @@ export const META_COLUMNS =
 
 // ---------- QBO's Run Payroll grid ---------------------------------------------
 
-export type QboColumn = {
-  key: "regular" | "overtime" | "tips" | "solo" | "premium" | "premium_ot" | "travel";
-  /** QBO's pay line, as it is named on the grid. */
+export type PayTableColumn = {
+  key:
+    | "regular"
+    | "overtime"
+    | "tips"
+    | "solo"
+    | "premium_hours"
+    | "premium"
+    | "premium_ot"
+    | "marketing_hours"
+    | "marketing"
+    | "travel";
+  /** QBO's pay line, as it is named on the grid, or the info column's name. */
   label: string;
+  /** A pay line keyed into QBO; false for a column shown for information only. */
+  qbo: boolean;
 };
 
 /**
- * The pay lines in the order they are keyed into QBO's Run Payroll grid
- * (bj-finance reports/biweekly/BIWEEKLY-01_payroll-run.md, spec §5/§6): hours
- * first, then the flat amounts. Travel is the non-taxable Travel
- * Reimbursement line. The page adds the rate and the wages after these.
+ * The pay table's columns. The pay lines are in the order they are keyed into
+ * QBO's Run Payroll grid (bj-finance reports/biweekly/BIWEEKLY-01_payroll-run.md,
+ * spec §5/§6): hours first, then the flat amounts. Travel is the non-taxable
+ * Travel Reimbursement line. The page adds the rate and the wages after these.
+ *
+ * Three columns are information only, never keyed and never in a pay total:
+ *   * Catering hours (Alina, 2026-10-12): the premium hours behind the Catering
+ *     premium dollars, which sit right after it. They are already in Regular
+ *     and Overtime; the premium is keyed as a flat amount.
+ *   * Marketing hours and Marketing cost (Alina, 2026-10-12): marketing labour
+ *     is booked as a marketing cost toward the 2% marketing obligation on top
+ *     of being payroll. They follow the catering lines.
  */
-export const QBO_COLUMNS: QboColumn[] = [
-  { key: "regular", label: "Regular hours" },
-  { key: "overtime", label: "Overtime hours" },
-  { key: "tips", label: "Paycheck tips" },
-  { key: "solo", label: "Solo close" },
-  { key: "premium", label: "Catering premium" },
-  { key: "premium_ot", label: "Catering premium OT" },
-  { key: "travel", label: "Travel reimbursement" },
+export const PAY_TABLE_COLUMNS: PayTableColumn[] = [
+  { key: "regular", label: "Regular hours", qbo: true },
+  { key: "overtime", label: "Overtime hours", qbo: true },
+  { key: "tips", label: "Paycheck tips", qbo: true },
+  { key: "solo", label: "Solo close", qbo: true },
+  { key: "premium_hours", label: "Catering hours", qbo: false },
+  { key: "premium", label: "Catering premium", qbo: true },
+  { key: "premium_ot", label: "Catering premium OT", qbo: true },
+  { key: "marketing_hours", label: "Marketing hours", qbo: false },
+  { key: "marketing", label: "Marketing cost", qbo: false },
+  { key: "travel", label: "Travel reimbursement", qbo: true },
 ];
+
+/** The pay lines alone, in QBO's keying order. */
+export const QBO_COLUMNS: PayTableColumn[] = PAY_TABLE_COLUMNS.filter((c) => c.qbo);
 
 // ---------- formatting (no arithmetic on pay) ----------------------------------
 
@@ -200,8 +231,8 @@ export function hoursText(hours: number | null | undefined): string {
   return hours == null ? "—" : hours.toFixed(2);
 }
 
-/** One QBO cell for a row, as the person keying it would type it. */
-export function qboCell(row: SheetRow, key: QboColumn["key"]): string {
+/** One cell for a row, as the person keying it would type it. */
+export function qboCell(row: SheetRow, key: PayTableColumn["key"]): string {
   switch (key) {
     case "regular":
       return row.salaried ? "salary" : hoursText(row.regular_hours ?? row.hours_owed);
@@ -211,17 +242,27 @@ export function qboCell(row: SheetRow, key: QboColumn["key"]): string {
       return row.tips_cents ? money(row.tips_cents) : "";
     case "solo":
       return row.solo_close_cents ? money(row.solo_close_cents) : "";
+    case "premium_hours":
+      return row.premium_hours ? hoursText(row.premium_hours) : "";
     case "premium":
       return row.premium_cents ? money(row.premium_cents) : "";
     case "premium_ot":
       return row.premium_ot_cents ? money(row.premium_ot_cents) : "";
+    case "marketing_hours":
+      return row.marketing_hours ? hoursText(row.marketing_hours) : "";
+    case "marketing":
+      return row.marketing_cents ? money(row.marketing_cents) : "";
     case "travel":
       return row.travel_cents ? money(row.travel_cents) : "";
   }
 }
 
-/** The totals row's cell for a QBO column. */
-export function qboTotal(totals: PaySheetJson["totals"], key: QboColumn["key"]): string {
+/**
+ * The totals row's cell for a column. The sheet's totals carry no premium
+ * hours, so that one is the rows' own figures added up. A sheet built before
+ * marketing was published leaves the marketing totals blank.
+ */
+export function qboTotal(totals: PaySheetJson["totals"], key: PayTableColumn["key"], rows: SheetRow[] = []): string {
   switch (key) {
     case "regular":
       return hoursText(totals.regular_hours ?? totals.hours);
@@ -231,10 +272,16 @@ export function qboTotal(totals: PaySheetJson["totals"], key: QboColumn["key"]):
       return money(totals.tips_cents);
     case "solo":
       return money(totals.solo_close_cents);
+    case "premium_hours":
+      return hoursText(rows.reduce((sum, r) => sum + r.premium_hours, 0));
     case "premium":
       return money(totals.premium_cents);
     case "premium_ot":
       return money(totals.premium_ot_cents);
+    case "marketing_hours":
+      return totals.marketing_hours == null ? "" : hoursText(totals.marketing_hours);
+    case "marketing":
+      return totals.marketing_cents == null ? "" : money(totals.marketing_cents);
     case "travel":
       return money(totals.travel_cents);
   }
