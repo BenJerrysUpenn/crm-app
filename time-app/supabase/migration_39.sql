@@ -10,8 +10,7 @@
 -- metric widgets, each with its own settings (period, stream). Sales are
 -- measured against monthly targets per stream from the seller-era seasonal
 -- curve for a $600K year, and those targets are DATA, not code, because parts
--- of them are still being decided (concessions gross vs net, and whether the
--- year is rescaled after the PAX cut).
+-- of them are still being decided (concessions gross vs net).
 --
 -- Until this is applied the page still works: views are kept in the browser
 -- and the targets come from a copy of the seed below bundled with the page
@@ -33,8 +32,10 @@
 --      rebuilt from the seller's separate Penn and Ventures books: seven
 --      seller years, equal weights, concessions on our event calendar) for
 --      every month of 2026 and 2027, with Alina's ruling of 2026-10-10:
---      December concessions (PAX) = $5,000, not $20,425. The year is not
---      rescaled after that cut (still open), so the seed sums to $584,575.
+--      December concessions (PAX) = $5,000, not $20,425. Alina, 2026-10-12:
+--      the year is rescaled back to $600,000, the estimated net-zero year: the
+--      other 35 cells are scaled by 595,000 / 579,575 and rounded to whole
+--      dollars (largest remainder), with December PAX held at $5,000.
 --      In-store covers delivery (the seller's Penn sales accounts).
 --      measure says which basis a row is on, 'net' or 'gross'. Every seeded
 --      row is 'net': the seller booked Aramark's net settlement, and gross vs
@@ -230,9 +231,9 @@ revoke insert, update, delete, truncate on public.sales_targets from anon, authe
 revoke all on public.sales_targets from anon;
 
 -- The targets by month and stream (#671, 2026-10-10, 3-stream table, with
--- December concessions set to $5,000 by Alina's ruling). Each stream's twelve
--- months: in-store $397,730, catering $114,956, concessions $71,889;
--- together $584,575.
+-- December concessions set to $5,000 by Alina's ruling, and the year rescaled
+-- to $600,000 on 2026-10-12). Each stream's twelve months: in-store $408,315,
+-- catering $118,015, concessions $73,670; together $600,000.
 insert into public.sales_targets (month, stream, amount, basis, provisional)
 select make_date(yrs.y, c.m, 1), c.stream, c.amt,
        case when c.stream = 'concessions'
@@ -240,17 +241,17 @@ select make_date(yrs.y, c.m, 1), c.stream, c.amt,
             else '$600K year x seller-era share (Penn + Ventures books, 2017-19, 2022-25, equal weights); bj-finance #671' end,
        c.stream = 'concessions'
   from (values
-          ('in_store',  1, 16823.00), ('in_store',  2, 23939.00), ('in_store',  3, 31672.00),
-          ('in_store',  4, 46064.00), ('in_store',  5, 44393.00), ('in_store',  6, 45755.00),
-          ('in_store',  7, 46811.00), ('in_store',  8, 39784.00), ('in_store',  9, 36226.00),
-          ('in_store', 10, 28870.00), ('in_store', 11, 20995.00), ('in_store', 12, 16398.00),
-          ('catering',  1,  1156.00), ('catering',  2,  1559.00), ('catering',  3,  2220.00),
-          ('catering',  4, 12085.00), ('catering',  5, 17520.00), ('catering',  6, 19724.00),
-          ('catering',  7, 17224.00), ('catering',  8, 19000.00), ('catering',  9, 12111.00),
-          ('catering', 10,  5309.00), ('catering', 11,  3206.00), ('catering', 12,  3842.00),
-          ('concessions',  1, 17892.00), ('concessions',  2,     0.00), ('concessions',  3, 36132.00),
-          ('concessions',  4,   479.00), ('concessions',  5,  2542.00), ('concessions',  6,  2507.00),
-          ('concessions',  7,  1521.00), ('concessions',  8,   451.00), ('concessions',  9,  5354.00),
+          ('in_store',  1, 17271.00), ('in_store',  2, 24576.00), ('in_store',  3, 32515.00),
+          ('in_store',  4, 47290.00), ('in_store',  5, 45574.00), ('in_store',  6, 46973.00),
+          ('in_store',  7, 48057.00), ('in_store',  8, 40843.00), ('in_store',  9, 37190.00),
+          ('in_store', 10, 29638.00), ('in_store', 11, 21554.00), ('in_store', 12, 16834.00),
+          ('catering',  1,  1187.00), ('catering',  2,  1601.00), ('catering',  3,  2279.00),
+          ('catering',  4, 12407.00), ('catering',  5, 17986.00), ('catering',  6, 20249.00),
+          ('catering',  7, 17682.00), ('catering',  8, 19506.00), ('catering',  9, 12433.00),
+          ('catering', 10,  5450.00), ('catering', 11,  3291.00), ('catering', 12,  3944.00),
+          ('concessions',  1, 18368.00), ('concessions',  2,     0.00), ('concessions',  3, 37094.00),
+          ('concessions',  4,   492.00), ('concessions',  5,  2610.00), ('concessions',  6,  2574.00),
+          ('concessions',  7,  1561.00), ('concessions',  8,   463.00), ('concessions',  9,  5497.00),
           ('concessions', 10,    11.00), ('concessions', 11,     0.00), ('concessions', 12,  5000.00)
        ) as c (stream, m, amt)
   cross join (values (2026), (2027)) as yrs (y)
