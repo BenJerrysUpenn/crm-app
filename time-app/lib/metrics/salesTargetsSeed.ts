@@ -10,9 +10,10 @@
 // exist yet, and math.test.ts keeps the two equal.
 //
 // Alina, 2026-10-10: December concessions (PAX) = $5,000, replacing the
-// table's $20,425; the seller-era summer events stay in. Whether the year is
-// rescaled back to $600K after that cut is still open, so nothing here or on
-// the page assumes a year total (the seed sums to $584,575).
+// table's $20,425; the seller-era summer events stay in. Alina, 2026-10-12:
+// the year is rescaled back to $600,000 (the estimated net-zero year), the
+// other 35 cells scaled by 595,000 / 579,575 with December PAX held at $5,000.
+// Nothing on the page assumes a year total.
 //
 // Every row is on the NET basis (measure 'net'): the seller booked Aramark's
 // net settlement. Gross vs net for concessions is not ruled yet, so the
@@ -26,9 +27,9 @@ const CONCESSIONS_BASIS =
   "$600K table, seller-era share on our event calendar, net of Aramark; Dec PAX $5,000 (ruled 2026-10-10); PROVISIONAL: gross vs net not ruled; bj-finance #671";
 
 const MONTHLY: Record<Exclude<Stream, "delivery">, number[]> = {
-  in_store: [16823, 23939, 31672, 46064, 44393, 45755, 46811, 39784, 36226, 28870, 20995, 16398],
-  catering: [1156, 1559, 2220, 12085, 17520, 19724, 17224, 19000, 12111, 5309, 3206, 3842],
-  concessions: [17892, 0, 36132, 479, 2542, 2507, 1521, 451, 5354, 11, 0, 5000],
+  in_store: [17271, 24576, 32515, 47290, 45574, 46973, 48057, 40843, 37190, 29638, 21554, 16834],
+  catering: [1187, 1601, 2279, 12407, 17986, 20249, 17682, 19506, 12433, 5450, 3291, 3944],
+  concessions: [18368, 0, 37094, 492, 2610, 2574, 1561, 463, 5497, 11, 0, 5000],
 };
 
 export const SALES_TARGET_SEED: SalesTargetRow[] = [2026, 2027].flatMap((year) =>
