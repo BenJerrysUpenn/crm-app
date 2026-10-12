@@ -164,7 +164,7 @@ export const META_COLUMNS =
 // ---------- QBO's Run Payroll grid ---------------------------------------------
 
 export type QboColumn = {
-  key: "regular" | "overtime" | "tips" | "solo" | "premium" | "premium_ot" | "travel";
+  key: "regular" | "overtime" | "tips" | "solo" | "premium_hours" | "premium" | "premium_ot" | "travel";
   /** QBO's pay line, as it is named on the grid. */
   label: string;
 };
@@ -174,12 +174,18 @@ export type QboColumn = {
  * (bj-finance reports/biweekly/BIWEEKLY-01_payroll-run.md, spec §5/§6): hours
  * first, then the flat amounts. Travel is the non-taxable Travel
  * Reimbursement line. The page adds the rate and the wages after these.
+ *
+ * Catering hours (Alina, 2026-10-12) is the one column QBO does not take: the
+ * premium is keyed as a flat amount, and these hours are already in Regular
+ * and Overtime. It sits before Catering premium so the hours behind the
+ * dollars are on the row.
  */
 export const QBO_COLUMNS: QboColumn[] = [
   { key: "regular", label: "Regular hours" },
   { key: "overtime", label: "Overtime hours" },
   { key: "tips", label: "Paycheck tips" },
   { key: "solo", label: "Solo close" },
+  { key: "premium_hours", label: "Catering hours" },
   { key: "premium", label: "Catering premium" },
   { key: "premium_ot", label: "Catering premium OT" },
   { key: "travel", label: "Travel reimbursement" },
@@ -211,6 +217,8 @@ export function qboCell(row: SheetRow, key: QboColumn["key"]): string {
       return row.tips_cents ? money(row.tips_cents) : "";
     case "solo":
       return row.solo_close_cents ? money(row.solo_close_cents) : "";
+    case "premium_hours":
+      return row.premium_hours ? hoursText(row.premium_hours) : "";
     case "premium":
       return row.premium_cents ? money(row.premium_cents) : "";
     case "premium_ot":
@@ -220,8 +228,11 @@ export function qboCell(row: SheetRow, key: QboColumn["key"]): string {
   }
 }
 
-/** The totals row's cell for a QBO column. */
-export function qboTotal(totals: PaySheetJson["totals"], key: QboColumn["key"]): string {
+/**
+ * The totals row's cell for a QBO column. The sheet's totals carry no premium
+ * hours, so that one is the rows' own figures added up.
+ */
+export function qboTotal(totals: PaySheetJson["totals"], key: QboColumn["key"], rows: SheetRow[] = []): string {
   switch (key) {
     case "regular":
       return hoursText(totals.regular_hours ?? totals.hours);
@@ -231,6 +242,8 @@ export function qboTotal(totals: PaySheetJson["totals"], key: QboColumn["key"]):
       return money(totals.tips_cents);
     case "solo":
       return money(totals.solo_close_cents);
+    case "premium_hours":
+      return hoursText(rows.reduce((sum, r) => sum + r.premium_hours, 0));
     case "premium":
       return money(totals.premium_cents);
     case "premium_ot":

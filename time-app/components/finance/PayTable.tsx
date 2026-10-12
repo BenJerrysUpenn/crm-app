@@ -196,7 +196,7 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
               <td className="sticky left-0 z-10 bg-white dark:bg-slate-900 px-3 py-2">Total</td>
               {QBO_COLUMNS.map((c) => (
                 <td key={c.key} className="text-right px-3 py-2 whitespace-nowrap">
-                  {qboTotal(sheet.totals, c.key)}
+                  {qboTotal(sheet.totals, c.key, sheet.rows)}
                 </td>
               ))}
               <td />
