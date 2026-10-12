@@ -112,7 +112,8 @@ export type PaySheetJson = {
     tips_cents: number;
     solo_close_cents: number;
     travel_cents: number;
-    catering_hours: number;
+    /** Everyone's catering hours. Optional so a sheet without it still renders: the table adds the rows up instead. */
+    catering_hours?: number;
     premium_cents: number;
     premium_ot_cents: number;
     marketing_hours?: number;
@@ -174,7 +175,7 @@ export type PayTableColumn = {
     | "overtime"
     | "tips"
     | "solo"
-    | "premium_hours"
+    | "catering_hours"
     | "premium"
     | "premium_ot"
     | "marketing_hours"
@@ -193,9 +194,10 @@ export type PayTableColumn = {
  * Travel Reimbursement line. The page adds the rate and the wages after these.
  *
  * Three columns are information only, never keyed and never in a pay total:
- *   * Catering hours (Alina, 2026-10-12): the premium hours behind the Catering
- *     premium dollars, which sit right after it. They are already in Regular
- *     and Overtime; the premium is keyed as a flat amount.
+ *   * Catering hours (Alina, 2026-10-12): everyone's catering hours, whatever
+ *     their rate or pay type, so a person at $20+/h or on salary shows them
+ *     too. They are already in Regular and Overtime. The Catering premium
+ *     dollars right after it stay their own lines, keyed as flat amounts.
  *   * Marketing hours and Marketing cost (Alina, 2026-10-12): marketing labour
  *     is booked as a marketing cost toward the 2% marketing obligation on top
  *     of being payroll. They follow the catering lines.
@@ -205,7 +207,7 @@ export const PAY_TABLE_COLUMNS: PayTableColumn[] = [
   { key: "overtime", label: "Overtime hours", qbo: true },
   { key: "tips", label: "Paycheck tips", qbo: true },
   { key: "solo", label: "Solo close", qbo: true },
-  { key: "premium_hours", label: "Catering hours", qbo: false },
+  { key: "catering_hours", label: "Catering hours", qbo: false },
   { key: "premium", label: "Catering premium", qbo: true },
   { key: "premium_ot", label: "Catering premium OT", qbo: true },
   { key: "marketing_hours", label: "Marketing hours", qbo: false },
@@ -242,8 +244,8 @@ export function qboCell(row: SheetRow, key: PayTableColumn["key"]): string {
       return row.tips_cents ? money(row.tips_cents) : "";
     case "solo":
       return row.solo_close_cents ? money(row.solo_close_cents) : "";
-    case "premium_hours":
-      return row.premium_hours ? hoursText(row.premium_hours) : "";
+    case "catering_hours":
+      return row.catering_hours ? hoursText(row.catering_hours) : "";
     case "premium":
       return row.premium_cents ? money(row.premium_cents) : "";
     case "premium_ot":
@@ -258,9 +260,10 @@ export function qboCell(row: SheetRow, key: PayTableColumn["key"]): string {
 }
 
 /**
- * The totals row's cell for a column. The sheet's totals carry no premium
- * hours, so that one is the rows' own figures added up. A sheet built before
- * marketing was published leaves the marketing totals blank.
+ * The totals row's cell for a column. Catering hours are the sheet's own
+ * total; only a sheet without one falls back to the rows' figures added up.
+ * A sheet built before marketing was published leaves the marketing totals
+ * blank.
  */
 export function qboTotal(totals: PaySheetJson["totals"], key: PayTableColumn["key"], rows: SheetRow[] = []): string {
   switch (key) {
@@ -272,8 +275,8 @@ export function qboTotal(totals: PaySheetJson["totals"], key: PayTableColumn["ke
       return money(totals.tips_cents);
     case "solo":
       return money(totals.solo_close_cents);
-    case "premium_hours":
-      return hoursText(rows.reduce((sum, r) => sum + r.premium_hours, 0));
+    case "catering_hours":
+      return hoursText(totals.catering_hours ?? rows.reduce((sum, r) => sum + r.catering_hours, 0));
     case "premium":
       return money(totals.premium_cents);
     case "premium_ot":
