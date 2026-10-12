@@ -89,6 +89,8 @@ language_notes: >-
 documentation_map:
   - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
     docs: [README.md]
+  - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
+    docs: [README.md]
 
 exclusions:
   - path: docs/unsubscribe.md
