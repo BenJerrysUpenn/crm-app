@@ -18,8 +18,9 @@ import {
 import type { ViewsState } from "@/lib/metrics/viewsServer";
 import { NotEnabled, applyPatch, localStore, readLocal, serverStore, writeLocal, type ViewPatch, type ViewStore } from "./viewStore";
 import {
-  ArWidget, CashWidget, ClosedMonthWidget, ForwardWidget, LabourWidget, LeadsWidget, LerWidget, OutreachWidget, QuotesWidget, SalesWidget,
+  ArWidget, ForwardWidget, LabourWidget, LeadsWidget, OutreachWidget, QuotesWidget, SalesWidget,
 } from "./widgets";
+import { CashWidget, ClosedMonthWidget, LerWidget } from "./feedWidgets";
 
 const BTN =
   "inline-flex items-center justify-center min-h-[44px] min-w-[44px] px-3 rounded-md text-sm border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500";
@@ -559,17 +560,17 @@ function WidgetBody({ widget, data }: { widget: WidgetConfig; data: MetricsData 
     case "sales_vs_target":
       return <SalesWidget data={data} settings={s} />;
     case "cash_on_hand":
-      return <CashWidget />;
+      return <CashWidget data={data} settings={s} />;
     case "catering_ar":
       return <ArWidget data={data} />;
     case "weekly_ler":
-      return <LerWidget />;
+      return <LerWidget data={data} settings={s} />;
     case "forward_cash":
       return <ForwardWidget data={data} />;
     case "labour":
       return <LabourWidget data={data} settings={s} />;
     case "closed_month":
-      return <ClosedMonthWidget />;
+      return <ClosedMonthWidget data={data} settings={s} />;
     case "leads":
       return <LeadsWidget data={data} settings={s} />;
     case "outreach":

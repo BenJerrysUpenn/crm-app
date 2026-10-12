@@ -23,6 +23,7 @@ import { leadsByWeek, outreachByWeek, quoteToBooking, type LeadWeek, type Outrea
 import { MONTHS, MONTHS_AHEAD, WEEKS } from "./series.ts";
 import { SALES_TARGET_SEED } from "./salesTargetsSeed.ts";
 import type { SalesTargetRow } from "./targets.ts";
+import { parseCash, parseClosedMonth, parseDaily, type ClosedMonth, type DailySnapshot } from "./feed.ts";
 
 /** What the page's data spans on `today`: the weeks and months behind it, and the days from the first of those months to the end of the last month ahead. */
 function metricsWindow(today: string): { weeks: string[]; months: string[]; from: string; to: string } {
@@ -42,8 +43,34 @@ export type MetricsInputs = {
   people: PersonRow[] | null;
   outreach: OutreachEventRow[] | null;
   targets: { rows: SalesTargetRow[]; source: "table" | "seed" };
+  feed: FeedInputs;
   problems: string[];
 };
+
+/** The finance feed as read: raw rows, parsed in buildMetricsData. */
+export type FeedInputs =
+  | { status: "not_enabled" }
+  | { status: "unreadable"; message: string }
+  | {
+      status: "read";
+      latestDaily: { period: string; built_at: string; payload: unknown } | null;
+      cashHistory: { period: string; built_at: string; cash: unknown }[];
+      closedMonths: { period: string; built_at: string; payload: unknown }[];
+    };
+
+export type FeedData =
+  | { status: "not_enabled" | "empty" }
+  | { status: "unreadable"; message: string }
+  | { status: "unrecognised"; builtAt: string }
+  | {
+      status: "ok";
+      builtAt: string | null;
+      daily: DailySnapshot | null;
+      /** On hand at the end of each day the feed has published, oldest first. */
+      cashHistory: { day: string; onHand: number }[];
+      /** Latest publish per closed month, oldest first. */
+      closedMonths: ClosedMonth[];
+    };
 
 export type SuspectDeal = { id: number; company: string | null; eventDay: string | null };
 
@@ -65,6 +92,7 @@ export type MetricsData = {
   leads: LeadWeek[] | null;
   outreach: OutreachWeek[] | null;
   quotes: QuoteCohort[] | null;
+  feed: FeedData;
   problems: string[];
 };
 
@@ -107,7 +135,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     }
   }
 
-  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets] = await Promise.all([
+  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, feed] = await Promise.all([
     attempt("catering deals", () =>
       paged<DealRow>(() =>
         supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", firstMonth).lte("event_date", `${lastDay}T23:59:59`).order("id"),
@@ -167,6 +195,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
         return seed((e as Error)?.message ?? String(e));
       }
     })(),
+    loadFeed(supabase, addDays(today, -95), addMonths(today, -13)),
   ]);
 
   let deals: DealRow[] | null = null;
@@ -176,7 +205,66 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     deals = [...merged.values()];
   }
 
-  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, problems };
+  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, feed, problems };
+}
+
+/** Reads public.metrics_snapshots (migration 40): the latest daily, the daily cash history, the closed months. */
+async function loadFeed(supabase: SupabaseClient, cashFrom: string, monthsFrom: string): Promise<FeedInputs> {
+  try {
+    const latest = await supabase
+      .from("metrics_snapshots")
+      .select("period, built_at, payload")
+      .eq("kind", "daily")
+      .order("period", { ascending: false })
+      .order("built_at", { ascending: false })
+      .limit(1);
+    if (latest.error) return isMissingTable(latest.error) ? { status: "not_enabled" } : { status: "unreadable", message: latest.error.message };
+    const [cash, months] = await Promise.all([
+      supabase
+        .from("metrics_snapshots")
+        .select("period, built_at, cash:payload->cash")
+        .eq("kind", "daily")
+        .gte("period", cashFrom)
+        .order("period")
+        .order("built_at"),
+      supabase.from("metrics_snapshots").select("period, built_at, payload").eq("kind", "closed_month").gte("period", monthsFrom).order("period").order("built_at"),
+    ]);
+    if (cash.error) return { status: "unreadable", message: cash.error.message };
+    if (months.error) return { status: "unreadable", message: months.error.message };
+    return {
+      status: "read",
+      latestDaily: ((latest.data ?? [])[0] as { period: string; built_at: string; payload: unknown } | undefined) ?? null,
+      cashHistory: (cash.data ?? []) as { period: string; built_at: string; cash: unknown }[],
+      closedMonths: (months.data ?? []) as { period: string; built_at: string; payload: unknown }[],
+    };
+  } catch (e) {
+    return { status: "unreadable", message: (e as Error).message };
+  }
+}
+
+export function buildFeed(f: FeedInputs): FeedData {
+  if (f.status !== "read") return f;
+  if (!f.latestDaily && f.closedMonths.length === 0) return { status: "empty" };
+  const daily = f.latestDaily ? parseDaily(f.latestDaily.payload) : null;
+  if (f.latestDaily && !daily) return { status: "unrecognised", builtAt: f.latestDaily.built_at };
+  // Latest publish per day / per month wins (rows arrive oldest first).
+  const cash = new Map<string, number>();
+  for (const r of f.cashHistory) {
+    const c = parseCash(r.cash);
+    if (c) cash.set(c.as_of, c.on_hand);
+  }
+  const months = new Map<string, ClosedMonth>();
+  for (const r of f.closedMonths) {
+    const m = parseClosedMonth(r.payload);
+    if (m) months.set(m.month, m);
+  }
+  return {
+    status: "ok",
+    builtAt: f.latestDaily?.built_at ?? null,
+    daily,
+    cashHistory: [...cash.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([day, onHand]) => ({ day, onHand })),
+    closedMonths: [...months.values()].sort((a, b) => (a.month < b.month ? -1 : 1)),
+  };
 }
 
 export function buildMetricsData(inputs: MetricsInputs): MetricsData {
@@ -234,6 +322,7 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
     leads,
     outreach: inputs.outreach ? outreachByWeek(inputs.outreach, weeks) : null,
     quotes,
+    feed: buildFeed(inputs.feed),
     problems: inputs.problems,
   };
 }

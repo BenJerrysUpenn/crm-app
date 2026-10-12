@@ -13,7 +13,9 @@ import { STREAM_LABEL, type StreamFilter } from "@/lib/metrics/targets";
 import { lastN, periodCount, salesByMonth, salesMonthToDate, streamNames, type SalesStream, type StreamDaily } from "@/lib/metrics/series";
 import { daysBetween, mondayOf, monthLabel, shortDay } from "@/lib/metrics/dates";
 import { conversion, LEAD_SOURCES } from "@/lib/metrics/funnel";
-import { LER_FLOOR, LER_TARGET, OWNER_COMP_WEEKLY } from "@/lib/metrics/ler";
+import { feedInStoreByWeek, feedSales } from "@/lib/metrics/feed";
+import { labourPct, salesPerHour } from "@/lib/metrics/labour";
+import { addDays } from "@/lib/metrics/dates";
 
 /** Headline money: whole dollars (tables and tooltips carry the cents). */
 const money = (v: number | null | undefined) => (v == null ? "–" : formatValue(Math.round(v), "money").replace(/\.00$/, ""));
@@ -31,9 +33,10 @@ function partialWeek(weeks: { week: string }[], today: string): number[] {
   return i < 0 ? [] : [i];
 }
 
-/** Sales by day per stream that the page has: catering from the CRM; the rest arrive with the feed. */
+/** Sales by day per stream that the page has: catering from the CRM; in-store and concessions from the feed once it publishes them. */
 function streamDaily(data: MetricsData): StreamDaily {
-  return data.catering ? { catering: data.catering.byDay } : {};
+  const fromFeed = data.feed.status === "ok" && data.feed.daily ? feedSales(data.feed.daily, data.targets) : {};
+  return data.catering ? { ...fromFeed, catering: data.catering.byDay } : fromFeed;
 }
 
 // ---- Sales vs target ------------------------------------------------------------------
@@ -87,7 +90,8 @@ export function SalesWidget({ data, settings }: { data: MetricsData; settings: W
     );
   }
 
-  const m = salesMonthToDate(sales, data.targets, stream, data.today);
+  const feedThrough = data.feed.status === "ok" && data.feed.daily ? data.feed.daily.as_of : undefined;
+  const m = salesMonthToDate(sales, data.targets, stream, data.today, feedThrough ? { in_store: feedThrough, concessions: feedThrough } : {});
   const p = m.progress;
   const day = Number(data.today.slice(8));
   const waitingAll = m.cumulative.length === 0;
@@ -95,7 +99,7 @@ export function SalesWidget({ data, settings }: { data: MetricsData; settings: W
     <div>
       <Tiles>
         <Tile label={`${monthLabel(data.today)} target`} value={money(m.target?.amount)} sub={m.target?.provisional ? "includes a provisional figure" : STREAM_LABEL[stream]} />
-        <Tile label={`Pace to ${shortDay(data.today)}`} value={m.target ? money((m.target.amount * day) / m.days.length) : "–"} sub={`day ${day} of ${m.days.length}`} />
+        <Tile label={`Pace to ${shortDay(data.today)}`} value={m.target ? money((m.target.amount * day) / m.days.length) : "–"} sub={`day ${day} of ${m.days.length}, ${STREAM_LABEL[stream].toLowerCase()}`} />
         <Tile
           label="Actual to date"
           value={waitingAll ? "–" : money(m.actualSoFar)}
@@ -104,7 +108,7 @@ export function SalesWidget({ data, settings }: { data: MetricsData; settings: W
         <Tile
           label={p?.vsPace == null ? "Ahead or behind pace" : p.vsPace >= 0 ? "Ahead of pace" : "Behind pace"}
           value={p?.vsPace == null ? "–" : money(Math.abs(p.vsPace))}
-          sub={p?.vsPace == null ? (m.waitingOn.length ? "waiting on the finance feed" : "no target set") : p.pctOfPace != null ? `${formatValue(p.pctOfPace, "pct")} of pace` : undefined}
+          sub={p?.vsPace == null ? (m.waitingOn.length ? `waiting on ${streamNames(m.waitingOn)} from the feed` : "no target set") : p.pctOfPace != null ? `${formatValue(p.pctOfPace, "pct")} of pace` : undefined}
         />
       </Tiles>
       {waitingAll ? (
@@ -152,17 +156,6 @@ function CateringCaveats({ data }: { data: MetricsData }) {
         </p>
       )}
     </>
-  );
-}
-
-// ---- Cash on hand -----------------------------------------------------------------------
-
-export function CashWidget() {
-  return (
-    <WaitingOnFeed
-      what="Cash on hand and yesterday's money in and out appear here as a daily line."
-      detail={<p>Cash on hand is the Chase balance in QBO less outstanding cheques. The finance feed reads it after the daily bookkeeping pass.</p>}
-    />
   );
 }
 
@@ -216,51 +209,49 @@ export function ArWidget({ data }: { data: MetricsData }) {
   );
 }
 
-// ---- Weekly LER -----------------------------------------------------------------------------
-
-export function LerWidget() {
-  return (
-    <WaitingOnFeed
-      what={`Weekly LER appears here two ways: paid (owner comp $${OWNER_COMP_WEEKLY.toLocaleString()} a week) and unpaid (owner comp $0), against the ${LER_TARGET.toFixed(1)} target.`}
-      detail={
-        <p>
-          LER = gross profit / (wages + employer tax + owner comp); under {LER_FLOOR.toFixed(1)} the business is not viable. It needs
-          weekly sales, wages and the trailing COGS % from the finance feed; weekly gross profit is an estimate.
-        </p>
-      }
-    />
-  );
-}
-
 // ---- Next 14 days -----------------------------------------------------------------------------
 
 export function ForwardWidget({ data }: { data: MetricsData }) {
   const f = data.forward;
   if (!f) return <CouldNotLoad what="deals and shifts" />;
+  const fc = data.feed.status === "ok" ? (data.feed.daily?.forward_cash ?? null) : null;
+  const feedIn = f.days.map((d) => (fc ? fc.lines.filter((l) => l.date === d.day && l.direction === "in").reduce((s, l) => s + l.amount, 0) : 0));
+  const feedOut = f.days.map((d) => (fc ? fc.lines.filter((l) => l.date === d.day && l.direction === "out").reduce((s, l) => s + l.amount, 0) : 0));
   const cateringIn = f.days.reduce((s, d) => s + d.cateringIn, 0);
   const wages = f.days.reduce((s, d) => s + d.scheduledWages, 0);
+  // The feed's wage lines already carry pay-date wages; then the scheduled-wage estimate is left off the balance.
+  const feedHasWages = Boolean(fc?.lines.some((l) => l.category === "wages"));
+  let running = fc ? fc.opening_on_hand : 0;
+  const balance = f.days.map((d, i) => {
+    running += d.cateringIn + feedIn[i] - feedOut[i] - (feedHasWages ? 0 : d.scheduledWages);
+    return Math.round(running * 100) / 100;
+  });
   return (
     <div>
       <Tiles>
         <Tile label="Catering due in" value={money(cateringIn)} sub="events in the next 14 days" />
         <Tile label="Hourly wages earned" value={money(wages)} sub="shifts scheduled" />
         <Tile label="Overdue catering" value={money(f.overdue)} sub="events already held; not on a day" />
-        <Tile label="Opening cash" value="–" sub="waiting on the finance feed" />
+        <Tile label={fc ? "Cash in 14 days" : "Opening cash"} value={fc ? money(balance[balance.length - 1]) : "–"} sub={fc ? `from ${money(fc.opening_on_hand)} today` : "waiting on the finance feed"} />
       </Tiles>
       <Chart
         title="Known money in and out over the next 14 days"
         labels={f.days.map((d) => shortDay(d.day))}
         series={[
           { label: "Catering due in", values: f.days.map((d) => d.cateringIn), color: "catering", stack: "flow" },
-          { label: "Hourly wages earned (out)", values: f.days.map((d) => (d.scheduledWages ? -d.scheduledWages : 0)), color: "orange", stack: "flow" },
+          ...(fc ? [{ label: "Other money in", values: feedIn, color: "in_store" as const, stack: "flow" }] : []),
+          ...(feedHasWages
+            ? []
+            : [{ label: "Hourly wages earned (out)", values: f.days.map((d) => (d.scheduledWages ? -d.scheduledWages : 0)), color: "orange" as const, stack: "flow" }]),
+          ...(fc ? [{ label: "Bills, tax and pay (out)", values: feedOut.map((v) => (v ? -v : 0)), color: "other" as const, stack: "flow" }] : []),
+          ...(fc ? [{ label: "Cash balance", values: balance, color: "target" as const, type: "line" as const, stack: "balance" }] : []),
         ]}
         format="money"
         stacked
-        beginAtZero
         emptyText="No catering balances or scheduled shifts in the next 14 days."
         tableLabel="Day"
       />
-      <WaitingOnFeed what="Opening cash, bills, tax and the in-store sales projection turn this into a running cash balance." />
+      {!fc && <WaitingOnFeed what="Opening cash, bills, tax and the in-store sales projection turn this into a running cash balance." />}
       <Method>
         <p>Catering due in is the balance on each booked event, on its event date.</p>
         <p>
@@ -268,6 +259,12 @@ export function ForwardWidget({ data }: { data: MetricsData }) {
           GM and the owners are not costed
           {f.uncostedShifts > 0 && `, nor ${plural(f.uncostedShifts, "unassigned or unrated shift")}`}. Employer tax is not included.
         </p>
+        {fc && (
+          <p>
+            Opening cash, recurring bills, other bills, tax and the in-store projection come from the finance feed.
+            {feedHasWages ? " Pay is shown on its pay date from the feed, so the scheduled-wage estimate is only in the tile above." : ""}
+          </p>
+        )}
       </Method>
     </div>
   );
@@ -285,13 +282,28 @@ export function LabourWidget({ data, settings }: { data: MetricsData; settings: 
   const noRate = weeks.reduce((s, w) => s + w.noRateHours, 0);
   const labels = weeks.map((w) => weekLabel(w.week, data.today));
   const dim = partialWeek(weeks, data.today);
+  const daily = data.feed.status === "ok" ? data.feed.daily : null;
+  const storeSales = daily ? feedInStoreByWeek(daily, full.map((w) => w.week)) : full.map(() => null);
+  const perHour = full.map((w, i) => salesPerHour(storeSales[i], w.inStoreHours));
+  const wagesByWeek = new Map((daily?.wages_by_week ?? []).map((w) => [w.week_start, w.wages + w.employer_tax]));
+  const pctByWeek = full.map((w, i) => {
+    const cost = wagesByWeek.get(w.week) ?? null;
+    const catering = Object.entries(data.catering?.byDay ?? {})
+      .filter(([d]) => d >= w.week && d <= addDays(w.week, 6))
+      .reduce((s, [, v]) => s + v, 0);
+    return labourPct(cost, storeSales[i] == null ? null : storeSales[i]! + catering);
+  });
   return (
     <div>
       <Tiles>
         <Tile label="In-store hours, last full week" value={formatValue(last?.inStoreHours ?? null, "hours")} sub={last ? `week of ${shortDay(last.week)}` : undefined} />
         <Tile label="Catering hours, last full week" value={formatValue(last?.cateringHours ?? null, "hours")} />
         <Tile label="Hourly labour $, last full week" value={money(last ? last.inStoreHourlyCost + last.cateringHourlyCost : null)} sub="hourly staff only" />
-        <Tile label="Sales per scooper-hour" value="–" sub="waiting on the finance feed" />
+        <Tile
+          label="Sales per scooper-hour"
+          value={perHour[perHour.length - 1] == null ? "–" : money(perHour[perHour.length - 1])}
+          sub={daily ? "last full week, in-store" : "waiting on the finance feed"}
+        />
       </Tiles>
       <div className="space-y-4">
         <Chart
@@ -324,27 +336,45 @@ export function LabourWidget({ data, settings }: { data: MetricsData; settings: 
           tableLabel="Week of"
         />
       </div>
-      <WaitingOnFeed what="Sales per scooper-hour (B&J benchmark $200-250 with one scooper) and labour % need in-store sales from the feed." />
+      {daily && perHour.some((v) => v != null) ? (
+        <div className="grid gap-4 md:grid-cols-2 mt-4">
+          <Chart
+            heading="Sales per scooper-hour (in-store)"
+            title="In-store sales per clocked in-store hour, by week"
+            labels={full.map((w) => shortDay(w.week))}
+            series={[{ label: "Sales per scooper-hour", values: perHour, color: "in_store" }]}
+            format="money"
+            height={200}
+            tableLabel="Week of"
+          />
+          <Chart
+            heading="Labour % of sales"
+            title="Wages and employer tax as a share of sales, by week"
+            labels={full.map((w) => shortDay(w.week))}
+            series={[{ label: "Labour %", values: pctByWeek, color: "orange" }]}
+            format="pct"
+            height={200}
+            emptyText="Labour % appears when the feed publishes weekly wages."
+            tableLabel="Week of"
+          />
+        </div>
+      ) : (
+        <WaitingOnFeed what="Sales per scooper-hour (B&J benchmark $200-250 with one scooper) and labour % need in-store sales from the feed." />
+      )}
       <Method>
         <p>
           Labour $ from the time clock is a floor, not total labour. It leaves out the salaried GM ({formatValue(salaried, "hours")} in
           this period, paid by salary), anyone with no hourly rate such as the owners ({formatValue(noRate, "hours")}), and employer tax.
         </p>
         <p>A punch counts as catering when its shift belongs to a catering deal. The lighter bar is the week in progress.</p>
+        <p>
+          Sales per scooper-hour = in-store sales (with delivery) from the feed / in-store hours clocked; B&amp;J benchmark $200-250 with one
+          scooper, $400-500 with two. Labour % = the week&rsquo;s wages and employer tax from the feed, salaried GM included / the week&rsquo;s
+          sales, catering by event date.
+        </p>
         {l.openPunches > 0 && <p>{plural(l.openPunches, "punch", "punches")} still open and not counted.</p>}
       </Method>
     </div>
-  );
-}
-
-// ---- Last closed month ------------------------------------------------------------------------
-
-export function ClosedMonthWidget() {
-  return (
-    <WaitingOnFeed
-      what="Pre-tax profit, monthly LER (paid and unpaid) and COGS % appear here once the feed publishes the closed months."
-      detail={<p>Pre-tax profit is shown for the month and the rolling 12, against 5, 10 and 15% of revenue. All come from the month close in QBO.</p>}
-    />
   );
 }
 
