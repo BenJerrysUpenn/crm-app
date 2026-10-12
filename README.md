@@ -28,6 +28,7 @@ source is resolved in this order:
 | --- | --- |
 | `PF_DATA_PATH` | Local file path to `pf_data.json` (dev; point it at `fixtures/pf_data.sample.json` for synthetic data) |
 | `PF_GITHUB_TOKEN` | Fine-grained GitHub PAT with contents:read on the private data repo only; used to fetch the feed from its `pf-data` branch via the GitHub contents API (prod on Vercel; server-only, cached ~5 min) |
+| `PF_ALLOWED_USER_IDS` | Supabase auth user IDs (comma or space separated) allowed to open `/safe`, `/money`, `/dial`. Server-only. Unset or empty fails closed: nobody gets in, and any other signed-in user gets a 404. Enforced in `lib/pf/guard.ts` |
 
 With neither set, the pages render a "feed not wired yet" state. No real
 financial data or secrets are ever committed to this repo.
@@ -50,6 +51,19 @@ Before the sender ships the headers, Alina must:
 3. Apply `supabase/crm/005_unsubscribe.sql` once in the Supabase SQL editor.
 
 Unset, the endpoint answers `503` rather than silently dropping opt-outs.
+
+### Short links (`benjerryphilly.com`)
+When the Host is `benjerryphilly.com` or `www.benjerryphilly.com`, the
+middleware serves nothing but redirects and never reaches the login gate: a
+slug in `SHORT_LINKS` (`lib/shortLinks.ts`, one line per link) logs a row in
+`short_link_clicks` and 302s to its destination; every other path 301s to
+`https://www.benjerry.com/upenn`. On every other host those paths stay behind
+the login. `/<slug>/<code>` goes to the same place as `/<slug>`; the code is a
+per-deal code Catering-Manager mints into `short_link_codes`, and the click row
+records the code and its `deal_id`; HEAD requests and link scanners are logged
+with `is_probable_bot` true so counts can leave them out. The code lookup and the insert use
+`SUPABASE_SERVICE_ROLE_KEY` and never delay or block the redirect. Tables:
+`supabase/crm/010_short_link_clicks.sql`.
 
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
