@@ -133,6 +133,15 @@ allows 100 deployments a day across the account. To get a preview URL for a prot
 a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
+## Metrics page (Withers Time)
+`time-app/` serves `/metrics` on the finance host (bj-finance #671), managers only: the page,
+the `/api/metrics/*` routes and RLS each check it. `lib/metrics/load.ts` reads the CRM and time
+clock tables as the signed-in manager; a section that fails to read is reported in `problems`,
+never drawn as zeros. Saved views live in `public.metric_views` and `metric_preferences`
+(migration 39); until it is applied the routes answer 503 `views_not_enabled` and the page keeps
+views in the browser's localStorage. Cash, in-store sales, wages and closed months wait on the
+bj-finance feed (migration 40). Tests: `npm test` in `time-app/` includes `lib/metrics/*.test.ts`.
+
 ## Travel Reimbursements (Withers Time)
 Staff log mileage, tolls and parking in `time-app/` at `/reimbursements`; Approvers decide
 them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. Decisions:

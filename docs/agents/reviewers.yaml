@@ -89,6 +89,10 @@ language_notes: >-
 documentation_map:
   - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
     docs: [README.md]
+  - paths: ["time-app/lib/hosts.ts", "time-app/middleware.ts"]
+    docs: [time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/app/metrics/**", "time-app/app/api/metrics/**", "time-app/components/metrics/**", "time-app/lib/metrics/**"]
+    docs: [README.md]
   - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
     docs: [README.md]
 

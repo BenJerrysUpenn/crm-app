@@ -31,7 +31,7 @@ const LOCAL_SUFFIX = ".localhost";
 const FINANCE_PAGES = ["/payroll", "/metrics"];
 
 /** What the finance host serves besides its pages: sign-in and the APIs the pages call. */
-const FINANCE_HOST_ALSO = ["/login", "/auth", "/api/auth", "/api/logout", "/api/payroll", "/_next"];
+const FINANCE_HOST_ALSO = ["/login", "/auth", "/api/auth", "/api/logout", "/api/payroll", "/api/metrics", "/_next"];
 const FINANCE_HOST_FILES = new Set(["/favicon.ico", "/manifest.webmanifest", "/sw.js"]);
 
 function parseHost(host: string | null): { name: string; port: string } {
