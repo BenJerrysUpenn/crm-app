@@ -139,7 +139,9 @@ the `/api/metrics/*` routes and RLS each check it. `lib/metrics/load.ts` reads t
 clock tables as the signed-in manager; a section that fails to read is reported in `problems`,
 never drawn as zeros. Saved views live in `public.metric_views` and `metric_preferences`
 (migration 39); until it is applied the routes answer 503 `views_not_enabled` and the page keeps
-views in the browser's localStorage. Cash, in-store sales, wages and closed months wait on the
+views in the browser's localStorage. Sales targets come only from `public.sales_targets`
+(migration 39): there is no copy in the page code, and when the read fails the sales widget
+draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
 bj-finance feed (migration 40). Tests: `npm test` in `time-app/` includes `lib/metrics/*.test.ts`.
 
 ## Travel Reimbursements (Withers Time)
@@ -166,8 +168,7 @@ Apply `time-app/supabase/migration_39.sql` (saved views, preferences, `sales_tar
 `migration_40.sql` (`metrics_snapshots`, the finance feed), by hand in the Supabase SQL editor,
 after migration 38. Each has `_verify.sql` and `_down.sql` beside it. Sales targets are data:
 change them with an UPDATE in the SQL editor. Snapshots are published by bj-finance, never
-written through the API, and never updated or deleted. `time-app/app/metrics/page.tsx` does
-not read any of these tables yet.
+written through the API, and never updated or deleted.
 
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a

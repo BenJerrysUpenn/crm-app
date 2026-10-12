@@ -21,7 +21,6 @@ import { labourByWeek, type LabourWeek, type PersonRow, type PunchRow } from "./
 import { forwardCatering, type ForwardDay, type ShiftRow } from "./forward.ts";
 import { leadsByWeek, outreachByWeek, quoteToBooking, type LeadWeek, type OutreachEventRow, type OutreachWeek, type QuoteCohort } from "./funnel.ts";
 import { MONTHS, MONTHS_AHEAD, WEEKS } from "./series.ts";
-import { SALES_TARGET_SEED } from "./salesTargetsSeed.ts";
 import type { SalesTargetRow } from "./targets.ts";
 import { parseCash, parseClosedMonth, parseDaily, type ClosedMonth, type DailySnapshot } from "./feed.ts";
 
@@ -42,7 +41,7 @@ export type MetricsInputs = {
   shifts: ShiftRow[] | null;
   people: PersonRow[] | null;
   outreach: OutreachEventRow[] | null;
-  targets: { rows: SalesTargetRow[]; source: "table" | "seed" };
+  targets: SalesTargetRow[] | null;
   feed: FeedInputs;
   problems: string[];
 };
@@ -76,8 +75,8 @@ export type SuspectDeal = { id: number; company: string | null; eventDay: string
 
 export type MetricsData = {
   today: string;
-  targets: SalesTargetRow[];
-  targetsSource: "table" | "seed";
+  /** public.sales_targets, the only source; null when it could not be read (named in problems). */
+  targets: SalesTargetRow[] | null;
   catering: null | {
     from: string;
     to: string;
@@ -180,21 +179,11 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
         supabase.from("outreach_events").select("event, occurred_at").in("event", ["sequenced", "replied"]).gte("occurred_at", nyMidnight(firstWeek)).order("id"),
       ),
     ),
-    (async (): Promise<MetricsInputs["targets"]> => {
-      // The one fallback: the bundled table, with the reason as a problem line
-      // unless there is nothing to report (the table not created yet).
-      const seed = (reason: string | null): MetricsInputs["targets"] => {
-        if (reason !== null) problems.push(`sales targets: ${reason}; showing the bundled target table`);
-        return { rows: SALES_TARGET_SEED, source: "seed" };
-      };
-      try {
-        const { data, error } = await supabase.from("sales_targets").select("month, stream, amount, basis, provisional, measure");
-        if (error) return seed(isMissingTable(error) ? null : error.message);
-        return { rows: ((data ?? []) as SalesTargetRow[]).map((r) => ({ ...r, amount: Number(r.amount) })), source: "table" };
-      } catch (e) {
-        return seed((e as Error)?.message ?? String(e));
-      }
-    })(),
+    attempt("sales targets", async () => {
+      const { data, error } = await supabase.from("sales_targets").select("month, stream, amount, basis, provisional, measure");
+      if (error) throw error;
+      return ((data ?? []) as SalesTargetRow[]).map((r) => ({ ...r, amount: Number(r.amount) }));
+    }),
     loadFeed(supabase, addDays(today, -95), addMonths(today, -13)),
   ]);
 
@@ -313,8 +302,7 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
 
   return {
     today,
-    targets: inputs.targets.rows,
-    targetsSource: inputs.targets.source,
+    targets: inputs.targets,
     catering,
     ar,
     labour,

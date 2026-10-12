@@ -80,39 +80,36 @@ test("a deal in both the event-date and the created-date windows is counted once
   assert.equal(data.leads?.at(-1)?.total, 2); // both deals created the week of Oct 5, deal 1 once
 });
 
-test("the sales_targets table wins over the bundled seed, its amounts as numbers", async () => {
+test("the targets come from the sales_targets table, its amounts as numbers", async () => {
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  assert.equal(data.targetsSource, "table");
-  assert.deepEqual(data.targets.map((t) => t.amount), [7000]);
+  assert.deepEqual(data.targets?.map((t) => t.amount), [7000]);
 });
 
-test("before the sales_targets table exists the bundled seed is used, and that is not a problem", async () => {
+test("a missing sales_targets table leaves the targets unavailable and says so; there is no bundled copy", async () => {
   db.missingTables = ["sales_targets"];
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  assert.equal(data.targetsSource, "seed");
-  assert.equal(data.targets.length, 72); // two years of three streams
-  assert.deepEqual(data.problems, []);
+  assert.equal(data.targets, null);
+  assert.deepEqual(data.problems.map((p) => p.split(":")[0]), ["sales targets"]);
+  assert.equal(data.catering?.byDay["2026-10-04"], 1000);
 });
 
-test("a sales_targets read that is refused shows the bundled seed and says so", async () => {
+test("a sales_targets read that is refused leaves the targets unavailable and says why", async () => {
   const client = managerClient((url) =>
     url.pathname.endsWith("/sales_targets") ? refusal(403, "42501", "permission denied for table sales_targets") : undefined,
   );
   const data = buildMetricsData(await loadMetricsInputs(client, NOW));
-  assert.equal(data.targetsSource, "seed");
-  assert.equal(data.targets.length, 72);
-  assert.deepEqual(data.problems, ["sales targets: permission denied for table sales_targets; showing the bundled target table"]);
+  assert.equal(data.targets, null);
+  assert.deepEqual(data.problems, ["sales targets: permission denied for table sales_targets"]);
 });
 
-test("a sales_targets request that never completes shows the bundled seed and says so", async () => {
+test("a sales_targets request that never completes leaves the targets unavailable and says why", async () => {
   const client = managerClient((url) => {
     if (url.pathname.endsWith("/sales_targets")) throw new DOMException("The request was aborted", "AbortError");
     return undefined;
   });
   const data = buildMetricsData(await loadMetricsInputs(client, NOW));
-  assert.equal(data.targetsSource, "seed");
-  assert.equal(data.targets.length, 72);
-  assert.deepEqual(data.problems, ["sales targets: AbortError: The request was aborted; showing the bundled target table"]);
+  assert.equal(data.targets, null);
+  assert.deepEqual(data.problems, ["sales targets: AbortError: The request was aborted"]);
 });
 
 test("before profiles has pay_type the people read is a problem, never a read without it; labour and forward do not draw", async () => {

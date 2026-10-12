@@ -9,16 +9,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { monthProgress, targetFor, type SalesTargetRow } from "./targets.ts";
-import { SALES_TARGET_SEED } from "./salesTargetsSeed.ts";
+import { TEST_TARGETS } from "./targets.fixture.ts";
 import { ler, lerPair, OWNER_COMP_WEEKLY, OWNER_COMP_MONTHLY } from "./ler.ts";
 import { arSummary, bookedEvidence, cateringByDay, cateringValue, isBooked, type DealRow } from "./catering.ts";
 import { addDays, daysInMonth, lastWeeks, mondayOf } from "./dates.ts";
 
 // ---- targets and pace -----------------------------------------------------------
 
-test("the seed is the 3-stream table rescaled to $650,000 with December PAX held at $5,000", () => {
+test("the target rows are the 3-stream table rescaled to $650,000 with December PAX held at $5,000", () => {
   for (const year of ["2026", "2027"]) {
-    const rows = SALES_TARGET_SEED.filter((r) => r.month.startsWith(year));
+    const rows = TEST_TARGETS.filter((r) => r.month.startsWith(year));
     assert.equal(rows.length, 36, year);
     assert.equal(rows.reduce((s, r) => s + r.amount, 0), 650_000, year);
     const sum = (stream: string) => rows.filter((r) => r.stream === stream).reduce((s, r) => s + r.amount, 0);
@@ -26,12 +26,12 @@ test("the seed is the 3-stream table rescaled to $650,000 with December PAX held
     assert.equal(sum("catering"), 127_934);
     assert.equal(sum("concessions"), 79_440);
   }
-  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "catering")?.amount, 5_908);
-  assert.equal(targetFor(SALES_TARGET_SEED, "2026-12-01", "concessions")?.amount, 5_000);
-  assert.ok(SALES_TARGET_SEED.every((r) => r.measure === "net"));
+  assert.equal(targetFor(TEST_TARGETS, "2026-10-01", "catering")?.amount, 5_908);
+  assert.equal(targetFor(TEST_TARGETS, "2026-12-01", "concessions")?.amount, 5_000);
+  assert.ok(TEST_TARGETS.every((r) => r.measure === "net"));
 });
 
-test("every seed month except December PAX is the 2026-10-10 table scaled by 645,000 / 579,575, to the dollar", () => {
+test("every target month except December PAX is the 2026-10-10 table scaled by 645,000 / 579,575, to the dollar", () => {
   // The 3-stream table as ruled on 2026-10-10 (December PAX already $5,000), Jan..Dec.
   // The sums alone cannot see two months swapped; this pins the seasonal shape cell by cell.
   const ruled: Record<"in_store" | "catering" | "concessions", number[]> = {
@@ -43,7 +43,7 @@ test("every seed month except December PAX is the 2026-10-10 table scaled by 645
     for (const [stream, months] of Object.entries(ruled) as ["in_store" | "catering" | "concessions", number[]][]) {
       months.forEach((before, i) => {
         const month = `${year}-${String(i + 1).padStart(2, "0")}-01`;
-        const now = targetFor(SALES_TARGET_SEED, month, stream)?.amount;
+        const now = targetFor(TEST_TARGETS, month, stream)?.amount;
         const scaled = stream === "concessions" && i === 11 ? 5_000 : (before * 645_000) / 579_575;
         assert.ok(now !== undefined && Math.abs(now - scaled) < 1, `${stream} ${month}: ${now} vs ${scaled.toFixed(2)}`);
       });
@@ -52,11 +52,11 @@ test("every seed month except December PAX is the 2026-10-10 table scaled by 645
 });
 
 test("the whole-business target is the sum of the month's streams, provisional when concessions are", () => {
-  const dec = targetFor(SALES_TARGET_SEED, "2026-12-01", "all");
+  const dec = targetFor(TEST_TARGETS, "2026-12-01", "all");
   assert.equal(dec?.amount, 27_525);
   assert.equal(dec?.provisional, true);
-  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "all")?.amount, 38_049);
-  assert.equal(targetFor(SALES_TARGET_SEED, "2026-10-01", "in_store")?.provisional, false);
+  assert.equal(targetFor(TEST_TARGETS, "2026-10-01", "all")?.amount, 38_049);
+  assert.equal(targetFor(TEST_TARGETS, "2026-10-01", "in_store")?.provisional, false);
   assert.equal(targetFor([], "2026-10-01", "all"), null);
 });
 
@@ -71,24 +71,21 @@ test("a month's target from table rows: a stream's own row, unflagged means firm
   assert.equal(targetFor(rows, "2026-10-01", "all")?.provisional, false);
 });
 
-test("the seed matches migration 39's INSERT, so the bundled fallback and the table agree", async (t) => {
+test("the test targets match migration 39's INSERT, so the target tests use the table's rows", async () => {
   const { readFile } = await import("node:fs/promises");
   const { fileURLToPath } = await import("node:url");
-  const path = fileURLToPath(new URL("../../supabase/migration_39.sql", import.meta.url));
-  const sql = await readFile(path, "utf8").catch(() => null);
-  // Reported as skipped, not passed: with no migration file nothing was checked.
-  if (sql === null) return t.skip("supabase/migration_39.sql is not in this tree; the migration ships in its own pull request");
+  const sql = await readFile(fileURLToPath(new URL("../../supabase/migration_39.sql", import.meta.url)), "utf8");
   const rows = [...sql.matchAll(/\('(in_store|catering|concessions)',\s*(\d{1,2}),\s*(\d+\.\d{2})\)/g)];
   assert.equal(rows.length, 36);
   for (const [, stream, month, amount] of rows) {
-    const t = targetFor(SALES_TARGET_SEED, `2026-${month.padStart(2, "0")}-01`, stream as "catering");
+    const t = targetFor(TEST_TARGETS, `2026-${month.padStart(2, "0")}-01`, stream as "catering");
     assert.equal(t?.amount, Number(amount), `${stream} ${month}`);
   }
 });
 
 test("a stream with no target row has no target", () => {
-  assert.equal(targetFor(SALES_TARGET_SEED, "2028-12-01", "concessions"), null);
-  assert.equal(targetFor(SALES_TARGET_SEED, "2028-12-01", "all"), null);
+  assert.equal(targetFor(TEST_TARGETS, "2028-12-01", "concessions"), null);
+  assert.equal(targetFor(TEST_TARGETS, "2028-12-01", "all"), null);
 });
 
 test("pace = target x day / days in month, the as-of day included", () => {

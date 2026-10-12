@@ -8,7 +8,7 @@
 --   copy (select * from public.metric_views) to stdout with csv header;
 --   copy (select * from public.sales_targets) to stdout with csv header;
 -- The page keeps working without these tables: views fall back to the
--- browser and targets to the bundled seed.
+-- browser, and the sales widget shows no targets and says so.
 -- ============================================================================
 
 begin;
