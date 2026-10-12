@@ -93,6 +93,8 @@ documentation_map:
     docs: [time-app/SETUP-GUIDE.md]
   - paths: ["time-app/app/metrics/**", "time-app/app/api/metrics/**", "time-app/components/metrics/**", "time-app/lib/metrics/**"]
     docs: [README.md]
+  - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
+    docs: [README.md]
 
 exclusions:
   - path: docs/unsubscribe.md
