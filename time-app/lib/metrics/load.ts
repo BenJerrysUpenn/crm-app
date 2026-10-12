@@ -181,16 +181,18 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
       ),
     ),
     (async (): Promise<MetricsInputs["targets"]> => {
+      // The one fallback: the bundled table, with the reason as a problem line
+      // unless there is nothing to report (the table not created yet).
+      const seed = (reason: string | null): MetricsInputs["targets"] => {
+        if (reason !== null) problems.push(`sales targets: ${reason}; showing the bundled target table`);
+        return { rows: SALES_TARGET_SEED, source: "seed" };
+      };
       try {
         const { data, error } = await supabase.from("sales_targets").select("month, stream, amount, basis, provisional, measure");
-        if (error) {
-          if (!isMissingTable(error)) problems.push(`sales targets: ${error.message}; showing the bundled target table`);
-          return { rows: SALES_TARGET_SEED, source: "seed" };
-        }
+        if (error) return seed(isMissingTable(error) ? null : error.message);
         return { rows: ((data ?? []) as SalesTargetRow[]).map((r) => ({ ...r, amount: Number(r.amount) })), source: "table" };
       } catch (e) {
-        problems.push(`sales targets: ${(e as Error)?.message ?? String(e)}; showing the bundled target table`);
-        return { rows: SALES_TARGET_SEED, source: "seed" };
+        return seed((e as Error)?.message ?? String(e));
       }
     })(),
     loadFeed(supabase, addDays(today, -95), addMonths(today, -13)),
