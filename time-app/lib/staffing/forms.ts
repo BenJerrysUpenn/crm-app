@@ -105,13 +105,3 @@ export function parseOffboarding(
 }
 
 export { uuid as parseUuid };
-
-// Today's date in America/New_York as YYYY-MM-DD, for "is the last day past?".
-export function todayET(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}

@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { siteOrigin } from "@/lib/authLinks";
-import { parseInvite, parseOffboarding, parseUuid, todayET } from "@/lib/staffing/forms";
+import { parseInvite, parseOffboarding, parseUuid } from "@/lib/staffing/forms";
 import { createLifecycle, loadLifecycle, runAutoSteps } from "@/lib/staffing/execute";
+import { todayInNewYork } from "@/lib/timeOff";
 import type { LifecycleKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
     });
     // Access removal waits until the last day has arrived, unless the
     // manager says run now (a no-show, someone let go on the spot).
-    runNow = body.run_now === true || p.form.last_day <= todayET();
+    runNow = body.run_now === true || p.form.last_day <= todayInNewYork(new Date());
   } else {
     return NextResponse.json({ error: "Unknown form kind" }, { status: 400 });
   }
