@@ -1,4 +1,4 @@
-// PROTOTYPE — Email campaigns tab (v4, v5): the in-CRM sequence editor's data.
+// Email campaigns tab: the in-CRM sequence editor's data.
 //
 // One sequence per tier × category ("cold:everyone", "warm:corporate", ...).
 // A step is one email and one dot on the tile. Seeds exist only for the Cold
@@ -11,7 +11,7 @@
 // this email", so nobody is sent the same email twice, whatever tier they are
 // in now.
 //
-// Prototype persistence is localStorage (see useSequences in the component):
+// Persistence is localStorage (see useSequences in the component):
 // nothing here is written to the database, Apollo or warm_sender.
 
 import type { TierKey } from "./model";
@@ -77,7 +77,7 @@ export const MERGE_TAGS: { tag: string; sample: string; link?: boolean; help: st
     tag: "offers_link",
     sample: "Yes, send me offers",
     link: true,
-    help: "Opt in to the monthly seasonal menu with offers (proposed, not live).",
+    help: "Opt in to the monthly seasonal menu with offers.",
   },
   { tag: "sender_name", sample: "Alina Withers", help: "The name on the sending mailbox." },
 ];
@@ -120,13 +120,13 @@ export const LANES: Record<TierKey, Lane> = {
     via: "warm_sender",
     replyTo: "catering@benjerryphilly.com",
     signatureNote: "part of the warm_sender template",
-    footerNote: "part of the warm_sender template; Unsubscribe link once one-click is configured (#440)",
+    footerNote: "part of the warm_sender template",
     proposedTags: [],
     apolloUrl: null,
     sample: SAMPLE,
   },
   offer: {
-    sendsFrom: "TBD (mass email / Kit)",
+    sendsFrom: "No offer lane yet",
     via: "no lane yet",
     replyTo: null,
     signatureNote: "no lane yet",

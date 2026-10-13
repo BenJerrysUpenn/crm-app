@@ -7,10 +7,10 @@ import { compute, type RawData } from "@/lib/emailCampaignsPrototype/model";
 
 export const dynamic = "force-dynamic";
 
-// /email-campaigns — PROTOTYPE (branch prototype/email-campaigns, never main).
-// One layout (v2; the v1 ?variant=B ledger was dropped). Read-only: the page
-// reads as the signed-in manager (RLS `(select is_manager())`) and computes
-// every tier/category/bucket in lib/emailCampaignsPrototype/model.ts.
+// /email-campaigns: the outreach tiers (Cold, Warm, Offer), their categories,
+// sequences and sending capacity. Read-only: the page reads as the signed-in
+// manager (RLS `(select is_manager())`) and computes every tier/category/
+// bucket in lib/emailCampaignsPrototype/model.ts.
 export default async function EmailCampaignsPage() {
   const supabase = createClient();
   const {
@@ -34,10 +34,6 @@ export default async function EmailCampaignsPage() {
   }
   const payload = compute(raw, new Date());
 
-  // v5: "Sourced by" on the + Add contacts form (prototype, nothing saved).
-  const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
-  const sourcedBy = (profile as { full_name: string | null } | null)?.full_name || user.email || "you";
-
   return (
     <div className="min-h-screen flex flex-col">
       <TopBar email={user.email ?? ""} />
@@ -47,7 +43,7 @@ export default async function EmailCampaignsPage() {
             Could not load outreach data: {error}
           </div>
         ) : null}
-        <EmailCampaignsPrototype payload={payload} sourcedBy={sourcedBy} />
+        <EmailCampaignsPrototype payload={payload} />
       </main>
     </div>
   );

@@ -5,10 +5,11 @@ import { UNSUBSCRIBED_HTML, UNSUBSCRIBE_CONFIRM_HTML } from "@/lib/outreach/unsu
 
 export const dynamic = "force-dynamic";
 
-// /email-campaigns/preview/unsubscribe — PROTOTYPE (v6). The warm lane's REAL
-// opt-out page: the same markup /api/unsubscribe/[token] serves (shared from
-// lib/outreach/unsubscribePage.ts), shown with a fake token. No token is
-// verified, no endpoint is called and nothing is written.
+// /email-campaigns/preview/unsubscribe: staff-only preview of the warm lane's
+// real opt-out page, the same markup /api/unsubscribe/[token] serves (shared
+// from lib/outreach/unsubscribePage.ts). No token is verified, no endpoint is
+// called and nothing is written. Emails link to /api/unsubscribe/<token>,
+// never here.
 export default async function UnsubscribePreviewPage() {
   const supabase = createClient();
   const {
@@ -23,8 +24,8 @@ export default async function UnsubscribePreviewPage() {
         <>
           <p>
             This is the real page the warm lane&apos;s Unsubscribe link opens, served by{" "}
-            <code className="font-mono">/api/unsubscribe/&lt;token&gt;</code> (live since 09-26). Here it is shown with
-            a fake token (<code className="font-mono">preview-token</code>): nothing is verified, posted or written.
+            <code className="font-mono">/api/unsubscribe/&lt;token&gt;</code> (live since 09-26). Here it is shown without a
+            real token: nothing is verified, posted or written.
           </p>
           <p>
             A mail app&apos;s own one-click &ldquo;Unsubscribe&rdquo; button (RFC 8058) posts straight to the same

@@ -4,6 +4,7 @@ import { getSettings } from "@/lib/settings";
 import { fmtTime } from "@/lib/format";
 import { displayName, UNNAMED_IN_ALERTS } from "@/lib/profileName";
 import { clockoutReminderDue, shiftEndForEntry } from "@/lib/clockoutReminder";
+import { sendShiftDigests } from "@/lib/shiftNotice";
 import type { TimeEntry } from "@/lib/types";
 import { NextResponse } from "next/server";
 
@@ -230,6 +231,15 @@ export async function GET(request: Request) {
     clockoutReminded.push(entry.id);
   }
 
+  // ---- The 8pm shift summary (lib/shiftNotice.ts) ----
+  // From 20:00 New York time, each person with shifts saved since their last
+  // summary gets one email and text listing them. Once per person per day,
+  // however many ticks land after 8pm; before 8pm this does nothing.
+  const digests = await sendShiftDigests(now).catch((e: unknown) => ({
+    told: [] as string[],
+    error: e instanceof Error ? e.message : String(e),
+  }));
+
   // Housekeeping: delete notifications older than 30 days so the bell stays tidy.
   await supabase
     .from("notifications")
@@ -243,5 +253,7 @@ export async function GET(request: Request) {
     flaggedManager: flaggedMgr,
     reminded,
     clockoutReminded,
+    shiftDigests: digests.told,
+    ...(digests.error ? { shiftDigestError: digests.error } : {}),
   });
 }

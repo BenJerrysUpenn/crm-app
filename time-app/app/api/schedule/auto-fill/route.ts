@@ -25,8 +25,8 @@ function overlaps(a: { starts_at: string; ends_at: string }, b: { starts_at: str
 
 // POST { weekStart: "YYYY-MM-DD" } — assign available employees to open shifts.
 // Shifts are live as soon as they are written (there are no drafts), so each
-// person assigned here gets the same "New shift posted" message assigning the
-// shift by hand sends (and that publishing the week used to send).
+// person assigned here is told as assigning the shift by hand tells them
+// (lib/shiftNotice.ts: on the bell now, in the 8pm summary by email and text).
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile || profile.role !== "manager")
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
   }
 
   let assigned = 0;
-  const picked: { employee_id: string; starts_at: string; ends_at: string; position: string | null }[] = [];
+  const picked: { id: number; employee_id: string; starts_at: string; ends_at: string; position: string | null }[] = [];
   for (const shift of openShifts) {
     const dur = minutes(shift);
 
@@ -121,17 +121,12 @@ export async function POST(request: Request) {
 
     assignedMin.set(pick, (assignedMin.get(pick) ?? 0) + dur);
     busy.get(pick)!.push(shift);
-    picked.push({ employee_id: pick, starts_at: shift.starts_at, ends_at: shift.ends_at, position: shift.position ?? null });
+    picked.push({ id: shift.id, employee_id: pick, starts_at: shift.starts_at, ends_at: shift.ends_at, position: shift.position ?? null });
     assigned++;
   }
 
-  if (picked.length) {
-    const ids = Array.from(new Set(picked.map((p) => p.employee_id)));
-    const { data: people } = await supabase.from("profiles").select("id, phone").in("id", ids);
-    const phoneById = new Map(((people ?? []) as { id: string; phone: string | null }[]).map((p) => [p.id, p.phone]));
-    for (const p of picked) {
-      await tellEmployeeAboutShift("posted", p, phoneById.get(p.employee_id) ?? null);
-    }
+  for (const p of picked) {
+    await tellEmployeeAboutShift("posted", p);
   }
 
   return NextResponse.json({ ok: true, assigned, left: openShifts.length - assigned });
