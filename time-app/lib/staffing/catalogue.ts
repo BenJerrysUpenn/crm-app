@@ -17,7 +17,7 @@
 //
 // Nothing in this file touches the database. lib/staffing/execute.ts runs
 // the auto steps and applies the side effects of marking a step done.
-import type { LifecycleStep, Role, StepDetail, StepMode, WorkerSystem } from "@/lib/types";
+import type { LifecycleStep, Role, WorkerSystem } from "@/lib/types";
 
 export const SQUARE_TEAM_URL = "https://app.squareup.com/dashboard/team";
 export const SLACK_ADMIN_URL = "https://benandjerrys4-nsh6689.slack.com/admin";
@@ -68,11 +68,9 @@ export function stepFinished(s: Pick<LifecycleStep, "status">): boolean {
   return s.status === "done" || s.status === "skipped";
 }
 
-export type StepSpec = {
-  key: string;
-  mode: StepMode;
-  label: string;
-  detail: StepDetail;
+// The part of a step row (LifecycleStep) the catalogue decides; execute.ts
+// writes it as the row, with seq from the step's position.
+export type StepSpec = Pick<LifecycleStep, "key" | "mode" | "label" | "detail"> & {
   system?: WorkerSystem;
   action?: string;
   payload?: Record<string, unknown>;
