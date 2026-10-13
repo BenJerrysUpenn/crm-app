@@ -32,9 +32,6 @@ function date(b: Body, k: string): string | null {
   const s = str(b, k);
   return DATE_RE.test(s) ? s : null;
 }
-function email(b: Body, k: string): string | null {
-  return validEmail(str(b, k));
-}
 function uuid(b: Body, k: string): string | null {
   const s = str(b, k);
   return /^[0-9a-f-]{36}$/i.test(s) ? s : null;
@@ -55,7 +52,7 @@ export function parseInvite(
 ): Parsed<InviteForm> {
   const legal_name = validName(str(b, "legal_name"));
   if (!legal_name) return { ok: false, error: "Full name required (not an email)." };
-  const em = email(b, "email") ?? (existing?.email ? existing.email.toLowerCase() : null);
+  const em = validEmail(str(b, "email")) ?? (existing?.email ? existing.email.toLowerCase() : null);
   if (!em) return { ok: false, error: "Valid email required." };
   const start_date = date(b, "start_date");
   const role = normaliseRole(str(b, "role"));
