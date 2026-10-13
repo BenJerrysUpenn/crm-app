@@ -27,7 +27,9 @@
 // service role is not held to RLS. travel_reimbursements and lyft_ride_reports
 // (migration 37) are read as their policies say: your own, or all for a
 // manager. shift_notices and shift_digests (migration 38) are the service
-// role's alone. Every other table is readable by any signed-in caller.
+// role's alone. metric_views and metric_preferences (migration 39) are a
+// manager's own rows only, and two live views of one person cannot share a
+// name (23505). Every other table is readable by any signed-in caller.
 //
 // Storage (migration 37's travel-reimbursements bucket) is faked too: signed
 // upload URLs, signed read URLs and downloads, under the bucket's policies
@@ -144,7 +146,8 @@ function registerResolveHooks() {
       if (specifier === "next/headers") {
         return { url: pathToFileURL(join(TIME, "lib", "testing", "nextHeaders.ts")).href, shortCircuit: true };
       }
-      if (specifier === "next/server") return next("next/server.js", context);
+      // next/* entry points are CommonJS files without an exports map: name the .js.
+      if (/^next\/[a-z-]+$/.test(specifier)) return next(`${specifier}.js`, context);
       const parent = context.parentURL?.startsWith("file:") ? fileURLToPath(context.parentURL) : null;
       if (parent && parent.startsWith(TIME) && !parent.includes("node_modules")) {
         const base = specifier.startsWith("@/")
@@ -208,9 +211,14 @@ const OWN_ROWS: Record<string, string> = {
 // Migration 38: no API role but the service role touches these.
 const SERVICE_ONLY = ["shift_notices", "shift_digests"];
 
+// Migration 39: a manager's own rows, and only a manager's.
+const MANAGER_OWN_ROWS: Record<string, string> = { metric_views: "owner_id", metric_preferences: "owner_id" };
+
 function canRead(table: string, caller: Caller, row: Row): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
+  const managerOwner = MANAGER_OWN_ROWS[table];
+  if (managerOwner) return row[managerOwner] === caller.id && isManager(caller);
   const owner = OWN_ROWS[table];
   if (owner) return row[owner] === caller.id || isManager(caller);
   return true;
@@ -220,8 +228,18 @@ function canWrite(table: string, caller: Caller): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
   if (table === "time_entries") return isManager(caller);
+  if (table in MANAGER_OWN_ROWS) return isManager(caller);
   return true;
 }
+
+// Migration 39's unique index: one live view per name per person.
+function duplicateViewName(all: Row[], row: Row): boolean {
+  const key = (r: Row) => String(r.name ?? "").trim().toLowerCase();
+  return all.some((r) => r !== row && r.id !== row.id && r.owner_id === row.owner_id && r.archived_at == null && row.archived_at == null && key(r) === key(row));
+}
+
+const UNIQUE_VIOLATION = () =>
+  json(409, { code: "23505", details: null, hint: null, message: 'duplicate key value violates unique constraint "metric_views_owner_name_live"' });
 
 function compare(a: unknown, b: string): number {
   const x = String(a);
@@ -304,6 +322,8 @@ const DEFAULTS: Record<string, () => Row> = {
   }),
   travel_reimbursement_adjustments: () => ({ adjusted_at: DB_NOW }),
   lyft_ride_reports: () => ({ filed_at: DB_NOW, emailed_at: null, deal_id: null, event_label: null, event_date: null, reason_note: null }),
+  // Migration 39: a saved view is live until archived.
+  metric_views: () => ({ position: 0, widgets: [], archived_at: null, created_at: DB_NOW, updated_at: DB_NOW }),
   time_entries: () => ({ clock_in_at: DB_NOW, clock_out_at: null, status: "open", manual: false }),
   // Migration 36's column defaults: a new pay table row is a queued request.
   // Migration 23's: a staffing record starts open, each of its steps pending.
@@ -527,6 +547,18 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
       });
     }
     const input = JSON.parse(body ?? "null") as Row | Row[];
+    const owner = MANAGER_OWN_ROWS[table];
+    if (owner && caller.kind === "user" && (Array.isArray(input) ? input : [input]).some((r) => r[owner] !== caller.id)) {
+      return json(403, { code: "42501", details: null, hint: null, message: `new row violates row-level security policy for table "${table}"` });
+    }
+    if (table === "metric_views") {
+      const batch: Row[] = [];
+      for (const r of Array.isArray(input) ? input : [input]) {
+        const candidate = { archived_at: null, ...r, id: -1 - batch.length };
+        if (duplicateViewName([...all, ...batch], candidate)) return UNIQUE_VIOLATION();
+        batch.push(candidate);
+      }
+    }
     // upsert(..., { onConflict }): a row matching on the conflict columns is
     // merged into, as Prefer: resolution=merge-duplicates does.
     const conflict = headers.get("prefer")?.includes("resolution=merge-duplicates")
@@ -546,6 +578,7 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     // RLS on UPDATE hides the rows the caller may not write; it does not error.
     const patch = JSON.parse(body ?? "{}") as Row;
     const hit = all.filter((r) => canWrite(table, caller) && canRead(table, caller, r) && matches(r, url.searchParams));
+    if (table === "metric_views" && hit.some((r) => duplicateViewName(all, { ...r, ...patch }))) return UNIQUE_VIOLATION();
     for (const r of hit) Object.assign(r, patch);
     return represent(hit, headers, 200);
   }
