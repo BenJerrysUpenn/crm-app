@@ -612,9 +612,9 @@ function EmployeeRow({
     setArchiveErr(await onSave(e.id, archivePatch(archive)));
   }
 
-  // Resend a sign-in link to someone who already has an account (main's
-  // lightweight link resend via /api/profiles/:id/invite). The staffing
-  // Re-invite below also re-sends the link and can re-invite to other systems.
+  // Resend a sign-in link to someone who already has an account, through
+  // /api/profiles/:id/invite. The staffing Re-invite below also re-sends the
+  // link and can re-invite to other systems.
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMsg, setInviteMsg] = useState<string | null>(null);
   async function resend() {
@@ -625,7 +625,7 @@ function EmployeeRow({
     setInviteMsg(msg);
   }
 
-  // Staffing panels (onboarding sibling): Re-invite and Offboard.
+  // Staffing panels: Re-invite and Offboard.
   const [panel, setPanel] = useState<"reinvite" | "offboard" | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
