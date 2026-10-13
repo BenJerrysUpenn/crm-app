@@ -455,6 +455,58 @@ test("a fob tapped later is linked when its id is typed into the step", async ()
   assert.equal(done.json.record!.status, "done");
 });
 
+test("a fob typed into the step that is already on someone else is refused and the step stays open", async () => {
+  const rec = await addRobin(["fob"]);
+  const taken = await tick(rec.id, "fob_assign", { fob_card_id: "CARD-1" });
+  assert.equal(taken.status, 400);
+  assert.equal(taken.json.error, "Card CARD-1 is already assigned to someone else");
+  assert.deepEqual(
+    db.rows("staff_cards").map((c) => [c.card_id, c.employee_id]),
+    [["CARD-1", SAM]],
+  );
+  const still = (await runRecord(rec.id)).json.record!;
+  assert.equal(step(still, "fob_assign").status, "pending");
+  assert.equal(still.status, "open");
+});
+
+test("ticking the fob step again with the person's own fob keeps one card and says so", async () => {
+  const rec = await addRobin(["fob"]);
+  await tick(rec.id, "fob_assign", { fob_card_id: "CARD-7" });
+  await tick(rec.id, "fob_assign", { reopen: true });
+  const again = await tick(rec.id, "fob_assign", { fob_card_id: "CARD-7" });
+  assert.equal(again.status, 200);
+  assert.equal(step(again.json.record!, "fob_assign").result, "Card CARD-7 was already assigned to this person");
+  assert.equal(db.rows("staff_cards").filter((c) => c.card_id === "CARD-7").length, 1);
+});
+
+test("a step key the record does not have is refused", async () => {
+  const rec = await addRobin([]);
+  const res = await tick(rec.id, "final_pay");
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "No such step");
+});
+
+test("cancelling a record that does not exist is 404, and a non-numeric id is 400", async () => {
+  const missing = await setStatus(999, "cancelled");
+  assert.equal(missing.status, 404);
+  assert.equal(missing.json.error, "No such record");
+  const res = await record.PATCH(
+    new Request("http://time.test/api/staffing/abc", { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }),
+    { params: { id: "abc" } },
+  );
+  assert.equal(res.status, 400);
+  assert.equal(((await res.json()) as { error: string }).error, "Bad id");
+});
+
+test("a staffing form that is not JSON is refused before anything is written", async () => {
+  const res = await create.POST(new Request("http://time.test/api/staffing", { method: "POST", body: "{not json" }), {
+    params: {},
+  });
+  assert.equal(res.status, 400);
+  assert.equal(((await res.json()) as { error: string }).error, "Bad JSON");
+  assert.deepEqual(db.rows("staff_lifecycle"), []);
+});
+
 test("an automatic step cannot be ticked or reopened by hand; an unknown record is 404", async () => {
   const rec = await addRobin([]);
   const ticked = await tick(rec.id, "withers_time_invite");
