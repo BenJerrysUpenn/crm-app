@@ -96,7 +96,7 @@ documentation_map:
   - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
     docs: [README.md]
   - paths: ["time-app/lib/staffing/**", "time-app/lib/team.ts", "time-app/app/api/staffing/**", "time-app/app/api/profiles/route.ts", "time-app/components/TeamAdmin.tsx", "time-app/components/StaffingRecords.tsx", "time-app/supabase/migration_23.sql"]
-    docs: [time-app/docs/staffing.md, time-app/SETUP-GUIDE.md]
+    docs: [time-app/docs/staffing.md]
 
 exclusions:
   - path: docs/unsubscribe.md
