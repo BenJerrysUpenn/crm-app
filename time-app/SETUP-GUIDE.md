@@ -169,6 +169,8 @@ A few things you do once, from the app itself, as a manager.
 2. Fill in their email (required), name, phone (needed for text alerts), role (leave as employee unless they're a manager) and pay rate, then click **Send invite**.
 3. They get an email with a link. Opening it signs them in and asks them to choose a password; after that they land in the app and appear in the Team list, where you can adjust anything. Changes save as you type.
 4. Links work once and expire after about an hour. If someone's link expired, click **Resend invite** on their row.
+
+The Add employee form also has **Also set up on** checkboxes (Square, Slack, QuickBooks, Google Group, fob), and each row has **Re-invite** and **Offboard**. Each creates a checklist under the team table. They need `supabase/migration_23.sql` applied first; `docs/staffing.md` has the steps and the by-hand fallbacks.
 5. Anyone who forgets their password can use the **Forgot password?** link on the sign-in page.
 
 Manual fallback: Supabase **Authentication → Users → Add user → Create new user** with a password (tick **Auto Confirm User**) still works if you'd rather set the password yourself.
