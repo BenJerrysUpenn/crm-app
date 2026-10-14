@@ -28,6 +28,7 @@ const clock = await loadAppModule<{ POST: Handler }>("app/api/clock/route.ts");
 const profile = await loadAppModule<{ PATCH: Handler }>("app/api/profiles/[id]/route.ts");
 const invite = await loadAppModule<{ POST: Handler }>("app/api/profiles/route.ts");
 const reinvite = await loadAppModule<{ POST: Handler }>("app/api/profiles/[id]/invite/route.ts");
+const submitReimbursement = await loadAppModule<{ POST: Handler }>("app/api/reimbursements/route.ts");
 const { notifyManagers } = await loadAppModule<{
   notifyManagers: (args: { type: string; title: string; body?: string }) => Promise<void>;
 }>("lib/notify.ts");
@@ -166,6 +167,27 @@ test("a manager alert reaches the owners as well as the manager, and no employee
 
   const reached = db.rows("notifications").map((n) => n.user_id).sort();
   assert.deepEqual(reached, [OWNER, OTHER_OWNER, MANAGER].sort());
+});
+
+test("a manager's Travel Reimbursement reaches both owners to decide, and not the manager", async () => {
+  db.tables.mileage_rates = [{ starts_on: "2025-01-01", cents_per_mile: 70 }];
+  db.signIn(MANAGER);
+
+  const res = await submitReimbursement.POST(
+    send("POST", {
+      reason: { kind: "errands", note: "Restaurant Depot, cones" },
+      trip_date: new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10),
+      mileage: { mode: "typed", miles: "10" },
+    }),
+    noParams,
+  );
+
+  assert.equal(res.status, 200);
+  const reached = db.rows("notifications").map((n) => [n.user_id, n.type]);
+  assert.deepEqual(reached.sort(), [
+    [OWNER, "reimbursement_submitted"],
+    [OTHER_OWNER, "reimbursement_submitted"],
+  ].sort());
 });
 
 // ---- PATCH /api/profiles/:id ------------------------------------------------
