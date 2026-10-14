@@ -16,7 +16,7 @@ export const NO_NAME_LABEL = "No name set";
 
 // Who an unnamed person is inside a manager alert sentence ("An employee
 // wants to drop ..."), where "No name set" reads badly.
-export const UNNAMED_IN_ALERTS = "An employee";
+const UNNAMED_IN_ALERTS = "An employee";
 
 const NAME_MAX = 100;
 
@@ -34,13 +34,15 @@ export function usableName(fullName: string | null | undefined): string | null {
 }
 
 // What to render for a profile's name. Falls back to a neutral label, never to
-// the email. Pass a context-specific fallback where "No name set" reads badly
-// (e.g. UNNAMED_IN_ALERTS inside a notification sentence).
-export function displayName(
-  fullName: string | null | undefined,
-  fallback: string = NO_NAME_LABEL,
-): string {
-  return usableName(fullName) ?? fallback;
+// the email.
+export function displayName(fullName: string | null | undefined): string {
+  return usableName(fullName) ?? NO_NAME_LABEL;
+}
+
+// The subject of a manager alert sentence ("<who> wants to drop ..."): the
+// usable name, else "An employee". Never the email.
+export function alertName(fullName: string | null | undefined): string {
+  return usableName(fullName) ?? UNNAMED_IN_ALERTS;
 }
 
 // Like displayName, but unnamed people stay distinguishable from each other in

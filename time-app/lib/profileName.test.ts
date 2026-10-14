@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  alertName,
   displayName,
   displayNameOrId,
   firstName,
@@ -32,10 +33,10 @@ test("a missing or blank name shows the neutral label", () => {
   }
 });
 
-test("a caller's fallback replaces the neutral label, but never a real name", () => {
-  assert.equal(displayName(null, "An employee"), "An employee");
-  assert.equal(displayName("staff2@example.com", "An employee"), "An employee");
-  assert.equal(displayName("Sam Lee", "An employee"), "Sam Lee");
+test("in a manager alert an unnamed person is 'An employee', but a real name is kept", () => {
+  assert.equal(alertName(null), "An employee");
+  assert.equal(alertName("staff2@example.com"), "An employee");
+  assert.equal(alertName(" Sam Lee "), "Sam Lee");
 });
 
 test("unnamed people in a list stay distinguishable by the first 8 chars of their id", () => {
