@@ -14,13 +14,11 @@
 // `active` plays no part in any of this. It means "on the staff roster"; the
 // owners are off the roster and still sign in (audit H2).
 
-import type { Role } from "./types.ts";
-
-const ROLES: readonly Role[] = ["owner", "manager", "employee"];
+import { ROLES, type Role } from "./types.ts";
 
 /** Is `value` one of the roles a profile can hold? */
 export function isRole(value: unknown): value is Role {
-  return (ROLES as unknown[]).includes(value);
+  return (ROLES as readonly unknown[]).includes(value);
 }
 
 /** The roles that pass a manager gate. For `.in("role", MANAGER_ROLES)`. */
