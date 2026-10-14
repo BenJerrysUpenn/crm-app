@@ -12,9 +12,10 @@
 --      settles; updated_at is the database's clock, whatever the writer sent.
 --   2. A day's basis is 'booked' or 'in_transit', its source 'square' or
 --      'seller', and a seller day is booked. A month starts on the 1st and its
---      source is 'qbo' or 'seller'; one month holds one row per source.
+--      source is 'qbo' or 'seller'; one month holds one row per source. A row
+--      carries its sales figure and who built it, and a day its basis.
 --   3. A manager reads both tables; an employee does not; nobody signed in
---      writes; anon reads nothing.
+--      writes, removes or empties a table; anon reads nothing.
 -- ============================================================================
 
 begin;
@@ -106,6 +107,38 @@ begin
   end;
   if not refused then raise exception 'a day without in_store was accepted'; end if;
   begin
+    insert into public.sales_daily_in_store (day, in_store, source, built_by)
+    values (date '2018-06-16', 1, 'square', 'verify-41');
+    refused := false;
+  exception when not_null_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a day without a basis was accepted'; end if;
+  begin
+    insert into public.sales_daily_in_store (day, in_store, basis, source)
+    values (date '2018-06-16', 1, 'booked', 'square');
+    refused := false;
+  exception when not_null_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a day without built_by was accepted'; end if;
+  begin
+    insert into public.sales_monthly (month, source, built_by)
+    values (date '2018-04-01', 'qbo', 'verify-41');
+    refused := false;
+  exception when not_null_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a month without in_store was accepted'; end if;
+  begin
+    insert into public.sales_monthly (month, source, in_store)
+    values (date '2018-04-01', 'qbo', 1);
+    refused := false;
+  exception when not_null_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a month without built_by was accepted'; end if;
+  begin
     insert into public.sales_monthly (month, source, in_store, built_by)
     values (date '2018-05-15', 'qbo', 1, 'verify-41');
     refused := false;
@@ -160,6 +193,28 @@ begin
     refused := true;
   end;
   if not refused then raise exception 'a manager removed a day through the API'; end if;
+  begin
+    delete from public.sales_monthly where month = date '2018-05-01';
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'a manager removed a month through the API'; end if;
+  -- TRUNCATE skips row level security, so only the missing grant stops it.
+  begin
+    truncate public.sales_daily_in_store;
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'a manager emptied the daily sales'; end if;
+  begin
+    truncate public.sales_monthly;
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'a manager emptied the monthly sales'; end if;
   reset role;
 
   perform set_config('request.jwt.claims', json_build_object('sub', emp, 'role', 'authenticated')::text, true);
