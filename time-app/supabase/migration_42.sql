@@ -1,9 +1,9 @@
 -- ============================================================================
 -- Withers Time, migration 42: the owner role
--- Run once in the Supabase SQL editor, after migration_40.sql. Safe to re-run.
--- Written as migration 31 (PR #44) and renumbered 42 when main had reached 40
--- (41 is held by another open PR and is independent of this file): it must
--- run after migration 37, whose travel-reimbursement guard it widens (step 7).
+-- Run once in the Supabase SQL editor, after migration_37.sql. Safe to re-run.
+-- Written as migration 31 (PR #44) and renumbered 42 when main had reached 41
+-- (migrations 38 to 41 are independent of this file): it must run after
+-- migration 37, whose travel-reimbursement guard it widens (step 7).
 --
 -- VERIFY. supabase/migration_42_verify.sql. ROLLBACK. supabase/migration_42_down.sql.
 --
