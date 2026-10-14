@@ -8,7 +8,14 @@ import { isManagerRole } from "@/lib/roles";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
 
-const links: { href: string; label: string; managerOnly?: boolean }[] = [
+// Account has no tab in the desktop row: from the md breakpoint up, the name at
+// the right of the bar links to /account. Below md the name is hidden and the
+// hamburger menu takes over the nav, keeping an Account entry (mobileOnly). The
+// row, the name and the hamburger must switch at the same breakpoint, or some
+// width is left with no route to /account.
+const ACCOUNT_HREF = "/account";
+
+const links: { href: string; label: string; managerOnly?: boolean; mobileOnly?: boolean }[] = [
   { href: "/", label: "Clock" },
   { href: "/schedule", label: "Schedule" },
   { href: "/availability", label: "Availability" },
@@ -16,7 +23,7 @@ const links: { href: string; label: string; managerOnly?: boolean }[] = [
   { href: "/reimbursements", label: "Reimbursements" },
   { href: "/attendance", label: "Attendance", managerOnly: true },
   { href: "/team", label: "Team", managerOnly: true },
-  { href: "/account", label: "Account" },
+  { href: ACCOUNT_HREF, label: "Account", mobileOnly: true },
 ];
 
 export default function TopBar({
@@ -31,6 +38,8 @@ export default function TopBar({
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const visible = links.filter((l) => !l.managerOnly || isManagerRole(role));
+  // The name is the desktop route to /account, so it must never render blank.
+  const accountLabel = name || email || "Account";
 
   function isActive(href: string) {
     return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -39,10 +48,10 @@ export default function TopBar({
   return (
     <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 backdrop-blur sticky top-0 z-20">
       <div className="mx-auto max-w-5xl px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-4">
-        {/* Hamburger (mobile only) */}
+        {/* Hamburger (below md) */}
         <button
           onClick={() => setOpen((o) => !o)}
-          className="sm:hidden text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 p-1 -ml-1"
+          className="md:hidden text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 p-1 -ml-1"
           aria-label="Menu"
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -57,8 +66,8 @@ export default function TopBar({
         <div className="font-semibold text-slate-900 dark:text-slate-100 shrink-0">Withers Time</div>
 
         {/* Desktop nav */}
-        <nav className="hidden sm:flex items-center gap-1 flex-1 overflow-x-auto">
-          {visible.map((l) => (
+        <nav className="hidden md:flex items-center gap-1 flex-1 overflow-x-auto">
+          {visible.filter((l) => !l.mobileOnly).map((l) => (
             <Link
               key={l.href}
               href={l.href}
@@ -74,13 +83,17 @@ export default function TopBar({
         </nav>
 
         {/* Spacer on mobile to push the right cluster over */}
-        <div className="flex-1 sm:hidden" />
+        <div className="flex-1 md:hidden" />
 
         <ThemeToggle />
         <NotificationBell />
 
-        <Link href="/account" className="hidden md:flex flex-col items-end leading-tight hover:opacity-80">
-          <span className="text-xs text-slate-700 dark:text-slate-300">{name || email}</span>
+        <Link
+          href={ACCOUNT_HREF}
+          title={accountLabel}
+          className="hidden md:flex flex-col items-end min-w-0 max-w-[10rem] leading-tight hover:opacity-80"
+        >
+          <span className="max-w-full truncate text-xs text-slate-700 dark:text-slate-300">{accountLabel}</span>
           <span className="text-[10px] text-slate-500 capitalize">{role} · account</span>
         </Link>
 
@@ -93,7 +106,7 @@ export default function TopBar({
 
       {/* Mobile dropdown menu */}
       {open && (
-        <nav className="sm:hidden border-t border-slate-200 dark:border-slate-800 px-2 py-2 flex flex-col gap-1">
+        <nav className="md:hidden border-t border-slate-200 dark:border-slate-800 px-2 py-2 flex flex-col gap-1">
           {visible.map((l) => (
             <Link
               key={l.href}

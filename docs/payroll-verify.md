@@ -164,7 +164,12 @@ built on the Mac, published to `payroll_sheets` (migration 36) by
 
 - one row per person, columns in QBO's Run Payroll order (Regular hours,
   Overtime hours, Paycheck tips, Solo close, Catering premium, Catering
-  premium OT, Travel reimbursement), then the rate and the wages
+  premium OT, Travel reimbursement). Three info columns sit among them,
+  never keyed into QBO and never in a pay total (2026-10-12): Catering
+  hours (everyone's catering hours, salaried and $20+/h included; the total
+  is the sheet's own `totals.catering_hours`) just before Catering premium,
+  and Marketing hours and Marketing cost (marketing labour booked toward the
+  2% marketing obligation) after Catering premium OT. Then the rate and the wages
   (rate × regular + 1.5 × rate × OT, from the sheet; "salary"; or "no rate");
   a totals row;
 - each row opens onto its punches (date, in, out, paid-to when cut back,
@@ -307,9 +312,9 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_26.sql` | `profiles.qbo_employee_id`, `profiles.pay_type`, `held_tips` — spec 2.5, 3.6 |
 | `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is submitted) and `payroll_run_submittals` (final; `status` is the §6 seam) |
 | `time-app/supabase/migration_28.sql` | extends migration 26's profile guard: an employee cannot change their own `hourly_rate` or `active` either (managers, owners and the service role still can) |
-| `time-app/supabase/migration_31.sql` | the `owner` role: `is_manager()` is now true for owners, so every manager policy here (rulings, submittals, sheets) admits them; `is_owner()` and a profile guard keep the owner role and owners' rows to owners |
 | `time-app/supabase/migration_35.sql` | redefines `payroll_punch_blockers()`: 1.5 measures a punch only against its own shift (explicit or the person's that day), never a 1.10 cover; a person's latest punch is no longer skipped as a NULL runaway |
 | `time-app/supabase/migration_36.sql` | `payroll_sheets` (every pay table build and Rebuild request; service-role writes, manager reads, built rows frozen), `payroll_rulings` audited in `row_audit`, and the submittal guard's pay-table condition |
+| `time-app/supabase/migration_42.sql` | the `owner` role: `is_manager()` is now true for owners, so every manager policy here (rulings, submittals, sheets) admits them, and migration 37's travel-reimbursement guard and payroll views read the owner role; `is_owner()` and a profile guard keep the owner role and owners' rows to owners |
 
 All four are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_2N_verify.sql` to run afterwards (in a

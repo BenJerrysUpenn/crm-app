@@ -1,6 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { crmAccess, isGateExempt } from "@/lib/roles";
+import { isGateExempt, isManagerRole } from "@/lib/roles";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -51,12 +51,14 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Role gate (lib/roles.ts crmAccess). This Supabase project is shared with
-  // the time-clock app, whose employees must NOT be able to reach the CRM.
-  // Managers and owners get in; the personal-finance pages (/money, /dial,
-  // /safe) are for owners only. Everyone else is bounced to /no-access (but
-  // can still log out). RLS enforces the manager rule at the DB level, where
-  // is_manager() is true for owners too. `active` is not consulted: the
+  // Role gate (lib/roles.ts). This Supabase project is shared with the
+  // time-clock app, whose employees must NOT be able to reach the CRM.
+  // Managers and owners get in; everyone else is bounced to /no-access (but
+  // can still log out), on every path alike. The personal-finance pages
+  // (/money, /dial, /safe) are narrower: the page itself answers anyone but
+  // an owner with a 404 (lib/pf/access.ts), because a redirect from here
+  // would admit they exist. RLS enforces the manager rule at the DB level,
+  // where is_manager() is true for owners too. `active` is not consulted: the
   // owners are off the staff roster (audit H2).
   if (
     user &&
@@ -68,7 +70,7 @@ export async function updateSession(request: NextRequest) {
       .select("role")
       .eq("id", user.id)
       .single();
-    if (crmAccess(path, profile?.role) !== "allowed") {
+    if (!isManagerRole(profile?.role)) {
       const url = request.nextUrl.clone();
       url.pathname = "/no-access";
       return NextResponse.redirect(url);

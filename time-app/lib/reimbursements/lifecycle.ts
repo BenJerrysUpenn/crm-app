@@ -14,11 +14,10 @@
 // decided by any Approver.
 //
 // An owner is an off-roster (active = false) holder of the owner role
-// (migration 31) or of the manager role (lib/financeAccess.ts).
+// (migration 42) or of the manager role (lib/financeAccess.ts).
 // isManagerRole() counts both 'owner' and 'manager', so an off-roster person
-// of either is an owner here. Migration 37's guard trigger still reads an
-// owner as role 'manager' and not active, so it does not recognise the owner
-// role.
+// of either is an owner here. Migration 42 has migration 37's guard trigger
+// and payroll views read owners the same way.
 //
 // A Lyft ride report is not in here: it is Filed on upload and has no life.
 //

@@ -1,4 +1,4 @@
-// An owner can do everything a manager can (lib/roles.ts). Migration 31.
+// An owner can do everything a manager can (lib/roles.ts). Migration 42.
 export type Role = "owner" | "manager" | "employee";
 
 export type Profile = {

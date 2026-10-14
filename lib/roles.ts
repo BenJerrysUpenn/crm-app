@@ -1,7 +1,7 @@
-// Who may use the CRM, by profiles.role (time-app migration 31).
+// Who may use the CRM, by profiles.role (time-app migration 42).
 //
 //   owner:    the business owners. Everything a manager can do, plus the
-//             personal-finance pages (/money, /dial, /safe).
+//             personal-finance pages (/money, /dial, /safe; lib/pf/access.ts).
 //   manager:  the CRM board, call desk, deals, email campaigns.
 //   employee: nothing here; they use the time app.
 //
@@ -18,7 +18,7 @@ export function isOwnerRole(role: string | null | undefined): boolean {
 }
 
 // The personal-finance pages. Served on their own host (middleware.ts) and
-// readable by the owners only.
+// readable by the owners only: lib/pf/access.ts answers anyone else with a 404.
 const PF_ROUTES = ["/money", "/dial", "/safe"];
 
 export function isPfPath(pathname: string): boolean {
@@ -28,18 +28,8 @@ export function isPfPath(pathname: string): boolean {
 // Paths a signed-in person the role gate refuses must still reach: the
 // no-access page they are sent to, and sign-out. Listed once here so the
 // PF-host bounce (middleware.ts) and the role gate (lib/supabase/middleware.ts)
-// cannot drift — if they did, a refused manager loops between /safe and
+// cannot drift — if they did, a refused employee loops between /safe and
 // /no-access, and sign-out breaks on the PF host.
 export function isGateExempt(pathname: string): boolean {
   return pathname === "/no-access" || pathname.startsWith("/api/logout");
-}
-
-/**
- * The CRM's role gate for a signed-in person (lib/supabase/middleware.ts):
- * the personal-finance pages need an owner, everything else a manager or an
- * owner.
- */
-export function crmAccess(pathname: string, role: string | null | undefined): "allowed" | "refused" {
-  if (isPfPath(pathname)) return isOwnerRole(role) ? "allowed" : "refused";
-  return isManagerRole(role) ? "allowed" : "refused";
 }

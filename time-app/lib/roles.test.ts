@@ -1,10 +1,10 @@
-// The owner role (migration 31): an owner passes every manager gate, and a
+// The owner role (migration 42): an owner passes every manager gate, and a
 // manager cannot give, take away or touch the owner role.
 //
 //   npm test        (node --test; Node runs TypeScript directly)
 //
 // The database half (is_manager() true for owners, the owner guard on
-// profiles) is supabase/migration_31_verify.sql.
+// profiles) is supabase/migration_42_verify.sql.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -1,7 +1,7 @@
 -- Logins for supabase/local/verify.sh, created BEFORE the migrations run, the
 -- way a real project already had its users when migration.sql first ran (its
 -- backfill makes their profiles). Invented names. The two owner addresses are
--- the ones migration 31 keys on; they are business addresses, not personal.
+-- the ones migration 42 keys on; they are business addresses, not personal.
 insert into auth.users (id, email, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000a1', 'alina@withers-ventures.com', '{"full_name":"Owner One"}'),
   ('00000000-0000-0000-0000-0000000000a2', 'alex@withers-ventures.com',  '{"full_name":"Owner Two"}'),

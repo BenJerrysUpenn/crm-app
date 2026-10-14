@@ -1,4 +1,4 @@
-// The owner role through the routes a phone calls (migration 31).
+// The owner role through the routes a phone calls (migration 42).
 //
 //   * An owner, kept off the roster (active = false), passes the manager
 //     gates: the Timesheets routes and the clock's geofence exemption, and
@@ -11,7 +11,7 @@
 // (testing/fakeSupabase.ts). Supabase Auth's admin API (looking a login up,
 // sending an invite) is the other boundary the profile routes cross; it is
 // stood in for below and records every invite it is asked to send. The
-// database's own guard is supabase/migration_31_verify.sql.
+// database's own guard is supabase/migration_42_verify.sql.
 //
 //   npm test        (node --test; Node runs TypeScript directly)
 

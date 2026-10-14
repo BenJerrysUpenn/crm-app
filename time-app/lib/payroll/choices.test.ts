@@ -41,7 +41,7 @@ test("pay unpunched manager must name a manager", () => {
   assert.equal(validateChoice("1.9", "unpunched_manager", "m", MGR), null);
 });
 
-test("pay unpunched manager accepts an owner on the roster, as it does a manager (migration 31)", () => {
+test("pay unpunched manager accepts an owner on the roster, as it does a manager (migration 42)", () => {
   assert.equal(validateChoice("1.9", "unpunched_manager", "o", { id: "o", role: "owner", active: true }), null);
 });
 

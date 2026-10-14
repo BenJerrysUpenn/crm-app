@@ -1,18 +1,22 @@
-// The owner role in the CRM (time-app migration 31).
+// The owner role in the CRM (time-app migration 42).
 //
-//   * The personal-finance pages (/money, /dial, /safe) are for owners only:
-//     an owner gets in, a manager and an employee do not. Checked at the
-//     middleware gate AND on the page, before the feed is read.
-//   * Everywhere else an owner passes the manager gate.
+//   * The personal-finance pages (/money, /dial, /safe) are for owners only.
+//     An owner gets the feed. Anyone else signed in gets a 404 (the page does
+//     not admit it exists, bj-finance #667 ruling), never /no-access, and the
+//     feed is never read for them. Checked on the page, before the feed.
+//   * Everywhere else an owner passes the manager gate; an employee is sent
+//     to /no-access on every path, these included, as on any CRM path.
+//   * Signed out goes to /login.
+//   * Nothing reads the feed except through lib/pf/access.ts.
 //   * Nothing looks at profiles.active (audit H2).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { NextRequest } from "next/server";
 import React from "react";
 
-import { crmAccess, isManagerRole, isOwnerRole, isPfPath } from "@/lib/roles";
+import { isManagerRole, isOwnerRole, isPfPath } from "@/lib/roles";
 
 // ---- a stand-in Supabase: one signed-in person with a role -----------------
 const who = vi.hoisted(() => ({
@@ -50,15 +54,19 @@ vi.mock("@supabase/ssr", () => ({ createServerClient: () => fakeClient() }));
 // The pages' Supabase client (lib/supabase/server.ts) runs for real; only the
 // request's cookie jar, which Next supplies inside a request, is stood in for.
 vi.mock("next/headers", () => ({ cookies: () => ({ getAll: () => [], set: () => {} }) }));
+// Next implements both as throws; the tests read which one fired.
 vi.mock("next/navigation", () => ({
   redirect: (to: string) => {
     throw new Error(`REDIRECT ${to}`);
+  },
+  notFound: () => {
+    throw new Error("NOT_FOUND");
   },
 }));
 
 const { updateSession } = await import("@/lib/supabase/middleware");
 const { middleware } = await import("@/middleware");
-const { requirePfOwner } = await import("@/lib/pf/access");
+const { loadPfForOwner } = await import("@/lib/pf/access");
 
 function signIn(role: string | null, active = true) {
   who.user = { id: "00000000-0000-0000-0000-000000000001", email: "someone@example.test" };
@@ -94,16 +102,6 @@ describe("the role rules", () => {
   it.each(["/", "/moneyx", "/call-desk", "/safely"])("%s is not", (p) => {
     expect(isPfPath(p)).toBe(false);
   });
-
-  it("crmAccess: PF for owners only, the rest for managers and owners", () => {
-    expect(crmAccess("/money", "owner")).toBe("allowed");
-    expect(crmAccess("/money", "manager")).toBe("refused");
-    expect(crmAccess("/money", "employee")).toBe("refused");
-    expect(crmAccess("/", "owner")).toBe("allowed");
-    expect(crmAccess("/", "manager")).toBe("allowed");
-    expect(crmAccess("/", "employee")).toBe("refused");
-    expect(crmAccess("/", null)).toBe("refused");
-  });
 });
 
 describe("the middleware gate", () => {
@@ -112,12 +110,14 @@ describe("the middleware gate", () => {
     expect(await gate(p)).toBe("through");
   });
 
-  it.each(["/money", "/dial", "/safe"])("sends a manager from %s to /no-access", async (p) => {
+  // Never /no-access for a manager here: that would admit the page exists.
+  // The page answers them 404 (the page-level tests below).
+  it.each(["/money", "/dial", "/safe"])("passes a manager on to %s, for the page to refuse", async (p) => {
     signIn("manager");
-    expect(await gate(p)).toBe("/no-access");
+    expect(await gate(p)).toBe("through");
   });
 
-  it.each(["/money", "/dial", "/safe"])("sends an employee from %s to /no-access", async (p) => {
+  it.each(["/money", "/dial", "/safe"])("sends an employee from %s to /no-access, as from any path", async (p) => {
     signIn("employee");
     expect(await gate(p)).toBe("/no-access");
   });
@@ -148,8 +148,8 @@ describe("the middleware gate", () => {
 });
 
 // The personal-finance host runs the whole middleware (host routing, then
-// the gate above). A manager refused there must land on /no-access and be able
-// to sign out, not bounce to /safe and back again.
+// the gate above). An employee refused there must land on /no-access and be
+// able to sign out, not bounce to /safe and back again.
 describe("the personal-finance host", () => {
   const PF = "personal.withers-ventures.com";
 
@@ -164,18 +164,19 @@ describe("the personal-finance host", () => {
     expect(await visit(p)).toBe("through");
   });
 
-  it.each(["/money", "/dial", "/safe"])("sends a manager from %s to /no-access", async (p) => {
+  it.each(["/money", "/dial", "/safe"])("passes a manager on to %s, for the page to refuse", async (p) => {
     signIn("manager");
-    expect(await visit(p)).toBe("/no-access");
+    expect(await visit(p)).toBe("through");
   });
 
-  it("shows a refused manager the /no-access page", async () => {
-    signIn("manager");
+  it("sends an employee to /no-access and shows them that page", async () => {
+    signIn("employee");
+    expect(await visit("/safe")).toBe("/no-access");
     expect(await visit("/no-access")).toBe("through");
   });
 
-  it("lets a refused manager sign out", async () => {
-    signIn("manager");
+  it("lets a refused employee sign out", async () => {
+    signIn("employee");
     expect(await visit("/api/logout", "POST")).toBe("through");
   });
 
@@ -189,21 +190,7 @@ describe("the personal-finance host", () => {
   });
 });
 
-describe("the page-level check (requirePfOwner)", () => {
-  it("returns the owner's email", async () => {
-    signIn("owner", false);
-    await expect(requirePfOwner()).resolves.toEqual({ email: "someone@example.test" });
-  });
-
-  it.each(["manager", "employee", null])("refuses role %s", async (role) => {
-    signIn(role);
-    await expect(requirePfOwner()).rejects.toThrow("REDIRECT /no-access");
-  });
-
-  it("sends nobody-signed-in to /login", async () => {
-    await expect(requirePfOwner()).rejects.toThrow("REDIRECT /login");
-  });
-
+describe("the page-level check (loadPfForOwner)", () => {
   // The pages themselves, run as Next runs a server component. The feed is
   // fetched from GitHub (lib/pf/data.ts), the system boundary, stubbed here
   // so the test can see whether a refused visitor's request ever reached it.
@@ -232,12 +219,34 @@ describe("the page-level check (requirePfOwner)", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(Object.keys(pages))("/%s refuses a manager before the feed is fetched", async (p) => {
+  it("gives an owner the feed and their email", async () => {
+    const asked = stubFeed();
+    signIn("owner", false);
+    const { email, feed } = await loadPfForOwner();
+    expect(email).toBe("someone@example.test");
+    expect(feed).toEqual({ ok: false, reason: "missing" });
+    expect(asked).toHaveLength(1);
+  });
+
+  it.each(["manager", "employee", null])("is a 404 for role %s, and fetches nothing", async (role) => {
+    const asked = stubFeed();
+    signIn(role);
+    await expect(loadPfForOwner()).rejects.toThrow("NOT_FOUND");
+    expect(asked).toEqual([]);
+  });
+
+  it("sends nobody-signed-in to /login, and fetches nothing", async () => {
+    const asked = stubFeed();
+    await expect(loadPfForOwner()).rejects.toThrow("REDIRECT /login");
+    expect(asked).toEqual([]);
+  });
+
+  it.each(Object.keys(pages))("/%s is a 404 for a manager, before the feed is fetched", async (p) => {
     const asked = stubFeed();
     signIn("manager");
     const { default: Page } = await pages[p as keyof typeof pages]();
 
-    await expect(Page()).rejects.toThrow("REDIRECT /no-access");
+    await expect(Page()).rejects.toThrow("NOT_FOUND");
     expect(asked).toEqual([]);
   });
 
@@ -252,26 +261,26 @@ describe("the page-level check (requirePfOwner)", () => {
   });
 
   it("nothing else reads the feed", () => {
-    // The three pages above are the only importers of loadPfData.
-    // Declared exception to CODING_STANDARDS.md:20 (a test may not infer
-    // behaviour from source text): this is an import rule in test form. "Only
-    // the three owner-gated pages reach the personal-finance feed" has no
-    // behavioural form, and the CRM ships no ESLint config where a
-    // no-restricted-imports rule for @/lib/pf/data could live, so the
-    // restriction is enforced here until one does.
+    // Only lib/pf/access.ts imports the feed loader (lib/pf/data.ts); every
+    // page and route goes through loadPfForOwner(). Declared exception to
+    // CODING_STANDARDS.md:20 (a test may not infer behaviour from source
+    // text): this is an import rule in test form. "Nothing reaches the
+    // personal-finance feed around the owner check" has no behavioural form,
+    // and the CRM ships no ESLint config where a no-restricted-imports rule
+    // for @/lib/pf/data could live, so the restriction is enforced here until
+    // one does.
     const root = join(__dirname, "..");
-    const callers = ["app", "lib", "components"]
-      .flatMap((d) =>
-        (readdirSync(join(root, d), { recursive: true }) as string[])
-          .filter((f) => /\.(ts|tsx)$/.test(f))
-          .map((f) => join(d, f)),
-      )
-      .filter((f) => /import[^;]*\bloadPfData\b/.test(readFileSync(join(root, f), "utf8")))
-      .sort();
-    expect(callers).toEqual([
-      join("app", "dial", "page.tsx"),
-      join("app", "money", "page.tsx"),
-      join("app", "safe", "page.tsx"),
-    ]);
+    const skip = new Set(["node_modules", ".next", ".git", ".claude", "time-app", "tests"]);
+    const sourceFiles = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        if (skip.has(name)) return [];
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) return sourceFiles(full);
+        return /\.(ts|tsx|js|mjs)$/.test(name) ? [full] : [];
+      });
+    const importers = sourceFiles(root)
+      .filter((f) => /lib\/pf\/data["']|\.\/data["']/.test(readFileSync(f, "utf8")))
+      .map((f) => relative(root, f));
+    expect(importers).toEqual([join("lib", "pf", "access.ts")]);
   });
 });

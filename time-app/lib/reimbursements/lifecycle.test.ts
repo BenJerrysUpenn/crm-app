@@ -40,21 +40,21 @@ test("owners are managers kept off the roster; Approvers are managers and owners
   assert.equal(isApprover(STAFF), false);
 });
 
-// Migration 31 gives the two owners the owner role; they stay off the roster.
+// Migration 42 gives the two owners the owner role; they stay off the roster.
 const OWNER_ROLE = { id: "alina", role: "owner", active: false };
 
-test("an owner holding the owner role is an owner and an Approver (migration 31)", () => {
+test("an owner holding the owner role is an owner and an Approver (migration 42)", () => {
   assert.equal(isOwner(OWNER_ROLE), true);
   assert.equal(isApprover(OWNER_ROLE), true);
 });
 
-test("an owner holding the owner role decides a manager's reimbursement and their own (migration 31)", () => {
+test("an owner holding the owner role decides a manager's reimbursement and their own (migration 42)", () => {
   assert.equal(mayDecide(OWNER_ROLE, MANAGER), null);
   assert.equal(mayDecide(OWNER_ROLE, OWNER_ROLE), null);
   assert.deepEqual(approversToNotify([OWNER_ROLE, MANAGER2], MANAGER).map((a) => a.id), ["alina"]);
 });
 
-test("an owner holding the owner role is paid outside payroll, never on the paycheck (migration 31)", () => {
+test("an owner holding the owner role is paid outside payroll, never on the paycheck (migration 42)", () => {
   assert.deepEqual(approverAction("paid_outside_payroll", "approved", { subject: OWNER_ROLE, actor: OWNER_ROLE }), {
     ok: true,
     to: "paid_outside_payroll",

@@ -757,7 +757,7 @@ test("1.9: the scheduled closer is the in-store shift ending last; the manager l
   assert.deepEqual(f.evidence.shift_ids, [close.id]);
 });
 
-test("1.9: an owner on the roster is offered as a manager to pay; an owner off it is not (migration 31)", () => {
+test("1.9: an owner on the roster is offered as a manager to pay; an owner off it is not (migration 42)", () => {
   const ON = "55555555-5555-5555-5555-555555555555";
   const OFF = "66666666-6666-6666-6666-666666666666";
   const result = run({

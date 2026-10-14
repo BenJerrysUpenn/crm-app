@@ -1,11 +1,11 @@
 -- ============================================================================
--- Withers Time, verification for migration 31 (the owner role)
+-- Withers Time, verification for migration 42 (the owner role)
 --
--- Run by hand against a database with migration 31 applied, the same way as
+-- Run by hand against a database with migration 42 applied, the same way as
 -- migration_25_verify.sql (see its header), or locally with every other
 -- verify file: `npm run test:db`. Everything happens inside one transaction
 -- that ends in ROLLBACK. It needs the two owners, one manager and one
--- employee in public.profiles. A clean run ends with "migration 31 verified".
+-- employee in public.profiles. A clean run ends with "migration 42 verified".
 --
 -- WHAT IS CHECKED
 --   1. Exactly the two owner logins hold the owner role.
@@ -23,6 +23,9 @@
 --   9. The service role (invite upsert, offboarding) is not blocked.
 --  10. The role CHECK allows exactly owner, manager and employee; the guard
 --      is trigger-only and there is one of it.
+--  11. Migration 37's travel reimbursements read the owner role: an owner
+--      approves an employee's reimbursement, is an owner to the waiting view,
+--      is left off the pay table, and is paid outside payroll.
 -- ============================================================================
 
 begin;
@@ -33,12 +36,14 @@ declare
   own2     uuid;
   mgr      uuid;
   emp      uuid;
-  spare    uuid := '00000000-0000-0000-0000-00000000f031';
+  spare    uuid := '00000000-0000-0000-0000-00000000f042';
   refused  boolean;
   n        integer;
   r        text;
   b        boolean;
   s_id     bigint;
+  t_emp    bigint;
+  t_own    bigint;
 begin
   select p.id into own1 from public.profiles p join auth.users u on u.id = p.id
    where lower(u.email) = 'alina@withers-ventures.com';
@@ -77,7 +82,7 @@ begin
   insert into public.time_entries (employee_id, clock_in_at, clock_out_at, status, manual)
   values (emp, now() - interval '30 hours', now() - interval '22 hours', 'closed', true);
   insert into public.shifts (employee_id, starts_at, ends_at, position, published)
-  values (emp, now() + interval '1 day', now() + interval '1 day 4 hours', 'verify-31', true)
+  values (emp, now() + interval '1 day', now() + interval '1 day 4 hours', 'verify-42', true)
   returning id into s_id;
   update public.shifts set ends_at = ends_at + interval '1 hour' where id = s_id;
   if not found then raise exception 'an owner could not edit a shift'; end if;
@@ -132,7 +137,7 @@ begin
 
   -- 4 (insert). A new login with no profile yet; a manager may create its
   -- profile, but not as an owner.
-  insert into auth.users (id, email) values (spare, 'verify-31@example.test');
+  insert into auth.users (id, email) values (spare, 'verify-42@example.test');
   delete from public.profiles where id = spare;
 
   set local role authenticated;
@@ -182,6 +187,61 @@ begin
   reset role;
   perform set_config('request.jwt.claims', '', true);
 
+  -- ---- 11. migration 37 reads the owner role ----------------------------------
+  -- An employee's reimbursement, and the second owner's own.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', emp::text, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles)
+  values (emp, 'errands', 'verify-42', '2026-07-01', 'typed', 1)
+  returning id into t_emp;
+  reset role;
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', own2::text, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles)
+  values (own2, 'errands', 'verify-42', '2026-07-01', 'typed', 1)
+  returning id into t_own;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+
+  if not coalesce((select is_owner from public.travel_reimbursements_waiting where id = t_own), false) then
+    raise exception 'the waiting view does not read an owner as an owner';
+  end if;
+
+  -- The first owner decides both.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', own1::text, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.travel_reimbursements set status = 'approved' where id = t_emp;
+  if not found then raise exception 'an owner could not approve an employee''s Travel Reimbursement'; end if;
+  update public.travel_reimbursements set status = 'approved' where id = t_own;
+  if not found then raise exception 'an owner could not approve the other owner''s Travel Reimbursement'; end if;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+
+  if not exists (select 1 from public.travel_reimbursements_payable where id = t_emp) then
+    raise exception 'an employee''s Approved reimbursement is missing from the pay table';
+  end if;
+  if exists (select 1 from public.travel_reimbursements_payable where id = t_own) then
+    raise exception 'an owner''s reimbursement is on the pay table';
+  end if;
+  begin
+    perform public.mark_travel_reimbursements_paid(array[t_own], '2026-07-10');
+    refused := false;
+  exception when raise_exception then
+    refused := true;
+  end;
+  if not refused then raise exception 'an owner''s reimbursement was marked paid on payroll'; end if;
+
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', own1::text, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.travel_reimbursements set status = 'paid_outside_payroll', paid_on = '2026-07-10' where id = t_own;
+  if not found then raise exception 'an owner could not mark an owner''s reimbursement paid outside payroll'; end if;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+
   -- ---- 10. shape -------------------------------------------------------------
   begin
     update public.profiles set role = 'admin' where id = emp;
@@ -204,7 +264,7 @@ begin
      and tgfoid = 'public.guard_owner_profiles()'::regprocedure;
   if n <> 1 then raise exception 'expected one owner guard on profiles, found %', n; end if;
 
-  raise notice 'migration 31 verified';
+  raise notice 'migration 42 verified';
 end $$;
 
 rollback;

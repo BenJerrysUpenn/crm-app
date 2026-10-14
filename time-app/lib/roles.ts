@@ -1,4 +1,4 @@
-// Who may do what, by profiles.role (migration 31).
+// Who may do what, by profiles.role (migration 42).
 //
 //   owner:    the business owners. Everything a manager can do, plus the
 //              owner-only things: the personal-finance pages in the CRM, and
@@ -71,7 +71,7 @@ export function canAssignRole(me: HasRole, role: unknown): role is Role {
 /**
  * Why `me` may not apply `patch` to `target`'s profile (PATCH /api/profiles/:id),
  * or null when the edit may go ahead. The database refuses the same edits
- * (migration 31, guard_owner_profiles); this says so in words first.
+ * (migration 42, guard_owner_profiles); this says so in words first.
  */
 export function profilePatchRefusal(
   me: HasRole,
