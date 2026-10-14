@@ -29,6 +29,7 @@ const profile = await loadAppModule<{ PATCH: Handler }>("app/api/profiles/[id]/r
 const invite = await loadAppModule<{ POST: Handler }>("app/api/profiles/route.ts");
 const reinvite = await loadAppModule<{ POST: Handler }>("app/api/profiles/[id]/invite/route.ts");
 const submitReimbursement = await loadAppModule<{ POST: Handler }>("app/api/reimbursements/route.ts");
+const claimShift = await loadAppModule<{ POST: Handler }>("app/api/shifts/[id]/claim/route.ts");
 const { notifyManagers } = await loadAppModule<{
   notifyManagers: (args: { type: string; title: string; body?: string }) => Promise<void>;
 }>("lib/notify.ts");
@@ -165,6 +166,26 @@ test("an owner clocks in away from the shop, as a manager may", async () => {
 test("a manager alert reaches the owners as well as the manager, and no employee", async () => {
   await notifyManagers({ type: "shift_dropped", title: "A shift was dropped" });
 
+  const reached = db.rows("notifications").map((n) => n.user_id).sort();
+  assert.deepEqual(reached, [OWNER, OTHER_OWNER, MANAGER].sort());
+});
+
+test("an employee picking up an open shift is told to the owners as well as the manager", async () => {
+  db.tables.shifts.push({
+    id: 31,
+    employee_id: null,
+    published: true,
+    deal_id: null,
+    position: null,
+    starts_at: "2026-09-29T14:00:00.000Z",
+    ends_at: "2026-09-29T20:00:00.000Z",
+  });
+  db.signIn(EMPLOYEE);
+
+  const res = await claimShift.POST(send("POST"), { params: { id: "31" } });
+
+  assert.equal(res.status, 200);
+  assert.equal(db.rows("shifts")[0].employee_id, EMPLOYEE);
   const reached = db.rows("notifications").map((n) => n.user_id).sort();
   assert.deepEqual(reached, [OWNER, OTHER_OWNER, MANAGER].sort());
 });
