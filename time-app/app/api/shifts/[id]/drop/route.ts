@@ -1,10 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { notify, emailForUser } from "@/lib/notify";
+import { notifyManagers } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { NextResponse } from "next/server";
-import { MANAGER_ROLES } from "@/lib/roles";
 
 // Employee requests to drop one of their assigned shifts. Notifies managers.
 export async function POST(
@@ -44,22 +42,11 @@ export async function POST(
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Notify all managers.
-  const admin = createAdminClient();
-  const { data: managers } = await admin
-    .from("profiles")
-    .select("id, phone")
-    .in("role", MANAGER_ROLES);
   const who = profile.full_name ?? "An employee";
-  for (const m of managers ?? []) {
-    const email = await emailForUser(m.id);
-    await notify({
-      userId: m.id,
-      type: "drop_request",
-      title: "Shift drop request",
-      body: `${who} wants to drop ${fmtDate(shift.starts_at)} ${fmtTime(shift.starts_at)}–${fmtTime(shift.ends_at)}${shift.position ? " · " + shift.position : ""}.`,
-      phone: m.phone ?? null,
-      email,
-    }).catch(() => {});
-  }
+  await notifyManagers({
+    type: "drop_request",
+    title: "Shift drop request",
+    body: `${who} wants to drop ${fmtDate(shift.starts_at)} ${fmtTime(shift.starts_at)}–${fmtTime(shift.ends_at)}${shift.position ? " · " + shift.position : ""}.`,
+  });
   return NextResponse.json({ ok: true });
 }

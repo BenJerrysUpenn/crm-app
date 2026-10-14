@@ -1,11 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { notify, emailForUser } from "@/lib/notify";
+import { notifyManagers } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { MANAGER_ASSIGNS_ERROR, managerAssignsOnly } from "@/lib/managerAssigns";
 import { NextResponse } from "next/server";
-import { MANAGER_ROLES, isManager } from "@/lib/roles";
+import { isManager } from "@/lib/roles";
 
 // Employee claims an open (unassigned), published shift. Conditional update on
 // employee_id IS NULL prevents two people grabbing the same shift.
@@ -47,23 +46,12 @@ export async function POST(
     );
 
   // Tell managers an open shift was picked up.
-  const admin = createAdminClient();
-  const { data: managers } = await admin
-    .from("profiles")
-    .select("id, phone")
-    .in("role", MANAGER_ROLES);
   const who = profile.full_name ?? "An employee";
-  for (const m of managers ?? []) {
-    const email = await emailForUser(m.id);
-    await notify({
-      userId: m.id,
-      type: "shift_picked_up",
-      title: "Open shift picked up",
-      body: `${who} picked up ${fmtDate(data.starts_at)} ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}.`,
-      phone: m.phone ?? null,
-      email,
-    }).catch(() => {});
-  }
+  await notifyManagers({
+    type: "shift_picked_up",
+    title: "Open shift picked up",
+    body: `${who} picked up ${fmtDate(data.starts_at)} ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}.`,
+  });
 
   return NextResponse.json({ shift: data });
 }

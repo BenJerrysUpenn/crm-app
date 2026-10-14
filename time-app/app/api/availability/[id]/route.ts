@@ -1,10 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { notify, emailForUser } from "@/lib/notify";
+import { notify, notifyManagers, emailForUser } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
 import { NextResponse } from "next/server";
-import { isManager, MANAGER_ROLES } from "@/lib/roles";
+import { isManager } from "@/lib/roles";
 
 export async function DELETE(
   _request: Request,
@@ -53,22 +52,11 @@ export async function DELETE(
         : rangeStart
           ? fmtDate(rangeStart + "T12:00:00")
           : "a day";
-    const admin = createAdminClient();
-    const { data: managers } = await admin
-      .from("profiles")
-      .select("id, phone")
-      .in("role", MANAGER_ROLES);
-    for (const m of managers ?? []) {
-      const email = await emailForUser(m.id);
-      await notify({
-        userId: m.id,
-        type: "timeoff_cancelled",
-        title: "Approved time off cancelled",
-        body: `${who} removed their approved time off for ${when}. They're available to work again.`,
-        phone: m.phone ?? null,
-        email,
-      }).catch(() => {});
-    }
+    await notifyManagers({
+      type: "timeoff_cancelled",
+      title: "Approved time off cancelled",
+      body: `${who} removed their approved time off for ${when}. They're available to work again.`,
+    });
   }
 
   return NextResponse.json({ ok: true });
