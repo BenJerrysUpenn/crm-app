@@ -95,6 +95,8 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
     docs: [README.md]
+  - paths: ["time-app/supabase/migration_41*.sql"]
+    docs: [README.md]
 
 exclusions:
   - path: docs/unsubscribe.md

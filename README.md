@@ -170,6 +170,16 @@ after migration 38. Each has `_verify.sql` and `_down.sql` beside it. Sales targ
 change them with an UPDATE in the SQL editor. Snapshots are published by bj-finance, never
 written through the API, and never updated or deleted.
 
+## Sales history tables (Withers Time, bj-finance #694)
+Apply `time-app/supabase/migration_41.sql` by hand in the Supabase SQL editor, after migration 40.
+It adds `sales_daily_in_store` (one row per day) and `sales_monthly` (one row per month and
+source, `qbo` or `seller`), the permanent sales history the labor targets read (lane bj-finance
+#692). Both are schema only: bj-finance writes every row from the Mac (its daily publisher and a
+one-time seed of the previous owner's books), never through the API, and managers read them.
+In-store excludes delivery and catering and includes online pickup orders, as the finance feed
+does. A missing day or month is unknown, not zero; weeks are grouped by the reader. Verify with
+`migration_41_verify.sql`; roll back with `migration_41_down.sql`.
+
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
