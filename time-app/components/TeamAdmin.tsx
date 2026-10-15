@@ -123,7 +123,7 @@ export default function TeamAdmin({
         email,
         full_name: name.name,
         role: newRole,
-        phone: newPhone.trim() || undefined,
+        phone: newPhone,
         hourly_rate: newRate ? Number(newRate) : undefined,
       }),
     });

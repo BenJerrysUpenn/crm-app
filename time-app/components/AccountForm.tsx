@@ -86,7 +86,7 @@ export default function AccountForm({
     const res = await fetch("/api/account", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ full_name: checked.name, phone: phone || null }),
+      body: JSON.stringify({ full_name: checked.name, phone }),
     });
     const j = await res.json().catch(() => ({}));
     setSavingProfile(false);
