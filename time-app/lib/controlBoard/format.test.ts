@@ -27,3 +27,10 @@ test("clearing the float noise never moves a figure that is not on a tie", () =>
   assert.equal(pct(0.25), "25%");
   assert.equal(pct(0.08, 3), "8%");
 });
+
+test("a figure a real amount below a tie still rounds down: only float noise is cleared", () => {
+  // 21.87499% is a worked figure, not noise under 21.875%: it shows 21.87%.
+  assert.equal(pctFixed(0.2187499), "21.87%");
+  assert.equal(pct(0.2187499), "21.87%");
+  assert.equal(pct(0.2187499, 3), "21.875%");
+});
