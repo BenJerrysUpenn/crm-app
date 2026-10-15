@@ -12,7 +12,7 @@
 
 // Shown wherever a profile has no usable name. Deliberately neutral, and never
 // the email address.
-export const NO_NAME_LABEL = "No name set";
+const NO_NAME_LABEL = "No name set";
 
 // Who an unnamed person is inside a manager alert sentence ("An employee
 // wants to drop ..."), where "No name set" reads badly.
