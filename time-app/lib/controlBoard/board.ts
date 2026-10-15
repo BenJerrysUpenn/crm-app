@@ -98,6 +98,9 @@ function boardInputs(d: Pick<BoardData, "values" | "salaried">): BoardInputs {
   };
 }
 
+/** How a payroll tax reads: its rate, and the wage cap it stops at or "on all wages". */
+const taxWords = (c: Current) => `${pct(c.value, 3)} ${capWords(num(c, "wage_cap"))}`;
+
 const ofSales = (r: BoardResults, n: number | null) =>
   n != null && r.salesTotal.value ? pctFixed(n / r.salesTotal.value) : "";
 const share = (x: Derived) => (x.value == null ? "" : pctFixed(x.value));
@@ -144,7 +147,7 @@ export const CATEGORIES: Category[] = [
       const futa = d.values.get("tax.futa");
       const uc = d.values.get("tax.pa_uc");
       const wc = d.values.get("tax.workers_comp");
-      const basis = (c: Current | undefined) => (c ? `${pct(c.value, 3)} ${capWords(num(c, "wage_cap"))}` : NOT_SET);
+      const basis = (c: Current | undefined) => (c ? taxWords(c) : NOT_SET);
       return [
         ...r.salaried.flatMap((s, i): Line[] => {
           const person = d.salaried[i];
@@ -195,9 +198,9 @@ export const CATEGORIES: Category[] = [
     title: "Payroll taxes",
     intro: "Employer taxes and workers' comp, as a share of wages. On a salary, a tax with a wage cap stops once pay passes the cap. Hourly wages are counted at the full rate with no cap.",
     lines: ({ d }) => [
-      stored(d, "tax.fica", "FICA (employer share)", (c) => `${pct(c.value, 3)} ${capWords(num(c, "wage_cap"))}`),
-      stored(d, "tax.futa", "Federal unemployment (FUTA)", (c) => `${pct(c.value, 3)} ${capWords(num(c, "wage_cap"))}`),
-      stored(d, "tax.pa_uc", "PA unemployment (UC)", (c) => `${pct(c.value, 3)} ${capWords(num(c, "wage_cap"))}`),
+      stored(d, "tax.fica", "FICA (employer share)", taxWords),
+      stored(d, "tax.futa", "Federal unemployment (FUTA)", taxWords),
+      stored(d, "tax.pa_uc", "PA unemployment (UC)", taxWords),
       stored(d, "tax.workers_comp", "Workers' comp", (c) => per100(c.value), {
         note: text(d.values.get("tax.workers_comp"), "class_code") ? `Policy class ${text(d.values.get("tax.workers_comp"), "class_code")}` : undefined,
       }),
