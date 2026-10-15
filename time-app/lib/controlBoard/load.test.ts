@@ -22,6 +22,20 @@ const NOTE = { review_by: "2031-01-01", source: "invented", method: null, record
 
 let db: FakeSupabase;
 
+// A read the database refuses for a reason other than a missing table (a
+// policy refusal, as PostgREST answers one). Everything else goes on to the
+// fake project.
+function refuseReadsOf(table: string) {
+  const project = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    if (request.method === "GET" && new URL(request.url).pathname === `/rest/v1/${table}`) {
+      return Response.json({ code: "42501", details: null, hint: null, message: `permission denied for table ${table}` }, { status: 403 });
+    }
+    return project(request);
+  }) as typeof fetch;
+}
+
 beforeEach(() => {
   db = startFakeSupabase({
     profiles: [
@@ -80,8 +94,24 @@ test("loadSalaries returns null only before migration 43, so the Team page may r
   assert.equal(withTable[0].annual_salary, 50_000, "numeric columns arrive as numbers");
 
   db.missingTables.push("profile_salaries");
-  assert.equal(await loadSalaries(createClient()), null, "the missing table is the only null; every other read error throws");
+  assert.equal(await loadSalaries(createClient()), null, "the missing table is the only null");
 });
+
+test("a salary read refused for any other reason throws, so the Team page never mistakes it for 'needs migration 43'", async () => {
+  refuseReadsOf("profile_salaries");
+  await assert.rejects(loadSalaries(createClient()), /^Error: profile_salaries: permission denied for table profile_salaries$/);
+});
+
+for (const [table, said] of [
+  ["control_settings", "The settings could not be read: permission denied for table control_settings"],
+  ["profile_salaries", "The salaries could not be read: permission denied for table profile_salaries"],
+  ["profiles", "The team could not be read: permission denied for table profiles"],
+] as const) {
+  test(`a refused ${table} read says which read failed instead of drawing a board or asking for the migration`, async () => {
+    refuseReadsOf(table);
+    assert.deepEqual(await loadBoard(createClient(), TODAY), { ready: false, reason: said });
+  });
+}
 
 test("when the sales history cannot be read the board still draws and says what failed", async () => {
   db.missingTables.push("sales_monthly", "sales_daily_in_store");
