@@ -1,16 +1,25 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { isPfPath, isGateExempt } from "@/lib/roles";
+import { handleShortLinkRequest, isShortLinkHost } from "@/lib/shortLinks";
 
 // Personal-finance pages live on their own subdomain (same Vercel project,
 // host-routed) — mirroring how crm./time. split off this repo.
 const PF_HOST = "personal.withers-ventures.com";
-const PF_ROUTES = ["/money", "/dial", "/safe"];
 
 const CRON_CATERING_SHIFTS = "/api/cron/catering-shifts";
 
-export async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest, event?: NextFetchEvent) {
   const host = request.headers.get("host") ?? "";
   const { pathname } = request.nextUrl;
+
+  // benjerryphilly.com short links (lib/shortLinks.ts). Decided on the Host
+  // header alone and before anything else: that domain serves nothing but
+  // redirects, so no CRM route, exemption or login is reachable through it.
+  // On every other host, /cake and friends meet the login gate like any path.
+  if (isShortLinkHost(host)) {
+    return handleShortLinkRequest(request, event);
+  }
 
   // One-click unsubscribe (bj-finance #440) is public by construction: the
   // recipient is not a CRM user, the token is the authorisation, and RFC 8058
@@ -35,17 +44,22 @@ export async function middleware(request: NextRequest) {
   if (pathname === CRON_CATERING_SHIFTS) {
     return NextResponse.next();
   }
-  const isPfRoute = PF_ROUTES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`)
-  );
+  const isPfRoute = isPfPath(pathname);
 
   if (host === PF_HOST) {
     // Landing: the phone-frequent widget. Auth still applies below.
     if (pathname === "/") {
       return NextResponse.redirect(new URL("/safe", request.url));
     }
-    // Keep the CRM off this host (auth/login routes stay shared).
-    if (!isPfRoute && pathname !== "/login" && !pathname.startsWith("/auth")) {
+    // Keep the CRM off this host (auth/login routes stay shared, and so do
+    // sign-out and the "no access" page the role gate sends an employee to;
+    // bouncing those to /safe would loop them between /safe and /no-access).
+    if (
+      !isPfRoute &&
+      pathname !== "/login" &&
+      !pathname.startsWith("/auth") &&
+      !isGateExempt(pathname)
+    ) {
       return NextResponse.redirect(new URL("/safe", request.url));
     }
   } else if (isPfRoute && host.endsWith("withers-ventures.com")) {
@@ -60,5 +74,11 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // On the short-link domain every path, assets included, goes through the
+    // middleware so it redirects instead of serving a CRM file.
+    {
+      source: "/:path*",
+      has: [{ type: "host", value: "(?:www\\.)?benjerryphilly\\.com" }],
+    },
   ],
 };

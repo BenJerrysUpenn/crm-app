@@ -1,4 +1,4 @@
-// PROTOTYPE — Email campaigns tab. Read-only loader.
+// Email campaigns tab: read-only loader.
 //
 // Runs as the SIGNED-IN manager through the SSR client, like the call desk and
 // the Funnels tab: outreach_* and deals are gated by the existing
@@ -7,7 +7,7 @@
 // so model.ts replicates their WHERE clauses over these raw rows.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DealRow, MailboxRow, ProspectRow, RawData, SentRow } from "./model";
+import { leadStatusOf, type DealRow, type MailboxRow, type ProspectRow, type RawData, type SentRow } from "./model";
 
 const PAGE = 1000; // PostgREST max-rows
 
@@ -17,9 +17,11 @@ async function all<T>(
   columns: string,
   orderBy: string,
   eq?: [string, string],
+  like?: [string, string],
 ): Promise<T[]> {
   let head = supabase.from(table).select("*", { count: "exact", head: true });
   if (eq) head = head.eq(eq[0], eq[1]);
+  if (like) head = head.like(like[0], like[1]);
   const { count, error } = await head;
   if (error) throw error;
   const n = count ?? 0;
@@ -28,6 +30,7 @@ async function all<T>(
     Array.from({ length: pages }, (_, i) => {
       let q = supabase.from(table).select(columns);
       if (eq) q = q.eq(eq[0], eq[1]);
+      if (like) q = q.like(like[0], like[1]);
       return q.order(orderBy, { ascending: true }).range(i * PAGE, i * PAGE + PAGE - 1);
     }),
   );
@@ -40,12 +43,22 @@ async function all<T>(
 }
 
 export async function loadRawData(supabase: SupabaseClient): Promise<RawData> {
-  const [prospects, deals, sent, suppression, blocked, mailboxes] = await Promise.all([
+  const [prospects, cakeNotes, deals, sent, suppression, blocked, mailboxes] = await Promise.all([
     all<ProspectRow>(
       supabase,
       "outreach_prospects",
       "id,name,company,email,status,engine,category,ever_booked,last_event_date,marketing_opt_in,opt_in_source,last_outreach_at,verify_status",
       "id",
+    ),
+    // Cake only (#286): Salesforce lead status Cake Order. Only rows whose
+    // notes could start with it are read; leadStatusOf decides exactly.
+    all<{ id: number; notes: string | null }>(
+      supabase,
+      "outreach_prospects",
+      "id,notes",
+      "id",
+      undefined,
+      ["notes", "Cake Order%"],
     ),
     all<DealRow>(
       supabase,
@@ -67,8 +80,9 @@ export async function loadRawData(supabase: SupabaseClient): Promise<RawData> {
   ]);
   if (blocked.error) throw blocked.error;
   if (mailboxes.error) throw mailboxes.error;
+  const cakeLead = new Set(cakeNotes.filter((r) => leadStatusOf(r.notes) === "Cake Order").map((r) => r.id));
   return {
-    prospects,
+    prospects: prospects.map((p) => ({ ...p, cake_lead_status: cakeLead.has(p.id) })),
     deals,
     sent: sent.map(({ prospect_id, template }) => ({ prospect_id, template })),
     suppressedEmails: suppression.map((s) => s.email).filter((e): e is string => !!e),

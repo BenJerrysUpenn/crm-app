@@ -19,7 +19,21 @@ Set both in Vercel (Project Settings, Environment Variables). Do not commit them
 
 A `.env.example` is included as a reference. For local dev, copy it to `.env.local`.
 
+### Who gets in
+`profiles.role` decides, through `lib/roles.ts`: `manager` and `owner` reach
+the CRM, `employee` does not. An owner passes every manager gate (in the
+database too: `is_manager()` is true for owners). `profiles.active` means "on
+the staff roster" and is never an access check; access ends by banning the
+login. The owner role and its guard are time-app migration 42, applied by
+hand in the Supabase SQL editor after both apps deploy (its header has the
+order; `migration_42_verify.sql` checks it, `migration_42_down.sql` reverses it).
+
 ### Personal-finance pages (`/money`, `/dial`, `/safe`)
+**Owners only** (the `owner` role). Each page reads the feed only through
+`loadPfForOwner()` in `lib/pf/access.ts`, which answers anyone else signed in
+with a 404, so the pages do not admit they exist; signed out goes to `/login`.
+The middleware's role gate still sends an employee to `/no-access`, as it does
+on every CRM path.
 These pages sit behind the same Supabase auth as the rest of the app and read
 a single JSON feed **server-side only** (never from a public path). Feed
 source is resolved in this order:
@@ -50,6 +64,19 @@ Before the sender ships the headers, Alina must:
 3. Apply `supabase/crm/005_unsubscribe.sql` once in the Supabase SQL editor.
 
 Unset, the endpoint answers `503` rather than silently dropping opt-outs.
+
+### Short links (`benjerryphilly.com`)
+When the Host is `benjerryphilly.com` or `www.benjerryphilly.com`, the
+middleware serves nothing but redirects and never reaches the login gate: a
+slug in `SHORT_LINKS` (`lib/shortLinks.ts`, one line per link) logs a row in
+`short_link_clicks` and 302s to its destination; every other path 301s to
+`https://www.benjerry.com/upenn`. On every other host those paths stay behind
+the login. `/<slug>/<code>` goes to the same place as `/<slug>`; the code is a
+per-deal code Catering-Manager mints into `short_link_codes`, and the click row
+records the code and its `deal_id`; HEAD requests and link scanners are logged
+with `is_probable_bot` true so counts can leave them out. The code lookup and the insert use
+`SUPABASE_SERVICE_ROLE_KEY` and never delay or block the redirect. Tables:
+`supabase/crm/010_short_link_clicks.sql`.
 
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
@@ -118,6 +145,53 @@ including PR branches and review-pass commits, builds nothing on Vercel: the Hob
 allows 100 deployments a day across the account. To get a preview URL for a prototype or
 a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
+
+## Metrics page (Withers Time)
+`time-app/` serves `/metrics` on the finance host (bj-finance #671), managers and owners only: the page,
+the `/api/metrics/*` routes and RLS each check it. `lib/metrics/load.ts` reads the CRM and time
+clock tables as the signed-in manager; a section that fails to read is reported in `problems`,
+never drawn as zeros. Saved views live in `public.metric_views` and `metric_preferences`
+(migration 39); until it is applied the routes answer 503 `views_not_enabled` and the page keeps
+views in the browser's localStorage. Sales targets come only from `public.sales_targets`
+(migration 39): there is no copy in the page code, and when the read fails the sales widget
+draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
+bj-finance feed (migration 40). Tests: `npm test` in `time-app/` includes `lib/metrics/*.test.ts`.
+
+## Travel Reimbursements (Withers Time)
+Staff log mileage, tolls and parking in `time-app/` at `/reimbursements`; Approvers decide
+them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. Decisions:
+`docs/adr/0001` (Receipts go to receipts@ but are never bank-matched) and `0002` (files live
+in a private Supabase Storage bucket). The lifecycle is enforced twice, in
+`time-app/lib/reimbursements/lifecycle.ts` and in the database trigger of migration 37.
+
+Setup, in the `time` Vercel project:
+
+| Name | Value |
+| --- | --- |
+| `GOOGLE_MAPS_API_KEY` | Routes API key. Server-only. Unset, "compute miles from stops" answers that it is not set up and staff type the miles |
+| `RESEND_API_KEY` | Already used for notifications; it also sends the Receipts and Lyft ride reports to receipts@withers-ventures.com |
+
+Apply `time-app/supabase/migration_37.sql` by hand in the Supabase SQL editor, after
+migration 36. It creates the tables, the payroll views, and the `travel-reimbursements`
+bucket; `migration_37_verify.sql` checks it and `migration_37_down.sql` reverses it. Until
+it is applied the reimbursement routes answer 503.
+
+## Metrics page tables (Withers Time, bj-finance #671)
+Apply `time-app/supabase/migration_39.sql` (saved views, preferences, `sales_targets`), then
+`migration_40.sql` (`metrics_snapshots`, the finance feed), by hand in the Supabase SQL editor,
+after migration 38. Each has `_verify.sql` and `_down.sql` beside it. Sales targets are data:
+change them with an UPDATE in the SQL editor. Snapshots are published by bj-finance, never
+written through the API, and never updated or deleted.
+
+## Sales history tables (Withers Time, bj-finance #694)
+Apply `time-app/supabase/migration_41.sql` by hand in the Supabase SQL editor, after migration 40.
+It adds `sales_daily_in_store` (one row per day) and `sales_monthly` (one row per month and
+source, `qbo` or `seller`), the permanent sales history the labor targets read (lane bj-finance
+#692). Both are schema only: bj-finance writes every row from the Mac (its daily publisher and a
+one-time seed of the previous owner's books), never through the API, and managers read them.
+In-store excludes delivery and catering and includes online pickup orders, as the finance feed
+does. A missing day or month is unknown, not zero; weeks are grouped by the reader. Verify with
+`migration_41_verify.sql`; roll back with `migration_41_down.sql`.
 
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a

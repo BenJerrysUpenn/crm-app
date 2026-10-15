@@ -5,12 +5,14 @@ import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 // PATCH: edit a shift (manager only). Body carries any of employee_id,
 // location_id, starts_at, ends_at, position, notes, plus confirmLong.
 //
 // There are no drafts: an edit always leaves the shift live (published =
-// true), whatever the body says, and the assigned employee is told.
+// true), whatever the body says, and the assigned employee is told: on their
+// bell now, by email and text in the 8pm summary (lib/shiftNotice.ts).
 //
 // An edit that leaves the shift 15+ hours long is refused with 409 unless the
 // body carries confirmLong: true. The check is run against the shift as it will
@@ -28,7 +30,7 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await request.json();
@@ -98,12 +100,10 @@ export async function PATCH(
   // week used to send. Any other edit of an assigned shift is a change.
   const newToThem = before?.published === false || (before?.employee_id ?? null) !== (data?.employee_id ?? null);
   if (newToThem && data?.employee_id) {
-    const emp = (data as any).profiles;
-    await tellEmployeeAboutShift("posted", data, emp?.phone ?? null);
+    await tellEmployeeAboutShift("posted", data);
   } else if (data?.employee_id) {
     // An assigned shift was edited -> tell the employee.
-    const emp = (data as any).profiles;
-    await tellEmployeeAboutShift("changed", data, emp?.phone ?? null);
+    await tellEmployeeAboutShift("changed", data);
   }
   return NextResponse.json({ shift: data });
 }
@@ -113,7 +113,7 @@ export async function DELETE(
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const supabase = createClient();
   const { error } = await supabase.from("shifts").delete().eq("id", params.id);

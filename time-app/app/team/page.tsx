@@ -17,13 +17,14 @@ import type {
   StoreHours,
   StoreHoursException,
 } from "@/lib/types";
+import { isManager } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage() {
   const profile = await getProfile();
   if (!profile) redirect("/login");
-  if (profile.role !== "manager") redirect("/");
+  if (!isManager(profile)) redirect("/");
   const supabase = createClient();
 
   const { data: emps } = await supabase
@@ -105,6 +106,7 @@ export default async function TeamPage() {
             keeps the other sections at their usual centred width. */}
         <div className="px-4 py-6">
           <TeamAdmin
+            viewerRole={profile.role}
             employees={(emps as Profile[]) ?? []}
             locations={(locs as Location[]) ?? []}
             emailById={emailById}

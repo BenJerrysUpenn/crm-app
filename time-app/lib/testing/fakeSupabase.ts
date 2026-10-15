@@ -8,12 +8,23 @@
 //
 // The fake speaks just enough PostgREST for the routes under test (eq / gte /
 // lte / is / in filters and not.<filter>, order, limit and offset, single, maybeSingle, a head
-// request's exact count, insert and update with return=representation) and answers /auth/v1/user from the session cookie.
+// request's exact count, insert and update with return=representation, and
+// the database functions in RPC below) and answers /auth/v1/user from the session cookie.
 // Row Level Security is emulated for time_entries only, with the policies
 // migrations 12 and 30 install (supabase/migration_30_verify.sql proves those
 // against a real Postgres): anyone signed in reads their own punches, only a
 // manager inserts, updates or deletes one through their session, and the
-// service role is not held to RLS. Every other table is readable by any signed-in caller.
+// service role is not held to RLS. travel_reimbursements and lyft_ride_reports
+// (migration 37) are read as their policies say: your own, or all for a
+// manager. shift_notices and shift_digests (migration 38) are the service
+// role's alone. metric_views and metric_preferences (migration 39) are a
+// manager's own rows only, and two live views of one person cannot share a
+// name (23505). Every other table is readable by any signed-in caller.
+//
+// Storage (migration 37's travel-reimbursements bucket) is faked too: signed
+// upload URLs, signed read URLs and downloads, under the bucket's policies
+// (your own folder; a manager reads all and alone writes under adjustments/).
+// Any other origin (Resend, Twilio, Google) goes to `external`, which a test sets.
 
 import * as nodeModule from "node:module";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -33,7 +44,8 @@ type Caller = { kind: "service" } | { kind: "anon" } | { kind: "user"; id: strin
 
 export type FakeSupabase = {
   tables: Record<string, Row[]>;
-  // Runs before each write reaches the "database": lets a test move the world
+  // Runs before each write reaches the "database" (with the table, or
+  // "rpc/<name>" for a database function): lets a test move the world
   // underneath the route between its read and its write, as a fob tap would.
   beforeWrite: ((table: string) => void) | null;
   // Columns a migration has not added yet, per table. A write naming one is
@@ -43,6 +55,16 @@ export type FakeSupabase = {
   // Tables a migration has not created yet: every request to one is refused
   // as hosted PostgREST does (PGRST205, "schema cache").
   missingTables: string[];
+  // Storage objects, keyed "<bucket>/<path>". A signed upload URL does not
+  // create one; a test puts the bytes here as the browser's upload would.
+  storage: Record<string, Uint8Array>;
+  // Paths a signed upload URL was minted for, as "<bucket>/<path>".
+  signedUploads: string[];
+  // Requests to any origin but Supabase's. Null: such a request fails the test.
+  external: ((request: Request) => Response | Promise<Response>) | null;
+  // auth.users emails by user id, for emailForUser (lib/notify.ts). Nobody
+  // listed here has an email, so their notifications go by text or not at all.
+  emails: Record<string, string>;
   signIn(userId: string): void;
   // The Cookie header a browser with this session sends (for middleware).
   cookieHeader(): string;
@@ -102,7 +124,8 @@ function registerResolveHooks() {
       if (specifier === "next/headers") {
         return { url: pathToFileURL(join(TIME, "lib", "testing", "nextHeaders.ts")).href, shortCircuit: true };
       }
-      if (specifier === "next/server") return next("next/server.js", context);
+      // next/* entry points are CommonJS files without an exports map: name the .js.
+      if (/^next\/[a-z-]+$/.test(specifier)) return next(`${specifier}.js`, context);
       const parent = context.parentURL?.startsWith("file:") ? fileURLToPath(context.parentURL) : null;
       if (parent && parent.startsWith(TIME) && !parent.includes("node_modules")) {
         const base = specifier.startsWith("@/")
@@ -154,22 +177,50 @@ function callerOf(headers: Headers): Caller {
 
 function isManager(caller: Caller): boolean {
   if (caller.kind !== "user") return false;
-  return fake.tables.profiles?.some((p) => p.id === caller.id && p.role === "manager") ?? false;
+  // public.is_manager() as migration 42 writes it: role in ('manager', 'owner').
+  // Spelled out here, not taken from lib/roles.ts, so the stand-in database
+  // cannot drift along with the code under test.
+  return fake.tables.profiles?.some((p) => p.id === caller.id && ["manager", "owner"].includes(p.role as string)) ?? false;
 }
+
+const OWN_ROWS: Record<string, string> = {
+  time_entries: "employee_id",
+  travel_reimbursements: "profile_id",
+  lyft_ride_reports: "profile_id",
+};
+
+// Migration 38: no API role but the service role touches these.
+const SERVICE_ONLY = ["shift_notices", "shift_digests"];
+
+// Migration 39: a manager's own rows, and only a manager's.
+const MANAGER_OWN_ROWS: Record<string, string> = { metric_views: "owner_id", metric_preferences: "owner_id" };
 
 function canRead(table: string, caller: Caller, row: Row): boolean {
   if (caller.kind === "service") return true;
-  if (caller.kind === "anon") return false;
-  if (table === "time_entries") return row.employee_id === caller.id || isManager(caller);
+  if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
+  const managerOwner = MANAGER_OWN_ROWS[table];
+  if (managerOwner) return row[managerOwner] === caller.id && isManager(caller);
+  const owner = OWN_ROWS[table];
+  if (owner) return row[owner] === caller.id || isManager(caller);
   return true;
 }
 
 function canWrite(table: string, caller: Caller): boolean {
   if (caller.kind === "service") return true;
-  if (caller.kind === "anon") return false;
+  if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
   if (table === "time_entries") return isManager(caller);
+  if (table in MANAGER_OWN_ROWS) return isManager(caller);
   return true;
 }
+
+// Migration 39's unique index: one live view per name per person.
+function duplicateViewName(all: Row[], row: Row): boolean {
+  const key = (r: Row) => String(r.name ?? "").trim().toLowerCase();
+  return all.some((r) => r !== row && r.id !== row.id && r.owner_id === row.owner_id && r.archived_at == null && row.archived_at == null && key(r) === key(row));
+}
+
+const UNIQUE_VIOLATION = () =>
+  json(409, { code: "23505", details: null, hint: null, message: 'duplicate key value violates unique constraint "metric_views_owner_name_live"' });
 
 function compare(a: unknown, b: string): number {
   const x = String(a);
@@ -242,21 +293,137 @@ function represent(rows: Row[], headers: Headers, status: number): Response {
 }
 
 const DEFAULTS: Record<string, () => Row> = {
+  // Migration 37's column defaults.
+  travel_reimbursements: () => ({
+    status: "submitted", stops: null, start_at_store: null, end_at_store: null, route_legs: null, tolls_cents: 0, parking_cents: 0,
+    mileage_cents_override: null, receipt_paths: [], no_receipt_confirmed: false, rejection_reason: null,
+    decided_by: null, decided_at: null, paid_on: null, paid_by: null, receipts_emailed_at: null,
+    deal_id: null, event_label: null, event_date: null, reason_note: null,
+    submitted_at: DB_NOW, created_at: DB_NOW, updated_at: DB_NOW,
+  }),
+  travel_reimbursement_adjustments: () => ({ adjusted_at: DB_NOW }),
+  lyft_ride_reports: () => ({ filed_at: DB_NOW, emailed_at: null, deal_id: null, event_label: null, event_date: null, reason_note: null }),
+  // Migration 39: a saved view is live until archived.
+  metric_views: () => ({ position: 0, widgets: [], archived_at: null, created_at: DB_NOW, updated_at: DB_NOW }),
   time_entries: () => ({ clock_in_at: DB_NOW, clock_out_at: null, status: "open", manual: false }),
   // Migration 36's column defaults: a new pay table row is a queued request.
   payroll_sheets: () => ({ status: "queued", requested_at: DB_NOW, started_at: null, built_at: null, built_by: null, source_fingerprint: null, open_items: null, error: null, sheet: null }),
 };
 
+// ---- database functions (POST /rest/v1/rpc/<name>) ------------------------------
+// Each as its migration defines it, reduced to what the routes rely on; the
+// SQL itself is proven against Postgres by its migration's _verify.sql.
+const RPC: Record<string, (args: Row, caller: Caller) => Response> = {
+  // Migration 37: an Adjustment, all or nothing. The row must be as the
+  // Approver saw it (updated_at); otherwise nothing is written and it returns null.
+  adjust_travel_reimbursement(args, caller) {
+    if (!isManager(caller)) {
+      return json(403, { code: "42501", details: null, hint: null, message: 'new row violates row-level security policy for table "travel_reimbursement_adjustments"' });
+    }
+    const row = fake.tables.travel_reimbursements?.find((r) => r.id === args.p_id && r.updated_at === args.p_seen_updated_at);
+    if (!row) return json(200, null);
+    const column = { mileage: "mileage_cents_override", tolls: "tolls_cents", parking: "parking_cents" }[String(args.p_field)];
+    if (!column) return json(400, { code: "23514", details: null, hint: null, message: "new row violates check constraint" });
+    Object.assign(row, { [column]: args.p_new_cents, updated_at: new Date().toISOString() });
+    const adjustments = (fake.tables.travel_reimbursement_adjustments ??= []);
+    const adjustment: Row = {
+      ...DEFAULTS.travel_reimbursement_adjustments(),
+      id: adjustments.length + 1,
+      reimbursement_id: args.p_id,
+      field: args.p_field,
+      old_cents: args.p_old_cents,
+      new_cents: args.p_new_cents,
+      note: args.p_note,
+      evidence_path: args.p_evidence_path,
+      adjusted_by: (caller as { id: string }).id,
+    };
+    adjustments.push(adjustment);
+    return json(200, { reimbursement: row, adjustment });
+  },
+  // Migration 38: claim today's 8pm shift summaries. Each person with queued
+  // shift notices and no summary yet for p_day gets one: their notices are
+  // taken off the queue and returned. Anyone already summarised that day keeps
+  // theirs queued for the next day. The service role alone may call it.
+  claim_shift_digests(args, caller) {
+    if (caller.kind !== "service") {
+      return json(401, { code: "42501", details: null, hint: null, message: "permission denied for function claim_shift_digests" });
+    }
+    const day = String(args.p_day);
+    const digests = (fake.tables.shift_digests ??= []);
+    const notices = (fake.tables.shift_notices ??= []);
+    const due = [...new Set(notices.map((n) => n.employee_id))];
+    const fresh = due.filter((e) => !digests.some((d) => d.employee_id === e && d.digest_day === day));
+    for (const e of fresh) digests.push({ employee_id: e, digest_day: day, claimed_at: new Date().toISOString() });
+    const claimed = notices.filter((n) => fresh.includes(n.employee_id));
+    fake.tables.shift_notices = notices.filter((n) => !claimed.includes(n));
+    return json(200, claimed.map((n) => ({ employee_id: n.employee_id, shift_id: n.shift_id, notice: n.notice })));
+  },
+};
+
+// ---- Storage ------------------------------------------------------------------
+const REIMBURSEMENT_BUCKET = "travel-reimbursements";
+
+/** Migration 37's storage.objects policies, for that bucket; others are open. */
+function storageMay(op: "read" | "write", caller: Caller, bucket: string, path: string): boolean {
+  if (caller.kind === "service") return true;
+  if (caller.kind === "anon") return false;
+  if (bucket !== REIMBURSEMENT_BUCKET) return true;
+  const folder = path.split("/")[0];
+  if (op === "read") return folder === caller.id || isManager(caller);
+  return folder === caller.id || (folder === "adjustments" && isManager(caller));
+}
+
+function handleStorage(url: URL, method: string, headers: Headers): Response {
+  const caller = callerOf(headers);
+  const rest = decodeURIComponent(url.pathname.replace(/^\/storage\/v1\//, ""));
+  const refuse = () => json(403, { statusCode: "403", error: "Unauthorized", message: "new row violates row-level security policy" });
+  let m = /^object\/upload\/sign\/([^/]+)\/(.+)$/.exec(rest);
+  if (m && method === "POST") {
+    const [, bucket, path] = m;
+    if (!storageMay("write", caller, bucket, path)) return refuse();
+    fake.signedUploads.push(`${bucket}/${path}`);
+    return json(200, { url: `/object/upload/sign/${bucket}/${path}?token=upload-token-${fake.signedUploads.length}` });
+  }
+  m = /^object\/sign\/([^/]+)\/(.+)$/.exec(rest);
+  if (m && method === "POST") {
+    const [, bucket, path] = m;
+    if (!(`${bucket}/${path}` in fake.storage)) return json(400, { statusCode: "404", error: "not_found", message: "Object not found" });
+    if (!storageMay("read", caller, bucket, path)) return json(400, { statusCode: "404", error: "not_found", message: "Object not found" });
+    return json(200, { signedURL: `/object/sign/${bucket}/${path}?token=read-token` });
+  }
+  m = /^object\/([^/]+)\/(.+)$/.exec(rest);
+  if (m && (method === "GET" || method === "HEAD")) {
+    const [, bucket, path] = m;
+    const bytes = fake.storage[`${bucket}/${path}`];
+    if (!bytes || !storageMay("read", caller, bucket, path)) {
+      return method === "HEAD" ? new Response(null, { status: 400 }) : json(400, { statusCode: "404", error: "not_found", message: "Object not found" });
+    }
+    return new Response(method === "HEAD" ? null : (bytes as unknown as BodyInit), { status: 200, headers: { "content-type": "application/octet-stream" } });
+  }
+  throw new Error(`fake Supabase: unexpected storage ${method} ${url.pathname}`);
+}
+
 async function handle(url: URL, method: string, headers: Headers, body: string | null): Promise<Response> {
+  if (url.pathname.startsWith("/storage/v1/")) return handleStorage(url, method, headers);
   if (url.pathname === "/auth/v1/user") {
     const caller = callerOf(headers);
     if (caller.kind !== "user") return json(401, { code: 401, error_code: "bad_jwt", msg: "invalid JWT" });
     return json(200, { id: caller.id, aud: "authenticated", role: "authenticated", email: `${caller.id}@example.test` });
   }
-  // emailForUser's auth-admin lookup (lib/notify.ts): nobody has an email
-  // here, so a notification is the in-app row alone.
+  // emailForUser's auth-admin lookup (lib/notify.ts): the address a test put
+  // in `emails`, or no such user.
   if (url.pathname.startsWith("/auth/v1/admin/users/")) {
-    return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+    const id = decodeURIComponent(url.pathname.slice("/auth/v1/admin/users/".length));
+    const email = fake.emails[id];
+    if (!email) return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+    return json(200, { id, aud: "authenticated", role: "authenticated", email });
+  }
+  const fn = url.pathname.match(/^\/rest\/v1\/rpc\/(\w+)$/)?.[1];
+  if (fn && method === "POST") {
+    const rpc = RPC[fn];
+    if (!rpc) throw new Error(`fake Supabase: unexpected rpc ${fn}`);
+    fake.beforeWrite?.(`rpc/${fn}`);
+    return rpc(JSON.parse(body ?? "{}") as Row, callerOf(headers));
   }
   const table = url.pathname.match(/^\/rest\/v1\/(\w+)$/)?.[1];
   if (!table) throw new Error(`fake Supabase: unexpected ${method} ${url.pathname}`);
@@ -312,6 +479,18 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
       });
     }
     const input = JSON.parse(body ?? "null") as Row | Row[];
+    const owner = MANAGER_OWN_ROWS[table];
+    if (owner && caller.kind === "user" && (Array.isArray(input) ? input : [input]).some((r) => r[owner] !== caller.id)) {
+      return json(403, { code: "42501", details: null, hint: null, message: `new row violates row-level security policy for table "${table}"` });
+    }
+    if (table === "metric_views") {
+      const batch: Row[] = [];
+      for (const r of Array.isArray(input) ? input : [input]) {
+        const candidate = { archived_at: null, ...r, id: -1 - batch.length };
+        if (duplicateViewName([...all, ...batch], candidate)) return UNIQUE_VIOLATION();
+        batch.push(candidate);
+      }
+    }
     const inserted = (Array.isArray(input) ? input : [input]).map((r) => {
       const row = { ...(DEFAULTS[table]?.() ?? {}), ...r, id: all.length + 1 };
       all.push(row);
@@ -324,6 +503,7 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     // RLS on UPDATE hides the rows the caller may not write; it does not error.
     const patch = JSON.parse(body ?? "{}") as Row;
     const hit = all.filter((r) => canWrite(table, caller) && canRead(table, caller, r) && matches(r, url.searchParams));
+    if (table === "metric_views" && hit.some((r) => duplicateViewName(all, { ...r, ...patch }))) return UNIQUE_VIOLATION();
     for (const r of hit) Object.assign(r, patch);
     return represent(hit, headers, 200);
   }
@@ -340,7 +520,10 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(input, init);
   const url = new URL(request.url);
-  if (url.origin !== new URL(SUPABASE_URL).origin) throw new Error(`test tried to reach ${url.origin}`);
+  if (url.origin !== new URL(SUPABASE_URL).origin) {
+    if (fake.external) return fake.external(request);
+    throw new Error(`test tried to reach ${url.origin}`);
+  }
   const body = request.method === "GET" || request.method === "HEAD" ? null : await request.text();
   return handle(url, request.method, request.headers, body);
 }
@@ -358,6 +541,10 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
     beforeWrite: null,
     missingColumns: {},
     missingTables: [],
+    storage: {},
+    signedUploads: [],
+    external: null,
+    emails: {},
     signIn(userId) {
       const accessToken = `token-for-${userId}`;
       tokens.set(accessToken, userId);
