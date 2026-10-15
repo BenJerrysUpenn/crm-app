@@ -99,7 +99,6 @@ export async function createLifecycle(
   args: {
     kind: LifecycleKind;
     form: InviteForm | OffboardingForm;
-    employee_id: string | null;
     created_by: string;
   },
 ): Promise<{ id: number } | { error: string }> {
@@ -112,7 +111,7 @@ export async function createLifecycle(
     .from("staff_lifecycle")
     .insert({
       kind: args.kind,
-      employee_id: args.employee_id,
+      employee_id: args.form.employee_id,
       form: args.form,
       created_by: args.created_by,
     })

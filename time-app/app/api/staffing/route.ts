@@ -66,7 +66,6 @@ export async function POST(request: Request) {
     created = await createLifecycle(admin, {
       kind,
       form: p.form,
-      employee_id: existing?.id ?? null,
       created_by: me.id,
     });
   } else if (kind === "offboarding") {
@@ -95,7 +94,6 @@ export async function POST(request: Request) {
     created = await createLifecycle(admin, {
       kind,
       form: p.form,
-      employee_id: p.form.employee_id,
       created_by: me.id,
     });
     // Access removal waits until the last day has arrived, unless the
