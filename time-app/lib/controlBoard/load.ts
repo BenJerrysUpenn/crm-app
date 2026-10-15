@@ -33,7 +33,7 @@ function settingRow(r: Record<string, unknown>): SettingRow {
   return { ...(r as SettingRow), value: Number(r.value), detail: (r.detail as SettingRow["detail"]) ?? {} };
 }
 
-export function salaryRow(r: Record<string, unknown>): SalaryRow {
+function salaryRow(r: Record<string, unknown>): SalaryRow {
   return { ...(r as SalaryRow), annual_salary: Number(r.annual_salary) };
 }
 
