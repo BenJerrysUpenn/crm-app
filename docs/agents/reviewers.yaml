@@ -126,7 +126,7 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
     docs: [README.md]
-  - paths: ["time-app/lib/profileName.ts", "time-app/lib/authLinks.ts", "time-app/components/TeamAdmin.tsx", "time-app/components/AccountForm.tsx", "time-app/app/api/profiles/**", "time-app/app/api/account/**", "time-app/supabase/migration_21.sql"]
+  - paths: ["time-app/lib/profileName.ts", "time-app/lib/authLinks.ts", "time-app/components/TeamAdmin.tsx", "time-app/components/AccountForm.tsx", "time-app/app/api/profiles/**", "time-app/app/api/account/**", "time-app/supabase/migration_21.sql", "time-app/lib/teamArchive.ts", "time-app/components/ScheduleBoard.tsx", "time-app/components/Timesheets.tsx", "time-app/components/TopBar.tsx", "time-app/app/api/availability/**", "time-app/app/api/shifts/**", "time-app/app/api/cron/missed-clockins/route.ts"]
     docs: [time-app/SETUP-GUIDE.md]
   - paths: ["time-app/supabase/migration_41*.sql"]
     docs: [README.md]
