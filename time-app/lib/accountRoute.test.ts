@@ -96,6 +96,15 @@ test("a self-edit can't change the manager-only fields: role, pay, active, archi
   assert.equal(row(SAM).archived_at, undefined);
 });
 
+test("a JSON body that isn't an object is a 400, not a 500, and nothing is written", async () => {
+  for (const notObject of [null, 5, "hello", [1, 2]]) {
+    const res = await patch(notObject);
+    assert.equal(res.status, 400, `body ${JSON.stringify(notObject)}`);
+    assert.equal((await res.json()).error, "Bad JSON");
+    assert.equal(row(SAM).full_name, "Sam Lee");
+  }
+});
+
 test("a signed-out caller is refused and nothing is written", async () => {
   db = startFakeSupabase({
     profiles: [{ id: SAM, role: "employee", active: true, full_name: "Sam Lee", phone: null }],

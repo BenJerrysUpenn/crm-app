@@ -23,6 +23,11 @@ export async function PATCH(request: Request) {
   } catch {
     return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
   }
+  // A valid JSON body that is not a plain object (null, a number, a string, an
+  // array) would throw on the `"full_name" in body` test below and surface as
+  // a 500. Treat it as the same bad input as unparseable JSON.
+  if (typeof body !== "object" || body === null || Array.isArray(body))
+    return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
 
   const patch: Record<string, unknown> = {};
   if ("full_name" in body) {
