@@ -7,6 +7,7 @@
 // which sends through sendOnChannels below (lib/shiftNotice.ts).
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
+import { MANAGER_ROLES } from "@/lib/roles";
 
 type NotifyArgs = {
   userId: string;
@@ -121,13 +122,13 @@ export async function notify(args: NotifyArgs) {
   return { sent_email, sent_sms };
 }
 
-// Notify every active manager (respecting each one's preferences).
+// Notify every manager and owner, on or off the roster (respecting each one's preferences).
 export async function notifyManagers(args: { type: string; title: string; body?: string }) {
   const supabase = createAdminClient();
   const { data: managers } = await supabase
     .from("profiles")
     .select("id, phone")
-    .eq("role", "manager");
+    .in("role", MANAGER_ROLES);
   for (const m of managers ?? []) {
     const email = await emailForUser(m.id);
     await notify({

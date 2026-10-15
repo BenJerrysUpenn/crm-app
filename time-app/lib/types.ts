@@ -1,4 +1,7 @@
-export type Role = "manager" | "employee";
+// The roles a profile can hold. An owner can do everything a manager can
+// (lib/roles.ts). Migration 42.
+export const ROLES = ["owner", "manager", "employee"] as const;
+export type Role = (typeof ROLES)[number];
 
 export type Profile = {
   id: string; // uuid, references auth.users

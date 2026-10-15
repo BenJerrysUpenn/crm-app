@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { isISODate } from "@/lib/holidays";
 import { checkLiveWeekCoverage } from "@/lib/weekCoverage";
+import { isManager } from "@/lib/roles";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export const fetchCache = "force-no-store";
 // notifications.
 export async function GET(request: Request) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const weekStart = new URL(request.url).searchParams.get("weekStart");

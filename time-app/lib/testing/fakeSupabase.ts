@@ -177,7 +177,10 @@ function callerOf(headers: Headers): Caller {
 
 function isManager(caller: Caller): boolean {
   if (caller.kind !== "user") return false;
-  return fake.tables.profiles?.some((p) => p.id === caller.id && p.role === "manager") ?? false;
+  // public.is_manager() as migration 42 writes it: role in ('manager', 'owner').
+  // Spelled out here, not taken from lib/roles.ts, so the stand-in database
+  // cannot drift along with the code under test.
+  return fake.tables.profiles?.some((p) => p.id === caller.id && ["manager", "owner"].includes(p.role as string)) ?? false;
 }
 
 const OWN_ROWS: Record<string, string> = {

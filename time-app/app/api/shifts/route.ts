@@ -5,6 +5,7 @@ import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 // POST: create a shift (manager only). Body: employee_id, starts_at, ends_at,
 // position, notes, location_id, confirmLong.
@@ -26,7 +27,7 @@ import { NextResponse } from "next/server";
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  if (profile.role !== "manager")
+  if (!isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await request.json();

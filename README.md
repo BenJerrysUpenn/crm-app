@@ -19,7 +19,21 @@ Set both in Vercel (Project Settings, Environment Variables). Do not commit them
 
 A `.env.example` is included as a reference. For local dev, copy it to `.env.local`.
 
+### Who gets in
+`profiles.role` decides, through `lib/roles.ts`: `manager` and `owner` reach
+the CRM, `employee` does not. An owner passes every manager gate (in the
+database too: `is_manager()` is true for owners). `profiles.active` means "on
+the staff roster" and is never an access check; access ends by banning the
+login. The owner role and its guard are time-app migration 42, applied by
+hand in the Supabase SQL editor after both apps deploy (its header has the
+order; `migration_42_verify.sql` checks it, `migration_42_down.sql` reverses it).
+
 ### Personal-finance pages (`/money`, `/dial`, `/safe`)
+**Owners only** (the `owner` role). Each page reads the feed only through
+`loadPfForOwner()` in `lib/pf/access.ts`, which answers anyone else signed in
+with a 404, so the pages do not admit they exist; signed out goes to `/login`.
+The middleware's role gate still sends an employee to `/no-access`, as it does
+on every CRM path.
 These pages sit behind the same Supabase auth as the rest of the app and read
 a single JSON feed **server-side only** (never from a public path). Feed
 source is resolved in this order:
@@ -28,7 +42,6 @@ source is resolved in this order:
 | --- | --- |
 | `PF_DATA_PATH` | Local file path to `pf_data.json` (dev; point it at `fixtures/pf_data.sample.json` for synthetic data) |
 | `PF_GITHUB_TOKEN` | Fine-grained GitHub PAT with contents:read on the private data repo only; used to fetch the feed from its `pf-data` branch via the GitHub contents API (prod on Vercel; server-only, cached ~5 min) |
-| `PF_ALLOWED_USER_IDS` | Supabase auth user IDs (comma or space separated) allowed to open `/safe`, `/money`, `/dial`. Server-only. Unset or empty fails closed: nobody gets in, and any other signed-in user gets a 404. Enforced in `lib/pf/guard.ts` |
 
 With neither set, the pages render a "feed not wired yet" state. No real
 financial data or secrets are ever committed to this repo.
@@ -134,7 +147,7 @@ a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
 ## Metrics page (Withers Time)
-`time-app/` serves `/metrics` on the finance host (bj-finance #671), managers only: the page,
+`time-app/` serves `/metrics` on the finance host (bj-finance #671), managers and owners only: the page,
 the `/api/metrics/*` routes and RLS each check it. `lib/metrics/load.ts` reads the CRM and time
 clock tables as the signed-in manager; a section that fails to read is reported in `problems`,
 never drawn as zeros. Saved views live in `public.metric_views` and `metric_preferences`
