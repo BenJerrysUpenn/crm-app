@@ -126,7 +126,7 @@ All manager-only (`isManager`, so owners too), all service-role writes after the
 - `POST /api/staffing/:id/run` runs or retries pending automatic steps in order.
 - `PATCH /api/staffing/:id/steps/:key` body `{ note?, skipped?, fob_card_id?, qbo_employee_id? }` marks a worker or manual step done by hand; `{ reopen: true }` puts it back.
 - `PATCH /api/staffing/:id` body `{ status: "cancelled" | "open" }`.
-- `POST /api/profiles` is unchanged (the bj-finance script still uses it) and shares `lib/team.ts` with the invite step.
+- `POST /api/profiles` (the bj-finance script uses it) shares `lib/team.ts` with the invite step.
 
 ## Code map
 
