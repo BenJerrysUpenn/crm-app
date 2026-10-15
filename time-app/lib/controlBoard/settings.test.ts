@@ -45,8 +45,9 @@ test("a change adds a dated value: the value in force on a day is the latest one
 
 test("a same-day correction wins over the value it corrects (later recorded, then higher id), as control_settings_on() does", () => {
   const rows = [
-    row({ id: 5, value: 0.2, effective_from: "2030-04-01", recorded_at: "2030-04-01T10:00:00Z" }),
-    row({ id: 6, value: 0.25, effective_from: "2030-04-01", recorded_at: "2030-04-01T11:00:00Z" }),
+    // The correction has the lower id, so only recorded_at can pick it.
+    row({ id: 6, value: 0.2, effective_from: "2030-04-01", recorded_at: "2030-04-01T10:00:00Z" }),
+    row({ id: 5, value: 0.25, effective_from: "2030-04-01", recorded_at: "2030-04-01T11:00:00Z" }),
   ];
   assert.equal(inForce(rows, "2030-04-02")?.value, 0.25);
   const sameInstant = [row({ id: 7, value: 0.3, effective_from: "2030-04-01" }), row({ id: 8, value: 0.35, effective_from: "2030-04-01" })];
@@ -129,6 +130,7 @@ test("the schedule rules store their parts: the catering cap, and the solo-close
   const wc = parseSettingInput({ key: "tax.workers_comp", value: 1.5, detail: { class_code: " 1234 " }, ...note });
   assert.ok(wc.ok);
   assert.deepEqual(wc.value.detail, { class_code: "1234" });
+  assert.equal(parseSettingInput({ key: "tax.workers_comp", value: 1.5, detail: { class_code: "x".repeat(41) }, ...note }).ok, false, "a class code is at most 40 characters");
 });
 
 test("only the fields a setting declares are stored", () => {
