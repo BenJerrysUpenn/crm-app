@@ -30,6 +30,23 @@ function post(path: string, body: unknown): Request {
 
 const NOTE = { effective_from: "2030-01-01", review_by: "2031-01-01", source: "invented for the test", method: "by hand" };
 
+// Refuse one specific read for a reason other than a missing table (a policy
+// refusal, as PostgREST answers one), at the HTTP boundary -- the row filtered
+// by `id=eq.<forId>`, so the route's own auth read of profiles still goes
+// through. Everything else goes on to the fake project; beforeEach reinstalls
+// the fake fetch.
+function refuseReadOf(table: string, forId: string) {
+  const project = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === `/rest/v1/${table}` && url.searchParams.get("id") === `eq.${forId}`) {
+      return Response.json({ code: "42501", details: null, hint: null, message: `permission denied for table ${table}` }, { status: 403 });
+    }
+    return project(request);
+  }) as typeof fetch;
+}
+
 let db: FakeSupabase;
 
 beforeEach(() => {
@@ -127,6 +144,15 @@ test("a salary is only for someone whose Pay is Salaried", async () => {
   const nobody = await salary.POST(post("targets/salary", { profile_id: "00000000-0000-0000-0000-0000000000ff", annual_salary: 1000, ...NOTE }));
   assert.equal(nobody.status, 404);
   assert.equal(db.rows("profile_salaries").length, 0);
+});
+
+test("a profiles read refused for any other reason answers the read failure, not 404 'No such person'", async () => {
+  db.signIn(OWNER);
+  refuseReadOf("profiles", SALARIED);
+  const res = await salary.POST(post("targets/salary", { profile_id: SALARIED, annual_salary: 1000, ...NOTE }));
+  assert.equal(res.status, 500);
+  assert.match((await res.json()).error, /could not be read: permission denied for table profiles/);
+  assert.equal(db.rows("profile_salaries").length, 0, "nothing is written on a failed read");
 });
 
 test("before migration 43 the salary route answers that it needs the migration", async () => {

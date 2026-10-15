@@ -28,11 +28,12 @@ export async function POST(request: Request) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   const supabase = createClient();
-  const { data: person } = await supabase
+  const { data: person, error } = await supabase
     .from("profiles")
     .select("id, pay_type")
     .eq("id", parsed.value.profile_id)
     .maybeSingle();
+  if (error) return NextResponse.json({ error: `The team could not be read: ${error.message}` }, { status: 500 });
   if (!person) return NextResponse.json({ error: "No such person." }, { status: 404 });
   if (person.pay_type !== "salaried")
     return NextResponse.json({ error: "Set their Pay to Salaried on the Team page first." }, { status: 400 });
