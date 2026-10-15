@@ -120,6 +120,20 @@ test("a manager can't add someone with a name over 100 characters, and no invite
   assert.equal(emails.length, 0);
 });
 
+test("a manager adds someone by name: their profile and invite carry the name trimmed, and the email greets them by first name", async () => {
+  const res = await add({ email: "pat.diaz@example.test", full_name: "  Pat Diaz  " });
+  assert.equal(res.status, 200);
+  const added = db.rows("profiles").filter((p) => ![BOSS, SAM, OLD].includes(p.id as string));
+  assert.deepEqual(added.map((p) => p.full_name), ["Pat Diaz"], "the new team member's profile holds the trimmed name");
+  assert.equal(linkRequests.length, 1);
+  assert.equal(linkRequests[0].email, "pat.diaz@example.test");
+  assert.deepEqual(linkRequests[0].data, { full_name: "Pat Diaz" });
+  assert.equal(emails.length, 1);
+  assert.equal(emails[0].to, "pat.diaz@example.test");
+  assert.match(emails[0].text, /^Hi Pat,\n/);
+  assert.match(emails[0].text, /\nAlex Boss added you to Withers Time,/);
+});
+
 // ---- resending an invite: an email-as-name never reaches the invite ---------
 
 test("a resent invite greets a named person by first name and carries their name", async () => {
