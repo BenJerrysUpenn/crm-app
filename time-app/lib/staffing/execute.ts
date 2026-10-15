@@ -8,8 +8,11 @@
 // mark it done here.
 //
 // Every write goes through the service-role client after the route has
-// already checked the caller is a manager. Reads through that client are
-// no-store (see lib/supabase/admin.ts), so a record never comes back stale.
+// already checked the caller is a manager. The database's owner guard
+// (migration 42) trusts the service role, so the owner rule is checked here
+// too: a record about an owner is run only by an owner (canEditProfile in
+// lib/roles.ts), whoever created it. Reads through that client are no-store
+// (see lib/supabase/admin.ts), so a record never comes back stale.
 //
 // No handler here deletes a profile or an auth user. Offboarding bans the
 // login and revokes sessions; time_entries cascade from profiles, so a
@@ -17,6 +20,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { inviteTeamMember } from "@/lib/team";
+import { canEditProfile, OWNER_ONLY_EDIT } from "@/lib/roles";
 import type {
   Lifecycle,
   LifecycleKind,
@@ -156,7 +160,7 @@ const handlers: Record<string, (c: Ctx) => Promise<Outcome>> = {
       hourly_rate: f.pay_rate,
       preferred_name: f.preferred_name,
       start_date: f.start_date,
-      invitedBy: actor.me.full_name,
+      me: actor.me,
       origin: actor.origin,
     });
     if (!r.ok) return { ok: false, result: r.error };
@@ -246,6 +250,24 @@ async function assignFob(
   return { ok: true, result: `Card ${card_id} assigned` };
 }
 
+// Why `actor` may not act on the person this record is about, or null. A
+// record with no person yet (an invite before it is sent) has nobody to
+// protect; inviteTeamMember checks the email itself.
+export async function targetRefusal(
+  admin: SupabaseClient,
+  employee_id: string | null,
+  actor: Actor,
+): Promise<string | null> {
+  if (!employee_id) return null;
+  const { data: target, error } = await admin
+    .from("profiles")
+    .select("role")
+    .eq("id", employee_id)
+    .maybeSingle();
+  if (error) return error.message;
+  return canEditProfile(actor.me, target) ? null : OWNER_ONLY_EDIT;
+}
+
 async function setStep(
   admin: SupabaseClient,
   step: LifecycleStep,
@@ -264,13 +286,16 @@ export async function runAutoSteps(
   const admin = createAdminClient();
   const rec = await loadLifecycle(admin, id);
   if (!rec || rec.status !== "open") return rec;
+  const refused = await targetRefusal(admin, rec.employee_id, actor);
 
   for (const step of rec.steps) {
     if (step.mode !== "auto") continue;
     if (step.status !== "pending" && step.status !== "failed") continue;
     const handler = handlers[step.key];
     let out: Outcome;
-    if (!handler) {
+    if (refused) {
+      out = { ok: false, result: refused };
+    } else if (!handler) {
       out = { ok: false, result: `No handler for step ${step.key}` };
     } else {
       try {
@@ -314,6 +339,8 @@ export async function completeManualStep(
   const step = rec.steps.find((s) => s.key === key);
   if (!step) return { rec, error: "No such step" };
   if (step.mode === "auto") return { rec, error: "That step runs automatically; use Run" };
+  const refused = await targetRefusal(admin, rec.employee_id, actor);
+  if (refused) return { rec, error: refused };
 
   let result = (input.note ?? "").trim() || null;
 

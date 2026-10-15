@@ -18,6 +18,7 @@
 // Nothing in this file touches the database. lib/staffing/execute.ts runs
 // the auto steps and applies the side effects of marking a step done.
 import type { LifecycleStep, Role, WorkerSystem } from "@/lib/types";
+import { isManagerRole } from "@/lib/roles";
 
 export const SQUARE_TEAM_URL = "https://app.squareup.com/dashboard/team";
 export const SLACK_ADMIN_URL = "https://benandjerrys4-nsh6689.slack.com/admin";
@@ -165,7 +166,7 @@ export function inviteSteps(f: InviteForm, kind: "onboarding" | "reinvite"): Ste
   }
 
   if (has("slack")) {
-    const channels = f.role === "manager" ? ["#attendance-chat", "#managers-chat"] : ["#attendance-chat"];
+    const channels = isManagerRole(f.role) ? ["#attendance-chat", "#managers-chat"] : ["#attendance-chat"];
     steps.push({
       key: "slack_invite",
       mode: "worker",
@@ -265,7 +266,7 @@ export function inviteSteps(f: InviteForm, kind: "onboarding" | "reinvite"): Ste
         reason: "no Admin SDK credential is registered; the worker drives Google Groups as the manager",
         lines: [
           `groups.google.com -> ${GOOGLE_GROUP} -> Members -> Add members -> ${f.email}`,
-          ...(f.role === "manager"
+          ...(isManagerRole(f.role)
             ? ["Managers may also get a @withers-ventures.com Workspace account; that policy is undecided and the worker does not create one."]
             : []),
         ],

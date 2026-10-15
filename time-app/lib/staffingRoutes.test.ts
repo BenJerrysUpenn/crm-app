@@ -173,7 +173,7 @@ test("offboarding someone with no fob says so and still completes the access rem
 });
 
 test("the access-removal chain stops at the first failure, and Run retries from there", async () => {
-  db.rpc = {}; // migration 23's revoke_user_sessions not applied yet
+  db.rpc = {}; // migration 44's revoke_user_sessions not applied yet
   const { json } = await offboardSam();
   const rec = json.record!;
   assert.equal(step(rec, "auth_ban").status, "done");
@@ -576,4 +576,124 @@ test("POST /api/profiles refuses an address with no @ before inviting anyone", a
   assert.equal(res.status, 400);
   assert.equal(((await res.json()) as { error: string }).error, "Valid email required");
   assert.deepEqual(db.authUsers.map((u) => u.email), ["manager@example.test", "sam@example.test", "kit@example.test"]);
+});
+
+// ---- owners (migration 42): the same rule as the rest of the Team page ----------------
+//
+// Every staffing write goes through the service role, which the database's
+// owner guard trusts, so the routes ask canEditProfile / canAssignRole
+// (lib/roles.ts) themselves: only an owner may offboard or re-invite an
+// owner, or give the owner role. Owners pass every manager gate.
+
+const OWNER = "00000000-0000-0000-0000-0000000000a1";
+const OTHER_OWNER = "00000000-0000-0000-0000-0000000000a2";
+
+function addOwners() {
+  db.rows("profiles").push(
+    { id: OWNER, role: "owner", active: false, full_name: "Owner One" },
+    { id: OTHER_OWNER, role: "owner", active: false, full_name: "Owner Two" },
+  );
+  db.authUsers.push(
+    { id: OWNER, email: "owner-one@example.test" },
+    { id: OTHER_OWNER, email: "owner-two@example.test" },
+  );
+}
+const offboardOtherOwner = (extra: Record<string, unknown> = {}) =>
+  submit({ kind: "offboarding", employee_id: OTHER_OWNER, last_day: "2026-09-15", reason: "Quit", ...extra });
+
+test("a manager cannot offboard an owner: refused before a record exists, and the login is untouched", async () => {
+  addOwners();
+  const { status, json } = await offboardOtherOwner();
+  assert.equal(status, 403);
+  assert.equal(json.error, "Only an owner can change an owner's account or give someone the owner role.");
+  assert.deepEqual(db.rows("staff_lifecycle"), []);
+  assert.equal(authUser(OTHER_OWNER).ban_duration, undefined);
+  assert.deepEqual(revoked, []);
+  assert.equal(profile(OTHER_OWNER).role, "owner");
+});
+
+test("an owner passes the manager gate: offboards a manager and the other owner", async () => {
+  addOwners();
+  db.signIn(OWNER);
+  const sam = await offboardSam();
+  assert.equal(sam.status, 200);
+  assert.equal(authUser(SAM).ban_duration, "876000h");
+
+  const other = await offboardOtherOwner();
+  assert.equal(other.status, 200);
+  assert.equal(other.json.ran, true);
+  assert.equal(authUser(OTHER_OWNER).ban_duration, "876000h");
+  assert.equal(profile(OTHER_OWNER).role, "employee");
+});
+
+test("Run on an owner's offboarding refuses a manager, whoever created it, and changes nothing", async () => {
+  addOwners();
+  db.signIn(OWNER);
+  const { json } = await offboardOtherOwner({ last_day: "2999-12-31" });
+  assert.equal(json.ran, false);
+
+  db.signIn(MANAGER);
+  const ran = await runRecord(json.record!.id);
+  assert.equal(ran.status, 200);
+  const ban = step(ran.json.record!, "auth_ban");
+  assert.equal(ban.status, "failed");
+  assert.equal(ban.result, "Only an owner can change an owner's account or give someone the owner role.");
+  assert.ok(ran.json.record!.steps.filter((s) => s.key !== "auth_ban" && s.mode === "auto").every((s) => s.status === "pending"));
+  assert.equal(authUser(OTHER_OWNER).ban_duration, undefined);
+  assert.deepEqual(revoked, []);
+  assert.equal(profile(OTHER_OWNER).role, "owner");
+
+  db.signIn(OWNER);
+  const retried = await runRecord(json.record!.id);
+  assert.equal(step(retried.json.record!, "auth_ban").status, "done");
+  assert.equal(authUser(OTHER_OWNER).ban_duration, "876000h");
+});
+
+test("a manager cannot tick off a step on an owner's record", async () => {
+  addOwners();
+  db.signIn(OWNER);
+  const { json } = await offboardOtherOwner({ last_day: "2999-12-31" });
+
+  db.signIn(MANAGER);
+  const r = await tick(json.record!.id, "final_pay", { note: "paid" });
+  assert.equal(r.status, 400);
+  assert.equal(r.json.error, "Only an owner can change an owner's account or give someone the owner role.");
+  assert.equal(db.rows("staff_lifecycle_steps").find((s) => s.lifecycle_id === json.record!.id && s.key === "final_pay")!.status, "pending");
+});
+
+test("a manager cannot re-invite an owner: refused before a record exists or a link is sent", async () => {
+  addOwners();
+  process.env.RESEND_API_KEY = "test-resend-key";
+  const { status, json } = await submit({ kind: "reinvite", employee_id: OTHER_OWNER, legal_name: "Owner Two", role: "employee" });
+  assert.equal(status, 403);
+  assert.equal(json.error, "Only an owner can change an owner's account or give someone the owner role.");
+  assert.deepEqual(db.rows("staff_lifecycle"), []);
+  assert.deepEqual(db.outbox, []);
+  assert.equal(profile(OTHER_OWNER).active, false);
+});
+
+test("a manager cannot add someone as an owner; an owner can", async () => {
+  const refused = await submit({ kind: "onboarding", legal_name: "Robin Test", email: "robin@example.test", role: "owner", systems: [] });
+  assert.equal(refused.status, 403);
+  assert.deepEqual(db.rows("staff_lifecycle"), []);
+  assert.equal(db.authUsers.some((u) => u.email === "robin@example.test"), false);
+
+  addOwners();
+  db.signIn(OWNER);
+  const ok = await submit({ kind: "onboarding", legal_name: "Robin Test", email: "robin@example.test", role: "owner", systems: [] });
+  assert.equal(ok.status, 200);
+  assert.equal(step(ok.json.record!, "withers_time_invite").status, "done");
+  assert.equal(profile(ok.json.record!.employee_id!).role, "owner");
+});
+
+test("Add employee with an owner's email is refused for a manager before any link is sent", async () => {
+  addOwners();
+  process.env.RESEND_API_KEY = "test-resend-key";
+  const { json } = await submit({ kind: "onboarding", legal_name: "Someone", email: "Owner-Two@example.test", systems: [] });
+  const inv = step(json.record!, "withers_time_invite");
+  assert.equal(inv.status, "failed");
+  assert.equal(inv.result, "Only an owner can change an owner's account or give someone the owner role.");
+  assert.deepEqual(db.outbox, []);
+  assert.equal(profile(OTHER_OWNER).role, "owner");
+  assert.equal(profile(OTHER_OWNER).active, false);
 });

@@ -1,4 +1,7 @@
-export type Role = "manager" | "employee";
+// The roles a profile can hold. An owner can do everything a manager can
+// (lib/roles.ts). Migration 42.
+export const ROLES = ["owner", "manager", "employee"] as const;
+export type Role = (typeof ROLES)[number];
 
 export type Profile = {
   id: string; // uuid, references auth.users
@@ -23,8 +26,8 @@ export type Profile = {
   archived_at?: string | null;
   notif_prefs: Record<string, boolean> | null;
   // Staffing forms (lib/staffing/). Optional because the columns arrive in
-  // migration 23; undefined means the column is not there yet. qbo_employee_id
-  // is declared above; migrations 23 and 26 both add it with add column if
+  // migration 44; undefined means the column is not there yet. qbo_employee_id
+  // is declared above; migrations 26 and 44 both add it with add column if
   // not exists, so it is one column whichever runs first.
   preferred_name?: string | null;
   start_date?: string | null; // YYYY-MM-DD
@@ -199,7 +202,7 @@ export type ClockinReminderAck = {
 };
 
 // One staffing form submission (onboarding, reinvite, offboarding) and its
-// ordered checklist. See lib/staffing/ and supabase/migration_23.sql.
+// ordered checklist. See lib/staffing/ and supabase/migration_44.sql.
 export type LifecycleKind = "onboarding" | "reinvite" | "offboarding";
 export type LifecycleStatus = "open" | "done" | "cancelled";
 // auto = the app does it in the request; worker = queued for the bj-finance
@@ -225,7 +228,7 @@ export type LifecycleStep = {
   status: StepStatus;
   label: string;
   detail: StepDetail;
-  // Worker contract (mode = "worker"); see supabase/migration_23.sql.
+  // Worker contract (mode = "worker"); see supabase/migration_44.sql.
   system: WorkerSystem | null;
   action: string | null;
   payload: Record<string, unknown>;

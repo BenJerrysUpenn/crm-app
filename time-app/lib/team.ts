@@ -7,21 +7,31 @@
 // (modules/onboarding/adapters.py) automates Withers-time by POSTing to
 // /api/profiles; this function is what that call runs, which is why the
 // staffing steps call it directly instead of going round through HTTP.
+//
+// Every write below goes through the service role, which the database's
+// owner guard (migration 42) trusts, so the owner rules are checked here,
+// before anything is sent: only an owner may give the owner role, and only
+// an owner may re-invite an owner's account (lib/roles.ts).
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendInvite } from "@/lib/authLinks";
 import type { Delivery } from "@/lib/authLinks";
+import { canAssignRole, canEditProfile, isRole, OWNER_ONLY_EDIT } from "@/lib/roles";
 import type { Role } from "@/lib/types";
+
+// Who is sending the invite: their role decides what they may do, their
+// name goes on the email.
+export type Inviter = { role: string | null; full_name: string | null };
 
 export type InviteInput = {
   email: string;
   full_name: string;
-  role?: Role;
+  role?: unknown;
   phone?: string | null;
   hourly_rate?: number | null;
   preferred_name?: string | null;
   start_date?: string | null; // YYYY-MM-DD
-  invitedBy: string | null;
+  me: Inviter;
   origin: string;
 };
 
@@ -41,9 +51,10 @@ export function validName(raw: unknown): string | null {
   return s;
 }
 
-// Anything other than "manager" is an employee.
+// Anything unrecognised is an employee. Whether the inviter may give the
+// role is canAssignRole's question, not this one's.
 export function normaliseRole(raw: unknown): Role {
-  return raw === "manager" ? "manager" : "employee";
+  return isRole(raw) ? raw : "employee";
 }
 
 export async function inviteTeamMember(input: InviteInput): Promise<InviteResult> {
@@ -55,6 +66,8 @@ export async function inviteTeamMember(input: InviteInput): Promise<InviteResult
   if (!full_name)
     return { ok: false, error: "Full name required (not an email)", status: 400 };
   const role = normaliseRole(input.role);
+  if (!canAssignRole(input.me, role))
+    return { ok: false, error: OWNER_ONLY_EDIT, status: 403 };
   const phone = (input.phone ?? "").trim() || null;
   const hourly_rate =
     typeof input.hourly_rate === "number" && !isNaN(input.hourly_rate)
@@ -63,24 +76,41 @@ export async function inviteTeamMember(input: InviteInput): Promise<InviteResult
 
   const admin = createAdminClient();
 
+  // Re-inviting an existing account rewrites its role and active flag below,
+  // so a manager is refused here, before anything is sent, when the email
+  // belongs to an owner.
+  const { data: before } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  const existing = (before?.users ?? []).find(
+    (u) => (u.email ?? "").toLowerCase() === email,
+  );
+  if (existing) {
+    const { data: existingProfile } = await admin
+      .from("profiles")
+      .select("role")
+      .eq("id", existing.id)
+      .maybeSingle();
+    if (!canEditProfile(input.me, existingProfile))
+      return { ok: false, error: OWNER_ONLY_EDIT, status: 403 };
+  }
+
   // Creates the auth user (which fires handle_new_user) and emails the link.
   const invite = await sendInvite({
     email,
     fullName: full_name,
-    invitedBy: input.invitedBy,
+    invitedBy: input.me.full_name,
     origin: input.origin,
   });
   if ("error" in invite) return { ok: false, error: invite.error, status: 400 };
 
   // A re-invite goes out as a magic link, which doesn't always carry the
   // user back, so look the existing account up by email in that case.
-  let userId = invite.userId;
+  let userId = invite.userId ?? existing?.id ?? null;
   if (!userId) {
     const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    const existing = (list?.users ?? []).find(
+    const created = (list?.users ?? []).find(
       (u) => (u.email ?? "").toLowerCase() === email,
     );
-    userId = existing?.id ?? null;
+    userId = created?.id ?? null;
   }
   if (!userId) return { ok: false, error: "No user id returned", status: 500 };
 

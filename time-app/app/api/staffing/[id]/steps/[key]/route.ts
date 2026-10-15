@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProfile } from "@/lib/auth";
+import { isManager } from "@/lib/roles";
 import { siteOrigin } from "@/lib/authLinks";
 import { completeManualStep, reopenStep } from "@/lib/staffing/execute";
 
@@ -16,7 +17,7 @@ export async function PATCH(
   { params }: { params: { id: string; key: string } },
 ) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || !isManager(me))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const id = Number(params.id);
   if (!Number.isInteger(id)) return NextResponse.json({ error: "Bad id" }, { status: 400 });

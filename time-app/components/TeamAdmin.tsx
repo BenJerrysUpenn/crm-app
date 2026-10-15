@@ -16,6 +16,8 @@ import type {
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
 import { PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/payroll/payType";
+import { assignableRoles, canEditProfile } from "@/lib/roles";
+import type { Role } from "@/lib/types";
 import {
   FINAL_PAY_NOTE_DEFAULT,
   OFFBOARD_REASONS,
@@ -33,6 +35,12 @@ import {
   isArchived,
   splitArchived,
 } from "@/lib/teamArchive";
+
+const ROLE_LABELS: Record<Role, string> = {
+  employee: "Employee",
+  manager: "Manager",
+  owner: "Owner",
+};
 
 // What the Team page sends to PATCH /api/profiles/:id. archived_at is sent as
 // true (archive now, the server stamps the time) or null (unarchive).
@@ -83,6 +91,7 @@ function SystemPicker({
 }
 
 export default function TeamAdmin({
+  viewerRole,
   employees,
   locations,
   emailById,
@@ -96,6 +105,9 @@ export default function TeamAdmin({
   storeHoursReady,
   holidays,
 }: {
+  // The signed-in person's role. Decides which roles the forms offer and
+  // which rows are read-only (a manager cannot edit an owner).
+  viewerRole: Role;
   employees: Profile[];
   locations: Location[];
   emailById: Record<string, string>;
@@ -126,7 +138,9 @@ export default function TeamAdmin({
   const [newName, setNewName] = useState("");
   const [newPreferred, setNewPreferred] = useState("");
   const [newPhone, setNewPhone] = useState("");
-  const [newRole, setNewRole] = useState<"employee" | "manager">("employee");
+  const [newRole, setNewRole] = useState<Role>("employee");
+  const viewer = { role: viewerRole };
+  const roleOptions = assignableRoles(viewer);
   const [newRate, setNewRate] = useState<string>("");
   const [newStart, setNewStart] = useState("");
   const [newFob, setNewFob] = useState("");
@@ -259,9 +273,10 @@ export default function TeamAdmin({
               <input type="text" required placeholder="full legal name (required, as on payroll)" value={newName} onChange={(e) => setNewName(e.target.value)} className={field} />
               <input type="text" placeholder="preferred name" value={newPreferred} onChange={(e) => setNewPreferred(e.target.value)} className={field} />
               <input type="tel" placeholder="phone (for SMS)" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} className={field} />
-              <select value={newRole} onChange={(e) => setNewRole(e.target.value as "employee" | "manager")} className={field}>
-                <option value="employee">Employee</option>
-                <option value="manager">Manager</option>
+              <select value={newRole} onChange={(e) => setNewRole(e.target.value as Role)} className={field}>
+                {roleOptions.map((r) => (
+                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                ))}
               </select>
               <input type="number" step="0.01" placeholder="hourly rate" value={newRate} onChange={(e) => setNewRate(e.target.value)} className={field} />
               <label className={fieldLabel}>Start date
@@ -304,7 +319,7 @@ export default function TeamAdmin({
             </thead>
             <tbody>
               {current.map((e) => (
-                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} onSave={saveProfile} onResend={resendInvite} />
+                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} editable={canEditProfile(viewer, e)} roleOptions={roleOptions} onSave={saveProfile} onResend={resendInvite} />
               ))}
             </tbody>
             {showArchived && archived.length > 0 && (
@@ -315,7 +330,7 @@ export default function TeamAdmin({
                   </th>
                 </tr>
                 {archived.map((e) => (
-                  <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} onSave={saveProfile} onResend={resendInvite} />
+                  <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} editable={canEditProfile(viewer, e)} roleOptions={roleOptions} onSave={saveProfile} onResend={resendInvite} />
                 ))}
               </tbody>
             )}
@@ -555,6 +570,8 @@ function EmployeeRow({
   email,
   saving,
   archiveReady,
+  editable,
+  roleOptions,
   onSave,
   onResend,
 }: {
@@ -562,6 +579,9 @@ function EmployeeRow({
   email: string;
   saving: boolean;
   archiveReady: boolean;
+  // False on an owner's row when a manager is looking: shown, not editable.
+  editable: boolean;
+  roleOptions: Role[];
   onSave: (id: string, patch: ProfilePatch) => Promise<string | null>;
   onResend: (id: string) => Promise<string>;
 }) {
@@ -716,7 +736,7 @@ function EmployeeRow({
       <tr className="border-t border-slate-200 dark:border-slate-800">
         <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">{email || "—"}</td>
         <td className="px-3 py-2">
-          <input value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className={`${rowCls} w-40`} />
+          <input disabled={!editable} value={name} onChange={(ev) => setName(ev.target.value)} onBlur={() => onSave(e.id, { full_name: name })} className={`${rowCls} w-40`} />
           {e.active && !e.has_workforce && (
             <div className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5" title="Not payable until QuickBooks Workforce self-setup is finished">
               Workforce not finished
@@ -724,19 +744,21 @@ function EmployeeRow({
           )}
         </td>
         <td className="px-3 py-2">
-          <input value={phone} onChange={(ev) => setPhone(ev.target.value)} onBlur={() => onSave(e.id, { phone })} placeholder="+1215..." className={`${rowCls} w-32`} />
+          <input disabled={!editable} value={phone} onChange={(ev) => setPhone(ev.target.value)} onBlur={() => onSave(e.id, { phone })} placeholder="+1215..." className={`${rowCls} w-32`} />
         </td>
         <td className="px-3 py-2">
-          <select value={role} onChange={(ev) => { const r = ev.target.value as Profile["role"]; setRole(r); onSave(e.id, { role: r }); }} className={rowCls}>
-            <option value="employee">employee</option>
-            <option value="manager">manager</option>
+          <select disabled={!editable} value={role} onChange={(ev) => { const r = ev.target.value as Profile["role"]; setRole(r); onSave(e.id, { role: r }); }} className={rowCls}>
+            {(roleOptions.includes(e.role) ? roleOptions : [e.role, ...roleOptions]).map((r) => (
+              <option key={r} value={r} disabled={!roleOptions.includes(r)}>{r}</option>
+            ))}
           </select>
         </td>
         <td className="px-3 py-2 text-right">
-          <input value={rate} onChange={(ev) => setRate(ev.target.value)} onBlur={() => onSave(e.id, { hourly_rate: rate ? Number(rate) : null })} className={`${rowCls} w-20 text-right`} />
+          <input disabled={!editable} value={rate} onChange={(ev) => setRate(ev.target.value)} onBlur={() => onSave(e.id, { hourly_rate: rate ? Number(rate) : null })} className={`${rowCls} w-20 text-right`} />
         </td>
         <td className="px-3 py-2">
           <select
+            disabled={!editable}
             value={payType}
             onChange={(ev) => savePayType(ev.target.value)}
             title="Salaried or hourly. The payroll sheet reads this."
@@ -752,7 +774,7 @@ function EmployeeRow({
           <input
             type="checkbox"
             checked={active}
-            disabled={archivedRow}
+            disabled={archivedRow || !editable}
             title={archivedRow ? "Unarchive first to put them back on the schedule." : "On the schedule and availability. This does not remove their login."}
             onChange={(ev) => saveActive(ev.target.checked)}
             className="disabled:opacity-40"
@@ -762,7 +784,7 @@ function EmployeeRow({
         <td className="px-3 py-2 align-top">
           {email ? (
             <>
-              <button type="button" onClick={resend} disabled={inviteBusy} className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50 whitespace-nowrap">
+              <button type="button" onClick={resend} disabled={inviteBusy || !editable} className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50 whitespace-nowrap">
                 {inviteBusy ? "Sending…" : "Resend invite"}
               </button>
               {inviteMsg && <div className="text-[11px] text-slate-500 mt-0.5 max-w-[220px]">{inviteMsg}</div>}
@@ -772,10 +794,10 @@ function EmployeeRow({
         <td className="px-3 py-2 align-top whitespace-nowrap">
           {email ? (
             <div className="flex gap-2">
-              <button type="button" onClick={() => openPanel("reinvite")} disabled={busy || saving} className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50">
+              <button type="button" onClick={() => openPanel("reinvite")} disabled={busy || saving || !editable} className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50">
                 Re-invite
               </button>
-              <button type="button" onClick={() => openPanel("offboard")} disabled={busy || saving} className="text-xs text-slate-500 hover:text-rose-500 disabled:opacity-50">
+              <button type="button" onClick={() => openPanel("offboard")} disabled={busy || saving || !editable} className="text-xs text-slate-500 hover:text-rose-500 disabled:opacity-50">
                 Offboard
               </button>
             </div>
@@ -788,7 +810,7 @@ function EmployeeRow({
             <button
               type="button"
               onClick={() => setArchived(true)}
-              disabled={saving}
+              disabled={saving || !editable}
               title="Hide from the team, schedule and availability. Does not remove their login."
               className="text-xs text-slate-500 hover:text-rose-500 disabled:opacity-50"
             >
@@ -798,7 +820,7 @@ function EmployeeRow({
             <button
               type="button"
               onClick={() => setArchived(false)}
-              disabled={saving}
+              disabled={saving || !editable}
               title="Put them back in the team list. Tick On schedule if they're back on the floor."
               className="text-xs text-slate-500 hover:text-emerald-500 disabled:opacity-50"
             >

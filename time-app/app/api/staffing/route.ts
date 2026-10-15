@@ -5,13 +5,14 @@ import { siteOrigin } from "@/lib/authLinks";
 import { parseInvite, parseOffboarding, parseUuid } from "@/lib/staffing/forms";
 import { createLifecycle, loadLifecycle, runAutoSteps } from "@/lib/staffing/execute";
 import { todayInNewYork } from "@/lib/timeOff";
+import { canAssignRole, canEditProfile, isManager, OWNER_ONLY_EDIT } from "@/lib/roles";
 import type { LifecycleKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
 // POST /api/staffing
-// Manager-only. Body: { kind: 'onboarding'|'reinvite'|'offboarding', ...form }
+// Manager-only (owners included). Body: { kind: 'onboarding'|'reinvite'|'offboarding', ...form }
 //   onboarding: legal_name, email, preferred_name?, phone?, role?, start_date?,
 //               pay_rate?, fob_card_id?, systems?: ['square','slack','qbo','google','fob']
 //   reinvite:   employee_id + the same fields (email defaults to the login email)
@@ -21,9 +22,12 @@ export const fetchCache = "force-no-store";
 // invite, fob, or the access-removal chain), and leaves worker steps queued
 // for the bj-finance onboarding worker. Offboarding's automatic steps wait
 // while the last day is still ahead unless run_now.
+//
+// Owner rule (lib/roles.ts), checked before any record is created: only an
+// owner may re-invite or offboard an owner, or give the owner role.
 export async function POST(request: Request) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || !isManager(me))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   let body: Record<string, unknown>;
@@ -46,10 +50,19 @@ export async function POST(request: Request) {
       if (!id) return NextResponse.json({ error: "Pick the person" }, { status: 400 });
       const { data: u } = await admin.auth.admin.getUserById(id);
       if (!u.user) return NextResponse.json({ error: "No such team member" }, { status: 400 });
+      const { data: target } = await admin
+        .from("profiles")
+        .select("role")
+        .eq("id", id)
+        .maybeSingle();
+      if (!canEditProfile(me, target))
+        return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
       existing = { id, email: u.user.email ?? null };
     }
     const p = parseInvite(body, existing);
     if (!p.ok) return NextResponse.json({ error: p.error }, { status: 400 });
+    if (!canAssignRole(me, p.form.role))
+      return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
     created = await createLifecycle(admin, {
       kind,
       form: p.form,
@@ -62,9 +75,11 @@ export async function POST(request: Request) {
     if (employee_id) {
       const { data: prof } = await admin
         .from("profiles")
-        .select("id, full_name")
+        .select("id, full_name, role")
         .eq("id", employee_id)
         .maybeSingle();
+      if (prof && !canEditProfile(me, prof))
+        return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
       if (prof) {
         const { data: u } = await admin.auth.admin.getUserById(employee_id);
         lookup = {

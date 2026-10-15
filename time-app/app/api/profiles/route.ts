@@ -2,6 +2,7 @@ import { getProfile } from "@/lib/auth";
 import { siteOrigin } from "@/lib/authLinks";
 import { inviteTeamMember } from "@/lib/team";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 // POST /api/profiles
 //
@@ -13,7 +14,7 @@ import { NextResponse } from "next/server";
 // corresponding profiles row.
 //
 // Body:
-//   { email: string, full_name: string, role?: 'employee'|'manager',
+//   { email: string, full_name: string, role?: 'employee'|'manager'|'owner',
 //     phone?: string, hourly_rate?: number }
 //
 // If the auth user already exists (someone re-invited), we still upsert
@@ -21,18 +22,19 @@ import { NextResponse } from "next/server";
 //
 // The work itself lives in lib/team.ts (inviteTeamMember) so the Team page's
 // Add employee and Re-invite steps (lib/staffing/execute.ts) run the
-// identical path.
+// identical path, owner checks included: only an owner may make someone an
+// owner or re-invite an owner's email (lib/roles.ts).
 //
 // Per Alina 2026-08-27: "Add a way to add new employees on the team page."
 export async function POST(request: Request) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || !isManager(me))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   let body: {
     email?: string;
     full_name?: string;
-    role?: "employee" | "manager";
+    role?: string;
     phone?: string;
     hourly_rate?: number;
   };
@@ -48,7 +50,7 @@ export async function POST(request: Request) {
     role: body.role,
     phone: body.phone,
     hourly_rate: body.hourly_rate,
-    invitedBy: me.full_name,
+    me,
     origin: siteOrigin(request),
   });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });

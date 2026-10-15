@@ -62,9 +62,12 @@ test("a negative pay rate is refused; a typed rate arrives as a number", () => {
   assert.equal(invite({ legal_name: "Riley Test", email: "r@example.test", pay_rate: "" }).pay_rate, null);
 });
 
-test("only 'manager' makes a manager; anything else invites an employee", () => {
+// The form keeps any real role; whether the person submitting it may give
+// that role is the route's question (canAssignRole), tested in staffingRoutes.
+test("a known role is kept as asked; anything unrecognised invites an employee", () => {
   assert.equal(invite({ legal_name: "Riley Test", email: "r@example.test", role: "manager" }).role, "manager");
-  assert.equal(invite({ legal_name: "Riley Test", email: "r@example.test", role: "owner" }).role, "employee");
+  assert.equal(invite({ legal_name: "Riley Test", email: "r@example.test", role: "owner" }).role, "owner");
+  assert.equal(invite({ legal_name: "Riley Test", email: "r@example.test", role: "boss" }).role, "employee");
 });
 
 test("a start date that is not YYYY-MM-DD is dropped rather than stored", () => {

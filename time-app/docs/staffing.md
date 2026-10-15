@@ -1,6 +1,6 @@
 # Staffing: invite, re-invite, offboard from the Team page
 
-The Team page (managers only) is where people are added, re-invited and
+The Team page (managers and owners) is where people are added, re-invited and
 offboarded. Every one of those is a `staff_lifecycle` record with an ordered
 checklist, shown under the team table. Steps come in three kinds:
 
@@ -21,7 +21,7 @@ API is written once in bj-finance `docs/onboarding.md`.
 
 ## Apply first
 
-`supabase/migration_23.sql` in the Supabase SQL editor, after migration_22.
+`supabase/migration_44.sql` in the Supabase SQL editor, after migration_42.
 Safe to re-run. It adds five columns to `profiles` (`preferred_name`,
 `start_date`, `last_day`, `has_workforce`, `qbo_employee_id`), two tables
 (`staff_lifecycle`, `staff_lifecycle_steps`, manager-only RLS), and
@@ -100,6 +100,12 @@ If the last day is still ahead the automatic steps wait; the record shows a
 Run button for the day. "Remove access now" is for a no-show or someone let
 go on the spot. A manager cannot offboard themself.
 
+Owners follow `canEditProfile` in `lib/roles.ts`, as on the rest of the
+Team page: only an owner may re-invite or offboard an owner, or give the
+owner role. The routes refuse before a record is created, and Run and
+marking a step done refuse again at the time (whoever created the record),
+because the service role passes the database's owner guard.
+
 ## Worker contract
 
 The worker reads `public.staff_lifecycle_steps` where `mode = 'worker'` and
@@ -114,7 +120,7 @@ never carries SSN, DOB, address or bank details.
 
 ## API
 
-All manager-only, all service-role writes after the check, all `no-store`.
+All manager-only (`isManager`, so owners too), all service-role writes after the check, all `no-store`.
 
 - `POST /api/staffing` body `{ kind: "onboarding" | "reinvite" | "offboarding", ...form, systems? }` creates the record and runs the automatic steps (offboarding: only when the last day has arrived or `run_now`).
 - `POST /api/staffing/:id/run` runs or retries pending automatic steps in order.
@@ -130,4 +136,4 @@ All manager-only, all service-role writes after the check, all `no-store`.
 - `lib/team.ts` the shared Withers-time invite
 - `components/TeamAdmin.tsx` the add / re-invite / offboard forms
 - `components/StaffingRecords.tsx` the checklists
-- `supabase/migration_23.sql`
+- `supabase/migration_44.sql`

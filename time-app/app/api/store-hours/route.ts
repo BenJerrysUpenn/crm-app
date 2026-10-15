@@ -5,6 +5,7 @@ import { addMonths, isISODate } from "@/lib/holidays";
 import { isMissingTable, parseWeek } from "@/lib/storeHours";
 import type { StoreHours, StoreHoursException } from "@/lib/types";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 // force-dynamic alone does not stop Next caching the fetches this route makes
@@ -65,7 +66,7 @@ export async function GET(request: Request) {
 // Replaces the whole weekly pattern in one save. -> { hours: StoreHours[] }
 export async function PUT(request: Request) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await request.json().catch(() => null);

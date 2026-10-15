@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProfile } from "@/lib/auth";
+import { isManager } from "@/lib/roles";
 import { setLifecycleStatus } from "@/lib/staffing/execute";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,7 @@ export const fetchCache = "force-no-store";
 // a cancelled one. 'done' is never set by hand; it follows from the steps.
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || !isManager(me))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const id = Number(params.id);
   if (!Number.isInteger(id)) return NextResponse.json({ error: "Bad id" }, { status: 400 });
