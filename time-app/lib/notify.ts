@@ -122,7 +122,7 @@ export async function notify(args: NotifyArgs) {
   return { sent_email, sent_sms };
 }
 
-// Notify every active manager (respecting each one's preferences).
+// Notify every manager and owner, on or off the roster (respecting each one's preferences).
 export async function notifyManagers(args: { type: string; title: string; body?: string }) {
   const supabase = createAdminClient();
   const { data: managers } = await supabase
