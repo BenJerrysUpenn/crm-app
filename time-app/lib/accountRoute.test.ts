@@ -81,6 +81,21 @@ test("a body id is ignored; only the caller's own row is written", async () => {
   assert.equal(row(PAT).full_name, "Pat Diaz");
 });
 
+test("a self-edit can't change the manager-only fields: role, pay, active, archive", async () => {
+  const res = await patch({
+    full_name: "Sam Lee",
+    role: "owner",
+    hourly_rate: 99,
+    active: false,
+    archived_at: "2026-09-01T00:00:00Z",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(row(SAM).role, "employee");
+  assert.equal(row(SAM).hourly_rate, undefined);
+  assert.equal(row(SAM).active, true);
+  assert.equal(row(SAM).archived_at, undefined);
+});
+
 test("a signed-out caller is refused and nothing is written", async () => {
   db = startFakeSupabase({
     profiles: [{ id: SAM, role: "employee", active: true, full_name: "Sam Lee", phone: null }],
@@ -88,5 +103,6 @@ test("a signed-out caller is refused and nothing is written", async () => {
   // no signIn
   const res = await patch({ full_name: "Whoever" });
   assert.equal(res.status, 401);
+  assert.equal((await res.json()).error, "Sign in first.");
   assert.equal(row(SAM).full_name, "Sam Lee");
 });
