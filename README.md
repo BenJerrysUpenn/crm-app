@@ -147,7 +147,7 @@ a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
 ## Metrics page (Withers Time)
-`time-app/` serves `/metrics` on the finance host (bj-finance #671), managers only: the page,
+`time-app/` serves `/metrics` on the finance host (bj-finance #671), managers and owners only: the page,
 the `/api/metrics/*` routes and RLS each check it. `lib/metrics/load.ts` reads the CRM and time
 clock tables as the signed-in manager; a section that fails to read is reported in `problems`,
 never drawn as zeros. Saved views live in `public.metric_views` and `metric_preferences`

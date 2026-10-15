@@ -316,11 +316,11 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_36.sql` | `payroll_sheets` (every pay table build and Rebuild request; service-role writes, manager reads, built rows frozen), `payroll_rulings` audited in `row_audit`, and the submittal guard's pay-table condition |
 | `time-app/supabase/migration_42.sql` | the `owner` role: `is_manager()` is now true for owners, so every manager policy here (rulings, submittals, sheets) admits them, and migration 37's travel-reimbursement guard and payroll views read the owner role; `is_owner()` and a profile guard keep the owner role and owners' rows to owners |
 
-All four are applied by hand in the Supabase SQL editor, in order, and all are
-safe to re-run. Each has a `migration_2N_verify.sql` to run afterwards (in a
-transaction that rolls back) and a `migration_2N_down.sql` that reverses it;
+All of these are applied by hand in the Supabase SQL editor, in order, and all are
+safe to re-run. Each has a `migration_N_verify.sql` to run afterwards (in a
+transaction that rolls back) and a `migration_N_down.sql` that reverses it;
 the header of each down script says what data it loses. Roll back in reverse
-order: 28, then 27, then 26, then 25. Until 27
+order: 42, 36, 35, 28, 27, 26, then 25. Until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 
 ## Not built yet

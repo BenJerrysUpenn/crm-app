@@ -143,7 +143,7 @@ HTTPS matters here more than it did for the CRM: phone GPS only works over HTTPS
 
 ### 5d. The finance site (finance.withers-ventures.com)
 
-The manager-only finance pages are served by the same app on their own host (bj-finance #519, ruled 2026-09-27): `finance.withers-ventures.com/payroll` and `/metrics`, with `/` going to `/payroll`. Nothing new to deploy; it is one more domain on the same **time** project.
+The finance pages (managers and owners only) are served by the same app on their own host (bj-finance #519, ruled 2026-09-27): `finance.withers-ventures.com/payroll` and `/metrics`, with `/` going to `/payroll`. Nothing new to deploy; it is one more domain on the same **time** project.
 
 1. In Vercel, open the **time** project, **Settings**, **Domains**, add `finance.withers-ventures.com`. Vercel shows a CNAME value.
 2. Where the `time` record lives, add **Type** CNAME, **Name** `finance`, **Value** the one Vercel showed (for `time` it is `9ac0daf55be63992.vercel-dns-017.com`).
