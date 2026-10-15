@@ -78,7 +78,7 @@ const text = (c: Current | undefined, name: string): string | null => {
 };
 
 /** The math's inputs from the board's values. */
-export function boardInputs(d: Pick<BoardData, "values" | "salaried">): BoardInputs {
+function boardInputs(d: Pick<BoardData, "values" | "salaried">): BoardInputs {
   const v = (k: string) => d.values.get(k)?.value ?? null;
   const tax = (k: string) => {
     const c = d.values.get(k);
@@ -96,10 +96,6 @@ export function boardInputs(d: Pick<BoardData, "values" | "salaried">): BoardInp
     workersCompPer100: v("tax.workers_comp"),
     salaried: d.salaried.map((p) => ({ id: p.id, name: p.name, salary: p.salary ? Number(p.salary.annual_salary) : null })),
   };
-}
-
-export function computeFor(d: BoardData): BoardResults {
-  return computeBoard(boardInputs(d));
 }
 
 const ofSales = (r: BoardResults, n: number | null) =>
@@ -245,6 +241,6 @@ export const CATEGORIES: Category[] = [
 
 /** The board as sections of lines, in category order. */
 export function boardSections(d: BoardData): { cat: Category; lines: Line[] }[] {
-  const r = computeFor(d);
+  const r = computeBoard(boardInputs(d));
   return CATEGORIES.map((cat) => ({ cat, lines: cat.lines({ d, r }) }));
 }
