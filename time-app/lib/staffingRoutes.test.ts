@@ -220,6 +220,22 @@ test("a login ban the auth service refuses stops the chain: nothing else changes
   assert.equal(profile(GONE).active, false);
 });
 
+// docs/staffing.md, "Apply first": without migration 44 the Team page's
+// add / re-invite / offboard actions fail. They fail before acting on anyone.
+test("before migration 44 is applied, a staffing form is refused with the database's error and nobody's access changes", async () => {
+  db.missingTables.push("staff_lifecycle", "staff_lifecycle_steps");
+  const off = await offboardSam();
+  assert.equal(off.status, 400);
+  assert.match(off.json.error ?? "", /staff_lifecycle/);
+  assert.equal(authUser(SAM).ban_duration, undefined);
+  assert.deepEqual(revoked, []);
+  assert.equal(profile(SAM).active, true);
+
+  const add = await submit({ kind: "onboarding", legal_name: "Robin Test", email: "robin@example.test", systems: [] });
+  assert.equal(add.status, 400);
+  assert.equal(db.authUsers.some((u) => u.email === "robin@example.test"), false);
+});
+
 test("a manager cannot offboard themself", async () => {
   const { status, json } = await submit({ kind: "offboarding", employee_id: MANAGER, last_day: "2026-09-15", reason: "Quit" });
   assert.equal(status, 400);
