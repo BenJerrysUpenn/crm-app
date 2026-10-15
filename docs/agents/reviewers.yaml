@@ -126,7 +126,7 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
     docs: [README.md]
-  - paths: ["time-app/lib/profileName.ts", "time-app/lib/authLinks.ts", "time-app/components/TeamAdmin.tsx", "time-app/components/AccountForm.tsx", "time-app/app/api/profiles/**", "time-app/app/api/account/**", "time-app/supabase/migration_21.sql", "time-app/lib/teamArchive.ts", "time-app/components/ScheduleBoard.tsx", "time-app/components/Timesheets.tsx", "time-app/components/TopBar.tsx", "time-app/app/api/availability/**", "time-app/app/api/shifts/**", "time-app/app/api/cron/missed-clockins/route.ts"]
+  - paths: ["time-app/lib/profileName.ts", "time-app/lib/authLinks.ts", "time-app/components/TeamAdmin.tsx", "time-app/components/AccountForm.tsx", "time-app/app/api/profiles/**", "time-app/app/api/account/**", "time-app/supabase/migration_21.sql", "time-app/lib/teamArchive.ts", "time-app/components/ScheduleBoard.tsx", "time-app/components/Timesheets.tsx", "time-app/components/TopBar.tsx", "time-app/app/api/availability/**", "time-app/app/api/shifts/**", "time-app/app/api/cron/missed-clockins/route.ts", "time-app/lib/teamAvailability.ts", "time-app/components/SetPasswordForm.tsx", "time-app/components/ManagerAvailability.tsx", "time-app/components/ClockinRemindersAdmin.tsx", "time-app/app/account/page.tsx", "time-app/app/attendance/page.tsx", "time-app/app/availability/page.tsx", "time-app/app/page.tsx", "time-app/app/reimbursements/page.tsx", "time-app/app/schedule/page.tsx", "time-app/app/team/page.tsx", "time-app/app/timesheets/page.tsx"]
     docs: [time-app/SETUP-GUIDE.md]
   - paths: ["time-app/supabase/migration_41*.sql"]
     docs: [README.md]
