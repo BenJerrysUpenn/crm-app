@@ -8,10 +8,11 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
 // PATCH /api/staffing/:id/steps/:key
-// Manager-only. Marks a manual step done or skipped, with an optional note,
+// Manager-only. Marks a worker or manual step done or skipped, with an optional note,
 // and applies the step's side effect (fob id -> staff_cards, QBO eeid ->
 // profile, Workforce finished -> has_workforce). Body { reopen: true } puts
-// a manual step back to pending.
+// a worker or manual step back to pending. Automatic steps are refused
+// either way (Run re-runs them).
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string; key: string } },
