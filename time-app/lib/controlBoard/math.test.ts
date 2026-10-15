@@ -53,6 +53,7 @@ test("hourly dollars net hourly staff's taxes and WC out of the payroll target, 
   close((r.hourlyDollars.value ?? 0) + (r.hourlyLoadDollars.value ?? 0), 211_800, "hourly wages plus their taxes use the whole pool");
   close(r.hourlyGoalPct.value, 0.189107142857, "hourly goal = hourly dollars / sales estimate");
   // Salaried 8,200 plus hourly 22,692.857143, over 1,000,000 of sales.
+  close(r.allTaxesWc.value, 30_892.857143);
   close(r.allTaxesWcPct.value, 0.030892857143);
 });
 

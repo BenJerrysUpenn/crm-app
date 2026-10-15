@@ -191,7 +191,7 @@ export const CATEGORIES: Category[] = [
       computed("hourlyGoal", "Hourly goal (hourly wages as a share of sales)", { value: null, needs: r.hourlyGoalPct.needs }, {
         share: share(r.hourlyGoalPct), total: true, indent: 0, note: "The schedule sets each day's target from this.",
       }),
-      computed("allTaxesWc", "Taxes and workers' comp, all staff", from2(r.fixedTaxesWc, r.hourlyLoadDollars), { share: share(r.allTaxesWcPct) }),
+      computed("allTaxesWc", "Taxes and workers' comp, all staff", r.allTaxesWc, { share: share(r.allTaxesWcPct) }),
     ],
   },
   {
@@ -242,11 +242,6 @@ export const CATEGORIES: Category[] = [
     },
   },
 ];
-
-function from2(a: Derived, b: Derived): Derived {
-  const needs = [...new Set([...a.needs, ...b.needs])];
-  return needs.length ? { value: null, needs } : { value: (a.value as number) + (b.value as number), needs: [] };
-}
 
 /** The board as sections of lines, in category order. */
 export function boardSections(d: BoardData): { cat: Category; lines: Line[] }[] {

@@ -69,7 +69,9 @@ export type BoardResults = {
   hourlyDollars: Derived;
   hourlyLoadDollars: Derived;
   hourlyGoalPct: Derived;
-  /** Employer taxes and WC for everyone, as a share of sales. */
+  /** Employer taxes and WC for everyone: salaried (with caps) plus hourly (no caps). */
+  allTaxesWc: Derived;
+  /** The same, as a share of sales. */
   allTaxesWcPct: Derived;
 };
 
@@ -151,11 +153,12 @@ export function computeBoard(i: BoardInputs): BoardResults {
   const hourlyDollars = from([hourlyPool, hourlyLoad], (pool, load) => pool / (1 + load));
   const hourlyLoadDollars = from([hourlyDollars, hourlyLoad], (h, load) => h * load);
   const hourlyGoalPct = from([hourlyDollars, salesTotal], (h, s) => (s > 0 ? h / s : null));
-  const allTaxesWcPct = from([fixedTaxesWc, hourlyLoadDollars, salesTotal], (f, h, s) => (s > 0 ? (f + h) / s : null));
+  const allTaxesWc = from([fixedTaxesWc, hourlyLoadDollars], (f, h) => f + h);
+  const allTaxesWcPct = from([allTaxesWc, salesTotal], (t, s) => (s > 0 ? t / s : null));
 
   return {
     salesTotal, cogsDollars, totalPayroll, primeDollars, primeShare, salaried, salaries, fixedTaxesWc, fixedPayroll,
-    hourlyLoad, hourlyPool, hourlyDollars, hourlyLoadDollars, hourlyGoalPct, allTaxesWcPct,
+    hourlyLoad, hourlyPool, hourlyDollars, hourlyLoadDollars, hourlyGoalPct, allTaxesWc, allTaxesWcPct,
   };
 }
 
