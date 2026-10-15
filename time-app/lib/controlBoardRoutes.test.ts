@@ -129,6 +129,14 @@ test("a salary is only for someone whose Pay is Salaried", async () => {
   assert.equal(db.rows("profile_salaries").length, 0);
 });
 
+test("before migration 43 the salary route answers that it needs the migration", async () => {
+  db.missingTables.push("profile_salaries");
+  db.signIn(OWNER);
+  const res = await salary.POST(post("targets/salary", { profile_id: SALARIED, annual_salary: 1000, ...NOTE }));
+  assert.equal(res.status, 503);
+  assert.match((await res.json()).error, /migration 43/);
+});
+
 test("a manager who is not an owner cannot set a salary, their own included", async () => {
   db.signIn(SALARIED);
   const res = await salary.POST(post("targets/salary", { profile_id: SALARIED, annual_salary: 1000, ...NOTE }));
