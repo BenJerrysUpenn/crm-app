@@ -25,9 +25,9 @@ export function pct(n: number, digits = 2): string {
   return `${digits > 0 ? s.replace(/\.?0+$/, "") : s}%`;
 }
 
-/** A fraction as a percent with fixed places, for columns: 0.25 -> "25.00%". */
-export function pctFixed(n: number, digits = 2): string {
-  return `${asPercent(n).toFixed(digits)}%`;
+/** A fraction as a percent to two fixed places, for columns: 0.25 -> "25.00%". */
+export function pctFixed(n: number): string {
+  return `${asPercent(n).toFixed(2)}%`;
 }
 
 export function shortDate(d: string): string {
