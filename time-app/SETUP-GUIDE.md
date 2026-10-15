@@ -171,7 +171,9 @@ A few things you do once, from the app itself, as a manager.
 4. Links work once and expire after about an hour. If someone's link expired, click **Resend invite** on their row.
 5. Anyone who forgets their password can use the **Forgot password?** link on the sign-in page.
 
-Always add new hires from the Team page. If you ever create someone in the Supabase dashboard instead (**Authentication → Users → Add user → Create new user**, with **Auto Confirm User** ticked), that account has no name. Open the **Team** page right away: their row shows a **Name missing** badge next to their email. Type their full name in the Name box. Until you do, they show as "No name set" (followed by the first 8 characters of their id) on the schedule and timesheets, and as "An employee" in alerts — never a blank and never their login email.
+Always add new hires from the Team page. If you ever create someone in the Supabase dashboard instead (**Authentication → Users → Add user → Create new user**, with **Auto Confirm User** ticked), that account has no name. Open the **Team** page right away: their row shows a **Name missing** badge next to their email. Type their full name in the Name box. Until you do, they show as "No name set" on the schedule and timesheets (in lists and totals it is followed by the first 8 characters of their id, so two unnamed people stay apart), and as "An employee" in alerts — never a blank and never their login email.
+
+One-time setup for this: in Supabase, **SQL Editor**, run `supabase/migration_21.sql` (after `migration_20.sql`). It stops new accounts from getting their login email as their name, and fixes the one old account whose real name is known. Safe to re-run.
 
 #### Supabase URL configuration
 
