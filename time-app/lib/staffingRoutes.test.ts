@@ -11,7 +11,7 @@
 import { beforeEach, mock, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { loadAppModule, startFakeSupabase, type FakeSupabase } from "./testing/fakeSupabase.ts";
+import { loadAppModule, SERVICE_KEY, startFakeSupabase, type FakeSupabase } from "./testing/fakeSupabase.ts";
 
 type Ctx<P> = { params: P };
 type Handler<P = Record<string, never>> = (request: Request, ctx: Ctx<P>) => Promise<Response>;
@@ -747,4 +747,48 @@ test("Add employee with an owner's email is refused for a manager before any lin
   assert.deepEqual(db.outbox, []);
   assert.equal(profile(OTHER_OWNER).role, "owner");
   assert.equal(profile(OTHER_OWNER).active, false);
+});
+
+// The owner check reads the person's role before anything is written. When
+// that read fails, the form is refused with the database's error: a manager
+// never acts on someone whose role nobody could see.
+function failRoleReads() {
+  const fake = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = new Request(input, init);
+    const url = new URL(req.url);
+    if (
+      url.pathname === "/rest/v1/profiles" &&
+      req.method === "GET" &&
+      url.searchParams.get("select") === "role" &&
+      req.headers.get("authorization") === `Bearer ${SERVICE_KEY}`
+    ) {
+      return new Response(
+        JSON.stringify({ code: "57014", details: null, hint: null, message: "canceling statement due to statement timeout" }),
+        { status: 500, headers: { "content-type": "application/json" } },
+      );
+    }
+    return fake(input, init);
+  }) as typeof fetch;
+}
+
+test("an offboarding whose owner check cannot read the person's role is refused, and nobody's access changes", async () => {
+  failRoleReads();
+  const { status, json } = await offboardSam({ run_now: true });
+  assert.equal(status, 403);
+  assert.equal(json.error, "canceling statement due to statement timeout");
+  assert.deepEqual(db.rows("staff_lifecycle"), []);
+  assert.equal(authUser(SAM).ban_duration, undefined);
+  assert.deepEqual(revoked, []);
+  assert.equal(profile(SAM).active, true);
+});
+
+test("a re-invite whose owner check cannot read the person's role is refused before a link is sent", async () => {
+  process.env.RESEND_API_KEY = "test-resend-key";
+  failRoleReads();
+  const { status, json } = await submit({ kind: "reinvite", employee_id: KIT, legal_name: "Kit Doe" });
+  assert.equal(status, 403);
+  assert.equal(json.error, "canceling statement due to statement timeout");
+  assert.deepEqual(db.rows("staff_lifecycle"), []);
+  assert.deepEqual(db.outbox, []);
 });
