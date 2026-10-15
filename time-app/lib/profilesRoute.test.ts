@@ -124,6 +124,17 @@ test("a save that doesn't send a name leaves the name alone", async () => {
   assert.equal(row(SAM).full_name, "Sam Lee");
 });
 
+test("a manager's phone edit is trimmed, and a blank becomes null", async () => {
+  const trimmed = await patch(SAM, { phone: "  555-0100  " });
+  assert.equal(trimmed.status, 200);
+  assert.equal(row(SAM).phone, "555-0100", "stored the same shape as a self-edit, not as typed");
+  for (const blank of ["", "   "]) {
+    const res = await patch(SAM, { phone: blank });
+    assert.equal(res.status, 200, `phone ${JSON.stringify(blank)}`);
+    assert.equal(row(SAM).phone, null, "a blank phone is stored as null, not an empty string");
+  }
+});
+
 // ---- before migration 32 ----------------------------------------------------
 
 test("before migration 32, Archive says so and does not fall back to active alone", async () => {

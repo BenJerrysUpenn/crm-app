@@ -134,6 +134,20 @@ test("a manager adds someone by name: their profile and invite carry the name tr
   assert.match(emails[0].text, /\nAlex Boss added you to Withers Time,/);
 });
 
+test("re-adding a pre-migration_21 person by email overwrites their email-as-name, no duplicate row", async () => {
+  const res = await add({ email: "staff2@example.com", full_name: "  Reyla Nas  " });
+  assert.equal(res.status, 200);
+  // The upsert targets the existing auth user's id, so the one row is updated
+  // in place — the email that was sitting in full_name is gone.
+  const rows = db.rows("profiles").filter((p) => p.id === OLD);
+  assert.equal(rows.length, 1, "no duplicate profile row created");
+  assert.equal(rows[0].full_name, "Reyla Nas", "the email-as-name is replaced with the trimmed name");
+  assert.equal(db.rows("profiles").length, 3, "still three profiles, none added");
+  // The invite carries the real name, and the greeting uses it.
+  assert.deepEqual(linkRequests[0].data, { full_name: "Reyla Nas" });
+  assert.match(emails[0].text, /^Hi Reyla,\n/);
+});
+
 // ---- resending an invite: an email-as-name never reaches the invite ---------
 
 test("a resent invite greets a named person by first name and carries their name", async () => {

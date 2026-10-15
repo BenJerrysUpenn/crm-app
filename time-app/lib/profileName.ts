@@ -70,3 +70,12 @@ export function validateFullName(
     return { ok: false, error: `Full name must be ${NAME_MAX} characters or fewer.` };
   return { ok: true, name: t };
 }
+
+// Normalise a phone number typed by a manager or employee: trimmed, and blank
+// or non-string becomes null. The one rule for every write path to
+// profiles.phone (POST /api/profiles, PATCH /api/profiles/[id], PATCH
+// /api/account), so the column the SMS alerts read holds the same shape
+// whoever typed it.
+export function normalizePhone(input: unknown): string | null {
+  return typeof input === "string" ? input.trim() || null : null;
+}

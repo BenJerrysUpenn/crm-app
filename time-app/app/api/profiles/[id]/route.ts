@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { validateFullName } from "@/lib/profileName";
+import { validateFullName, normalizePhone } from "@/lib/profileName";
 import { isMissingColumn } from "@/lib/storeHours";
 import { parseQboEmployeeId } from "@/lib/payroll/qboEmployee";
 import { parsePayType } from "@/lib/payroll/payType";
@@ -41,6 +41,11 @@ export async function PATCH(
     if (!name.ok) return NextResponse.json({ error: name.error }, { status: 400 });
     patch.full_name = name.name;
   }
+
+  // Same phone rule as the self-edit and POST paths: trim, blank/non-string
+  // becomes null. Before this a manager's edit stored the value exactly as
+  // typed, so the SMS-alert column held a different shape than a self-edit's.
+  if ("phone" in patch) patch.phone = normalizePhone(patch.phone);
 
   // Owners: a manager cannot edit an owner's row, or give or take away the
   // owner role (lib/roles.ts). Read under the manager's own session, which

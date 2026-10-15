@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { sendInvite, siteOrigin } from "@/lib/authLinks";
-import { validateFullName } from "@/lib/profileName";
+import { validateFullName, normalizePhone } from "@/lib/profileName";
 import { NextResponse } from "next/server";
 import { isRole, isManager, canAssignRole, canEditProfile, OWNER_ONLY_EDIT } from "@/lib/roles";
 import type { Role } from "@/lib/types";
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
   const role: Role = isRole(body.role) ? body.role : "employee";
   if (!canAssignRole(me, role))
     return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
-  const phone = (body.phone || "").trim() || null;
+  const phone = normalizePhone(body.phone);
   const hourly_rate =
     typeof body.hourly_rate === "number" && !isNaN(body.hourly_rate)
       ? body.hourly_rate

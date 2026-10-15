@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { validateFullName } from "@/lib/profileName";
+import { validateFullName, normalizePhone } from "@/lib/profileName";
 import { NextResponse } from "next/server";
 
 // PATCH /api/account
@@ -31,8 +31,7 @@ export async function PATCH(request: Request) {
     patch.full_name = name.name;
   }
   if ("phone" in body) {
-    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-    patch.phone = phone || null;
+    patch.phone = normalizePhone(body.phone);
   }
 
   const supabase = createClient();

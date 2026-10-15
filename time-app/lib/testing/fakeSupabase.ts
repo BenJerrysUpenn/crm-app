@@ -491,7 +491,22 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
         batch.push(candidate);
       }
     }
+    // supabase-js .upsert() POSTs with Prefer: resolution=merge-duplicates.
+    // Honour it on the primary key: a row whose id already exists is updated
+    // in place (how a re-invite overwrites a pre-migration_21 email-as-name),
+    // not duplicated. A plain .insert() has no such header and always inserts.
+    const mergeDuplicates = (headers.get("prefer") ?? "").includes("resolution=merge-duplicates");
     const inserted = (Array.isArray(input) ? input : [input]).map((r) => {
+      if (mergeDuplicates && r.id != null) {
+        const hit = all.find((x) => x.id === r.id);
+        if (hit) {
+          Object.assign(hit, r);
+          return hit;
+        }
+        const row = { ...(DEFAULTS[table]?.() ?? {}), ...r };
+        all.push(row);
+        return row;
+      }
       const row = { ...(DEFAULTS[table]?.() ?? {}), ...r, id: all.length + 1 };
       all.push(row);
       return row;
