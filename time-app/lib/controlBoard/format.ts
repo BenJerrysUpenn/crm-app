@@ -10,15 +10,24 @@ export function money(n: number, cents = false): string {
   });
 }
 
+// A worked share accumulates float noise (0.21874999999999997 for a true
+// 21.875%), so toFixed on the raw float rounds a figure that lands on a tie a
+// hundredth low. Clear the noise at nine decimals of a percent -- far finer
+// than any place we show -- so a tie rounds on its worked value and no real
+// figure moves.
+function asPercent(n: number): number {
+  return Math.round(n * 100 * 1e9) / 1e9;
+}
+
 /** A fraction as a percent, trailing zeros dropped: 0.25 -> "25%", 0.0125 -> "1.25%". */
 export function pct(n: number, digits = 2): string {
-  const s = (n * 100).toFixed(digits);
+  const s = asPercent(n).toFixed(digits);
   return `${digits > 0 ? s.replace(/\.?0+$/, "") : s}%`;
 }
 
 /** A fraction as a percent with fixed places, for columns: 0.25 -> "25.00%". */
 export function pctFixed(n: number, digits = 2): string {
-  return `${(n * 100).toFixed(digits)}%`;
+  return `${asPercent(n).toFixed(digits)}%`;
 }
 
 export function shortDate(d: string): string {

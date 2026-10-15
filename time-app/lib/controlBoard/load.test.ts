@@ -13,7 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "../testing/fakeSupabase.ts";
 
 type LoadModule = typeof import("./load.ts");
-const { loadBoard, NEEDS_MIGRATION } = await loadAppModule<LoadModule>("lib/controlBoard/load.ts");
+const { loadBoard, loadSalaries, NEEDS_MIGRATION } = await loadAppModule<LoadModule>("lib/controlBoard/load.ts");
 const { createClient } = await loadAppModule<{ createClient: () => SupabaseClient }>("lib/supabase/server.ts");
 
 const TODAY = "2030-10-14";
@@ -70,6 +70,17 @@ test("a manager gets the stored values as numbers, the active salaried staff by 
     "last full month and the same month a year earlier",
   );
   assert.deepEqual(board.problems, []);
+});
+
+test("loadSalaries returns null only before migration 43, so the Team page may read null as 'not set up'", async () => {
+  const withTable = await loadSalaries(createClient());
+  assert.ok(withTable != null);
+  assert.equal(withTable.length, 1);
+  assert.equal(withTable[0].profile_id, "p-zed");
+  assert.equal(withTable[0].annual_salary, 50_000, "numeric columns arrive as numbers");
+
+  db.missingTables.push("profile_salaries");
+  assert.equal(await loadSalaries(createClient()), null, "the missing table is the only null; every other read error throws");
 });
 
 test("when the sales history cannot be read the board still draws and says what failed", async () => {

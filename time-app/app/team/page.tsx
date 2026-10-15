@@ -119,7 +119,7 @@ export default async function TeamPage() {
             storeExceptions={storeExceptions}
             storeHoursReady={storeHoursReady}
             holidays={holidays}
-            salaries={await loadSalaries(supabase).catch(() => null)}
+            salaries={await loadSalaries(supabase)}
             today={today}
           />
         </div>
