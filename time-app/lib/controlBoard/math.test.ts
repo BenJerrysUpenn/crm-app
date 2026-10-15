@@ -47,11 +47,13 @@ test("hourly dollars net hourly staff's taxes and WC out of the payroll target, 
   close(r.totalPayroll.value, 300_000);
   close(r.hourlyPool.value, 211_800, "payroll target less fixed payroll");
   close(r.hourlyLoad.value, 0.12, "FICA + FUTA + UC + WC, no caps");
-  close(r.hourlyDollars.value, 211_800 / 1.12);
-  close(r.hourlyLoadDollars.value, (211_800 / 1.12) * 0.12);
+  // Worked by hand: 211,800 / 1.12 = 189,107.142857 of wages and 22,692.857143 of their taxes and WC.
+  close(r.hourlyDollars.value, 189_107.142857);
+  close(r.hourlyLoadDollars.value, 22_692.857143);
   close((r.hourlyDollars.value ?? 0) + (r.hourlyLoadDollars.value ?? 0), 211_800, "hourly wages plus their taxes use the whole pool");
-  close(r.hourlyGoalPct.value, 211_800 / 1.12 / 1_000_000, "hourly goal = hourly dollars / sales estimate");
-  close(r.allTaxesWcPct.value, (8_200 + (211_800 / 1.12) * 0.12) / 1_000_000);
+  close(r.hourlyGoalPct.value, 0.189107142857, "hourly goal = hourly dollars / sales estimate");
+  // Salaried 8,200 plus hourly 22,692.857143, over 1,000,000 of sales.
+  close(r.allTaxesWcPct.value, 0.030892857143);
 });
 
 test("the cost targets are shares of the whole sales estimate; prime cost shown is COGS plus payroll at target", () => {
