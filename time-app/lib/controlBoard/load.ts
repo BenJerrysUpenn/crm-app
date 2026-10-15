@@ -9,7 +9,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingTable } from "@/lib/storeHours";
 import type { SalaryRow, SettingRow } from "./settings";
-import { monthStart, type DailySalesRow, type MonthlySalesRow } from "./math";
+import { monthStart, trendMonths, type DailySalesRow, type MonthlySalesRow } from "./math";
 
 export const NEEDS_MIGRATION = "The control board needs migration 43. Run time-app/supabase/migration_43.sql in the Supabase SQL editor first.";
 
@@ -57,14 +57,13 @@ export async function loadBoard(supabase: SupabaseClient, today: string): Promis
   if (peopleRes.error) return { ready: false, reason: `The team could not be read: ${peopleRes.error.message}` };
 
   const problems: string[] = [];
-  const last = monthStart(today, -1);
-  const lastYear = monthStart(today, -13);
-  const days = (from: string, to: string) =>
-    supabase.from("sales_daily_in_store").select("day, in_store, basis, source").gte("day", from).lt("day", to);
+  const { last, lastYear } = trendMonths(today);
+  const monthOf = (month: string) =>
+    supabase.from("sales_daily_in_store").select("day, in_store, basis, source").gte("day", month).lt("day", monthStart(month, 1));
   const [monthlyRes, lastDays, lastYearDays] = await Promise.all([
     supabase.from("sales_monthly").select("month, source, in_store").in("month", [last, lastYear]),
-    days(last, monthStart(today, 0)),
-    days(lastYear, monthStart(today, -12)),
+    monthOf(last),
+    monthOf(lastYear),
   ]);
   if (monthlyRes.error) problems.push(`Monthly sales could not be read: ${monthlyRes.error.message}`);
   const dailyError = lastDays.error ?? lastYearDays.error;

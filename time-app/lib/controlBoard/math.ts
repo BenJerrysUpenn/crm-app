@@ -224,10 +224,14 @@ export function monthSales(month: string, monthly: MonthlySalesRow[], daily: Dai
   };
 }
 
+/** The two months the trend factor compares: the last full month before `today`'s, and the same month a year earlier. */
+export function trendMonths(today: string): { last: string; lastYear: string } {
+  return { last: monthStart(today, -1), lastYear: monthStart(today, -13) };
+}
+
 /** Last full month (in New York, from `today`) over the same month a year earlier. */
 export function trendFactor(today: string, monthly: MonthlySalesRow[], daily: DailySalesRow[]): Trend {
-  const last = monthStart(today, -1);
-  const lastYear = monthStart(today, -13);
+  const { last, lastYear } = trendMonths(today);
   const lastMonth = monthSales(last, monthly, daily);
   const sameMonthLastYear = monthSales(lastYear, monthly, daily);
   const needs = [
