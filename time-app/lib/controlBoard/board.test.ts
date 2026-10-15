@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { CATEGORIES, NOT_SET, boardSections, type BoardData, type ComputedLine, type Current, type StoredLine } from "./board.ts";
+import { CATEGORIES, boardSections, type BoardData, type ComputedLine, type Current, type StoredLine } from "./board.ts";
 import { trendFactor } from "./math.ts";
 import { SETTING_KEYS, type SalaryRow, type SettingRow } from "./settings.ts";
 
@@ -68,14 +68,17 @@ test("a never-set board shows every value as not set and every derived number as
   }
   const goal = lines.find((l) => l.id === "hourlyGoal") as ComputedLine;
   assert.equal(goal.share, "");
-  assert.ok(goal.needs.includes("Total payroll target"));
+  assert.deepEqual(
+    goal.needs,
+    ["In-store sales estimate", "Catering sales estimate", "Total payroll target", "FICA", "FUTA", "PA UC", "Workers' comp"],
+    "the hourly goal names everything it waits for",
+  );
   const total = lines.find((l) => l.id === "salesTotal") as ComputedLine;
   assert.equal(total.amount, null);
   assert.deepEqual(total.needs, ["In-store sales estimate", "Catering sales estimate"]);
   const fixed = lines.find((l) => l.id === "fixedPayroll") as ComputedLine;
   assert.equal(fixed.amount, 0, "nobody salaried: fixed payroll is a real zero");
   assert.match(fixed.note ?? "", /Nobody active is set to Salaried/);
-  assert.equal(NOT_SET, "Not set");
 });
 
 test("a filled board shows each value in words with its review-by row, and the derived numbers", () => {
@@ -87,9 +90,11 @@ test("a filled board shows each value in words with its review-by row, and the d
   assert.equal((find(d, "rule.catering_premium") as StoredLine).show, "+$1.00/hr, up to $10.00/hr");
   assert.match((find(d, "rule.solo_close") as StoredLine).note ?? "", /alone 3h or more and clocks out at or after 21:30/);
   assert.equal((find(d, "tax.workers_comp") as StoredLine).note, "Policy class 0000");
-  const goal = find(d, "hourlyGoal") as ComputedLine;
-  assert.deepEqual(goal.needs, []);
-  assert.match(goal.share ?? "", /^\d+\.\d{2}%$/);
+  assert.deepEqual((find(d, "hourlyGoal") as ComputedLine).needs, []);
+  // Worked by hand: Person A's 50,000 plus 4,000 FICA, 100 FUTA, 400 UC and 500 WC is 55,000 of fixed
+  // payroll; (300,000 - 55,000) / 1.12 = 218,750 of hourly wages.
+  const hourly = (find(d, "hourlyDollars") as ComputedLine).amount;
+  assert.ok(hourly != null && Math.abs(hourly - 218_750) < 1e-6, `hourly wages ${hourly}`);
 });
 
 test("each salaried person's salary is on the board, set on the Team page, with its taxes beneath it", () => {
@@ -108,7 +113,15 @@ test("each salaried person's salary is on the board, set on the Team page, with 
   const unsetFica = unset.find((l) => l.id === "salary:p2:fica") as ComputedLine;
   assert.equal(unsetFica.amount, null, "no amount under a salary that is not set");
   assert.equal(unsetFica.basis, "8% on all wages");
+  assert.deepEqual(unsetFica.needs, [], "the salary line says Not set; its taxes do not repeat it");
   assert.deepEqual((unset.find((l) => l.id === "fixedPayroll") as ComputedLine).needs, ["Person B's salary"]);
+
+  const noFica = new Map(d.values);
+  noFica.delete("tax.fica");
+  const ficaUnset = find({ ...d, values: noFica }, "salary:p1:fica") as ComputedLine;
+  assert.equal(ficaUnset.amount, null);
+  assert.deepEqual(ficaUnset.needs, ["FICA"], "under a set salary, a tax with no rate says it needs the rate");
+  assert.equal(ficaUnset.basis, "Not set");
 });
 
 test("an unsaved change recomputes every total that uses it", () => {
@@ -120,6 +133,8 @@ test("an unsaved change recomputes every total that uses it", () => {
   assert.equal((before as StoredLine).amount, 300_000);
   assert.equal(after.amount, 400_000);
   assert.equal((after.row as SettingRow | null)?.value, 0.3, "the saved row is still the one in force");
+  // (400,000 - 55,000 fixed payroll) / 1.12 = 308,035.71 of hourly wages: 30.80% of 1,000,000 of sales.
+  assert.equal((find({ ...d, values: changed }, "hourlyGoal") as ComputedLine).share, "30.80%", "the hourly goal follows the change");
 });
 
 test("the trend line shows both inputs, and says when one is missing", () => {
