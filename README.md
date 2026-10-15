@@ -193,6 +193,13 @@ In-store excludes delivery and catering and includes online pickup orders, as th
 does. A missing day or month is unknown, not zero; weeks are grouped by the reader. Verify with
 `migration_41_verify.sql`; roll back with `migration_41_down.sql`.
 
+## Staffing forms (Withers Time, Team page)
+Apply `time-app/supabase/migration_44.sql` by hand in the Supabase SQL editor, after migration 42.
+It adds the `staff_lifecycle` records and steps behind the Team page's Add employee, Re-invite and
+Offboard forms, five `profiles` columns, and `revoke_user_sessions`. Until it is applied those
+actions fail. Never delete a Withers-time user: `time_entries` cascades from `profiles`. Steps,
+API and worker contract: `time-app/docs/staffing.md`.
+
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
