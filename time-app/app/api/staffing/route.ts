@@ -3,9 +3,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { siteOrigin } from "@/lib/authLinks";
 import { parseInvite, parseOffboarding, parseUuid } from "@/lib/staffing/forms";
-import { createLifecycle, loadLifecycle, runAutoSteps } from "@/lib/staffing/execute";
+import { createLifecycle, loadLifecycle, runAutoSteps, targetRefusal } from "@/lib/staffing/execute";
 import { todayInNewYork } from "@/lib/timeOff";
-import { canAssignRole, canEditProfile, isManager, OWNER_ONLY_EDIT } from "@/lib/roles";
+import { canAssignRole, isManager, OWNER_ONLY_EDIT } from "@/lib/roles";
 import type { LifecycleKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -50,13 +50,8 @@ export async function POST(request: Request) {
       if (!id) return NextResponse.json({ error: "Pick the person" }, { status: 400 });
       const { data: u } = await admin.auth.admin.getUserById(id);
       if (!u.user) return NextResponse.json({ error: "No such team member" }, { status: 400 });
-      const { data: target } = await admin
-        .from("profiles")
-        .select("role")
-        .eq("id", id)
-        .maybeSingle();
-      if (!canEditProfile(me, target))
-        return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
+      const refusal = await targetRefusal(admin, id, actor);
+      if (refusal) return NextResponse.json({ error: refusal }, { status: 403 });
       existing = { id, email: u.user.email ?? null };
     }
     const p = parseInvite(body, existing);
@@ -72,13 +67,13 @@ export async function POST(request: Request) {
     const employee_id = parseUuid(body, "employee_id");
     let lookup: { name: string; email: string | null } | null = null;
     if (employee_id) {
+      const refusal = await targetRefusal(admin, employee_id, actor);
+      if (refusal) return NextResponse.json({ error: refusal }, { status: 403 });
       const { data: prof } = await admin
         .from("profiles")
-        .select("id, full_name, role")
+        .select("full_name")
         .eq("id", employee_id)
         .maybeSingle();
-      if (prof && !canEditProfile(me, prof))
-        return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
       if (prof) {
         const { data: u } = await admin.auth.admin.getUserById(employee_id);
         lookup = {
