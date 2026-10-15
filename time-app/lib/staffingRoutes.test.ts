@@ -84,6 +84,14 @@ async function tick(id: number, key: string, body: Record<string, unknown> = {})
   return { status: res.status, json: (await res.json()) as { record?: Rec; error?: string } };
 }
 
+const setStatus = async (id: number, status: unknown) => {
+  const res = await record.PATCH(
+    new Request(`http://time.test/api/staffing/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+    { params: { id: String(id) } },
+  );
+  return { status: res.status, json: (await res.json()) as { record?: Rec; error?: string } };
+};
+
 const profile = (id: string) => db.rows("profiles").find((r) => r.id === id)!;
 const authUser = (id: string) => db.authUsers.find((u) => u.id === id)!;
 const step = (rec: Rec, key: string) => rec.steps.find((s) => s.key === key)!;
@@ -232,13 +240,15 @@ test("offboarding someone with no profile is refused before anything is written"
   assert.deepEqual(db.rows("staff_lifecycle"), []);
 });
 
-test("only a manager may submit a staffing form or run one", async () => {
+test("only a manager may submit, run, tick off or cancel a staffing record", async () => {
   const { json } = await offboardSam({ last_day: "2999-12-31" });
   db.signIn(KIT);
   assert.equal((await submit({ kind: "offboarding", employee_id: SAM, last_day: "2026-09-15", reason: "Quit" })).status, 403);
   assert.equal((await runRecord(json.record!.id)).status, 403);
   assert.equal((await tick(json.record!.id, "final_pay")).status, 403);
+  assert.equal((await setStatus(json.record!.id, "cancelled")).status, 403);
   assert.equal(profile(SAM).active, true);
+  assert.equal(db.rows("staff_lifecycle").find((r) => r.id === json.record!.id)!.status, "open");
 });
 
 test("an unknown form kind is refused", async () => {
@@ -259,14 +269,6 @@ test("a cancelled record does not run", async () => {
   assert.equal(authUser(SAM).ban_duration, undefined);
   assert.equal(profile(SAM).active, true);
 });
-
-const setStatus = async (id: number, status: unknown) => {
-  const res = await record.PATCH(
-    new Request(`http://time.test/api/staffing/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
-    { params: { id: String(id) } },
-  );
-  return { status: res.status, json: (await res.json()) as { record?: Rec; error?: string } };
-};
 
 test("a cancelled record reopened runs again; 'done' cannot be set by hand", async () => {
   const { json } = await offboardSam({ last_day: "2999-12-31" });
@@ -362,6 +364,13 @@ test("a re-invite of someone with no login is refused", async () => {
   const { status, json } = await submit({ kind: "reinvite", employee_id: "00000000-0000-0000-0000-0000000000ff" });
   assert.equal(status, 400);
   assert.equal(json.error, "No such team member");
+  assert.deepEqual(db.rows("staff_lifecycle"), []);
+});
+
+test("a re-invite with nobody picked is refused before anything is written", async () => {
+  const { status, json } = await submit({ kind: "reinvite", legal_name: "Kit Doe" });
+  assert.equal(status, 400);
+  assert.equal(json.error, "Pick the person");
   assert.deepEqual(db.rows("staff_lifecycle"), []);
 });
 
@@ -486,7 +495,7 @@ test("a step key the record does not have is refused", async () => {
   assert.equal(res.json.error, "No such step");
 });
 
-test("cancelling a record that does not exist is 404, and a non-numeric id is 400", async () => {
+test("cancelling a record that does not exist is 404, and a non-numeric id is 400 on every record route", async () => {
   const missing = await setStatus(999, "cancelled");
   assert.equal(missing.status, 404);
   assert.equal(missing.json.error, "No such record");
@@ -496,6 +505,17 @@ test("cancelling a record that does not exist is 404, and a non-numeric id is 40
   );
   assert.equal(res.status, 400);
   assert.equal(((await res.json()) as { error: string }).error, "Bad id");
+  const ran = await run.POST(new Request("http://time.test/api/staffing/abc/run", { method: "POST" }), {
+    params: { id: "abc" },
+  });
+  assert.equal(ran.status, 400);
+  assert.equal(((await ran.json()) as { error: string }).error, "Bad id");
+  const ticked = await steps.PATCH(
+    new Request("http://time.test/api/staffing/abc/steps/final_pay", { method: "PATCH", body: "{}" }),
+    { params: { id: "abc", key: "final_pay" } },
+  );
+  assert.equal(ticked.status, 400);
+  assert.equal(((await ticked.json()) as { error: string }).error, "Bad id");
 });
 
 test("a staffing form that is not JSON is refused before anything is written", async () => {
