@@ -328,10 +328,10 @@ const DEFAULTS: Record<string, () => Row> = {
   // Migration 39: a saved view is live until archived.
   metric_views: () => ({ position: 0, widgets: [], archived_at: null, created_at: DB_NOW, updated_at: DB_NOW }),
   time_entries: () => ({ clock_in_at: DB_NOW, clock_out_at: null, status: "open", manual: false }),
-  // Migration 36's column defaults: a new pay table row is a queued request.
-  // Migration 23's: a staffing record starts open, each of its steps pending.
+  // Migration 44's column defaults: a staffing record starts open, each of its steps pending.
   staff_lifecycle: () => ({ status: "open", created_at: DB_NOW, updated_at: DB_NOW, completed_at: null }),
   staff_lifecycle_steps: () => ({ status: "pending", claimed_at: null, attempts: 0, worker_log: null, result: null, completed_by: null, completed_at: null }),
+  // Migration 36's column defaults: a new pay table row is a queued request.
   payroll_sheets: () => ({ status: "queued", requested_at: DB_NOW, started_at: null, built_at: null, built_by: null, source_fingerprint: null, open_items: null, error: null, sheet: null }),
 };
 
