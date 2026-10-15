@@ -5,6 +5,7 @@ import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 // PATCH: edit a shift (manager only). Body carries any of employee_id,
 // location_id, starts_at, ends_at, position, notes, plus confirmLong.
@@ -29,7 +30,7 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await request.json();
@@ -112,7 +113,7 @@ export async function DELETE(
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const supabase = createClient();
   const { error } = await supabase.from("shifts").delete().eq("id", params.id);

@@ -1,11 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { alertName } from "@/lib/profileName";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { notify, emailForUser } from "@/lib/notify";
+import { notifyManagers } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { MANAGER_ASSIGNS_ERROR, managerAssignsOnly } from "@/lib/managerAssigns";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 // Employee claims an open (unassigned), published shift. Conditional update on
 // employee_id IS NULL prevents two people grabbing the same shift.
@@ -20,7 +20,7 @@ export async function POST(
   if (!profile) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const supabase = createClient();
-  if (profile.role !== "manager") {
+  if (!isManager(profile)) {
     const { data: target } = await supabase
       .from("shifts")
       .select("deal_id")
@@ -47,23 +47,12 @@ export async function POST(
     );
 
   // Tell managers an open shift was picked up.
-  const admin = createAdminClient();
-  const { data: managers } = await admin
-    .from("profiles")
-    .select("id, phone")
-    .eq("role", "manager");
   const who = alertName(profile.full_name);
-  for (const m of managers ?? []) {
-    const email = await emailForUser(m.id);
-    await notify({
-      userId: m.id,
-      type: "shift_picked_up",
-      title: "Open shift picked up",
-      body: `${who} picked up ${fmtDate(data.starts_at)} ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}.`,
-      phone: m.phone ?? null,
-      email,
-    }).catch(() => {});
-  }
+  await notifyManagers({
+    type: "shift_picked_up",
+    title: "Open shift picked up",
+    body: `${who} picked up ${fmtDate(data.starts_at)} ${fmtTime(data.starts_at)}–${fmtTime(data.ends_at)}${data.position ? " · " + data.position : ""}.`,
+  });
 
   return NextResponse.json({ shift: data });
 }

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 // PATCH { active: boolean } — retire or re-activate a reminder. This is the
 // only mutation managers get; title and body are immutable in the database.
@@ -9,7 +10,7 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || !isManager(me))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   let body: { active?: unknown };

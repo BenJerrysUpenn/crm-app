@@ -6,6 +6,7 @@ import { parseQboEmployeeId } from "@/lib/payroll/qboEmployee";
 import { parsePayType } from "@/lib/payroll/payType";
 import { ARCHIVE_NEEDS_MIGRATION, parseArchivedAt } from "@/lib/teamArchive";
 import { NextResponse } from "next/server";
+import { isManager, profilePatchRefusal } from "@/lib/roles";
 
 // The fields a manager may set on somebody's profile from the Team page.
 const EDITABLE = [
@@ -24,7 +25,7 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || !isManager(me))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const body = await request.json();
   const patch: Record<string, unknown> = {};
@@ -40,6 +41,19 @@ export async function PATCH(
     if (!name.ok) return NextResponse.json({ error: name.error }, { status: 400 });
     patch.full_name = name.name;
   }
+
+  // Owners: a manager cannot edit an owner's row, or give or take away the
+  // owner role (lib/roles.ts). Read under the manager's own session, which
+  // RLS lets see every profile.
+  const supabase = createClient();
+  const { data: target } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", params.id)
+    .maybeSingle();
+  if (!target) return NextResponse.json({ error: "No such team member" }, { status: 404 });
+  const refusal = profilePatchRefusal(me, target, patch);
+  if (refusal) return NextResponse.json({ error: refusal }, { status: 403 });
 
   // The QBO employee id is the payroll roster join (spec 2.5), so it is
   // validated rather than stored as typed: a blank becomes null (the unique
@@ -71,7 +85,6 @@ export async function PATCH(
     if (parsed.value !== null) patch.active = false;
   }
 
-  const supabase = createClient();
   const { data, error } = await supabase
     .from("profiles")
     .update(patch)

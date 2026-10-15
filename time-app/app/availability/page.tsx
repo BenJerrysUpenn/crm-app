@@ -9,6 +9,7 @@ import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { loadRoster } from "@/lib/teamRoster";
 import { dropPastTimeOff, todayInNewYork } from "@/lib/timeOff";
 import type { Availability, Profile } from "@/lib/types";
+import { isManagerRole } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,7 @@ export default async function AvailabilityPage({
   const profile = await getProfile();
   if (!profile) redirect("/login");
   const supabase = createClient();
-  const isManager = profile.role === "manager";
+  const isManager = isManagerRole(profile.role);
   // Managers default to the team view; employees only ever see their own.
   const view: "mine" | "team" = isManager
     ? searchParams.view === "mine"

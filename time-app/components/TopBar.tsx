@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import type { Role } from "@/lib/types";
 import { displayName } from "@/lib/profileName";
+import { isManagerRole } from "@/lib/roles";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -35,7 +36,7 @@ export default function TopBar({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const visible = links.filter((l) => !l.managerOnly || role === "manager");
+  const visible = links.filter((l) => !l.managerOnly || isManagerRole(role));
   // The name is the desktop route to /account, so it must never render blank —
   // and never the login email. displayName falls back to a neutral label.
   const accountLabel = displayName(name);

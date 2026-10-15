@@ -7,6 +7,7 @@ import { clockoutReminderDue, shiftEndForEntry } from "@/lib/clockoutReminder";
 import { sendShiftDigests } from "@/lib/shiftNotice";
 import type { TimeEntry } from "@/lib/types";
 import { NextResponse } from "next/server";
+import { MANAGER_ROLES } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 // force-dynamic alone does not stop Next caching the fetches this route makes
@@ -106,7 +107,7 @@ export async function GET(request: Request) {
   const { data: managers } = await supabase
     .from("profiles")
     .select("id, phone")
-    .eq("role", "manager");
+    .in("role", MANAGER_ROLES);
 
   for (const s of shifts ?? []) {
     const startMs = new Date(s.starts_at).getTime();
