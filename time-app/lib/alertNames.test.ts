@@ -176,6 +176,19 @@ test("a named person's time-off request names them", async () => {
   assert.match(onlyAlert(), /^Sam Lee requested time off for /);
 });
 
+test("a single availability preference saved by someone whose name is their email is 'An employee updated'", async () => {
+  db.signIn(OLD);
+  const res = await availability.POST(
+    new Request("http://time.test/api/availability", {
+      method: "POST",
+      body: JSON.stringify({ weekday: 2, start_time: "09:00", end_time: "17:00", preference: "preferred" }),
+    }),
+    { params: { id: "" } },
+  );
+  assert.equal(res.status, 200);
+  assert.equal(onlyAlert(), "An employee updated their availability.");
+});
+
 test("cancelling approved time off, for someone whose name is their email, is 'An employee removed'", async () => {
   db.tables.availability.push({
     id: "off-1",
