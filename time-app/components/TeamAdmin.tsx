@@ -205,8 +205,13 @@ export default function TeamAdmin({
       const invite = rec.steps.find((st) => st.key === "withers_time_invite");
       if (invite?.status === "done") {
         const others = newSystems.filter((k) => k !== "fob").length;
+        // When no email sender is configured the invite goes out through
+        // Supabase Auth, whose link only works if the redirect URL is allowed
+        // in the project settings. The invite step records the delivery.
+        const viaSupabase = (invite.result ?? "").includes("delivery: supabase");
         setAddOk(
           `Invite emailed to ${email}. They'll set a password from the link and then appear here.` +
+            (viaSupabase ? " (sent by Supabase; needs the redirect URL allowed in Supabase Auth settings)" : "") +
             (others ? ` ${others} other system${others === 1 ? "" : "s"} queued for the worker; see the checklist below.` : ""),
         );
         setNewEmail("");
