@@ -28,7 +28,7 @@ const MANAGER = "00000000-0000-0000-0000-00000000000a";
 const SAM = "00000000-0000-0000-0000-00000000000b"; // a shift lead with manager access
 const KIT = "00000000-0000-0000-0000-00000000000c";
 
-type Step = { key: string; mode: string; status: string; result: string | null };
+type Step = { key: string; mode: string; status: string; result: string | null; completed_by: string | null };
 type Rec = { id: number; status: string; employee_id: string | null; steps: Step[] };
 
 let db: FakeSupabase;
@@ -457,6 +457,21 @@ test("QuickBooks and Workforce done by hand write the eeid and has_workforce, an
   const reopened = await tick(rec.id, "workforce_completed", { reopen: true });
   assert.equal(step(reopened.json.record!, "workforce_completed").status, "pending");
   assert.equal(reopened.json.record!.status, "open");
+});
+
+// The checklist shows who finished each step (StaffingRecords: "by <name>").
+test("a finished step records who finished it, not who opened the record; a failed one records nobody", async () => {
+  db.rpc = {}; // sessions_revoke fails: migration 44's function is missing
+  const { json } = await offboardSam({ systems: [] });
+  assert.equal(step(json.record!, "auth_ban").completed_by, MANAGER);
+  assert.equal(step(json.record!, "sessions_revoke").status, "failed");
+  assert.equal(step(json.record!, "sessions_revoke").completed_by, null);
+
+  const LEAD = "00000000-0000-0000-0000-00000000000e"; // a second manager
+  db.rows("profiles").push({ id: LEAD, role: "manager", active: true, full_name: "Lee Lead" });
+  db.signIn(LEAD);
+  const paid = await tick(json.record!.id, "final_pay", { note: "paid through the 15th" });
+  assert.equal(step(paid.json.record!, "final_pay").completed_by, LEAD);
 });
 
 test("a skipped step applies no side effect", async () => {
