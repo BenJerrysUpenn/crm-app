@@ -43,8 +43,8 @@ export async function PATCH(
   }
 
   // Same phone rule as the self-edit and POST paths: trim, blank/non-string
-  // becomes null. Before this a manager's edit stored the value exactly as
-  // typed, so the SMS-alert column held a different shape than a self-edit's.
+  // becomes null, so the column the SMS alerts read holds one shape whoever
+  // typed it.
   if ("phone" in patch) patch.phone = normalizePhone(patch.phone);
 
   // Owners: a manager cannot edit an owner's row, or give or take away the
