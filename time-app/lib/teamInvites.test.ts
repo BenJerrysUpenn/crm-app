@@ -134,6 +134,13 @@ test("a manager adds someone by name: their profile and invite carry the name tr
   assert.match(emails[0].text, /\nAlex Boss added you to Withers Time,/);
 });
 
+test("a manager adds someone with a phone: it is stored trimmed, the same shape as the other write paths", async () => {
+  const res = await add({ email: "pat.diaz@example.test", full_name: "Pat Diaz", phone: "  555-0142  " });
+  assert.equal(res.status, 200);
+  const added = db.rows("profiles").filter((p) => ![BOSS, SAM, OLD].includes(p.id as string));
+  assert.deepEqual(added.map((p) => p.phone), ["555-0142"]);
+});
+
 test("re-adding a pre-migration_21 person by email overwrites their email-as-name, no duplicate row", async () => {
   const res = await add({ email: "staff2@example.com", full_name: "  Reyla Nas  " });
   assert.equal(res.status, 200);
