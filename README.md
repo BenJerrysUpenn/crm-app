@@ -283,8 +283,11 @@ premium and solo close kept apart), with `profile_id` when exactly one profile h
 name. bj-finance writes every row from the Mac from the saved paystub PDFs
 (`modules.labor_actuals`), never through the API; managers read it. Salaried paychecks, tips and
 reimbursements are not in it, and nor are employer taxes (a paystub does not carry them: readers
-apply the Targets tab's rates). Rows keep the pay period; splitting one into Sunday to Saturday
-weeks is the reader's. Nothing in the app reads it yet (the Labor vs target card, bj-finance
+apply the Targets tab's rates). It also adds `labor_daily_actuals`: one row per day of a pay period
+whose daily hours (When I Work timesheets before the time app, punches after) tie to the hours QBO
+paid, with the period's wages, catering premium and solo close spread over its days by hours.
+Hourly, non-overhead labor only; a period that does not tie has no days (unknown, not zero), and
+Sunday to Saturday weeks are the reader's grouping. Nothing in the app reads them yet (the Labor vs target card, bj-finance
 #696, will), so there is no deploy order. Verify with `migration_46_verify.sql`; roll back with
 `migration_46_down.sql`.
 

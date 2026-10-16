@@ -18,6 +18,9 @@
 --   3. A manager reads the table; an employee does not; nobody signed in
 --      writes, removes or empties it; anon reads nothing.
 --   4. A profile link is cleared, not cascaded, if the profile goes.
+--   5. labor_daily_actuals: written and rewritten on its day by the service
+--      role only, its source, its day inside its period, hours not negative,
+--      wages present; managers read, employees and anon do not.
 -- ============================================================================
 
 begin;
@@ -202,6 +205,100 @@ begin
   select count(*) into n from public.labor_paycheck_actuals
    where built_by = 'verify-46-link' and profile_id is null;
   if n <> 1 then raise exception 'profile_id is not cleared when its profile goes'; end if;
+
+  -- ---- 5. labor_daily_actuals -----------------------------------------------------------
+  set local role service_role;
+  insert into public.labor_daily_actuals
+    (day, hours, wages, catering_premium, solo_close, period_start, period_end,
+     source, built_by, updated_at)
+  values (date '2018-06-05', 7.50, 112.50, 0, 0, date '2018-06-04', date '2018-06-17',
+          'when_i_work', 'verify-46', timestamptz '2001-01-01')
+  returning updated_at into t;
+  if t < now() - interval '1 minute' then raise exception 'a day''s updated_at was taken from the writer'; end if;
+  insert into public.labor_daily_actuals
+    (day, hours, wages, catering_premium, solo_close, period_start, period_end,
+     source, built_by)
+  values (date '2018-06-05', 8.00, 120.00, 0, 30.00, date '2018-06-04', date '2018-06-17',
+          'punches', 'verify-46')
+  on conflict (day) do update
+    set hours = excluded.hours, wages = excluded.wages, source = excluded.source;
+  select count(*) into n from public.labor_daily_actuals
+   where day = date '2018-06-05' and hours = 8.00 and source = 'punches';
+  if n <> 1 then raise exception 'a day was not rewritten on its key'; end if;
+  begin
+    insert into public.labor_daily_actuals
+      (day, hours, wages, catering_premium, solo_close, period_start, period_end,
+       source, built_by)
+    values (date '2018-06-06', 1, 1, 0, 0, date '2018-06-04', date '2018-06-17',
+            'schedule', 'verify-46');
+    refused := false;
+  exception when check_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a day source other than when_i_work/punches was accepted'; end if;
+  begin
+    insert into public.labor_daily_actuals
+      (day, hours, wages, catering_premium, solo_close, period_start, period_end,
+       source, built_by)
+    values (date '2018-06-20', 1, 1, 0, 0, date '2018-06-04', date '2018-06-17',
+            'punches', 'verify-46');
+    refused := false;
+  exception when check_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a day outside its pay period was accepted'; end if;
+  begin
+    insert into public.labor_daily_actuals
+      (day, hours, wages, catering_premium, solo_close, period_start, period_end,
+       source, built_by)
+    values (date '2018-06-06', -1, 1, 0, 0, date '2018-06-04', date '2018-06-17',
+            'punches', 'verify-46');
+    refused := false;
+  exception when check_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a day with negative hours was accepted'; end if;
+  begin
+    insert into public.labor_daily_actuals
+      (day, hours, catering_premium, solo_close, period_start, period_end,
+       source, built_by)
+    values (date '2018-06-06', 1, 0, 0, date '2018-06-04', date '2018-06-17',
+            'punches', 'verify-46');
+    refused := false;
+  exception when not_null_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'a day without its wages was accepted'; end if;
+  reset role;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', mgr, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into n from public.labor_daily_actuals where built_by = 'verify-46';
+  if n <> 1 then raise exception 'a manager reads % of 1 day', n; end if;
+  begin
+    update public.labor_daily_actuals set wages = 1 where built_by = 'verify-46';
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'a manager changed a day through the API'; end if;
+  begin
+    truncate public.labor_daily_actuals;
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'a manager emptied the days'; end if;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', emp, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into n from public.labor_daily_actuals;
+  if n <> 0 then raise exception 'an employee can read days'; end if;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  if has_table_privilege('anon', 'public.labor_daily_actuals', 'select') then
+    raise exception 'anon can read days';
+  end if;
 
   raise notice 'migration 46 verified';
 end $$;
