@@ -180,6 +180,12 @@ describe("failures email the failure address and exit 1", () => {
     expect(h.sent[0].body).toContain("permission denied for table shifts");
   });
 
+  it("a failure email goes out from the configured sender", async () => {
+    const h = harness({ snapshotError: new Error("db down") });
+    expect(await runCoverageReminderCli([], h.deps)).toBe(1);
+    expect(h.sent.map((e) => e.from)).toEqual(["sender@example.test"]);
+  });
+
   it("a recipient lookup that finds nobody", async () => {
     const h = harness({ recipients: [{ ...MANAGER, active: false }] });
     expect(await runCoverageReminderCli([], h.deps)).toBe(1);
