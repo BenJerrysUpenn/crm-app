@@ -250,9 +250,27 @@ export function boardSections(d: BoardData): { cat: Category; lines: Line[] }[] 
 }
 
 /**
+ * Who is in fixed payroll on `day`: the salaried people (not overhead) who
+ * were salaried employees that day (bj-finance #696, 2026-10-16). Someone
+ * whose salary rows all start after `day` was not employed yet and is left
+ * out, not missing; someone archived is left out after their archive day.
+ * Someone with no salary row at all is counted, so their salary shows as
+ * missing until it is set.
+ */
+export function inFixedPayroll<P extends SalariedProfile>(day: string, salaried: P[], salaries: SalaryRow[]): P[] {
+  const byPerson = groupBy(salaries, "profile_id");
+  return salaried.filter((p) => {
+    if (p.archivedOn && day > p.archivedOn) return false;
+    const rows = byPerson.get(p.id);
+    return !rows || inForce(rows, day) != null;
+  });
+}
+
+/**
  * The board's derived numbers with every value as it stood on `day`: the
- * settings in force then and the salary in force then of each person in fixed
- * payroll. The schedule (bj-finance #695) reads a day's hourly goal from this.
+ * settings in force then, and the salary in force then of each person in
+ * fixed payroll that day (inFixedPayroll). The schedule (bj-finance #695) and
+ * the Labor vs target metric (#696) read a day's hourly goal from this.
  */
 export function boardOn(
   day: string,
@@ -263,5 +281,6 @@ export function boardOn(
   const values = new Map<string, Current>();
   for (const [key, row] of settingsInForce(settings, day)) values.set(key, { value: row.value, detail: row.detail });
   const byPerson = groupBy(salaries, "profile_id");
-  return computeBoard(boardInputs({ values, salaried: salaried.map((p) => ({ ...p, salary: inForce(byPerson.get(p.id) ?? [], day) })) }));
+  const counted = inFixedPayroll(day, salaried, salaries);
+  return computeBoard(boardInputs({ values, salaried: counted.map((p) => ({ ...p, salary: inForce(byPerson.get(p.id) ?? [], day) })) }));
 }

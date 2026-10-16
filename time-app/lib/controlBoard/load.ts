@@ -14,13 +14,17 @@ import { monthStart, trendMonths, type DailySalesRow, type MonthlySalesRow } fro
 export const NEEDS_MIGRATION = "The control board needs migration 43. Run time-app/supabase/migration_43.sql in the Supabase SQL editor first.";
 
 /**
- * Someone in fixed payroll: pay_type 'salaried', not archived and not
- * overhead. Whether they are on the schedule (profiles.active) does not
- * matter; archived_at is what marks someone gone. Overhead staff
- * (profiles.is_overhead, migration 45) are not part of the payroll target at
- * all (bj-finance #692, ruled 2026-10-15).
+ * Someone who may be in fixed payroll: pay_type 'salaried' and not overhead,
+ * archived or not. Whether they are on the schedule (profiles.active) does
+ * not matter; archived_at is what marks someone gone, and `archivedOn` is its
+ * New York day, the last day they count. Overhead staff (profiles.is_overhead,
+ * migration 45) are not part of the payroll target at all (bj-finance #692,
+ * ruled 2026-10-15). Who counts on a given day is inFixedPayroll (board.ts).
  */
-export type SalariedProfile = { id: string; name: string };
+export type SalariedProfile = { id: string; name: string; archivedOn?: string | null };
+
+/** The New York day of a timestamp. */
+const nyDay = (ts: string) => new Date(ts).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
 export type BoardLoad =
   | {
@@ -56,7 +60,7 @@ export async function loadBoard(supabase: SupabaseClient, today: string): Promis
   const [settingsRes, salariesRes, peopleRes] = await Promise.all([
     supabase.from("control_settings").select("*"),
     supabase.from("profile_salaries").select("*"),
-    supabase.from("profiles").select("id, full_name").eq("pay_type", "salaried").is("archived_at", null).eq("is_overhead", false).order("full_name"),
+    supabase.from("profiles").select("id, full_name, archived_at").eq("pay_type", "salaried").eq("is_overhead", false).order("full_name"),
   ]);
   if (isMissingTable(settingsRes.error) || isMissingTable(salariesRes.error)) return { ready: false, reason: NEEDS_MIGRATION };
   if (settingsRes.error) return { ready: false, reason: `The settings could not be read: ${settingsRes.error.message}` };
@@ -81,7 +85,11 @@ export async function loadBoard(supabase: SupabaseClient, today: string): Promis
     ready: true,
     settings: ((settingsRes.data as Record<string, unknown>[]) ?? []).map(settingRow),
     salaries: ((salariesRes.data as Record<string, unknown>[]) ?? []).map(salaryRow),
-    salaried: ((peopleRes.data as { id: string; full_name: string | null }[]) ?? []).map((p) => ({ id: p.id, name: p.full_name ?? "Unnamed" })),
+    salaried: ((peopleRes.data as { id: string; full_name: string | null; archived_at?: string | null }[]) ?? []).map((p) => ({
+      id: p.id,
+      name: p.full_name ?? "Unnamed",
+      archivedOn: p.archived_at ? nyDay(p.archived_at) : null,
+    })),
     monthly: ((monthlyRes.data as Record<string, unknown>[]) ?? []).map((r) => ({ ...(r as MonthlySalesRow), in_store: num(r.in_store) as number })),
     daily: ((dailyRes.data as Record<string, unknown>[]) ?? []).map((r) => ({ ...(r as DailySalesRow), in_store: num(r.in_store) as number })),
     problems,

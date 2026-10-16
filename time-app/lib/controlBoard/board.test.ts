@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { CATEGORIES, boardSections, type BoardData, type ComputedLine, type Current, type StoredLine } from "./board.ts";
+import { CATEGORIES, boardOn, boardSections, inFixedPayroll, type BoardData, type ComputedLine, type Current, type StoredLine } from "./board.ts";
 import { trendFactor } from "./math.ts";
 import { SETTING_KEYS, type SalaryRow, type SettingRow } from "./settings.ts";
 
@@ -146,4 +146,47 @@ test("the trend line shows both inputs, and says when one is missing", () => {
   assert.equal(missing.basis, undefined);
   assert.ok(missing.needs.length === 2);
   assert.match(missing.note ?? "", /Sep 2030 \(no sales on file\) ÷ Sep 2029 \(no sales on file\)/);
+});
+
+// ---------------------------------------------------------------------------
+// Fixed payroll on a past day (bj-finance #696 fix, 2026-10-16): the salaries
+// of the people who were salaried employees on that day.
+// ---------------------------------------------------------------------------
+
+const salaryRow = (id: number, profile_id: string, annual_salary: number, effective_from: string): SalaryRow => ({
+  id, profile_id, annual_salary, effective_from, review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: `${effective_from}T00:00:00Z`,
+});
+
+test("fixed payroll on a day counts only the people salaried on that day", () => {
+  const salaries = [
+    salaryRow(1, "early", 40_000, "2030-01-01"),
+    salaryRow(2, "hired", 60_000, "2030-10-10"),
+    salaryRow(3, "left", 50_000, "2030-01-01"),
+  ];
+  const salaried = [
+    { id: "early", name: "Early Person", archivedOn: null },
+    { id: "hired", name: "Hired Later", archivedOn: null },
+    { id: "left", name: "Left Early", archivedOn: "2030-10-05" },
+    { id: "unset", name: "Never Set", archivedOn: null },
+  ];
+  const ids = (day: string) => inFixedPayroll(day, salaried, salaries).map((p) => p.id);
+  assert.deepEqual(ids("2030-10-01"), ["early", "left", "unset"], "not yet hired: not counted, not missing");
+  assert.deepEqual(ids("2030-10-05"), ["early", "left", "unset"], "counted through the archive day");
+  assert.deepEqual(ids("2030-10-06"), ["early", "unset"], "archived: gone after that day");
+  assert.deepEqual(ids("2030-10-10"), ["early", "hired", "unset"], "counted from the first salary row on");
+  assert.deepEqual(ids("2030-10-10"), ids("2030-10-12"));
+});
+
+test("boardOn holds each day to the salaried set of that day: a later hire is not missing earlier, someone with no salary at all still is", () => {
+  const settings = [setRow("sales_estimate.in_store", 600_000), setRow("sales_estimate.catering", 400_000), setRow("target.payroll_pct", 0.3)];
+  for (const k of ["tax.fica", "tax.futa", "tax.pa_uc"]) settings.push(setRow(k, 0, { wage_cap: null }));
+  settings.push(setRow("tax.workers_comp", 0));
+  const salaries = [salaryRow(1, "hired", 60_000, "2030-10-10")];
+  const before = boardOn("2030-10-01", settings, salaries, [{ id: "hired", name: "Hired Later", archivedOn: null }]);
+  assert.deepEqual(before.fixedPayroll, { value: 0, needs: [] });
+  assert.equal(before.hourlyAllInPct.value, 0.3);
+  const after = boardOn("2030-10-10", settings, salaries, [{ id: "hired", name: "Hired Later", archivedOn: null }]);
+  assert.equal(after.fixedPayroll.value, 60_000);
+  const unset = boardOn("2030-10-01", settings, salaries, [{ id: "unset", name: "Never Set", archivedOn: null }]);
+  assert.deepEqual(unset.hourlyAllInPct.needs, ["Never Set's salary"]);
 });

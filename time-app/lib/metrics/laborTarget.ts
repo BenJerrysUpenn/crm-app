@@ -37,6 +37,11 @@
 //                         (actual hourly labor $ / (hours paid - catering
 //                         crew hours billed)).
 //
+// Every board value is the one in force on the day, so a past week is judged
+// by the board as it stood then: a pay rule before its first row paid nothing
+// (ruleOn), and fixed payroll counts only the people salaried that day
+// (inFixedPayroll). A deal billed zero crew hours (a pickup) offsets nothing.
+//
 // A week counts only when it is over and all seven of its days have a
 // labor_daily_actuals row; otherwise its labor is not available, never zero.
 // The same for sales: a missing day makes the week's sales not available, and

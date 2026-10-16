@@ -281,3 +281,37 @@ test("when the catering offset leaves hourly labor at exactly zero, the week is 
   assert.equal(w.varianceHours, null);
   assert.deepEqual(w.why, ["hourly labor is zero or less once the catering crew's billed hours are taken off"]);
 });
+
+// ---------------------------------------------------------------------------
+// Past weeks (bj-finance #696 fix, 2026-10-16): live, every week read n/a
+// because the premium rule, a salary and one deal's billed hours were judged
+// by today's board instead of the week's.
+// ---------------------------------------------------------------------------
+
+test("a week before the catering premium's first row prices the crew at cost, no premium, instead of reading n/a", () => {
+  const settings = [...BOARD, row("rule.catering_premium", 5, { cap_rate: null }, "2030-10-20")];
+  const w = laborVsTarget(OCT, inputs({ settings, catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[0];
+  assert.equal(w.available, true, w.why.join("; "));
+  close(w.cateringOffset, 10 * 20 * 1.25, "10 billed hours at the average 20, no premium, with taxes and comp");
+});
+
+test("a salaried person hired after the week is not in that week's target; someone salaried then is", () => {
+  const salaries: SalaryRow[] = [
+    { id: 1, profile_id: "s1", annual_salary: 50_000, effective_from: "2030-01-01", review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z" },
+    { id: 2, profile_id: "s2", annual_salary: 70_000, effective_from: "2030-10-20", review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z" },
+  ];
+  const salaried = [{ id: "s1", name: "Person S", archivedOn: "2030-10-25" }, { id: "s2", name: "Person T", archivedOn: null }];
+  const weeks = laborVsTarget(OCT, inputs({ salaries, salaried })).weeks;
+  assert.equal(weeks[0].available, true, weeks[0].why.join("; "));
+  close(weeks[0].targetPct.value, 0.1875, "only Person S: 250,000 - 62,500 = 187,500");
+  // From the 20th both; after the 25th only Person T: the last week is 177,500 / 1,000,000 all week.
+  close(weeks[3].targetPct.value, 0.25 - (70_000 * 1.25) / 1_000_000);
+});
+
+test("a booked deal billed zero crew hours offsets nothing and leaves the week available", () => {
+  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 0)], shifts: [], people: PEOPLE } })).weeks[0];
+  assert.equal(w.available, true, w.why.join("; "));
+  close(w.cateringHours, 0);
+  close(w.cateringOffset, 0);
+  close(w.actual, 1_400);
+});
