@@ -275,6 +275,19 @@ editor. Apply `time-app/supabase/migration_45.sql` BEFORE deploying the time app
 read of the salaried team filters on the column. Verify with `migration_45_verify.sql`; roll back
 with `migration_45_down.sql` (code first).
 
+### Hourly payroll actuals (bj-finance #721)
+Apply `time-app/supabase/migration_46.sql` by hand in the Supabase SQL editor, after migration 45.
+It adds `labor_paycheck_actuals`: one row per hourly paycheck as QBO Payroll paid it (pay period,
+pay date, the stub's name and year-to-date gross, Regular and Overtime hours and pay, catering
+premium and solo close kept apart), with `profile_id` when exactly one profile has the stub's
+name. bj-finance writes every row from the Mac from the saved paystub PDFs
+(`modules.labor_actuals`), never through the API; managers read it. Salaried paychecks, tips and
+reimbursements are not in it, and nor are employer taxes (a paystub does not carry them: readers
+apply the Targets tab's rates). Rows keep the pay period; splitting one into Sunday to Saturday
+weeks is the reader's. Nothing in the app reads it yet (the Labor vs target card, bj-finance
+#696, will), so there is no deploy order. Verify with `migration_46_verify.sql`; roll back with
+`migration_46_down.sql`.
+
 ## Schedule coverage reminder (droplet command)
 Every Thursday and Friday at noon ET, emails the owners and on-schedule
 managers every open store hour and every booked catering event in the next two
