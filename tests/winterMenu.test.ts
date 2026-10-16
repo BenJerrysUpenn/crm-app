@@ -14,11 +14,10 @@ import { describe, expect, it } from "vitest";
 import {
   DRAWER_TOPPING_OPTIONS,
   EXTRA_BY_LABEL,
-  TOPPING_NAMES,
-  WINTER_DRY_TOPPINGS,
-  WINTER_POURABLE_TOPPINGS,
   defaultExtraQuantity,
   normaliseExtraLabel,
+  parseToppingsField,
+  serializeMultiselect,
 } from "@/lib/menuOptions";
 import {
   inWinterSeason,
@@ -55,9 +54,10 @@ describe("the winter extras in the drawer", () => {
   });
 
   it("offers the $0 sundae garnishes once each", () => {
-    expect(EXTRA_BY_LABEL.get("Whipped Cream")?.price).toBe(0);
-    expect(EXTRA_BY_LABEL.get("Chocolate Sauce")?.price).toBe(0);
-    expect(defaultExtraQuantity("Whipped Cream", 40)).toBe(1);
+    for (const label of ["Whipped Cream", "Chocolate Sauce"]) {
+      expect(EXTRA_BY_LABEL.get(label)?.price).toBe(0);
+      expect(defaultExtraQuantity(label, 40)).toBe(1);
+    }
   });
 
   it("reads the winter names back from stored or typed text", () => {
@@ -68,11 +68,34 @@ describe("the winter extras in the drawer", () => {
   });
 
   it("offers the summer toppings, then both winter groups, each name once", () => {
-    expect(DRAWER_TOPPING_OPTIONS.slice(0, TOPPING_NAMES.length)).toEqual(TOPPING_NAMES);
-    for (const t of [...WINTER_DRY_TOPPINGS, ...WINTER_POURABLE_TOPPINGS]) {
-      expect(DRAWER_TOPPING_OPTIONS).toContain(t);
-    }
-    expect(DRAWER_TOPPING_OPTIONS.filter((t) => t === "Walnuts")).toHaveLength(1);
+    // Spelled as Catering-Manager modules/pricing_data.py spells them; Walnuts
+    // is in the summer list and the winter dry group, so it appears once.
+    expect(DRAWER_TOPPING_OPTIONS).toEqual([
+      "Rainbow Sprinkles",
+      "Chocolate Sprinkles",
+      "M&M's",
+      "Reese's Pieces",
+      "Oreo Crumbles",
+      "Peanuts",
+      "Walnuts",
+      "Gummy Bears",
+      "Crushed Candy Cane",
+      "Gingersnap Cookies",
+      "Marshmallow",
+      "Pecans",
+      "Biscoff Cookie Crumble",
+      "Hot Fudge",
+      "Hot Caramel",
+      "Apple Pie Filling",
+      "Cherry Compote",
+      "Cookie Butter Drizzle",
+      "Choco Hazelnut Drizzle",
+    ]);
+  });
+
+  it("keeps the winter picks the drawer stores, by name, when it reads them back", () => {
+    const picks = ["Walnuts", "Choco Hazelnut Drizzle", "Cookie Butter Drizzle", "Hot Fudge"];
+    expect(parseToppingsField(serializeMultiselect(picks))).toEqual(picks);
   });
 });
 
@@ -120,10 +143,18 @@ describe("winterMenuWarnings", () => {
   });
 
   it("warns out of season and without a menu line, and still lets it quote", () => {
-    const found = winterMenuWarnings(deal({ eventDate: "2026-07-10", customMenuLine: " " }));
-    expect(found).toHaveLength(2);
-    expect(found[0]).toContain("the event is on 2026-07-10");
-    expect(found[1]).toContain("custom menu line");
+    expect(winterMenuWarnings(deal({ eventDate: "2026-07-10", customMenuLine: " " }))).toEqual([
+      "Belgian Waffle: winter menu (Nov 1 - Mar 31), but the event is on 2026-07-10. It can still be quoted.",
+      "Belgian Waffle: winter deals fill the custom menu line, or the quote prints the package name.",
+    ]);
+  });
+
+  it("says nothing about a summer deal with no winter item, in any month", () => {
+    expect(
+      winterMenuWarnings(
+        deal({ extras: ["Cookies"], toppings: ["Peanuts"], eventDate: "2026-07-10", customMenuLine: null }),
+      ),
+    ).toEqual([]);
   });
 
   it("does not call an undated deal out of season", () => {
@@ -136,6 +167,14 @@ describe("winterMenuWarnings", () => {
         deal({ extras: ["Winter Dry Toppings"], toppings: ["Pecans", "Marshmallow", "Peanuts"] }),
       ),
     ).toEqual(["Winter Dry Toppings: 2 picked from the group; the customer picks 3."]);
+    expect(
+      winterMenuWarnings(
+        deal({
+          extras: ["Winter Pourable Toppings"],
+          toppings: [...POURABLES, "Apple Pie Filling"],
+        }),
+      ),
+    ).toEqual(["Winter Pourable Toppings: 4 picked from the group; the customer picks 3."]);
   });
 
   it("flags winter picks nothing bills, unless an override carries them", () => {
