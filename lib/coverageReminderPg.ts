@@ -24,13 +24,11 @@ import type { ReminderStore } from "@/lib/coverageReminderCli";
 // them to the web app: bigint as a JSON number, timestamptz as an ISO string,
 // time and date as text.
 
-type Sql = postgres.Sql | postgres.TransactionSql;
-
 async function jsonRows<T>(query: Promise<{ row: T }[]>): Promise<T[]> {
   return (await query).map((r) => r.row);
 }
 
-export function pgReminderStore(sql: Sql): ReminderStore {
+function pgReminderStore(sql: postgres.TransactionSql): ReminderStore {
   return {
     async snapshot(window: ReminderWindow): Promise<ReminderSnapshot> {
       const afterEnd = addDays(window.end, 1);
