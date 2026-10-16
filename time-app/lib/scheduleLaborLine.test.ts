@@ -168,3 +168,22 @@ test("there is no 'How the target is worked out' panel", () => {
   assert.doesNotMatch(html, /How the target is worked out/);
   assert.doesNotMatch(html, /<details/);
 });
+
+test("labor that is only partly priced still says what is not in the $, with no dollar amount", () => {
+  // No solo-close rule on the board: the 8h are priced, the solo-close bonus is not.
+  const { html } = laborLine(renderBoard(labor({ settings: BOARD.filter((r) => r.key !== "rule.solo_close") })));
+  const all = text(html);
+  assert.match(all, /Not in the \$: solo-close bonus not set on the control board\./);
+  assert.doesNotMatch(all, /Hourly labor \$ missing/);
+  assert.doesNotMatch(all, /\$\d/);
+});
+
+test("labor with nothing priced says the hourly labor $ is missing and why, with no dollar amount", () => {
+  // The only hourly shift is Ten's, and Ten has no rate on the Team page.
+  const people = PEOPLE.map((p) => (p.id === "ten" ? { ...p, hourly_rate: null } : p));
+  const { html } = laborLine(renderBoard(labor({ people: new Map(people.map((p) => [p.id, p])) })));
+  const all = text(html);
+  assert.match(all, /Hourly labor \$ missing: Ten Hourly: no hourly rate \(8\.0h\)\./);
+  assert.doesNotMatch(all, /Not in the \$/);
+  assert.doesNotMatch(all, /\$\d/);
+});
