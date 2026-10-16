@@ -160,8 +160,11 @@ reads `labor_daily_actuals` (migration 46), `sales_daily_in_store` (migration 41
 board's settings in force on each day, plus the booked catering deals, their Catering shifts and the
 team, read as the Schedule page reads them. Both sides are all-in (taxes and workers' comp): the target is
 the board's `hourlyAllInPct`, and the catering crew clients paid for comes off the actual through the
-Schedule page's own `cateringOffset`. A Sunday-to-Saturday week shows only once it is over with all
-seven days of payroll and sales on file, every booked catering deal priced, and hours and hourly labor
+Schedule page's own `cateringOffset`. Every board value is the one in force on the day, so a past week
+is judged by the board as it stood then: a pay rule before its first row paid nothing, and fixed payroll
+counts only the people salaried that day. A Sunday-to-Saturday week shows only once it is over with all
+seven days of payroll and sales on file, every booked catering deal priced (a deal billed zero crew hours,
+a pickup, takes nothing off), and hours and hourly labor
 still above zero after the catering crew comes off, otherwise "n/a" with the reason. Tests: `npm test` in `time-app/` includes
 `lib/metrics/*.test.ts`.
 
@@ -216,8 +219,10 @@ reads them from here rather than keeping copies (bj-finance payroll will, lane #
 owners see it; only an owner changes a value, in the page, the routes behind it
 (`/api/payroll/targets`, `/api/payroll/targets/salary`) and the database. A salaried person's
 annual salary is set on the Team page (owners) and feeds the board's fixed payroll. Fixed payroll
-counts everyone set to Salaried who is not archived and not overhead, on the schedule or not:
-`profiles.active` means "on the schedule", and `archived_at` is what marks someone gone.
+counts everyone set to Salaried who is not overhead, on the schedule or not, on each day they were
+employed: `profiles.active` means "on the schedule", `archived_at` (its New York day is the last day
+they count) is what marks someone gone, and someone whose first salary starts after a day was not
+employed yet (`inFixedPayroll` in `board.ts`). Someone with no salary row at all still counts, as a missing salary.
 
 Every value is dated. A change is a new row, never an edit: it carries an as-of date
 (`effective_from`), a review-by date (the green / yellow within a month / red chip; nothing is
@@ -259,14 +264,14 @@ target $ is that times the hourly goal in force that day; its hours divide it by
 active hourly rate. Catering crew labor is cancelled out by what the client paid for (Alina,
 2026-10-16): for each booked deal that day the target adds the crew hours billed on it in the CRM
 (`deals.labor_hours`, which is per crew member, times `deals.staff_count`), priced at crew cost
-plus the board's catering premium in force (capped at its `cap_rate` per person, as on the
+plus the board's catering premium in force (zero before the rule's first row; capped at its `cap_rate` per person, as on the
 scheduled side). Crew cost is the rate of whoever is on that deal's Catering shifts (`shifts.deal_id`,
 hours-weighted, open shifts at the average rate), else the average active hourly rate. The
 Catering shifts stay on the scheduled side, so an event staffed as billed nets to zero and
 over-staffing shows as over target. The math is `lib/controlBoard/schedule.ts` (it calls `boardOn`
 in `board.ts`, which runs `computeBoard`), the reads `scheduleLoad.ts`. Anything missing (nothing
 on the board yet, no last-year day on file, a partial trend month, a person with no rate, a booked
-deal with no billed crew hours, named by deal number) shows as missing with its reason, never
+deal with no billed crew hours on file, named by deal number; zero billed hours is a pickup and offsets nothing) shows as missing with its reason, never
 zero, and the empty board points to the Targets tab.
 Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
 entered value; run it before `migration_42_down.sql`).
