@@ -1,7 +1,9 @@
-// The time app's top bar: where a signed-in person finds their account page.
-// Account has no tab in the desktop row; from the md breakpoint (768px, where
-// that row appears) the name at the right of the bar is the link to /account.
-// Below md the hamburger menu holds the nav, Account included.
+// The time app's top bar: where a signed-in person finds their account page,
+// and which widths get the tab row and which the hamburger.
+// Account has no tab in the tab row; from the md breakpoint (768px) the name at
+// the right of the bar is the link to /account. The tab row shows from xl
+// (1280px); below xl the hamburger menu holds the nav, Account included.
+// The menu itself is driven in topBarMenu.test.ts.
 //
 // Rendered with react-dom/server. The pathname Next's app router would supply
 // is given through its PathnameContext; Supabase is the fake one (the bell
@@ -44,9 +46,9 @@ function accountLinks(html: string): { attrs: string; classes: string[]; inner: 
     .map((m) => ({ attrs: m[1], classes: (m[1].match(/class="([^"]*)"/)?.[1] ?? "").split(/\s+/), inner: m[2] }));
 }
 
-/** The desktop tab row: the <nav> shown from the md breakpoint up. */
+/** The tab row: the <nav> shown from the xl breakpoint up. */
 function desktopTabs(html: string): string {
-  const row = html.match(/<nav class="hidden md:flex[^"]*">([\s\S]*?)<\/nav>/);
+  const row = html.match(/<nav aria-label="Main" class="hidden xl:flex[^"]*">([\s\S]*?)<\/nav>/);
   assert.ok(row, "the bar renders a desktop tab row");
   return row[1];
 }
@@ -70,9 +72,27 @@ test("from the md breakpoint the name in the bar links to /account", () => {
 
 test("the hamburger menu covers every width the name link does not", () => {
   const html = renderBar("employee");
-  const menu = html.match(/<button class="([^"]*)"[^>]*aria-label="Menu"/);
+  const menu = html.match(/<button [^>]*class="([^"]*)"[^>]*aria-label="Menu"/);
   assert.ok(menu, "the bar renders the Menu button");
-  assert.ok(menu[1].split(/\s+/).includes("md:hidden"), `hamburger hidden from md, where the name appears: ${menu[1]}`);
+  // Shown below xl, so every width below md (where the name is hidden) has it.
+  assert.ok(menu[1].split(/\s+/).includes("xl:hidden"), `hamburger shown below xl: ${menu[1]}`);
+});
+
+test("the tab row and the hamburger switch at the same breakpoint, and the row never scrolls", () => {
+  const html = renderBar("manager");
+  const row = html.match(/<nav aria-label="Main" class="([^"]*)"/);
+  assert.ok(row, "the bar renders the tab row");
+  const classes = row[1].split(/\s+/);
+  assert.ok(classes.includes("hidden") && classes.includes("xl:flex"), `row shown from xl: ${row[1]}`);
+  assert.ok(!classes.some((c) => c.startsWith("overflow")), `row never scrolls or clips: ${row[1]}`);
+});
+
+test("the bar is left-aligned: no centred max-width box", () => {
+  const html = renderBar("manager");
+  const inner = html.match(/<header [^>]*><div class="([^"]*)"/);
+  assert.ok(inner, "the bar renders its row");
+  assert.doesNotMatch(inner[1], /\bmx-auto\b|\bmax-w-/);
+  assert.ok(html.indexOf(">Withers Time<") < html.indexOf('aria-label="Main"'), "the brand comes before the tabs");
 });
 
 test("a long name is capped and truncated, with the full name as its tooltip", () => {
