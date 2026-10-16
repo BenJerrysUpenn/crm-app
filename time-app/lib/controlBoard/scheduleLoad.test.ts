@@ -107,3 +107,42 @@ test("a week still ahead takes its trend from the last full month before today",
   assert.equal(load.labor.trend.lastMonth.month, "2030-09-01");
   assert.ok(Math.abs((load.labor.trend.factor.value ?? 0) - 1.1) < 1e-9);
 });
+
+test("when last year's daily sales cannot be read the line says so and every day's target is missing, not zero", async () => {
+  db.missingTables.push("sales_daily_in_store");
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.ok(load.problems.some((p) => p.startsWith("Last year's daily sales could not be read: ")), load.problems.join(" | "));
+  assert.equal(load.labor.days[0].lastYearInStore.value, null);
+  assert.equal(load.labor.days[0].targetHours.value, null);
+});
+
+test("when the booking history cannot be read, catering is missing rather than guessed", async () => {
+  db.missingTables.push("deal_events");
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.match(load.problems[0], /^Catering bookings could not be read: /);
+  assert.equal(load.labor.days[1].catering.value, null);
+  assert.equal(load.labor.days[1].projectedSales.value, null);
+});
+
+test("a booked deal with no value on it is named as left out of projected sales", async () => {
+  db.tables.deals.push({ id: 3, stage: "Booked Paid", payment_status: "Paid", event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: null, total_with_tax: null, amount_paid: "100", company: "No Value Co", source: "form", archived: 0 });
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, ["Booked catering with no value on the deal, left out of projected sales: #3"]);
+  assert.equal(load.labor.days[1].catering.value, 400, "the valued booking still counts");
+});
+
+test("a shift type marked not in-store does not close the night for the solo-close bonus", async () => {
+  db.tables.control_settings.push({ id: 8, key: "rule.solo_close", value: "30", detail: { min_alone_hours: 4, out_at_or_after: "22:00" }, ...NOTE });
+  const shifts = [
+    { id: 1, employee_id: MANAGER, starts_at: at("2030-10-14", 12), ends_at: at("2030-10-14", 18), position: "Scooper" },
+    { id: 2, employee_id: "p-twenty", starts_at: at("2030-10-14", 18), ends_at: at("2030-10-14", 23), position: "Delivery" },
+  ];
+  const asInStore = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts, employees: ACTIVE, shiftTypes: [{ name: "Scooper", in_store: true }, { name: "Delivery", in_store: true }] });
+  const notInStore = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts, employees: ACTIVE, shiftTypes: [{ name: "Scooper", in_store: true }, { name: "Delivery", in_store: false }] });
+  assert.ok(asInStore.ready && notInStore.ready);
+  assert.equal(asInStore.labor.labor.solo, 30, "alone 18:00-23:00, out at 23:00");
+  assert.equal(notInStore.labor.labor.solo, 0, "the in-store closer is out at 18:00");
+});
