@@ -28,20 +28,20 @@ function platformLabel(platform: string | null | undefined): string | null {
   return PLATFORM_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-/** "Ad · Instagram" for an ad lead, "Ad" when the platform is unknown, and
- *  null for every other channel (no badge). */
-export function channelBadge(deal: ChannelFields): string | null {
+/** What the card shows for a deal's channel: the badge text ("Ad · Instagram"
+ *  for an ad lead, "Ad" when the platform is unknown) and its hover text naming
+ *  the campaign and ad (null when neither is recorded). Null for every other
+ *  channel (no badge). */
+export type ChannelBadge = { label: string; title: string | null };
+
+export function channelBadge(deal: ChannelFields): ChannelBadge | null {
   if (deal.source !== AD_FORM_SOURCE) return null;
   const platform = platformLabel(deal.ad_platform);
-  return platform ? `Ad · ${platform}` : "Ad";
-}
-
-/** Hover text naming the campaign and ad the lead came from, or null when
- *  neither is recorded. */
-export function channelBadgeTitle(deal: ChannelFields): string | null {
-  if (deal.source !== AD_FORM_SOURCE) return null;
   const lines: string[] = [];
   if (deal.ad_campaign_name?.trim()) lines.push(`Campaign: ${deal.ad_campaign_name.trim()}`);
   if (deal.ad_name?.trim()) lines.push(`Ad: ${deal.ad_name.trim()}`);
-  return lines.length ? lines.join("\n") : null;
+  return {
+    label: platform ? `Ad · ${platform}` : "Ad",
+    title: lines.length ? lines.join("\n") : null,
+  };
 }
