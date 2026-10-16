@@ -34,7 +34,9 @@
 // the client paid for" (Alina, 2026-10-16). Scheduled Catering shifts stay on
 // the scheduled side, so an event staffed exactly as billed nets to zero and
 // over-staffing shows as over target. A booked deal with no billed crew hours
-// makes the day's target missing, naming the deal, never zero.
+// makes the day's target missing, naming the deal, never zero; a deal billed
+// zero crew hours (labor_hours 0: a pickup the client collects) offsets
+// nothing.
 //
 // Overhead staff (profiles.is_overhead, migration 45; bj-finance #692, ruled
 // 2026-10-15) are not part of the payroll target: out of hourly labor hours
@@ -42,7 +44,10 @@
 // shifts still count in total hours and the day's scheduled hours.
 //
 // Every rate comes from the control board in force on the shift's date
-// (computeBoard / boardOn), never a constant here. Pay type is read strictly:
+// (computeBoard / boardOn), never a constant here. A pay rule (catering
+// premium, solo-close bonus) before its first row did not exist yet and pays
+// nothing; one never set is missing (ruleOn in settings.ts). Fixed payroll on
+// a date counts the people salaried that date (inFixedPayroll in board.ts). Pay type is read strictly:
 // only `pay_type = 'hourly'` is hourly. A missing input is missing, with a
 // short reason, never zero.
 //
@@ -50,7 +55,7 @@
 
 import { boardOn } from "./board.ts";
 import type { Derived, Trend } from "./math.ts";
-import { settingsInForce, type SalaryRow, type SettingRow } from "./settings.ts";
+import { ruleOn, type SalaryRow, type SettingRow } from "./settings.ts";
 import type { SalariedProfile } from "./load.ts";
 
 const TZ = "America/New_York";
@@ -76,7 +81,7 @@ export type CateringBooking = {
   id: number;
   /** The event day, New York. */
   day: string;
-  /** Crew hours billed on the deal in the CRM: labor_hours (per crew member) x staff_count. Null when the deal does not say. */
+  /** Crew hours billed on the deal in the CRM: labor_hours (per crew member) x staff_count. 0 when the deal bills no crew (a pickup); null when the deal does not say. */
   billedHours: number | null;
 };
 
@@ -253,10 +258,16 @@ function averageHourlyRate(people: Iterable<LaborPerson>): { avgRate: Derived; o
   return { avgRate, over: rated.length, unrated };
 }
 
-/** The catering premium per hour on `rate` on `date`: the board's rule in force, capped at its cap_rate per person. Null when not set. */
+/**
+ * The catering premium per hour on `rate` on `date`: the board's rule in
+ * force, capped at its cap_rate per person. Zero before the rule's first row
+ * (there was no premium then); null when the rule has never been set.
+ */
 function cateringPremium(settings: SettingRow[], rate: number, date: string): number | null {
-  const rule = settingsInForce(settings, date).get("rule.catering_premium");
-  if (!rule) return null;
+  const on = ruleOn(settings, "rule.catering_premium", date);
+  if (on.state === "unset") return null;
+  if (on.state === "not_yet") return 0;
+  const rule = on.row;
   const cap = detailNum(rule, "cap_rate");
   const withPremium = rate + rule.value;
   return Math.max(0, (cap == null ? withPremium : Math.min(withPremium, cap)) - rate);
@@ -315,6 +326,8 @@ export function cateringOffset(input: CateringOffsetInput, date: string): { hour
   let hours: Derived = known(0);
   let dollars: Derived = known(0);
   for (const deal of input.catering.filter((d) => d.day === date)) {
+    // Billed zero crew hours (a pickup the client collects): nothing to take off, and nothing to price.
+    if (deal.billedHours === 0) continue;
     const billed = deal.billedHours != null && deal.billedHours > 0 ? known(deal.billedHours) : missing(billedNeed(deal.id));
     hours = both(hours, billed, (a, b) => a + b);
     dollars = both(dollars, both(billed, crewCostPerHour(deal.id), (h, r) => h * r), (a, b) => a + b);
@@ -326,7 +339,6 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   const { dates, people, settings } = input;
   const dateSet = new Set(dates);
   const shifts = input.shifts.filter((s) => dateSet.has(nyDate(s.starts_at)));
-  const onDay = (date: string) => settingsInForce(settings, date);
   const isInStore = (s: LaborShift) => {
     const key = s.position?.trim();
     return key ? input.inStoreByName.get(key) ?? true : true;
@@ -398,7 +410,9 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   for (const date of dates) {
     const inStore = shifts.filter((s) => nyDate(s.starts_at) === date && isInStore(s));
     if (inStore.length === 0) continue;
-    const rule = onDay(date).get("rule.solo_close");
+    const on = ruleOn(settings, "rule.solo_close", date);
+    if (on.state === "not_yet") continue; // no bonus before the rule's first row
+    const rule = on.state === "in_force" ? on.row : undefined;
     const minAlone = detailNum(rule, "min_alone_hours");
     const outAt = detailText(rule, "out_at_or_after");
     if (!rule || minAlone == null || !outAt) {

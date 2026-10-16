@@ -14,14 +14,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { boardSections, NOT_SET, EMPTY_CATEGORY, type BoardData, type Current, type Line, type StoredLine } from "@/lib/controlBoard/board";
+import { boardSections, inFixedPayroll, NOT_SET, EMPTY_CATEGORY, type BoardData, type Current, type Line, type StoredLine } from "@/lib/controlBoard/board";
 import { trendFactor, type DailySalesRow, type MonthlySalesRow } from "@/lib/controlBoard/math";
 import { money, pct, shortDate } from "@/lib/controlBoard/format";
 import {
   addMonthsTo,
   groupBy,
   historyOf,
-  inForce,
   settingSpec,
   settingsInForce,
   type FieldSpec,
@@ -91,10 +90,10 @@ export default function ControlBoard({ settings, salaries, salaried, monthly, da
     return {
       values,
       saved,
-      salaried: salaried.map((p) => ({ id: p.id, name: p.name, salary: inForce(salaryByPerson.get(p.id) ?? [], today) })),
+      salaried: inFixedPayroll(today, salaried, salaries),
       trend,
     };
-  }, [saved, drafts, salaried, salaryByPerson, today, trend]);
+  }, [saved, drafts, salaried, salaries, today, trend]);
 
   const sections = boardSections(data);
   const changedCount = Object.keys(drafts).filter((k) => isChanged(k)).length;

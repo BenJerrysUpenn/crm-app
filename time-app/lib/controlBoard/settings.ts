@@ -161,6 +161,22 @@ export function settingsInForce(rows: SettingRow[], day: string): Map<string, Se
   return out;
 }
 
+/**
+ * A pay rule (a `rule.*` key) as it stood on `day`. A rule that has rows but
+ * none starting on or before `day` did not exist yet: it paid nothing then
+ * ("not yet", a real zero). A rule with no rows at all has never been set and
+ * is missing ("unset"). Rates, taxes and targets do not work this way: for
+ * them no row in force is always missing (bj-finance #696, 2026-10-16).
+ */
+export type RuleOn = { state: "in_force"; row: SettingRow } | { state: "not_yet" } | { state: "unset" };
+
+export function ruleOn(rows: SettingRow[], key: string, day: string): RuleOn {
+  const mine = rows.filter((r) => r.key === key);
+  if (!mine.length) return { state: "unset" };
+  const row = inForce(mine, day);
+  return row ? { state: "in_force", row } : { state: "not_yet" };
+}
+
 // ---------------------------------------------------------------------------
 // The review-by chip
 // ---------------------------------------------------------------------------

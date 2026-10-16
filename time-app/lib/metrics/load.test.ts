@@ -266,6 +266,51 @@ test("labor vs target: a booked deal with no billed crew hours reads n/a for its
   assert.ok(first.why.includes("no billed crew hours on catering deal #4"), first.why.join("; "));
 });
 
+// A past week is judged by the board as it stood that week (bj-finance #696):
+// live, every week read n/a because today's board was applied to it.
+
+test("labor vs target: a week before the catering premium was first set prices the crew at cost and is available", async () => {
+  seedLaborTarget();
+  // Invented: the premium's only row starts Oct 1, after the September week.
+  db.tables.control_settings.push({ id: 8, key: "rule.catering_premium", value: 5, detail: { cap_rate: null }, effective_from: "2026-10-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-10-01T00:00:00Z" });
+  // 5 hours x 2 crew = 10 billed hours at the active average of 15, no premium: 150, 187.50 with taxes and comp.
+  db.tables.deals.push(deal({ id: 3, event_date: "2026-09-08", labor_hours: "5", staff_count: 2 }));
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  assert.equal(first.available, true, first.why.join("; "));
+  assert.equal(first.cateringOffset, 187.5);
+  assert.equal(first.actual, 1_212.5);
+});
+
+test("labor vs target: a week's fixed payroll is the people salaried that week, hired later out and archived later in", async () => {
+  seedLaborTarget();
+  // Invented: one salaried person hired Oct 1 (their only salary row starts then), one archived Oct 1 on 10,000 a year.
+  db.tables.profiles.push(
+    { id: "p-new", role: "manager", active: true, full_name: "Hired In October", hourly_rate: null, pay_type: "salaried", archived_at: null, is_overhead: false },
+    { id: "p-gone", role: "manager", active: false, full_name: "Left In October", hourly_rate: null, pay_type: "salaried", archived_at: "2026-10-01T15:00:00Z", is_overhead: false },
+  );
+  db.tables.profile_salaries = [
+    { id: 1, profile_id: "p-new", annual_salary: "50000.00", effective_from: "2026-10-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-10-01T00:00:00Z" },
+    { id: 2, profile_id: "p-gone", annual_salary: "10000.00", effective_from: "2026-01-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-01-01T00:00:00Z" },
+  ];
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  assert.equal(first.available, true, first.why.join("; "));
+  // 25,000 of payroll target less 10,000 x 1.25 of fixed payroll = 12,500 of 100,000.
+  assert.equal(first.targetPct.value, 0.125);
+});
+
+test("labor vs target: a deal billed zero crew hours (a pickup) takes nothing off, whatever its staff count", async () => {
+  seedLaborTarget();
+  // PostgREST sends the numeric labor_hours as a string; no staff count on file.
+  db.tables.deals.push(deal({ id: 5, event_date: "2026-09-08", labor_hours: "0", staff_count: null }));
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  assert.equal(first.available, true, first.why.join("; "));
+  assert.equal(first.cateringHours, 0);
+  assert.equal(first.actual, 1_400);
+});
+
 test("labor vs target: when the paid actuals cannot be read the card cannot load and says so; the rest still draws", async () => {
   seedLaborTarget();
   db.missingTables = ["labor_daily_actuals"];

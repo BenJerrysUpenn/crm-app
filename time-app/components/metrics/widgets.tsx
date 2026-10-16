@@ -595,12 +595,13 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
         <p>
           Catering crew the client paid for = each booked deal&rsquo;s billed crew hours (labor hours x staff count) at crew cost plus
           the catering premium, worked out exactly as the Schedule page&rsquo;s labor line does, so the two agree. Sales are in-store
-          only, so catering comes out of both sides. A booked deal with no billed crew hours makes its week not available.
+          only, so catering comes out of both sides. A deal billed zero crew hours (a pickup) takes nothing off; a booked deal with
+          no billed crew hours on file makes its week not available. Before the catering premium was first set it was zero.
         </p>
         <p>
           Target %, all-in = the Targets tab&rsquo;s all-in hourly goal in force on each day (the payroll target less fixed payroll,
           as a share of sales{goals.length ? `: ${goals.join(", ")} of sales this month` : ""}). Each day&rsquo;s sales are held to
-          that day&rsquo;s target.
+          that day&rsquo;s target, and fixed payroll on a day counts the people who were salaried that day.
         </p>
         <p>
           Variance $ = hourly labor less target % x sales; above zero (red) is over target. Variance hours = variance $ at the
