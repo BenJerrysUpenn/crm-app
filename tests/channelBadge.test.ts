@@ -59,6 +59,9 @@ describe("channelBadgeTitle", () => {
   it("is empty when neither is recorded, or the deal is not an ad lead", () => {
     expect(channelBadgeTitle({ source: "ad_form" })).toBeNull();
     expect(
+      channelBadgeTitle({ source: "ad_form", ad_campaign_name: "  ", ad_name: "" }),
+    ).toBeNull();
+    expect(
       channelBadgeTitle({ source: "form", ad_campaign_name: "x", ad_name: "y" }),
     ).toBeNull();
   });
