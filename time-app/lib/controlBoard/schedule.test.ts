@@ -394,7 +394,7 @@ test("not overhead is unchanged: the same person without the flag is hourly labo
   const l = scheduleLabor(input({ people: withPeople(notOverhead), shifts: [shift("ovh", "2030-10-14", "12:00", "18:00")] }));
   assert.equal(l.hourlyHours, 6);
   close(l.labor.wages, 240);
-  close(val(l.avgRate), (10 + 20 + 40) / 3);
+  close(val(l.avgRate), 23.333333, "10, 20 and 40 average 23.33");
   const unset = scheduleLabor(input({ people: withPeople({ ...OVERHEAD, overhead: undefined }), shifts: [shift("ovh", "2030-10-14", "12:00", "18:00")] }));
   close(unset.labor.wages, 240, "no flag reads as not overhead");
 });
