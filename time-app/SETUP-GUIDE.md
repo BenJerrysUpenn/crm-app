@@ -305,14 +305,13 @@ summary, and the email and text switches choose how it arrives.
 
 ## Part 8: The missed-clock-in checker (one note about your Vercel plan)
 
-The app checks every few minutes for anyone who was scheduled but hasn't clocked in, and alerts them and you. How that runs depends on your Vercel plan:
+The app checks every few minutes for anyone who was scheduled but hasn't clocked in, and alerts them and you. Nothing on Vercel schedules this: `vercel.json` has no `crons` entry, because the Hobby plan only allows a cron once a day, which is useless for shift alerts.
 
-- **Vercel Pro:** it already works. The `vercel.json` file in the app schedules the check every 5 minutes automatically. Nothing to do.
-- **Vercel Hobby (free):** the free plan only allows the check to run **once a day**, which isn't useful for shift alerts. Two options: upgrade the time project to Pro, **or** use a free outside scheduler. Make a free account at [cron-job.org](https://cron-job.org), and have it call this URL every 5 minutes:
+Today the check runs from a LaunchAgent on the Mac, which calls this URL every 5 minutes (setup: `time-app/ALEX-CRON-SETUP.md`):
 
   `https://time.withers-ventures.com/api/cron/missed-clockins?secret=YOUR_CRON_SECRET`
 
-  (swap in the `CRON_SECRET` you set in Part 4). That does the same job without Pro.
+(swap in the `CRON_SECRET` you set in Part 4). Any outside scheduler that calls the same URL, such as [cron-job.org](https://cron-job.org), does the same job. On Vercel Pro you could instead add a 5-minute cron for that path to `vercel.json`.
 
 Not sure which plan you're on? Vercel → your account → **Settings → Billing** shows it. If you never paid Vercel anything, you're on Hobby.
 
