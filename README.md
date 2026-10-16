@@ -280,8 +280,8 @@ Apply `time-app/supabase/migration_46.sql` by hand in the Supabase SQL editor, a
 It adds `labor_paycheck_actuals`: one row per hourly paycheck as QBO Payroll paid it (pay period,
 pay date, the stub's name and year-to-date gross, Regular and Overtime hours and pay, catering
 premium and solo close kept apart), with `profile_id` when exactly one profile has the stub's
-name. bj-finance writes every row from the Mac from the saved paystub PDFs
-(`modules.labor_actuals`), never through the API; managers read it. Salaried paychecks, tips and
+name, read from the saved paystub PDFs. bj-finance writes every row of both tables from the Mac
+(`modules.labor_actuals`), never through the API; managers read them. Salaried paychecks, tips and
 reimbursements are not in it, and nor are employer taxes (a paystub does not carry them: readers
 apply the Targets tab's rates). It also adds `labor_daily_actuals`: one row per day of a pay period
 whose daily hours (When I Work timesheets before the time app, punches after) tie to the hours QBO
