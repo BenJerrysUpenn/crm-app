@@ -57,6 +57,15 @@ test("hourly dollars net hourly staff's taxes and WC out of the payroll target, 
   close(r.allTaxesWcPct.value, 0.030892857143);
 });
 
+test("the all-in hourly goal is hourly wages plus their taxes and WC as a share of sales: the payroll target less fixed payroll", () => {
+  const r = computeBoard(FULL);
+  // 211,800 of the pool over 1,000,000 of sales: the wage goal 18.9107% grossed up by 1.12, worked by hand.
+  close(r.hourlyAllInPct.value, 0.2118);
+  const noRates = computeBoard({ ...FULL, fica: null });
+  assert.equal(noRates.hourlyAllInPct.value, null);
+  assert.ok(noRates.hourlyAllInPct.needs.includes("FICA"));
+});
+
 test("the cost targets are shares of the whole sales estimate; prime cost shown is COGS plus payroll at target", () => {
   const r = computeBoard(FULL);
   close(r.cogsDollars.value, 200_000);

@@ -58,6 +58,9 @@ const TZ = "America/New_York";
 /** The shift position the CRM and the payroll page give a catering event's crew (lib/payroll/eventShift.ts). */
 export const CATERING_POSITION = "Catering";
 
+/** A shift crewing a catering event: its position is CATERING_POSITION. */
+const isCatering = (s: LaborShift) => (s.position ?? "").trim() === CATERING_POSITION;
+
 export type LaborShift = {
   id: number;
   employee_id: string | null;
@@ -237,24 +240,101 @@ const detailText = (row: SettingRow | undefined, name: string): string | null =>
   return typeof v === "string" && v ? v : null;
 };
 
+/**
+ * The average rate of ACTIVE hourly staff, overhead left out. Pay type is read
+ * strictly ('hourly'); an active hourly person with no rate is left out and
+ * listed in `unrated`. Target hours and open shifts are priced at it.
+ */
+function averageHourlyRate(people: Iterable<LaborPerson>): { avgRate: Derived; over: number; unrated: LaborPerson[] } {
+  const activeHourly = [...people].filter((p) => p.active && p.pay_type === "hourly" && !p.overhead);
+  const rated = activeHourly.filter((p) => p.hourly_rate != null && Number(p.hourly_rate) > 0);
+  const unrated = activeHourly.filter((p) => !rated.includes(p));
+  const avgRate = rated.length ? known(rated.reduce((a, p) => a + Number(p.hourly_rate), 0) / rated.length) : missing(MISSING.avgRate);
+  return { avgRate, over: rated.length, unrated };
+}
+
+/** The catering premium per hour on `rate` on `date`: the board's rule in force, capped at its cap_rate per person. Null when not set. */
+function cateringPremium(settings: SettingRow[], rate: number, date: string): number | null {
+  const rule = settingsInForce(settings, date).get("rule.catering_premium");
+  if (!rule) return null;
+  const cap = detailNum(rule, "cap_rate");
+  const withPremium = rate + rule.value;
+  return Math.max(0, (cap == null ? withPremium : Math.min(withPremium, cap)) - rate);
+}
+
+export type CateringOffsetInput = {
+  /** The booked catering deals, or null when the bookings could not be read. */
+  catering: CateringBooking[] | null;
+  /** Shifts that may crew those deals: a deal's Catering shifts (deal_id) set its crew rate. */
+  shifts: LaborShift[];
+  /** Everyone who may be on those shifts; open shifts and unstaffed deals are priced at their averageHourlyRate. */
+  people: Map<string, LaborPerson>;
+  /** Every control_settings row (all dates). */
+  settings: SettingRow[];
+};
+
+/**
+ * One day's catering offset (bj-finance #695, ruled 2026-10-16): the crew
+ * hours billed on that day's booked deals (labor_hours x staff_count), priced
+ * at crew cost + the catering premium exactly as the scheduled side prices a
+ * deal's Catering shifts (rate + capped premium, open shifts at the average
+ * rate), so a deal staffed as billed nets to zero. Shifts the scheduled side
+ * leaves out (salaried, overhead, no pay type, no rate) are left out of the
+ * crew cost too, and the deal falls back to the average rate; their billed
+ * hours stay in the offset. No cart term: cart deals are billed the extra
+ * hour. The Schedule page's labor line and the Labor vs target metric (#696)
+ * both take it from here.
+ */
+export function cateringOffset(input: CateringOffsetInput, date: string): { hours: Derived; dollars: Derived } {
+  const { people, settings } = input;
+  const { avgRate } = averageHourlyRate(people.values());
+  if (input.catering == null) return { hours: missing(MISSING.catering), dollars: missing(MISSING.catering) };
+  const crewCostPerHour = (dealId: number): Derived => {
+    let hours = 0;
+    let dollars = 0;
+    for (const s of input.shifts) {
+      if (s.deal_id !== dealId || !isCatering(s)) continue;
+      let rate: number | null = null;
+      if (!s.employee_id) rate = avgRate.value;
+      else {
+        const p = people.get(s.employee_id);
+        if (p?.pay_type === "hourly" && !p.overhead && p.hourly_rate != null && Number(p.hourly_rate) > 0) rate = Number(p.hourly_rate);
+      }
+      if (rate == null) continue;
+      const prem = cateringPremium(settings, rate, nyDate(s.starts_at));
+      if (prem == null) return missing(MISSING.premium);
+      const h = hoursOf(s);
+      hours += h;
+      dollars += h * (rate + prem);
+    }
+    if (hours > 0) return known(dollars / hours);
+    if (avgRate.value == null) return missing(MISSING.avgRate);
+    const prem = cateringPremium(settings, avgRate.value, date);
+    return prem == null ? missing(MISSING.premium) : known(avgRate.value + prem);
+  };
+  let hours: Derived = known(0);
+  let dollars: Derived = known(0);
+  for (const deal of input.catering.filter((d) => d.day === date)) {
+    const billed = deal.billedHours != null && deal.billedHours > 0 ? known(deal.billedHours) : missing(billedNeed(deal.id));
+    hours = both(hours, billed, (a, b) => a + b);
+    dollars = both(dollars, both(billed, crewCostPerHour(deal.id), (h, r) => h * r), (a, b) => a + b);
+  }
+  return { hours, dollars };
+}
+
 export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   const { dates, people, settings } = input;
   const dateSet = new Set(dates);
   const shifts = input.shifts.filter((s) => dateSet.has(nyDate(s.starts_at)));
   const onDay = (date: string) => settingsInForce(settings, date);
-  const isCatering = (s: LaborShift) => (s.position ?? "").trim() === CATERING_POSITION;
   const isInStore = (s: LaborShift) => {
     const key = s.position?.trim();
     return key ? input.inStoreByName.get(key) ?? true : true;
   };
   const notes: string[] = [];
 
-  // Average rate of ACTIVE hourly staff, overhead left out. Pay type strictly 'hourly'; no rate = left out and said.
-  const activeHourly = [...people.values()].filter((p) => p.active && p.pay_type === "hourly" && !p.overhead);
-  const rated = activeHourly.filter((p) => p.hourly_rate != null && Number(p.hourly_rate) > 0);
-  const unrated = activeHourly.filter((p) => !rated.includes(p));
+  const { avgRate, over: avgRateOver, unrated } = averageHourlyRate(people.values());
   if (unrated.length) notes.push(`Left out of the average rate, no hourly rate on the Team page: ${unrated.map((p) => p.name).join(", ")}`);
-  const avgRate = rated.length ? known(rated.reduce((a, p) => a + Number(p.hourly_rate), 0) / rated.length) : missing(MISSING.avgRate);
 
   // ---- Projected hourly labor $ ----
   let wages = 0;
@@ -267,14 +347,6 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   let openUnpriced = 0;
   let premiumUnset = false;
 
-  const premiumFor = (rate: number, date: string): number | null => {
-    const rule = onDay(date).get("rule.catering_premium");
-    if (!rule) return null;
-    const cap = detailNum(rule, "cap_rate");
-    const withPremium = rate + rule.value;
-    return Math.max(0, (cap == null ? withPremium : Math.min(withPremium, cap)) - rate);
-  };
-
   for (const s of shifts) {
     const h = hoursOf(s);
     const date = nyDate(s.starts_at);
@@ -286,7 +358,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
       }
       let prem = 0;
       if (isCatering(s)) {
-        const p = premiumFor(avgRate.value, date);
+        const p = cateringPremium(settings, avgRate.value, date);
         if (p == null) premiumUnset = true;
         else prem = p;
       }
@@ -310,7 +382,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     wages += h * rate;
     priced++;
     if (isCatering(s)) {
-      const p = premiumFor(rate, date);
+      const p = cateringPremium(settings, rate, date);
       if (p == null) premiumUnset = true;
       else premium += h * p;
     }
@@ -355,47 +427,6 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   for (const [who, h] of noPayType) notCounted.push(`${who}: pay type not set on the Team page (${hrs(h)}, not in hourly labor)`);
   const somethingToPrice = priced > 0 || noRate.size > 0 || openUnpriced > 0;
 
-  // ---- Catering offset: crew hours billed on the day's booked deals, at crew cost + premium ----
-  // Priced per hour exactly as the scheduled side prices that deal's Catering
-  // shifts (rate + capped premium, open shifts at the average rate), so a deal
-  // staffed as billed nets to zero. Shifts the scheduled side leaves out
-  // (salaried, overhead, no pay type, no rate) are left out of the crew cost too.
-  const crewCostPerHour = (dealId: number, date: string): Derived => {
-    let hours = 0;
-    let dollars = 0;
-    for (const s of input.shifts) {
-      if (s.deal_id !== dealId || !isCatering(s)) continue;
-      let rate: number | null = null;
-      if (!s.employee_id) rate = avgRate.value;
-      else {
-        const p = people.get(s.employee_id);
-        if (p?.pay_type === "hourly" && !p.overhead && p.hourly_rate != null && Number(p.hourly_rate) > 0) rate = Number(p.hourly_rate);
-      }
-      if (rate == null) continue;
-      const prem = premiumFor(rate, nyDate(s.starts_at));
-      if (prem == null) return missing(MISSING.premium);
-      const h = hoursOf(s);
-      hours += h;
-      dollars += h * (rate + prem);
-    }
-    if (hours > 0) return known(dollars / hours);
-    if (avgRate.value == null) return missing(MISSING.avgRate);
-    const prem = premiumFor(avgRate.value, date);
-    return prem == null ? missing(MISSING.premium) : known(avgRate.value + prem);
-  };
-
-  const cateringOffset = (date: string): { hours: Derived; dollars: Derived } => {
-    if (input.catering == null) return { hours: missing(MISSING.catering), dollars: missing(MISSING.catering) };
-    let hours: Derived = known(0);
-    let dollars: Derived = known(0);
-    for (const deal of input.catering.filter((d) => d.day === date)) {
-      const billed = deal.billedHours != null && deal.billedHours > 0 ? known(deal.billedHours) : missing(billedNeed(deal.id));
-      hours = both(hours, billed, (a, b) => a + b);
-      dollars = both(dollars, both(billed, crewCostPerHour(deal.id, date), (h, r) => h * r), (a, b) => a + b);
-    }
-    return { hours, dollars };
-  };
-
   // ---- Day targets ----
   const days: DayLabor[] = dates.map((date) => {
     const scheduledHours = input.shifts.filter((s) => nyDate(s.starts_at) === date).reduce((a, s) => a + hoursOf(s), 0);
@@ -410,7 +441,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
       : board.hourlyGoalPct;
     const inStoreDollars = both(projectedSales, hourlyGoal, (s, g) => s * g);
     const inStoreHours = both(inStoreDollars, avgRate, (d, r) => (r > 0 ? d / r : null));
-    const { hours: cateringHours, dollars: cateringDollars } = cateringOffset(date);
+    const { hours: cateringHours, dollars: cateringDollars } = cateringOffset({ catering: input.catering, shifts: input.shifts, people, settings }, date);
     const targetDollars = both(inStoreDollars, cateringDollars, (a, c) => a + c);
     const targetHours = both(inStoreHours, cateringHours, (a, c) => a + c);
     const day = { date, lastYearDay, scheduledHours, lastYearInStore, trendedInStore, projectedSales, hourlyGoal, cateringHours, cateringDollars, targetDollars, targetHours, short: null as string | null };
@@ -437,7 +468,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     },
     target: { dollars: sum((d) => d.targetDollars), hours: sum((d) => d.targetHours) },
     avgRate,
-    avgRateOver: rated.length,
+    avgRateOver,
     trend: input.trend,
     days,
     boardEmpty: settings.length === 0,

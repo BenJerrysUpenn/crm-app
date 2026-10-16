@@ -157,8 +157,12 @@ views in the browser's localStorage. Sales targets come only from `public.sales_
 draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
 bj-finance feed (migration 40). Labor vs target (bj-finance #696, `lib/metrics/laborTarget.ts`)
 reads `labor_daily_actuals` (migration 46), `sales_daily_in_store` (migration 41) and the control
-board's settings in force on each day; a Sunday-to-Saturday week shows only once it is over with all
-seven days of payroll and sales on file, otherwise "n/a". Tests: `npm test` in `time-app/` includes
+board's settings in force on each day, plus the booked catering deals, their Catering shifts and the
+team, read as the Schedule page reads them. Both sides are all-in (taxes and workers' comp): the target is
+the board's `hourlyAllInPct`, and the catering crew clients paid for comes off the actual through the
+Schedule page's own `cateringOffset`. A Sunday-to-Saturday week shows only once it is over with all
+seven days of payroll and sales on file, every booked catering deal priced, and hours and hourly labor
+still above zero after the catering crew comes off, otherwise "n/a" with the reason. Tests: `npm test` in `time-app/` includes
 `lib/metrics/*.test.ts`.
 
 ## Travel Reimbursements (Withers Time)
@@ -291,8 +295,8 @@ apply the Targets tab's rates). It also adds `labor_daily_actuals`: one row per 
 whose daily hours (When I Work timesheets before the time app, punches after) tie to the hours QBO
 paid, with the period's wages, catering premium and solo close spread over its days by hours.
 Hourly, non-overhead labor only; a period that does not tie has no days (unknown, not zero), and
-Sunday to Saturday weeks are the reader's grouping. Nothing in the app reads them yet (the Labor vs target card, bj-finance
-#696, will), so there is no deploy order. Verify with `migration_46_verify.sql`; roll back with
+Sunday to Saturday weeks are the reader's grouping. Only the Labor vs target card (bj-finance #696) reads them; apply this
+migration before deploying that card, or it says it could not load. Verify with `migration_46_verify.sql`; roll back with
 `migration_46_down.sql`.
 
 ## Schedule coverage reminder (droplet command)

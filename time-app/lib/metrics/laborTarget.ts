@@ -1,33 +1,47 @@
-// Labor vs target (bj-finance #696, spec by Alina 2026-10-13): for a chosen
-// month, each Sunday-to-Saturday week that starts in it, with what was sold,
-// what hourly labor actually cost and how far that sits from the target.
+// Labor vs target (bj-finance #696, spec by Alina 2026-10-13, rulings
+// 2026-10-16): for a chosen month, each Sunday-to-Saturday week that starts
+// in it, with what was sold, what in-store hourly labor actually cost all-in
+// and how far that sits from the all-in target.
 //
 //   Actual sales          in-store sales, public.sales_daily_in_store
-//                         (migration 41), all seven days.
-//   Actual hourly labor $ wages + catering premium + solo close, as QBO paid
-//                         them (public.labor_daily_actuals, migration 46:
-//                         hourly, non-overhead staff, a pay period's dollars
-//                         spread over its days by hours), plus employer taxes
-//                         and workers' comp at the control board's hourly rate
-//                         in force on each day (FICA + FUTA + PA UC + WC, no
-//                         caps: the board's hourlyLoad).
+//                         (migration 41), all seven days. Catering sales are
+//                         never in it.
+//   Catering offset       each day's booked catering deals: the crew hours the
+//                         client paid for (labor_hours x staff_count) at crew
+//                         cost + premium, exactly as the Schedule page's labor
+//                         line prices them (cateringOffset in
+//                         controlBoard/schedule.ts, reused, not re-derived).
+//                         "We are simply taking out all catering labor by
+//                         canceling it out with what the client paid for."
+//   Actual hourly labor $ ALL-IN: wages + catering premium + solo close, as
+//                         QBO paid them (public.labor_daily_actuals,
+//                         migration 46: hourly, non-overhead staff, a pay
+//                         period's dollars spread over its days by hours),
+//                         less that day's catering offset, plus employer taxes
+//                         and workers' comp on what is left at the control
+//                         board's hourly rate in force on the day (FICA + FUTA
+//                         + PA UC + WC, no caps: the board's hourlyLoad).
 //   Actual %              actual hourly labor $ / actual sales.
-//   Target %              the board's hourly goal in force on each day (hourly
-//                         wages as a share of sales, boardOn / computeBoard;
-//                         not re-derived here), with the same day's taxes and
-//                         comp on it, so it is on the same footing as the
-//                         actual: goal x (1 + hourly load). With the week's
-//                         sales it is sales-weighted over the days; without
-//                         them it shows only when it is the same all week.
+//   Target %              ALL-IN: the board's all-in hourly goal in force on
+//                         each day (hourlyAllInPct: hourly wages plus their
+//                         taxes and comp as a share of sales, i.e. the payroll
+//                         target less fixed payroll; computeBoard, the same
+//                         number the Targets tab shows, not re-derived here).
+//                         "Taxes on both sides" (Alina, 2026-10-16). With the
+//                         week's sales it is sales-weighted over the days;
+//                         without them it shows only when it is the same all
+//                         week.
 //   Variance $            actual hourly labor $ - target % x actual sales.
 //                         Above zero is over target.
-//   Variance hours        variance $ at the week's own cost per hour (actual
-//                         hourly labor $ / actual hours).
+//   Variance hours        variance $ at the week's own in-store cost per hour
+//                         (actual hourly labor $ / (hours paid - catering
+//                         crew hours billed)).
 //
 // A week counts only when it is over and all seven of its days have a
 // labor_daily_actuals row; otherwise its labor is not available, never zero.
-// The same for sales: a missing day makes the week's sales not available.
-// Nothing is estimated from punches or the schedule.
+// The same for sales: a missing day makes the week's sales not available, and
+// a catering offset that cannot be priced makes the week's labor not
+// available. Nothing is estimated from punches or the schedule.
 //
 // Pure, so `node --test` runs it.
 
@@ -35,6 +49,7 @@ import { boardOn } from "../controlBoard/board.ts";
 import type { Derived } from "../controlBoard/math.ts";
 import type { SalaryRow, SettingRow } from "../controlBoard/settings.ts";
 import type { SalariedProfile } from "../controlBoard/load.ts";
+import { cateringOffset, type CateringBooking, type CateringOffsetInput, type LaborPerson, type LaborShift } from "../controlBoard/schedule.ts";
 import { addDays, addMonths, eachDay, monthEnd } from "./dates.ts";
 
 /** A row of public.labor_daily_actuals, as the card reads it. */
@@ -50,6 +65,12 @@ export type LaborTargetInputs = {
   settings: SettingRow[];
   salaries: SalaryRow[];
   salaried: SalariedProfile[];
+  /**
+   * For the catering offset, as the Schedule page reads it: the booked deals
+   * with their billed crew hours (null when they could not be read), the
+   * Catering shifts that crew them, and everyone on the Team page.
+   */
+  catering: { bookings: CateringBooking[] | null; shifts: LaborShift[]; people: LaborPerson[] };
 };
 
 export type LaborTargetWeek = {
@@ -62,16 +83,23 @@ export type LaborTargetWeek = {
   /** Why something in the row is not available, in words. */
   why: string[];
   sales: number | null;
+  /** Hours paid, catering crew included. */
   hours: number | null;
   wages: number | null;
   premium: number | null;
   solo: number | null;
+  /** Crew hours billed on the week's booked catering deals. */
+  cateringHours: number | null;
+  /** What those billed hours cost all-in (crew cost + premium + taxes and comp); taken off the actual. */
+  cateringOffset: number | null;
+  /** Employer taxes and comp on the in-store hourly pay (after the catering offset). */
   taxesWc: number | null;
+  /** All-in in-store hourly labor $. */
   actual: number | null;
   actualPct: number | null;
-  /** The board's hourly goal (wages only) when it is the same all week. */
-  hourlyGoalPct: Derived;
-  /** The hourly goal with the hourly taxes and comp on it. */
+  /** The board's all-in hourly goal when it is the same all week. */
+  allInGoalPct: Derived;
+  /** The all-in target for the week (sales-weighted over its days). */
   targetPct: Derived;
   targetDollars: number | null;
   varianceDollars: number | null;
@@ -119,22 +147,31 @@ export const WHY = {
   labor: (n: number) => `hourly payroll on file for ${n} of 7 days`,
   sales: (n: number) => `in-store sales on file for ${n} of 7 days`,
   varying: "the week's sales (the target changed during the week)",
+  noInStoreHours: "no in-store hours left once the catering crew's billed hours are taken off",
+  noInStoreLabor: "hourly labor is zero or less once the catering crew's billed hours are taken off",
 } as const;
 
-function week(start: string, i: LaborTargetInputs, labor: Map<string, LaborDayRow>, sales: Map<string, number>): LaborTargetWeek {
+function week(
+  start: string,
+  i: LaborTargetInputs,
+  labor: Map<string, LaborDayRow>,
+  sales: Map<string, number>,
+  offsetInput: CateringOffsetInput,
+): LaborTargetWeek {
   const days = eachDay(start, addDays(start, 6));
   const end = days[6];
   const over = end < i.today;
   const why: string[] = [];
   if (!over) why.push(WHY.notOver);
 
-  // The board in force on each day: the hourly goal and the hourly tax and comp rate.
+  // The board in force on each day: the all-in hourly goal and the hourly tax and comp rate.
   const boards = days.map((d) => boardOn(d, i.settings, i.salaries, i.salaried));
-  const goals = boards.map((b) => b.hourlyGoalPct);
+  const goals = boards.map((b) => b.hourlyAllInPct);
   const loads = boards.map((b) => b.hourlyLoad);
-  const loadedGoals: Derived[] = goals.map((g, k) =>
-    g.value == null || loads[k].value == null ? missing(...g.needs, ...loads[k].needs) : known(g.value * (1 + loads[k].value!)),
-  );
+
+  // Each day's catering offset, priced as the schedule prices it.
+  const offsets = days.map((d) => cateringOffset(offsetInput, d));
+  const offsetNeeds = [...new Set(offsets.flatMap((o) => [...o.hours.needs, ...o.dollars.needs]))];
 
   // Actual labor: all seven days paid and on file, and the week over.
   const laborRows = days.map((d) => labor.get(d));
@@ -145,17 +182,30 @@ function week(start: string, i: LaborTargetInputs, labor: Map<string, LaborDayRo
   let premium: number | null = null;
   let solo: number | null = null;
   let taxesWc: number | null = null;
+  let cateringHours: number | null = null;
+  let cateringDollars: number | null = null;
+  let cateringAllIn: number | null = null;
+  if (over) why.push(...offsetNeeds);
   if (over && laborDays === 7) {
     const rows = laborRows as LaborDayRow[];
     hours = rows.reduce((a, r) => a + r.hours, 0);
     wages = rows.reduce((a, r) => a + r.wages, 0);
     premium = rows.reduce((a, r) => a + r.catering_premium, 0);
     solo = rows.reduce((a, r) => a + r.solo_close, 0);
-    if (loads.every((l) => l.value != null)) {
-      taxesWc = rows.reduce((a, r, k) => a + (r.wages + r.catering_premium + r.solo_close) * loads[k].value!, 0);
-    } else why.push(WHY.rates);
+    const ratesSet = loads.every((l) => l.value != null);
+    if (!ratesSet) why.push(WHY.rates);
+    if (ratesSet && !offsetNeeds.length) {
+      const off = offsets.map((o) => o.dollars.value!);
+      cateringHours = offsets.reduce((a, o) => a + o.hours.value!, 0);
+      cateringDollars = off.reduce((a, v) => a + v, 0);
+      cateringAllIn = off.reduce((a, v, k) => a + v * (1 + loads[k].value!), 0);
+      taxesWc = rows.reduce((a, r, k) => a + (r.wages + r.catering_premium + r.solo_close - off[k]) * loads[k].value!, 0);
+    }
   }
-  const actual = wages != null && premium != null && solo != null && taxesWc != null ? wages + premium + solo + taxesWc : null;
+  const actual =
+    wages != null && premium != null && solo != null && cateringDollars != null && taxesWc != null
+      ? wages + premium + solo - cateringDollars + taxesWc
+      : null;
 
   // Sales: all seven days on file, and the week over.
   const salesDays = days.filter((d) => sales.has(d)).length;
@@ -163,24 +213,28 @@ function week(start: string, i: LaborTargetInputs, labor: Map<string, LaborDayRo
   const weekSales = over && salesDays === 7 ? days.reduce((a, d) => a + sales.get(d)!, 0) : null;
 
   // The target: each day's sales at that day's target, or one % when it held all week.
-  const targetNeeds = [...new Set(loadedGoals.flatMap((g) => g.needs))];
+  const targetNeeds = [...new Set(goals.flatMap((g) => g.needs))];
   let targetPct: Derived;
   let targetDollars: number | null = null;
   if (targetNeeds.length) targetPct = missing(...targetNeeds);
   else if (weekSales != null && weekSales > 0) {
-    targetDollars = days.reduce((a, d, k) => a + sales.get(d)! * loadedGoals[k].value!, 0);
+    targetDollars = days.reduce((a, d, k) => a + sales.get(d)! * goals[k].value!, 0);
     targetPct = known(targetDollars / weekSales);
-  } else if (loadedGoals.every((g) => same(g.value!, loadedGoals[0].value!))) targetPct = known(loadedGoals[0].value!);
+  } else if (goals.every((g) => same(g.value!, goals[0].value!))) targetPct = known(goals[0].value!);
   else targetPct = missing(WHY.varying);
-  const hourlyGoalPct: Derived = goals.some((g) => g.value == null)
-    ? missing(...goals.flatMap((g) => g.needs))
+  const allInGoalPct: Derived = targetNeeds.length
+    ? missing(...targetNeeds)
     : goals.every((g) => same(g.value!, goals[0].value!))
       ? known(goals[0].value!)
       : missing(WHY.varying);
 
   const actualPct = actual != null && weekSales != null && weekSales > 0 ? actual / weekSales : null;
   const varianceDollars = actual != null && targetDollars != null ? actual - targetDollars : null;
-  const varianceHours = varianceDollars != null && hours != null && hours > 0 && actual! > 0 ? varianceDollars / (actual! / hours) : null;
+  const inStoreHours = hours != null && cateringHours != null ? hours - cateringHours : null;
+  if (actual != null && inStoreHours != null && !(inStoreHours > 0)) why.push(WHY.noInStoreHours);
+  else if (actual != null && inStoreHours != null && !(actual > 0)) why.push(WHY.noInStoreLabor);
+  const varianceHours =
+    varianceDollars != null && inStoreHours != null && inStoreHours > 0 && actual! > 0 ? varianceDollars / (actual! / inStoreHours) : null;
 
   return {
     start,
@@ -192,10 +246,12 @@ function week(start: string, i: LaborTargetInputs, labor: Map<string, LaborDayRo
     wages,
     premium,
     solo,
+    cateringHours,
+    cateringOffset: cateringAllIn,
     taxesWc,
     actual,
     actualPct,
-    hourlyGoalPct,
+    allInGoalPct,
     targetPct,
     targetDollars,
     varianceDollars,
@@ -207,5 +263,12 @@ function week(start: string, i: LaborTargetInputs, labor: Map<string, LaborDayRo
 export function laborVsTarget(month: string, i: LaborTargetInputs): LaborTargetMonth {
   const labor = new Map(i.labor.map((r) => [r.day, r]));
   const sales = new Map(i.sales.map((r) => [r.day, r.in_store]));
-  return { month, weeks: monthWeeks(month).map((start) => week(start, i, labor, sales)) };
+  const people = new Map(i.catering.people.map((p) => [p.id, p]));
+  const offsetInput: CateringOffsetInput = {
+    catering: i.catering.bookings,
+    shifts: i.catering.shifts,
+    people,
+    settings: i.settings,
+  };
+  return { month, weeks: monthWeeks(month).map((start) => week(start, i, labor, sales, offsetInput)) };
 }
