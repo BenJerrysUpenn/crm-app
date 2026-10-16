@@ -128,6 +128,8 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/supabase/migration_41*.sql"]
     docs: [README.md]
+  - paths: ["lib/coverageReminder.ts", "lib/coverageReminderCli.ts", "lib/coverageReminderPg.ts", "lib/gmailSend.ts", "scripts/coverage-reminder.ts"]
+    docs: [README.md]
 
 exclusions:
   - path: docs/unsubscribe.md
