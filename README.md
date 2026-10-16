@@ -134,10 +134,12 @@ and the two topping groups, and the drawer's toppings picker offers both groups.
 also edits `deals.custom_menu_line` (printed on the quote in place of the package name) and
 `deals.price_override` (a per-guest price replacing the package's on every quote of the
 deal; blank, 0 or negative clears it). Both columns belong to Catering-Manager migration
-`026`. `winterMenuWarnings` (`lib/winterMenu.ts`) shows amber notes for an event outside
-Nov 1 - Mar 31, an empty custom menu line, a topping-pick count other than 3, and winter
-toppings picked without their extra. It mirrors Catering-Manager `modules/winter_menu.py`
-and never blocks a save.
+`026`. `winterMenuWarnings` (`lib/winterMenu.ts`) shows amber notes, and never blocks a
+save. When the deal has a winter item (Hot Chocolate Float Party, or a winter extra) it
+notes an event outside Nov 1 - Mar 31 and an empty custom menu line. For each winter
+toppings extra on the deal it notes a pick count from that group other than 3; for winter
+toppings picked without their extra it notes that nothing bills them, unless a price
+override is set. It mirrors Catering-Manager `modules/winter_menu.py`.
 
 ## Local dev (optional)
 ```
