@@ -164,3 +164,58 @@ test("clocked hours reach the labour widget, costed at the hourly rate", async (
   assert.equal(week?.inStoreHours, 4);
   assert.equal(week?.inStoreHourlyCost, 60);
 });
+
+// ---- Labor vs target (bj-finance #696) ------------------------------------------------------
+
+const SEPT_WEEK = ["2026-09-06", "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-12"];
+
+function seedLaborTarget() {
+  // Invented: payroll 25% of 100,000; taxes and comp 25% of wages; nobody salaried. A 20% hourly goal, 25% with taxes and comp.
+  const setting = (id: number, key: string, value: number, detail: Record<string, unknown> = {}) => ({
+    id, key, value, detail, effective_from: "2026-01-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-01-01T00:00:00Z",
+  });
+  db.tables.control_settings = [
+    setting(1, "sales_estimate.in_store", 80_000),
+    setting(2, "sales_estimate.catering", 20_000),
+    setting(3, "target.payroll_pct", 0.25),
+    setting(4, "tax.fica", 0.15, { wage_cap: null }),
+    setting(5, "tax.futa", 0.05, { wage_cap: null }),
+    setting(6, "tax.pa_uc", 0.04, { wage_cap: null }),
+    setting(7, "tax.workers_comp", 1),
+  ];
+  db.tables.profile_salaries = [];
+  // Each day 10 hours and 160 paid (as PostgREST sends numerics: strings), 200 with taxes and comp; sales 700 a day.
+  db.tables.labor_daily_actuals = SEPT_WEEK.map((day) => ({
+    day, hours: "10.00", wages: "150.00", catering_premium: "6.00", solo_close: "4.00", period_start: "2026-08-31", period_end: "2026-09-13", source: "punches", built_by: "test", updated_at: "2026-09-15T00:00:00Z",
+  }));
+  db.tables.sales_daily_in_store = SEPT_WEEK.map((day) => ({ day, in_store: "700.00", basis: "booked", source: "square" }));
+}
+
+test("labor vs target: each week of the last full month by default, from the paid actuals, the daily sales and the board", async () => {
+  seedLaborTarget();
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  assert.deepEqual(data.problems, []);
+  assert.equal(data.laborTarget?.defaultMonth, "2026-09");
+  assert.equal(data.laborTarget?.months[0].month, "2026-10");
+  const sept = data.laborTarget?.months.find((m) => m.month === "2026-09");
+  assert.deepEqual(sept?.weeks.map((w) => w.start), ["2026-09-06", "2026-09-13", "2026-09-20", "2026-09-27"]);
+  const [first, second] = sept!.weeks;
+  assert.equal(first.available, true);
+  assert.equal(first.sales, 4_900);
+  assert.equal(first.actual, 1_400);
+  assert.equal(first.targetPct.value, 0.25);
+  assert.equal(first.varianceDollars, 1_400 - 1_225);
+  // No payroll on file for the next week: not available, never zero.
+  assert.equal(second.available, false);
+  assert.equal(second.actual, null);
+  assert.deepEqual(second.why, ["hourly payroll on file for 0 of 7 days", "in-store sales on file for 0 of 7 days"]);
+});
+
+test("labor vs target: when the paid actuals cannot be read the card cannot load and says so; the rest still draws", async () => {
+  seedLaborTarget();
+  db.missingTables = ["labor_daily_actuals"];
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  assert.equal(data.laborTarget, null);
+  assert.deepEqual(data.problems.map((p) => p.split(":")[0]), ["labor vs target"]);
+  assert.equal(data.catering?.byDay["2026-10-04"], 1000);
+});
