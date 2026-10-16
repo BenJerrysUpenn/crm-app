@@ -63,6 +63,18 @@ describe("gmailApiSender", () => {
     expect(Buffer.from(body, "base64").toString("utf8")).toBe("Sat Oct 24, 2:00–6:00 PM\n");
   });
 
+  it("declares the body base64 MIME, so a mail client shows the text and not the encoding", async () => {
+    // Without these two headers the recipient reads the raw base64 string.
+    const { calls, fetchFn } = fakeFetch([
+      { status: 200, body: { access_token: "a" } },
+      { status: 200, body: { id: "m" } },
+    ]);
+    await gmailApiSender(ENV, fetchFn)({ to: ["x@example.test"], subject: "s", body: "Sat Oct 24, 2:00–6:00 PM\n" });
+    const headers = decodeRaw(calls[1]).split("\r\n\r\n")[0].split("\r\n");
+    expect(headers).toContain("MIME-Version: 1.0");
+    expect(headers).toContain("Content-Transfer-Encoding: base64");
+  });
+
   it("leaves From off when none is given, so Gmail uses the account's own address", async () => {
     const { calls, fetchFn } = fakeFetch([
       { status: 200, body: { access_token: "a" } },
