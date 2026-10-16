@@ -1,5 +1,5 @@
-// The manager Schedule page as the manager reads it (bj-finance #695, copy
-// changed 2026-10-15): the week line is
+// The manager Schedule page as the manager reads it (bj-finance #695): the
+// week line is
 //   Scheduled Hourly Labor: <hours> | Target Hourly Labor: <hours>
 // with no total hours and no $, the day headers in the manager grid are just
 // the day and date, and there is no "how the target is worked out" panel.
