@@ -14,13 +14,12 @@
 // They never block a save or a quote.
 
 import {
+  HOT_CHOCOLATE_FLOAT_PARTY,
   TOPPING_NAMES,
   WINTER_DRY_TOPPINGS,
   WINTER_POURABLE_TOPPINGS,
   WINTER_TOPPING_PICKS,
 } from "@/lib/menuOptions";
-
-const HOT_CHOCOLATE_PACKAGE = "Hot Chocolate Float Party";
 
 // Each winter extra, with the topping group the customer picks from.
 const WINTER_EXTRAS: ReadonlyArray<{
@@ -49,7 +48,7 @@ function winterItems(
   packageName: string | null | undefined,
   extras: ReadonlyArray<string>,
 ): string[] {
-  const items = packageName === HOT_CHOCOLATE_PACKAGE ? [HOT_CHOCOLATE_PACKAGE] : [];
+  const items = packageName === HOT_CHOCOLATE_FLOAT_PARTY ? [HOT_CHOCOLATE_FLOAT_PARTY] : [];
   for (const { label } of WINTER_EXTRAS) {
     if (extras.includes(label)) items.push(label);
   }

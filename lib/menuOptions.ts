@@ -314,6 +314,10 @@ function splitCombinedToppings(s: string): string[] {
     .filter(Boolean);
 }
 
+// Spelled byte for byte as deals_package_name_check (supabase/crm/008)
+// and Catering-Manager have it. The winter menu warnings key on it too.
+export const HOT_CHOCOLATE_FLOAT_PARTY = "Hot Chocolate Float Party";
+
 export const PACKAGES: ReadonlyArray<Package> = [
   { value: "Single Scoop Cup and Cone Party", description: "1 scoop, $6/guest" },
   { value: "Cup or Cone Party", description: "" },
@@ -329,9 +333,8 @@ export const PACKAGES: ReadonlyArray<Package> = [
     description: "cookies, brownies, 6 toppings",
   },
   {
-    // Spelled byte for byte as deals_package_name_check (supabase/crm/008)
-    // and Catering-Manager have it. Upgrades: cookies and brownies only.
-    value: "Hot Chocolate Float Party",
+    // Upgrades: cookies and brownies only.
+    value: HOT_CHOCOLATE_FLOAT_PARTY,
     description: "1 scoop on hot chocolate, whipped cream, chocolate sauce",
   },
 ];
