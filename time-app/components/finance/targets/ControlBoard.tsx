@@ -21,7 +21,6 @@ import {
   addMonthsTo,
   groupBy,
   historyOf,
-  inForce,
   settingSpec,
   settingsInForce,
   type FieldSpec,
@@ -91,10 +90,10 @@ export default function ControlBoard({ settings, salaries, salaried, monthly, da
     return {
       values,
       saved,
-      salaried: inFixedPayroll(today, salaried, salaries).map((p) => ({ id: p.id, name: p.name, salary: inForce(salaryByPerson.get(p.id) ?? [], today) })),
+      salaried: inFixedPayroll(today, salaried, salaries),
       trend,
     };
-  }, [saved, drafts, salaried, salaries, salaryByPerson, today, trend]);
+  }, [saved, drafts, salaried, salaries, today, trend]);
 
   const sections = boardSections(data);
   const changedCount = Object.keys(drafts).filter((k) => isChanged(k)).length;

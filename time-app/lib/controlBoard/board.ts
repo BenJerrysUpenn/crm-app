@@ -255,14 +255,16 @@ export function boardSections(d: BoardData): { cat: Category; lines: Line[] }[] 
  * whose salary rows all start after `day` was not employed yet and is left
  * out, not missing; someone archived is left out after their archive day.
  * Someone with no salary row at all is counted, so their salary shows as
- * missing until it is set.
+ * missing until it is set. Each comes with the salary in force on `day`
+ * (null for someone with no salary row).
  */
-export function inFixedPayroll<P extends SalariedProfile>(day: string, salaried: P[], salaries: SalaryRow[]): P[] {
+export function inFixedPayroll<P extends SalariedProfile>(day: string, salaried: P[], salaries: SalaryRow[]): (P & { salary: SalaryRow | null })[] {
   const byPerson = groupBy(salaries, "profile_id");
-  return salaried.filter((p) => {
-    if (p.archivedOn && day > p.archivedOn) return false;
+  return salaried.flatMap((p) => {
+    if (p.archivedOn && day > p.archivedOn) return [];
     const rows = byPerson.get(p.id);
-    return !rows || inForce(rows, day) != null;
+    const salary = rows ? inForce(rows, day) : null;
+    return rows && salary == null ? [] : [{ ...p, salary }];
   });
 }
 
@@ -280,7 +282,5 @@ export function boardOn(
 ): BoardResults {
   const values = new Map<string, Current>();
   for (const [key, row] of settingsInForce(settings, day)) values.set(key, { value: row.value, detail: row.detail });
-  const byPerson = groupBy(salaries, "profile_id");
-  const counted = inFixedPayroll(day, salaried, salaries);
-  return computeBoard(boardInputs({ values, salaried: counted.map((p) => ({ ...p, salary: inForce(byPerson.get(p.id) ?? [], day) })) }));
+  return computeBoard(boardInputs({ values, salaried: inFixedPayroll(day, salaried, salaries) }));
 }
