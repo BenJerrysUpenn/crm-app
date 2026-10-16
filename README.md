@@ -238,8 +238,10 @@ applied. Until then the tab says it needs migration 43 and the Team page shows n
 
 ### The Schedule page's labor line (bj-finance #695)
 The manager Schedule page (not the staff view) reads the board. The week reads as two
-lines, `Scheduled Hourly Labor: hours` and `Target Hourly Labor: hours`; the day headers show only the day
-and date. Hourly labor $ is hourly staff (`pay_type =
+lines, `Scheduled Hourly Labor: hours` and `Target Hourly Labor: hours`; the day headers show only
+the day and date. The page does not draw any $: `schedule.ts` still works out hourly labor $ and
+target $ (target hours come from the latter), and only the "Not in the $" / "Hourly labor $
+missing" warnings show. Hourly labor $ is hourly staff (`pay_type =
 'hourly'`, read strictly) at their rate, plus the catering premium on Catering shifts and the
 solo-close bonus per qualifying night as the board had them on that date, plus open shifts at the
 average rate of active hourly staff; salaried staff are left out. A day's projected sales are last
