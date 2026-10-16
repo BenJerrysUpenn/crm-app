@@ -213,10 +213,16 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     const key = s.position?.trim();
     return key ? input.inStoreByName.get(key) ?? true : true;
   };
+  // Where a person's shifts sit in hourly labor; pay type is read strictly.
+  // "hourly": priced at their rate. "out": salaried or overhead, not part of
+  // hourly labor, left out quietly. "unknown": no pay type, or not on the Team
+  // page, left out and said.
+  const laborKind = (p: LaborPerson | undefined): "hourly" | "out" | "unknown" =>
+    p?.pay_type === "salaried" || p?.overhead ? "out" : p?.pay_type === "hourly" ? "hourly" : "unknown";
   const notes: string[] = [];
 
   // Average rate of ACTIVE hourly staff, overhead left out. Pay type strictly 'hourly'; no rate = left out and said.
-  const activeHourly = [...people.values()].filter((p) => p.active && p.pay_type === "hourly" && !p.overhead);
+  const activeHourly = [...people.values()].filter((p) => p.active && laborKind(p) === "hourly");
   const rated = activeHourly.filter((p) => p.hourly_rate != null && Number(p.hourly_rate) > 0);
   const unrated = activeHourly.filter((p) => !rated.includes(p));
   if (unrated.length) notes.push(`Left out of the average rate, no hourly rate on the Team page: ${unrated.map((p) => p.name).join(", ")}`);
@@ -261,14 +267,15 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
       continue;
     }
     const person = people.get(s.employee_id);
-    if (person?.pay_type === "salaried" || person?.overhead) continue;
+    const kind = laborKind(person);
+    if (kind === "out") continue;
     const who = person?.name ?? "Someone not on the Team page";
-    if (person?.pay_type !== "hourly") {
+    if (kind === "unknown") {
       noPayType.set(who, (noPayType.get(who) ?? 0) + h);
       continue;
     }
     hourlyHours += h;
-    const rate = person.hourly_rate != null && Number(person.hourly_rate) > 0 ? Number(person.hourly_rate) : null;
+    const rate = person?.hourly_rate != null && Number(person.hourly_rate) > 0 ? Number(person.hourly_rate) : null;
     if (rate == null) {
       noRate.set(who, (noRate.get(who) ?? 0) + h);
       continue;
@@ -308,8 +315,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     const alone = Math.max(0, (end - Math.min(from, end)) / 3_600_000);
     const [cutH, cutM] = outAt.split(":").map(Number);
     const late = nyMinutesFrom(closer.ends_at, date) >= cutH * 60 + (cutM || 0);
-    const closerPerson = closer.employee_id ? people.get(closer.employee_id) : null;
-    const closerPays = !closer.employee_id || (closerPerson?.pay_type === "hourly" && !closerPerson.overhead);
+    const closerPays = !closer.employee_id || laborKind(people.get(closer.employee_id)) === "hourly";
     if (alone >= minAlone && late && closerPays) solo += rule.value;
   }
 
