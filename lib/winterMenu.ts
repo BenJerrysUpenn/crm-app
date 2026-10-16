@@ -20,10 +20,10 @@ import {
   WINTER_TOPPING_PICKS,
 } from "@/lib/menuOptions";
 
-export const HOT_CHOCOLATE_PACKAGE = "Hot Chocolate Float Party";
+const HOT_CHOCOLATE_PACKAGE = "Hot Chocolate Float Party";
 
 // Each winter extra, with the topping group the customer picks from.
-export const WINTER_EXTRAS: ReadonlyArray<{
+const WINTER_EXTRAS: ReadonlyArray<{
   label: string;
   group: ReadonlyArray<string> | null;
 }> = [
@@ -35,7 +35,7 @@ export const WINTER_EXTRAS: ReadonlyArray<{
 /** True for Nov 1 - Mar 31 (both ends included), null when `eventDate` is
  *  not a real 'YYYY-MM-DD' date. Checked in UTC, so no timezone can move
  *  the day. */
-export function inWinterSeason(eventDate: string | null | undefined): boolean | null {
+function inWinterSeason(eventDate: string | null | undefined): boolean | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec((eventDate ?? "").trim());
   if (!m) return null;
   const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
@@ -45,7 +45,7 @@ export function inWinterSeason(eventDate: string | null | undefined): boolean | 
 }
 
 /** The winter items on a deal, in menu order, each named once. */
-export function winterItems(
+function winterItems(
   packageName: string | null | undefined,
   extras: ReadonlyArray<string>,
 ): string[] {

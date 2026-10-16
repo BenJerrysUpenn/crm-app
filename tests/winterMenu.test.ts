@@ -19,12 +19,7 @@ import {
   parseToppingsField,
   serializeMultiselect,
 } from "@/lib/menuOptions";
-import {
-  inWinterSeason,
-  winterItems,
-  winterMenuWarnings,
-  type WinterDealView,
-} from "@/lib/winterMenu";
+import { winterMenuWarnings, type WinterDealView } from "@/lib/winterMenu";
 
 const POURABLES = ["Hot Fudge", "Hot Caramel", "Cherry Compote"];
 const OLGA_LINE = "Winter Menu: Hot Chocolate Float + Waffle Sundae (with pourable toppings)";
@@ -99,34 +94,43 @@ describe("the winter extras in the drawer", () => {
   });
 });
 
-describe("inWinterSeason", () => {
+describe("winterMenuWarnings: the season", () => {
+  const OUT_OF_SEASON = (d: string) =>
+    `Belgian Waffle: winter menu (Nov 1 - Mar 31), but the event is on ${d}. It can still be quoted.`;
+
   it("is Nov 1 through Mar 31", () => {
     for (const d of ["2026-11-01", "2026-12-25", "2027-03-31"]) {
-      expect(inWinterSeason(d)).toBe(true);
+      expect(winterMenuWarnings(deal({ eventDate: d }))).toEqual([]);
     }
     for (const d of ["2027-04-01", "2026-07-04", "2026-10-31"]) {
-      expect(inWinterSeason(d)).toBe(false);
+      expect(winterMenuWarnings(deal({ eventDate: d }))).toEqual([OUT_OF_SEASON(d)]);
     }
   });
 
-  it("gives no verdict without a real date", () => {
-    for (const d of [null, undefined, "", "TBD", "2026-02-30"]) {
-      expect(inWinterSeason(d)).toBeNull();
+  it("gives no season verdict without a real date", () => {
+    for (const d of [null, undefined, "", "TBD", "2026-02-30", "2026-06-31"]) {
+      expect(winterMenuWarnings(deal({ eventDate: d }))).toEqual([]);
     }
   });
 });
 
-describe("winterItems", () => {
+describe("winterMenuWarnings: the winter items it names", () => {
   it("names the package and each winter extra in menu order, once", () => {
     expect(
-      winterItems("Hot Chocolate Float Party", [
-        "Winter Pourable Toppings",
-        "Winter Pourable Toppings",
-        "Cookies",
-        "Belgian Waffle",
-      ]),
-    ).toEqual(["Hot Chocolate Float Party", "Belgian Waffle", "Winter Pourable Toppings"]);
-    expect(winterItems("Cup or Cone Party", ["Cookies"])).toEqual([]);
+      winterMenuWarnings(
+        deal({
+          packageName: "Hot Chocolate Float Party",
+          extras: ["Winter Pourable Toppings", "Winter Pourable Toppings", "Cookies", "Belgian Waffle"],
+          toppings: POURABLES,
+          customMenuLine: null,
+        }),
+      ),
+    ).toEqual([
+      "Hot Chocolate Float Party, Belgian Waffle, Winter Pourable Toppings: winter deals fill the custom menu line, or the quote prints the package name.",
+    ]);
+    expect(
+      winterMenuWarnings(deal({ extras: ["Cookies"], eventDate: "2026-07-10", customMenuLine: null })),
+    ).toEqual([]);
   });
 });
 
