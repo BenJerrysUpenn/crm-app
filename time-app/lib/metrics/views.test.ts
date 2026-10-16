@@ -49,6 +49,26 @@ test("cleanWidgets drops unknown metrics, fixes settings, keeps ids unique, caps
   assert.equal(cleanWidgets(many).length, MAX_WIDGETS);
 });
 
+test("a month-set metric keeps a chosen month as YYYY-MM; other metrics never carry one", () => {
+  const out = cleanWidgets([
+    { id: "a", metric: "labor_vs_target", settings: { month: "2030-10" } },
+    { id: "b", metric: "labor_vs_target", settings: { month: "2030-13" } },
+    { id: "c", metric: "labor_vs_target", settings: { month: "October" } },
+    { id: "d", metric: "labor_vs_target", settings: {} },
+    { id: "e", metric: "labour", settings: { period: "4w", month: "2030-10" } },
+  ]);
+  assert.deepEqual(out.map((w) => w.settings), [
+    { period: "mtd", month: "2030-10" },
+    { period: "mtd" }, // not a month: back to the default, the last full month
+    { period: "mtd" },
+    { period: "mtd" },
+    { period: "4w" },
+  ]);
+  let v = addWidget(view(), "labor_vs_target");
+  v = updateWidgetSettings(v, v.widgets[0].id, { month: "2030-09" });
+  assert.deepEqual(v.widgets[0].settings, { period: "mtd", month: "2030-09" });
+});
+
 test("the default views are a finance page and a catering page, already clean", () => {
   assert.deepEqual(DEFAULT_VIEWS.map((v) => v.name), ["Finance", "Catering"]);
   for (const v of DEFAULT_VIEWS) assert.deepEqual(cleanWidgets(v.widgets), v.widgets);

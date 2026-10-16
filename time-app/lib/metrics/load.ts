@@ -23,6 +23,8 @@ import { leadsByWeek, outreachByWeek, quoteToBooking, type LeadWeek, type Outrea
 import { MONTHS, MONTHS_AHEAD, WEEKS } from "./series.ts";
 import type { SalesTargetRow } from "./targets.ts";
 import { parseCash, parseClosedMonth, parseDaily, type ClosedMonth, type DailySnapshot } from "./feed.ts";
+import { defaultLaborMonth, laborMonths, laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs, type LaborTargetMonth, type SalesDayRow } from "./laborTarget.ts";
+import { loadBoard } from "@/lib/controlBoard/load";
 
 /** What the page's data spans on `today`: the weeks and months behind it, and the days from the first of those months to the end of the last month ahead. */
 function metricsWindow(today: string): { weeks: string[]; months: string[]; from: string; to: string } {
@@ -42,6 +44,8 @@ export type MetricsInputs = {
   people: PersonRow[] | null;
   outreach: OutreachEventRow[] | null;
   targets: SalesTargetRow[] | null;
+  /** Labor vs target's reads: the paid hourly actuals, the daily in-store sales and the control board. */
+  laborTarget: Omit<LaborTargetInputs, "today"> | null;
   feed: FeedInputs;
   problems: string[];
 };
@@ -91,6 +95,8 @@ export type MetricsData = {
   leads: LeadWeek[] | null;
   outreach: OutreachWeek[] | null;
   quotes: QuoteCohort[] | null;
+  /** Labor vs target for each month on offer, newest first, and the month a card shows until one is chosen. */
+  laborTarget: null | { months: LaborTargetMonth[]; defaultMonth: string };
   feed: FeedData;
   problems: string[];
 };
@@ -134,7 +140,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     }
   }
 
-  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, feed] = await Promise.all([
+  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, feed] = await Promise.all([
     attempt("catering deals", () =>
       paged<DealRow>(() =>
         supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", firstMonth).lte("event_date", `${lastDay}T23:59:59`).order("id"),
@@ -184,6 +190,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
       if (error) throw error;
       return ((data ?? []) as SalesTargetRow[]).map((r) => ({ ...r, amount: Number(r.amount) }));
     }),
+    attempt("labor vs target", () => loadLaborTarget(supabase, today)),
     loadFeed(supabase, addDays(today, -95), addMonths(today, -13)),
   ]);
 
@@ -194,7 +201,41 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     deals = [...merged.values()];
   }
 
-  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, feed, problems };
+  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, laborTarget, feed, problems };
+}
+
+/**
+ * Labor vs target (bj-finance #696): public.labor_daily_actuals (migration
+ * 46) and public.sales_daily_in_store (migration 41) over the months on
+ * offer, and the control board's settings, salaries and fixed-payroll people
+ * (loadBoard, the same reads the Targets tab makes). Any of them failing
+ * fails the card: a target without its actuals, or the reverse, is not shown.
+ */
+async function loadLaborTarget(supabase: SupabaseClient, today: string): Promise<Omit<LaborTargetInputs, "today">> {
+  const { from, to } = laborWindow(today);
+  const [labor, sales, board] = await Promise.all([
+    paged<Record<string, unknown>>(() =>
+      supabase.from("labor_daily_actuals").select("day, hours, wages, catering_premium, solo_close").gte("day", from).lte("day", to).order("day"),
+    ),
+    paged<Record<string, unknown>>(() => supabase.from("sales_daily_in_store").select("day, in_store").gte("day", from).lte("day", to).order("day")),
+    loadBoard(supabase, today),
+  ]);
+  if (!board.ready) throw new Error(board.reason);
+  return {
+    labor: labor.map(
+      (r): LaborDayRow => ({
+        day: String(r.day),
+        hours: Number(r.hours),
+        wages: Number(r.wages),
+        catering_premium: Number(r.catering_premium),
+        solo_close: Number(r.solo_close),
+      }),
+    ),
+    sales: sales.map((r): SalesDayRow => ({ day: String(r.day), in_store: Number(r.in_store) })),
+    settings: board.settings,
+    salaries: board.salaries,
+    salaried: board.salaried,
+  };
 }
 
 /** Reads public.metrics_snapshots (migration 40): the latest daily, the daily cash history, the closed months. */
@@ -310,6 +351,12 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
     leads,
     outreach: inputs.outreach ? outreachByWeek(inputs.outreach, weeks) : null,
     quotes,
+    laborTarget: inputs.laborTarget
+      ? {
+          months: laborMonths(today).map((m) => laborVsTarget(m, { today, ...inputs.laborTarget! })),
+          defaultMonth: defaultLaborMonth(today),
+        }
+      : null,
     feed: buildFeed(inputs.feed),
     problems: inputs.problems,
   };
