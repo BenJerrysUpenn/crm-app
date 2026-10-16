@@ -13,14 +13,16 @@
 --      paychecks for one person, period and pay date live side by side when
 --      their year-to-date gross differs.
 --   2. Shape: the source is 'paystub', a period does not end before it
---      starts, hours are not negative, a name is not blank, every figure is
---      present, and one key holds one row.
+--      starts (a one-day period lands), hours are not negative (zero
+--      lands), a name is not blank, every figure is present, and one key
+--      holds one row.
 --   3. A manager reads the table; an employee does not; nobody signed in
 --      writes, removes or empties it; anon reads nothing.
 --   4. A profile link is cleared, not cascaded, if the profile goes.
 --   5. labor_daily_actuals: written and rewritten on its day by the service
 --      role only, updated_at the database's clock on both; its source, its
---      day inside its period at either end, hours not negative, every figure
+--      day inside its period at either end, hours not negative (zero
+--      lands), every figure
 --      present; managers read, employees and anon do not; nobody signed in
 --      writes, changes, removes or empties it.
 --   6. The updated_at trigger function is not callable through the API.
@@ -131,6 +133,12 @@ begin
     end;
     if not refused then raise exception '%', probe ->> 'accepted'; end if;
   end loop;
+  -- At the bounds: a one-day period and zero hours of both kinds land.
+  insert into public.labor_paycheck_actuals
+  select * from jsonb_populate_record(null::public.labor_paycheck_actuals,
+                                      whole || '{"period_start": "2018-07-15", "regular_hours": 0}');
+  delete from public.labor_paycheck_actuals where built_by = 'verify-46-whole';
+  if not found then raise exception 'a one-day period with zero hours did not land'; end if;
   begin
     insert into public.labor_paycheck_actuals
       (pay_date, period_start, period_end, employee, ytd_gross,
@@ -273,10 +281,10 @@ begin
     end;
     if not refused then raise exception '%', probe ->> 'accepted'; end if;
   end loop;
-  -- The first and last days of a period are inside it.
+  -- The first and last days of a period are inside it; a day may have zero hours.
   insert into public.labor_daily_actuals
   select * from jsonb_populate_record(null::public.labor_daily_actuals,
-                                      whole_day || '{"day": "2018-06-04"}');
+                                      whole_day || '{"day": "2018-06-04", "hours": 0}');
   insert into public.labor_daily_actuals
   select * from jsonb_populate_record(null::public.labor_daily_actuals,
                                       whole_day || '{"day": "2018-06-17"}');
