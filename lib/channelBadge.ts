@@ -9,7 +9,7 @@
 
 import type { Deal } from "@/lib/types";
 
-export const AD_FORM_SOURCE = "ad_form";
+const AD_FORM_SOURCE = "ad_form";
 
 const PLATFORM_LABELS: Record<string, string> = {
   facebook: "Facebook",
