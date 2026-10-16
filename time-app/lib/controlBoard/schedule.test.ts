@@ -336,3 +336,65 @@ test("shifts on the padding days either side of the week are not counted", () =>
   assert.equal(l.labor.total, 0);
   assert.equal(l.labor.none, false, "nothing to price is a real $0");
 });
+
+// ---------------------------------------------------------------------------
+// Overhead staff (profiles.is_overhead, migration 45; bj-finance #692):
+// not part of the payroll target, still on the schedule
+// ---------------------------------------------------------------------------
+
+// Hourly at 40, flagged overhead. Without the flag the average would be (10 + 20 + 40) / 3.
+const OVERHEAD: LaborPerson = { id: "ovh", name: "Over Head", hourly_rate: 40, pay_type: "hourly", active: true, overhead: true };
+
+test("an overhead hourly person is out of hourly labor hours and $, but in total hours and the day header", () => {
+  const l = scheduleLabor(input({
+    people: withPeople(OVERHEAD),
+    shifts: [
+      shift("ten", "2030-10-14", "12:00", "18:00"), // 6h x 10 = 60
+      shift("ovh", "2030-10-14", "12:00", "18:00"), // overhead: total hours only
+      shift("ovh", "2030-10-15", "10:00", "14:00", "Catering"), // overhead: no wages, no premium
+      shift(null, "2030-10-16", "12:00", "16:00"), // open 4h x 15 = 60
+    ],
+  }));
+  assert.equal(l.totalHours, 20);
+  assert.equal(l.days[1].scheduledHours, 12, "the day header counts the overhead person's hours");
+  assert.equal(l.hourlyHours, 10, "the hourly person's 6h and the open 4h");
+  close(l.labor.wages, 60);
+  close(l.labor.premium, 0);
+  close(l.labor.open, 60, "open shifts at the average without the overhead rate");
+  close(l.labor.total, 120);
+  assert.deepEqual(l.labor.notCounted, [], "overhead is not a gap to report");
+});
+
+test("the average active hourly rate, and so target hours, leave overhead staff out", () => {
+  const without = scheduleLabor(input());
+  const withOverhead = scheduleLabor(input({ people: withPeople(OVERHEAD) }));
+  close(val(withOverhead.avgRate), 15);
+  assert.equal(withOverhead.avgRateOver, 2);
+  close(val(withOverhead.days[0].targetHours), val(without.days[0].targetHours) as number, "target hours do not move");
+});
+
+test("an overhead closer does not earn the solo-close bonus in hourly labor", () => {
+  const night = "2030-10-17";
+  const l = scheduleLabor(input({ people: withPeople(OVERHEAD), shifts: [shift("ovh", night, "17:00", "23:00")] }));
+  close(l.labor.solo, 0);
+  assert.equal(l.totalHours, 6);
+});
+
+test("an overhead person with no pay type set is left out quietly, not listed as missing a pay type", () => {
+  const l = scheduleLabor(input({
+    people: withPeople({ ...OVERHEAD, pay_type: null }),
+    shifts: [shift("ovh", "2030-10-14", "12:00", "18:00")],
+  }));
+  assert.equal(l.hourlyHours, 0);
+  assert.deepEqual(l.labor.notCounted, []);
+});
+
+test("not overhead is unchanged: the same person without the flag is hourly labor and in the average", () => {
+  const notOverhead = { ...OVERHEAD, overhead: false };
+  const l = scheduleLabor(input({ people: withPeople(notOverhead), shifts: [shift("ovh", "2030-10-14", "12:00", "18:00")] }));
+  assert.equal(l.hourlyHours, 6);
+  close(l.labor.wages, 240);
+  close(val(l.avgRate), 23.333333, "10, 20 and 40 average 23.33");
+  const unset = scheduleLabor(input({ people: withPeople({ ...OVERHEAD, overhead: undefined }), shifts: [shift("ovh", "2030-10-14", "12:00", "18:00")] }));
+  close(unset.labor.wages, 240, "no flag reads as not overhead");
+});

@@ -14,7 +14,14 @@ import { addDays, scheduleLabor, type LaborPerson, type LaborShift, type Schedul
 
 export type ScheduleLaborLoad = { ready: true; labor: ScheduleLabor; problems: string[] } | { ready: false; reason: string };
 
-type ProfileLike = { id: string; full_name: string | null; hourly_rate: number | string | null; pay_type?: "hourly" | "salaried" | null; active: boolean };
+type ProfileLike = {
+  id: string;
+  full_name: string | null;
+  hourly_rate: number | string | null;
+  pay_type?: "hourly" | "salaried" | null;
+  active: boolean;
+  is_overhead?: boolean;
+};
 type ShiftTypeLike = { name: string; in_store?: boolean | null };
 
 const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived";
@@ -26,6 +33,7 @@ function person(p: ProfileLike): LaborPerson {
     hourly_rate: p.hourly_rate == null ? null : Number(p.hourly_rate),
     pay_type: p.pay_type ?? null,
     active: p.active,
+    overhead: p.is_overhead === true,
   };
 }
 
@@ -48,7 +56,7 @@ export async function loadScheduleLabor(
 
   const [absentRes, lastYearRes, dealRes] = await Promise.all([
     absent.length
-      ? supabase.from("profiles").select("id, full_name, hourly_rate, pay_type, active").in("id", absent)
+      ? supabase.from("profiles").select("id, full_name, hourly_rate, pay_type, active, is_overhead").in("id", absent)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("sales_daily_in_store").select("day, in_store").gte("day", addDays(weekStart, -364)).lte("day", addDays(weekEnd, -364)),
     supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", weekStart).lte("event_date", `${weekEnd}T23:59:59`),

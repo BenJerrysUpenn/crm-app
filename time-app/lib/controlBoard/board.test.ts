@@ -78,7 +78,7 @@ test("a never-set board shows every value as not set and every derived number as
   assert.deepEqual(total.needs, ["In-store sales estimate", "Catering sales estimate"]);
   const fixed = lines.find((l) => l.id === "fixedPayroll") as ComputedLine;
   assert.equal(fixed.amount, 0, "nobody salaried: fixed payroll is a real zero");
-  assert.match(fixed.note ?? "", /Nobody on the team is set to Salaried/);
+  assert.match(fixed.note ?? "", /Nobody is in fixed payroll: it counts staff set to Salaried on the Team page who are not archived and not overhead/);
 });
 
 test("a filled board shows each value in words with its review-by row, and the derived numbers", () => {

@@ -11,12 +11,18 @@
 //                            + catering premium on Catering shifts
 //                            + solo-close bonus per qualifying night
 //                            + open shifts at the average active hourly rate.
-//                            Salaried staff are left out.
+//                            Salaried and overhead staff are left out.
 //   Day projected sales      = last year's in-store sales on the same weekday
 //                              52 weeks earlier x trend factor
 //                            + catering booked for that day this year.
 //   Target $                 = projected sales x the hourly goal in force that day.
-//   Target hours             = target $ / average rate of ACTIVE hourly staff.
+//   Target hours             = target $ / average rate of ACTIVE hourly staff
+//                              who are not overhead.
+//
+// Overhead staff (profiles.is_overhead, migration 45; bj-finance #692, ruled
+// 2026-10-15) are not part of the payroll target: out of hourly labor hours
+// and $, the average rate and the solo-close bonus. Their shifts still count
+// in total hours and the day headers' scheduled hours, like anyone else's.
 //
 // Every rate comes from the control board in force on the shift's date
 // (computeBoard / boardOn), never a constant here. Pay type is read strictly:
@@ -49,6 +55,8 @@ export type LaborPerson = {
   hourly_rate: number | null;
   pay_type?: "hourly" | "salaried" | null;
   active: boolean;
+  /** Overhead: left out of hourly labor and the average rate (profiles.is_overhead). */
+  overhead?: boolean;
 };
 
 export type ScheduleLaborInput = {
@@ -90,7 +98,7 @@ export type DayLabor = {
 
 export type ScheduleLabor = {
   totalHours: number;
-  /** Hours of hourly-paid staff and of open shifts. */
+  /** Hours of hourly-paid staff who are not overhead, and of open shifts. */
   hourlyHours: number;
   labor: {
     wages: number;
@@ -207,8 +215,8 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   };
   const notes: string[] = [];
 
-  // Average rate of ACTIVE hourly staff. Pay type strictly 'hourly'; no rate = left out and said.
-  const activeHourly = [...people.values()].filter((p) => p.active && p.pay_type === "hourly");
+  // Average rate of ACTIVE hourly staff, overhead left out. Pay type strictly 'hourly'; no rate = left out and said.
+  const activeHourly = [...people.values()].filter((p) => p.active && p.pay_type === "hourly" && !p.overhead);
   const rated = activeHourly.filter((p) => p.hourly_rate != null && Number(p.hourly_rate) > 0);
   const unrated = activeHourly.filter((p) => !rated.includes(p));
   if (unrated.length) notes.push(`Left out of the average rate, no hourly rate on the Team page: ${unrated.map((p) => p.name).join(", ")}`);
@@ -253,7 +261,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
       continue;
     }
     const person = people.get(s.employee_id);
-    if (person?.pay_type === "salaried") continue;
+    if (person?.pay_type === "salaried" || person?.overhead) continue;
     const who = person?.name ?? "Someone not on the Team page";
     if (person?.pay_type !== "hourly") {
       noPayType.set(who, (noPayType.get(who) ?? 0) + h);
@@ -278,7 +286,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   // alone from the later of their own start and the last other in-store
   // shift's end. Qualifies at the board's minimum hours alone, out at or
   // after its cut-off. Open closers count (someone hourly will take it);
-  // salaried closers and closers with no pay type do not.
+  // salaried, overhead and no-pay-type closers do not.
   let solo = 0;
   let soloUnset = false;
   for (const date of dates) {
@@ -300,7 +308,8 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     const alone = Math.max(0, (end - Math.min(from, end)) / 3_600_000);
     const [cutH, cutM] = outAt.split(":").map(Number);
     const late = nyMinutesFrom(closer.ends_at, date) >= cutH * 60 + (cutM || 0);
-    const closerPays = !closer.employee_id || people.get(closer.employee_id)?.pay_type === "hourly";
+    const closerPerson = closer.employee_id ? people.get(closer.employee_id) : null;
+    const closerPays = !closer.employee_id || (closerPerson?.pay_type === "hourly" && !closerPerson.overhead);
     if (alone >= minAlone && late && closerPays) solo += rule.value;
   }
 

@@ -39,13 +39,15 @@ function refuseReadsOf(table: string) {
 beforeEach(() => {
   db = startFakeSupabase({
     profiles: [
-      { id: MANAGER, role: "manager", active: true, full_name: "Store Manager", pay_type: "hourly" },
-      { id: "p-zed", role: "manager", active: true, full_name: "Zed Salaried", pay_type: "salaried" },
-      { id: "p-amy", role: "employee", active: true, full_name: "Amy Salaried", pay_type: "salaried" },
-      { id: "p-old", role: "manager", active: false, full_name: "Gone Salaried", pay_type: "salaried", archived_at: "2030-10-04T12:00:00Z" },
-      { id: "p-off", role: "manager", active: false, full_name: "Off Schedule Salaried", pay_type: "salaried", archived_at: null },
-      { id: "p-hourly", role: "employee", active: false, full_name: "Off Schedule Hourly", pay_type: "hourly", archived_at: null },
-      { id: "p-nameless", role: "employee", active: true, full_name: null, pay_type: "salaried" },
+      // is_overhead is NOT NULL DEFAULT false in the database (migration 45).
+      { id: MANAGER, role: "manager", active: true, full_name: "Store Manager", pay_type: "hourly", is_overhead: false },
+      { id: "p-zed", role: "manager", active: true, full_name: "Zed Salaried", pay_type: "salaried", is_overhead: false },
+      { id: "p-amy", role: "employee", active: true, full_name: "Amy Salaried", pay_type: "salaried", is_overhead: false },
+      { id: "p-old", role: "manager", active: false, full_name: "Gone Salaried", pay_type: "salaried", archived_at: "2030-10-04T12:00:00Z", is_overhead: false },
+      { id: "p-off", role: "manager", active: false, full_name: "Off Schedule Salaried", pay_type: "salaried", archived_at: null, is_overhead: false },
+      { id: "p-hourly", role: "employee", active: false, full_name: "Off Schedule Hourly", pay_type: "hourly", archived_at: null, is_overhead: false },
+      { id: "p-nameless", role: "employee", active: true, full_name: null, pay_type: "salaried", is_overhead: false },
+      { id: "p-overhead", role: "manager", active: true, full_name: "Overhead Salaried", pay_type: "salaried", archived_at: null, is_overhead: true },
     ],
     // PostgREST returns numeric columns as strings.
     control_settings: [{ id: 1, key: "target.payroll_pct", value: "0.3", detail: null, effective_from: "2030-01-01", ...NOTE }],
@@ -79,7 +81,7 @@ test("a manager gets the stored values as numbers, the salaried staff not archiv
       { id: "p-zed", name: "Zed Salaried" },
       { id: "p-nameless", name: "Unnamed" },
     ],
-    "salaried and not archived, by name; archived and hourly left out",
+    "salaried, not archived and not overhead, by name; archived, overhead and hourly left out",
   );
   assert.deepEqual(
     board.monthly.map((m) => [m.month, m.in_store]).sort(),
@@ -96,6 +98,14 @@ test("fixed payroll counts a salaried person who is off the schedule but not arc
   assert.ok(ids.includes("p-off"), "salaried, not on the schedule (active false), not archived: paid, so counted");
   assert.ok(!ids.includes("p-old"), "archived: gone, left out whatever else is set");
   assert.ok(!ids.includes("p-hourly"), "hourly is not fixed payroll");
+});
+
+test("an overhead person is not in fixed payroll, salaried and on the schedule though they are", async () => {
+  db.tables.profile_salaries.push({ id: 2, profile_id: "p-overhead", annual_salary: "40000.00", effective_from: "2030-01-01", ...NOTE });
+  const board = await loadBoard(createClient(), TODAY);
+  assert.ok(board.ready);
+  assert.ok(!board.salaried.some((p) => p.id === "p-overhead"), "overhead: not part of the payroll target");
+  assert.equal(board.salaried.length, 4, "everyone else salaried and not archived is still counted");
 });
 
 test("loadSalaries returns null only before migration 43, so the Team page may read null as 'not set up'", async () => {

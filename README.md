@@ -208,8 +208,8 @@ reads them from here rather than keeping copies (bj-finance payroll will, lane #
 owners see it; only an owner changes a value, in the page, the routes behind it
 (`/api/payroll/targets`, `/api/payroll/targets/salary`) and the database. A salaried person's
 annual salary is set on the Team page (owners) and feeds the board's fixed payroll. Fixed payroll
-counts everyone set to Salaried who is not archived, on the schedule or not: `profiles.active`
-means "on the schedule", and `archived_at` is what marks someone gone.
+counts everyone set to Salaried who is not archived and not overhead, on the schedule or not:
+`profiles.active` means "on the schedule", and `archived_at` is what marks someone gone.
 
 Every value is dated. A change is a new row, never an edit: it carries an as-of date
 (`effective_from`), a review-by date (the green / yellow within a month / red chip; nothing is
@@ -243,7 +243,7 @@ higher-paid people shows a higher $ against the same target; the day headers sho
 and date. Hourly labor $ is hourly staff (`pay_type =
 'hourly'`, read strictly) at their rate, plus the catering premium on Catering shifts and the
 solo-close bonus per qualifying night as the board had them on that date, plus open shifts at the
-average rate of active hourly staff; salaried staff are left out. A day's projected sales are last
+average rate of active hourly staff; salaried and overhead staff are left out. A day's projected sales are last
 year's in-store sales on the same weekday 52 weeks earlier (`sales_daily_in_store`) times the
 trend factor, plus catering booked for that day this year. Target $ is that times the hourly goal
 in force that day; target hours divide it by the average active hourly rate. The math is
@@ -253,6 +253,17 @@ partial trend month, a person with no rate) shows as missing with its reason, an
 points to the Targets tab.
 Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
 entered value; run it before `migration_42_down.sql`).
+
+### Overhead staff (bj-finance #692)
+`profiles.is_overhead` (migration 45, default false) marks a person whose pay is overhead, not
+part of the payroll target. An overhead person is left out of fixed payroll on the board (and so
+out of the hourly goal), out of the Schedule page's hourly labor hours and $, and out of the
+average active hourly rate behind open shifts and target hours. They stay on the schedule grid
+and in total hours. A manager sets it (an owner's row only an owner); the guard on profiles stops
+anyone else, the person included. The Team page has no control for it yet: set it in the SQL
+editor. Apply `time-app/supabase/migration_45.sql` BEFORE deploying the time app: the board's
+read of the salaried team filters on the column. Verify with `migration_45_verify.sql`; roll back
+with `migration_45_down.sql` (code first).
 
 ## Schedule coverage reminder (droplet command)
 Every Thursday and Friday at noon ET, emails the owners and on-schedule
