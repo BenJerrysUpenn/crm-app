@@ -8,13 +8,13 @@ import { isManagerRole } from "@/lib/roles";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
 
-// Layout: everything is left-aligned. "Withers Time" sits at the left edge,
-// the tabs follow it, and the right-hand controls (theme, bell, name, Sign out)
+// Layout: everything is left-aligned. "Withers Time" sits at the left edge
+// (below xl the hamburger sits before it, at the far left), the tabs follow it, and the right-hand controls (theme, bell, name, Sign out)
 // sit at the right edge. The tab row never scrolls and is never clipped: it is
 // shown only from the xl breakpoint (1280px), the narrowest width at which the
 // manager's full row fits on one line beside the brand and the right-hand
-// controls. Below xl a hamburger takes the row's place and opens a menu of the
-// same tabs.
+// controls. Below xl the row is hidden and a hamburger at the far left of the
+// bar, before the brand, opens a menu of the same tabs from the left edge.
 //
 // Account has no tab in the row: from the md breakpoint up, the name at the
 // right of the bar links to /account. Below md the name is hidden, so the
@@ -81,27 +81,7 @@ export default function TopBar({
   return (
     <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 backdrop-blur sticky top-0 z-20">
       <div className="px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-4">
-        <div className="font-semibold text-slate-900 dark:text-slate-100 shrink-0">Withers Time</div>
-
-        {/* Tab row (xl and up) */}
-        <nav aria-label="Main" className="hidden xl:flex flex-wrap items-center gap-1 min-w-0">
-          {visible.filter((l) => !l.mobileOnly).map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              aria-current={isActive(l.href) ? "page" : undefined}
-              className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap ${
-                isActive(l.href)
-                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium"
-                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-              }`}
-            >
-              {l.label}
-            </Link>
-          ))}
-        </nav>
-
-        {/* Hamburger (below xl), in the tab row's place */}
+        {/* Hamburger (below xl), at the far left of the bar, before the brand */}
         <button
           ref={buttonRef}
           type="button"
@@ -121,7 +101,7 @@ export default function TopBar({
         </button>
 
         {/* The menu follows the hamburger in the tab order; it drops down
-            below the bar, over the page. */}
+            below the bar from its left edge, over the page. */}
         {open && (
           <nav
             ref={menuRef}
@@ -146,6 +126,26 @@ export default function TopBar({
             ))}
           </nav>
         )}
+
+        <div className="font-semibold text-slate-900 dark:text-slate-100 shrink-0">Withers Time</div>
+
+        {/* Tab row (xl and up) */}
+        <nav aria-label="Main" className="hidden xl:flex flex-wrap items-center gap-1 min-w-0">
+          {visible.filter((l) => !l.mobileOnly).map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              aria-current={isActive(l.href) ? "page" : undefined}
+              className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap ${
+                isActive(l.href)
+                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-medium"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+              }`}
+            >
+              {l.label}
+            </Link>
+          ))}
+        </nav>
 
         <div className="flex-1" />
 

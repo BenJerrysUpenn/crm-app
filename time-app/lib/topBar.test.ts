@@ -78,6 +78,17 @@ test("the hamburger menu covers every width the name link does not", () => {
   assert.ok(menu[1].split(/\s+/).includes("xl:hidden"), `hamburger shown below xl: ${menu[1]}`);
 });
 
+test("below xl the hamburger sits at the far left of the bar, before the brand", () => {
+  const html = renderBar("employee");
+  const row = html.match(/<header [^>]*><div [^>]*>([\s\S]*)<\/div><\/header>/);
+  assert.ok(row, "the bar renders its row");
+  const first = row[1].match(/^<(\w+)([^>]*)>/);
+  assert.ok(first, "the row has a first element");
+  assert.equal(first[1], "button", `the row starts with the hamburger: ${first[0]}`);
+  assert.match(first[2], /aria-label="Menu"/);
+  assert.ok(html.indexOf('aria-label="Menu"') < html.indexOf(">Withers Time<"), "the hamburger comes before the brand");
+});
+
 test("the tab row and the hamburger switch at the same breakpoint, and the row never scrolls", () => {
   const html = renderBar("manager");
   const row = html.match(/<nav aria-label="Main" class="([^"]*)"/);
