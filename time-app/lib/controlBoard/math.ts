@@ -1,7 +1,8 @@
 // The control board's derived numbers (bj-finance #692 spec, Alina 2026-10-13):
-// fixed payroll, hourly dollars, the hourly goal and the trend factor. Only
-// the Targets tab imports these today; the schedule page (#695) and the Labor
-// vs target metric (#696) are to import them too, not recompute them.
+// fixed payroll, hourly dollars, the hourly goal and the trend factor. The
+// Targets tab and the Schedule page's labor line (#695, schedule.ts) import
+// them; the Labor vs target metric (#696) is to import them too, not
+// recompute them.
 //
 //   Fixed payroll  = active salaried salaries + their employer taxes WITH the
 //                    wage caps + workers' comp on the salaries.

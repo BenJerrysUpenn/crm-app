@@ -11,7 +11,7 @@
 
 import { computeBoard, type BoardInputs, type BoardResults, type Derived, type Trend } from "./math.ts";
 import { capWords, money, monthName, pct, pctFixed, per100 } from "./format.ts";
-import type { SalaryRow, SettingRow } from "./settings.ts";
+import { groupBy, inForce, settingsInForce, type SalaryRow, type SettingRow } from "./settings.ts";
 
 /** What a stored line's value is, as the board has it now (saved, or an owner's unsaved change). */
 export type Current = { value: number; detail: Record<string, number | string | null> };
@@ -246,4 +246,21 @@ export const CATEGORIES: Category[] = [
 export function boardSections(d: BoardData): { cat: Category; lines: Line[] }[] {
   const r = computeBoard(boardInputs(d));
   return CATEGORIES.map((cat) => ({ cat, lines: cat.lines({ d, r }) }));
+}
+
+/**
+ * The board's derived numbers with every value as it stood on `day`: the
+ * settings in force then and each active salaried person's salary in force
+ * then. The schedule (bj-finance #695) reads a day's hourly goal from this.
+ */
+export function boardOn(
+  day: string,
+  settings: SettingRow[],
+  salaries: SalaryRow[],
+  salaried: { id: string; name: string }[],
+): BoardResults {
+  const values = new Map<string, Current>();
+  for (const [key, row] of settingsInForce(settings, day)) values.set(key, { value: row.value, detail: row.detail });
+  const byPerson = groupBy(salaries, "profile_id");
+  return computeBoard(boardInputs({ values, salaried: salaried.map((p) => ({ ...p, salary: inForce(byPerson.get(p.id) ?? [], day) })) }));
 }
