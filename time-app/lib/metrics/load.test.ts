@@ -235,6 +235,24 @@ test("labor vs target: a booked deal's billed crew hours come off the week's lab
   assert.equal(first.varianceDollars, 1_150 - 1_225);
 });
 
+test("labor vs target: whoever is on the deal's Catering shift sets the crew rate, as on the schedule, even someone no longer active", async () => {
+  seedLaborTarget();
+  db.tables.control_settings.push({
+    id: 8, key: "rule.catering_premium", value: 5, detail: { cap_rate: null }, effective_from: "2026-01-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-01-01T00:00:00Z",
+  });
+  // Invented: a former scooper on 25 an hour crews deal 3 on Tuesday the 8th; the active average stays 15.
+  const FORMER = "00000000-0000-0000-0000-00000000000c";
+  db.tables.profiles.push({ id: FORMER, role: "employee", active: false, full_name: "Former Scooper", hourly_rate: 25, pay_type: "hourly" });
+  db.tables.shifts.push({ id: 1, employee_id: FORMER, starts_at: "2026-09-08T16:00:00Z", ends_at: "2026-09-08T21:00:00Z", position: "Catering", deal_id: 3 });
+  // 5 hours x 2 crew = 10 billed hours at 25 + 5 = 300 of crew cost, 375 with taxes and comp.
+  db.tables.deals.push(deal({ id: 3, event_date: "2026-09-08", labor_hours: "5", staff_count: 2 }));
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  assert.equal(first.available, true);
+  assert.equal(first.cateringOffset, 375);
+  assert.equal(first.actual, 1_025);
+});
+
 test("labor vs target: a booked deal with no billed crew hours reads n/a for its week, naming the deal", async () => {
   seedLaborTarget();
   db.tables.control_settings.push({
