@@ -172,6 +172,24 @@ test("the menu follows the hamburger in the keyboard order", async () => {
   }
 });
 
+test("the hamburger comes before the brand, and the menu opens from the left edge under it", async () => {
+  const bar = await mount("employee");
+  try {
+    const button = hamburger(bar.container);
+    const row = button.parentElement!;
+    assert.equal(row.firstElementChild, button, "the hamburger is the first thing in the bar");
+    const brand = [...row.children].find((el) => el.textContent === "Withers Time")!;
+    assert.ok(brand, "the bar shows the brand");
+    assert.ok(button.compareDocumentPosition(brand) & 4, "the brand follows the hamburger");
+
+    await click(button);
+    const classes = (menu(bar.container)!.getAttribute("class") ?? "").split(/\s+/);
+    assert.ok(classes.includes("absolute") && classes.includes("left-0") && classes.includes("top-full"), classes.join(" "));
+  } finally {
+    await bar.unmount();
+  }
+});
+
 test("choosing a tab closes the menu and goes there", async () => {
   const bar = await mount("employee");
   try {
