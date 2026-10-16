@@ -174,7 +174,7 @@ test("fixed payroll on a day counts only the people salaried on that day", () =>
   assert.deepEqual(ids("2030-10-05"), ["early", "left", "unset"], "counted through the archive day");
   assert.deepEqual(ids("2030-10-06"), ["early", "unset"], "archived: gone after that day");
   assert.deepEqual(ids("2030-10-10"), ["early", "hired", "unset"], "counted from the first salary row on");
-  assert.deepEqual(ids("2030-10-10"), ids("2030-10-12"));
+  assert.deepEqual(ids("2030-10-12"), ["early", "hired", "unset"], "and every day after, while the row is in force");
 });
 
 test("boardOn holds each day to the salaried set of that day: a later hire is not missing earlier, someone with no salary at all still is", () => {
