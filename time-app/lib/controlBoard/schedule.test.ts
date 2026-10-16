@@ -380,9 +380,16 @@ test("staffing a deal exactly as billed nets to zero against the scheduled side"
 });
 
 test("an open Catering shift on the deal prices at the average rate + premium, so it nets too", () => {
-  const l = scheduleLabor(input({ catering: [deal(7, 4)], shifts: [onDeal(shift(null, MON, "10:00", "14:00", "Catering"), 7)] }));
-  close(val(l.days[1].cateringDollars), 4 * (15 + 2));
+  // Crew: ten 4h at 10 + 2 = 12, and an open 4h at the average 15 + 2 = 17:
+  // hours-weighted 14.5 over the 8 billed hours. An open shift alone would
+  // price the same as nobody scheduled, so it is paired with a named one.
+  const l = scheduleLabor(input({
+    catering: [deal(7, 8)],
+    shifts: [onDeal(shift("ten", MON, "10:00", "14:00", "Catering"), 7), onDeal(shift(null, MON, "10:00", "14:00", "Catering"), 7)],
+  }));
+  close(val(l.days[1].cateringDollars), 116, "8h x 14.5");
   close(l.labor.open, 4 * (15 + 2));
+  close(l.labor.total, 116, "the scheduled side carries the same 116: it nets to zero");
 });
 
 test("with nobody scheduled on the deal, the crew cost is the average active hourly rate + premium", () => {
