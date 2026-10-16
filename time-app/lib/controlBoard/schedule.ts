@@ -1,9 +1,11 @@
 // The Schedule page's labor line (bj-finance #695, spec by Alina 2026-10-13;
 // catering rule corrected 2026-10-16). Manager view only. The week reads as
-// two lines, the day headers as the date only:
+// an aligned block (components/ScheduleLaborLine.tsx), the day headers as the
+// date only:
 //
-//   Scheduled Hourly Labor: hourly-paid hours · projected $
-//   Target Hourly Labor:    target hours · target $
+//   Target Hourly Labor       target hours         target $
+//   Scheduled Hourly Labor    hourly-paid hours    projected $
+//   Remaining Hourly Labor    target - scheduled, hours and $
 //
 //   Projected hourly labor $ = hourly-paid scheduled hours x rate
 //                            + catering premium on Catering shifts

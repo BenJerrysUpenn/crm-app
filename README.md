@@ -237,10 +237,11 @@ Schema only: no values are in this repo, and owners enter every one on the board
 applied. Until then the tab says it needs migration 43 and the Team page shows no salaries.
 
 ### The Schedule page's labor line (bj-finance #695)
-The manager Schedule page (not the staff view) reads the board. The week reads as two
-lines, `Scheduled Hourly Labor: hours · $` and `Target Hourly Labor: hours · $`, so a week with
-higher-paid people shows a higher $ against the same target; the day headers show only the day
-and date. Hourly labor $ is hourly staff (`pay_type =
+The manager Schedule page (not the staff view) reads the board. The week reads as an aligned
+block, label | hours | $ with the numbers right-aligned: `Target Hourly Labor`, `Scheduled Hourly
+Labor`, and `Remaining Hourly Labor` (target minus scheduled, with a real minus sign and in red
+when either value is negative; `missing` when the target is). A week with higher-paid people shows
+a higher $ against the same target; the day headers show only the day and date. Hourly labor $ is hourly staff (`pay_type =
 'hourly'`, read strictly) at their rate, plus the catering premium on Catering shifts and the
 solo-close bonus per qualifying night as the board had them on that date, plus open shifts at the
 average rate of active hourly staff; salaried and overhead staff are left out. A day's projected

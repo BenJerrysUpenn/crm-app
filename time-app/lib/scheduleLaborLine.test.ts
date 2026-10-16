@@ -1,8 +1,10 @@
 // The manager Schedule page as the manager reads it (bj-finance #695): the
-// week reads as two lines,
-//   Scheduled Hourly Labor: <hours> · <$>
-//   Target Hourly Labor: <hours> · <$>
-// with no divider and no total hours, the day headers in the manager grid are just
+// week reads as an aligned three-row block, label | hours | $ (order and
+// layout by Alina, 2026-10-16),
+//   Target Hourly Labor      <hours>  <$>
+//   Scheduled Hourly Labor   <hours>  <$>
+//   Remaining Hourly Labor   <hours>  <$>   (target - scheduled; red when negative)
+// with no total hours, the day headers in the manager grid are just
 // the day and date, and there is no "how the target is worked out" panel.
 // The numbers come from lib/controlBoard/schedule.ts (pinned in its own
 // tests); these render the board around them with react-dom/server.
@@ -117,49 +119,56 @@ function renderBoard(load: ScheduleLaborLoad) {
 /** Visible text of some markup: tags and React's text-node comments dropped. */
 const text = (html: string) => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
 
-/** The labor block, and its first two rows (the week's two lines). */
+/** One row of the week block as "label | hours | $", plus " | (incomplete)" when the $ is. */
+const rowText = (tr: string) =>
+  [...tr.matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>|<td[^>]*\/>/g)].map((c) => text(c[1] ?? "").trim()).filter(Boolean).join(" | ");
+
+/** The labor block and its week rows: Target, Scheduled, Remaining, in that order. */
 function laborLine(html: string) {
   const m = html.match(/<div class="[^"]*" data-testid="labor-line">([\s\S]*)$/);
   assert.ok(m, "the labor line is on the manager view");
-  const rows = m[1].match(/^<div>([\s\S]*?)<\/div><div>([\s\S]*?)<\/div>/);
-  assert.ok(rows, "the week's two lines are the labor block's first two rows");
-  return { weekLines: [text(rows[1]), text(rows[2])], html: m[1] };
+  const table = m[1].match(/^(?:<!--[\s\S]*?-->)?<table[^>]*data-testid="labor-week"[^>]*>([\s\S]*?)<\/table>/);
+  assert.ok(table, "the week block opens the labor line");
+  const trs = [...table[1].matchAll(/<tr( class="[^"]*")?>([\s\S]*?)<\/tr>/g)];
+  assert.equal(trs.length, 3, "three rows");
+  const rows = trs.map((t) => rowText(t[2]));
+  return { weekLines: rows.slice(0, 2), remaining: rows[2], remainingRed: /rose/.test(trs[2][1] ?? ""), tableHtml: table[0], html: m[1] };
 }
 
-test("the week reads Scheduled Hourly Labor and Target Hourly Labor on two lines, hours and $, salaried hours left out", () => {
+test("the week reads Target Hourly Labor above Scheduled Hourly Labor, hours and $, salaried hours left out", () => {
   const { weekLines } = laborLine(renderBoard(labor()));
   // 8h hourly scheduled at 10 = $80 (the salaried 4h is not hourly labor);
   // target 7 x 1,100 x 0.2 = $1,540, / 15 = 102.67h.
-  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h · $80", "Target Hourly Labor: 102.7h · $1,540"]);
+  assert.deepEqual(weekLines, ["Target Hourly Labor | 102.7h | $1,540", "Scheduled Hourly Labor | 8.0h | $80"]);
 });
 
-test("the labor line shows no total hours, no divider and no warnings when the labor is fully priced", () => {
+test("the labor block shows no total hours, no separators and no warnings when the labor is fully priced", () => {
   const { weekLines, html } = laborLine(renderBoard(labor()));
   const all = text(html);
   assert.doesNotMatch(all, /Total hours/);
   assert.doesNotMatch(all, /12\.0h/, "the 12h board total (hourly + salaried) is not shown");
   assert.doesNotMatch(all, /Not in the \$|Hourly labor \$ missing|incomplete/);
-  for (const line of weekLines) assert.doesNotMatch(line, /[|/]/);
+  for (const line of weekLines) assert.doesNotMatch(line, /[:·/]/, "no ': ' or ' · ' separators: cells do the spacing");
 });
 
 test("a higher-paid person moves the scheduled $, not the target", () => {
   // The same 8h, but Twenty's (rate 20): $160 against the same $1,540 target.
   const shift = { ...SHIFT, employee_id: "twenty", profiles: { id: "twenty", full_name: "Twenty Hourly" } };
   const { weekLines } = laborLine(renderBoard(labor({ shifts: [shift, SAL_SHIFT] })));
-  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h · $160", "Target Hourly Labor: 102.7h · $1,540"]);
+  assert.deepEqual(weekLines, ["Target Hourly Labor | 102.7h | $1,540", "Scheduled Hourly Labor | 8.0h | $160"]);
 });
 
 test("a missing target shows as missing, with the red Target missing line and its Targets-page link", () => {
   // No last-year sales on file: every day's target, and so the week's, is missing.
   const { weekLines, html } = laborLine(renderBoard(labor({ inStoreByDay: new Map() })));
-  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h · $80", "Target Hourly Labor: missing"]);
+  assert.deepEqual(weekLines, ["Target Hourly Labor | missing | missing", "Scheduled Hourly Labor | 8.0h | $80"]);
   assert.match(text(html), /Target missing: .+\. Board values are set on the Targets page\./);
   assert.match(html, /<a href="\/payroll\/targets"[^>]*>Targets page<\/a>/);
 });
 
 test("an empty board shows the target as missing and points to the Targets page", () => {
   const { weekLines, html } = laborLine(renderBoard(labor({ settings: [] })));
-  assert.deepEqual(weekLines[1], "Target Hourly Labor: missing");
+  assert.deepEqual(weekLines[0], "Target Hourly Labor | missing | missing");
   assert.match(text(html), /No labor target yet: nothing is entered on the control board\./);
 });
 
@@ -179,7 +188,7 @@ test("there is no 'How the target is worked out' panel", () => {
 test("labor that is only partly priced shows its $ as incomplete and says what is not in it", () => {
   // No solo-close rule on the board: the 8h are priced, the solo-close bonus is not.
   const { weekLines, html } = laborLine(renderBoard(labor({ settings: BOARD.filter((r) => r.key !== "rule.solo_close") })));
-  assert.equal(weekLines[0], "Scheduled Hourly Labor: 8.0h · $80 (incomplete)");
+  assert.equal(weekLines[1], "Scheduled Hourly Labor | 8.0h | $80 | (incomplete)");
   const all = text(html);
   assert.match(all, /Not in the \$: solo-close bonus not set on the control board\./);
   assert.doesNotMatch(all, /Hourly labor \$ missing/);
@@ -189,8 +198,62 @@ test("labor with nothing priced shows its $ as missing and says why", () => {
   // The only hourly shift is Ten's, and Ten has no rate on the Team page.
   const people = PEOPLE.map((p) => (p.id === "ten" ? { ...p, hourly_rate: null } : p));
   const { weekLines, html } = laborLine(renderBoard(labor({ people: new Map(people.map((p) => [p.id, p])) })));
-  assert.equal(weekLines[0], "Scheduled Hourly Labor: 8.0h · missing");
+  assert.equal(weekLines[1], "Scheduled Hourly Labor | 8.0h | missing");
   const all = text(html);
   assert.match(all, /Hourly labor \$ missing: Ten Hourly: no hourly rate \(8\.0h\)\./);
   assert.doesNotMatch(all, /Not in the \$/);
+});
+
+// ---------------------------------------------------------------------------
+// Remaining Hourly Labor = Target - Scheduled (Alina, 2026-10-16)
+// ---------------------------------------------------------------------------
+
+test("Remaining Hourly Labor is the third row: target - scheduled, normal text when there is room left", () => {
+  const { weekLines, remaining, remainingRed } = laborLine(renderBoard(labor()));
+  assert.deepEqual(weekLines, ["Target Hourly Labor | 102.7h | $1,540", "Scheduled Hourly Labor | 8.0h | $80"]);
+  assert.equal(remaining, "Remaining Hourly Labor | 94.7h | $1,460");
+  assert.equal(remainingRed, false);
+});
+
+test("over target, Remaining Hourly Labor reads with a real minus sign and in red", () => {
+  // Last year 10 a day: target 7 x 11 x 0.2 = $15.40, / 15 = 1.03h, against 8.0h · $80.
+  const { remaining, remainingRed } = laborLine(renderBoard(labor({ inStoreByDay: new Map(DATES.map((d) => [addDays(d, -364), 10])) })));
+  assert.equal(remaining, "Remaining Hourly Labor | \u22127.0h | \u2212$65");
+  assert.equal(remainingRed, true);
+});
+
+test("with the target missing, Remaining Hourly Labor is missing", () => {
+  const { remaining, remainingRed } = laborLine(renderBoard(labor({ inStoreByDay: new Map() })));
+  assert.equal(remaining, "Remaining Hourly Labor | missing | missing");
+  assert.equal(remainingRed, false);
+});
+
+test("exactly on target, Remaining Hourly Labor is zero in normal text; a sliver under the shown precision is not negative", async () => {
+  const { remainingHourlyLabor } = await loadAppModule<typeof import("../components/ScheduleLaborLine.tsx")>("components/ScheduleLaborLine.tsx");
+  const at = (targetHours: number, targetDollars: number, hours: number, dollars: number) =>
+    remainingHourlyLabor({
+      target: { hours: { value: targetHours, needs: [] }, dollars: { value: targetDollars, needs: [] } },
+      hourlyHours: hours,
+      labor: { wages: dollars, premium: 0, solo: 0, open: 0, total: dollars, none: false, notCounted: [] },
+    });
+  assert.deepEqual(at(10, 200, 10, 200), { hours: "0.0h", dollars: "$0", negative: false });
+  assert.deepEqual(at(10, 200, 10.01, 200.2), { hours: "0.0h", dollars: "$0", negative: false });
+  assert.deepEqual(at(10, 200, 10, 201), { hours: "0.0h", dollars: "\u2212$1", negative: true }, "either value negative turns it red");
+  assert.equal(
+    remainingHourlyLabor({ target: { hours: { value: 10, needs: [] }, dollars: { value: 200, needs: [] } }, hourlyHours: 8, labor: { wages: 0, premium: 0, solo: 0, open: 0, total: 0, none: true, notCounted: ["x"] } }),
+    null,
+    "no scheduled $ to subtract: missing",
+  );
+});
+
+test("the week block is a table whose numbers are right-aligned tabular figures that never wrap (fits a phone)", () => {
+  const { tableHtml } = laborLine(renderBoard(labor()));
+  const numberCells = [...tableHtml.matchAll(/<td class="([^"]*)"><b[^>]*>[^<]*\d/g)].map((m) => m[1]);
+  assert.equal(numberCells.length, 6, "hours and $ on each of the three rows");
+  for (const c of numberCells) {
+    assert.match(c, /\btext-right\b/);
+    assert.match(c, /\btabular-nums\b/);
+    assert.match(c, /\bwhitespace-nowrap\b/);
+  }
+  assert.doesNotMatch(tableHtml, /\bw-full\b|min-w-/, "sized to its content, so it stays inside a 375px screen");
 });
