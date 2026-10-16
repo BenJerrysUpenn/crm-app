@@ -42,7 +42,9 @@ beforeEach(() => {
       { id: MANAGER, role: "manager", active: true, full_name: "Store Manager", pay_type: "hourly" },
       { id: "p-zed", role: "manager", active: true, full_name: "Zed Salaried", pay_type: "salaried" },
       { id: "p-amy", role: "employee", active: true, full_name: "Amy Salaried", pay_type: "salaried" },
-      { id: "p-old", role: "manager", active: false, full_name: "Gone Salaried", pay_type: "salaried" },
+      { id: "p-old", role: "manager", active: false, full_name: "Gone Salaried", pay_type: "salaried", archived_at: "2030-10-04T12:00:00Z" },
+      { id: "p-off", role: "manager", active: false, full_name: "Off Schedule Salaried", pay_type: "salaried", archived_at: null },
+      { id: "p-hourly", role: "employee", active: false, full_name: "Off Schedule Hourly", pay_type: "hourly", archived_at: null },
       { id: "p-nameless", role: "employee", active: true, full_name: null, pay_type: "salaried" },
     ],
     // PostgREST returns numeric columns as strings.
@@ -63,7 +65,7 @@ test("before migration 43 the board says it needs the migration instead of drawi
   assert.deepEqual(await loadBoard(createClient(), TODAY), { ready: false, reason: NEEDS_MIGRATION });
 });
 
-test("a manager gets the stored values as numbers, the active salaried staff by name, and the trend's two months", async () => {
+test("a manager gets the stored values as numbers, the salaried staff not archived by name, and the trend's two months", async () => {
   const board = await loadBoard(createClient(), TODAY);
   assert.ok(board.ready);
   assert.equal(board.settings[0].value, 0.3);
@@ -73,10 +75,11 @@ test("a manager gets the stored values as numbers, the active salaried staff by 
     board.salaried,
     [
       { id: "p-amy", name: "Amy Salaried" },
+      { id: "p-off", name: "Off Schedule Salaried" },
       { id: "p-zed", name: "Zed Salaried" },
       { id: "p-nameless", name: "Unnamed" },
     ],
-    "active and salaried only, by name",
+    "salaried and not archived, by name; archived and hourly left out",
   );
   assert.deepEqual(
     board.monthly.map((m) => [m.month, m.in_store]).sort(),
@@ -84,6 +87,15 @@ test("a manager gets the stored values as numbers, the active salaried staff by 
     "last full month and the same month a year earlier",
   );
   assert.deepEqual(board.problems, []);
+});
+
+test("fixed payroll counts a salaried person who is off the schedule but not archived, and never an archived one", async () => {
+  const board = await loadBoard(createClient(), TODAY);
+  assert.ok(board.ready);
+  const ids = board.salaried.map((p) => p.id);
+  assert.ok(ids.includes("p-off"), "salaried, not on the schedule (active false), not archived: paid, so counted");
+  assert.ok(!ids.includes("p-old"), "archived: gone, left out whatever else is set");
+  assert.ok(!ids.includes("p-hourly"), "hourly is not fixed payroll");
 });
 
 test("loadSalaries returns null only before migration 43, so the Team page may read null as 'not set up'", async () => {

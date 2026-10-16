@@ -4,8 +4,10 @@
 // them; the Labor vs target metric (#696) is to import them too, not
 // recompute them.
 //
-//   Fixed payroll  = active salaried salaries + their employer taxes WITH the
-//                    wage caps + workers' comp on the salaries.
+//   Fixed payroll  = salaries of everyone salaried and not archived + their
+//                    employer taxes WITH the wage caps + workers' comp on the
+//                    salaries. Being on the schedule (profiles.active) does
+//                    not matter: a salaried manager off the schedule is paid.
 //   Hourly dollars = (payroll target x sales estimate - fixed payroll)
 //                    / (1 + employer tax rates + workers' comp rate), so hourly
 //                    staff's taxes and workers' comp fit inside the target too.
@@ -34,7 +36,7 @@ export type BoardInputs = {
   paUc: TaxRate | null;
   /** Dollars per $100 of wages. */
   workersCompPer100: number | null;
-  /** Active salaried staff (profiles.active and pay_type 'salaried'), salary in force or null. */
+  /** Salaried staff (pay_type 'salaried', archived_at null; profiles.active not consulted), salary in force or null. */
   salaried: SalariedPerson[];
 };
 

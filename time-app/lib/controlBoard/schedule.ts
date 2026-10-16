@@ -62,7 +62,7 @@ export type ScheduleLaborInput = {
   /** Every control_settings row and every profile_salaries row (all dates). */
   settings: SettingRow[];
   salaries: SalaryRow[];
-  /** Active salaried staff, for fixed payroll. */
+  /** Salaried staff not archived (on the schedule or not), for fixed payroll. */
   salaried: { id: string; name: string }[];
   trend: Trend;
   /** In-store sales by day for the days on file (last year's days are looked up here). */

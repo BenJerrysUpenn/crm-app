@@ -21,7 +21,7 @@ export type BoardData = {
   values: Map<string, Current>;
   /** Setting key -> the saved row in force today (its dates and notes). */
   saved: Map<string, SettingRow>;
-  /** Active salaried staff, with the salary row in force today. */
+  /** Salaried staff not archived (on the schedule or not), with the salary row in force today. */
   salaried: { id: string; name: string; salary: SalaryRow | null }[];
   trend: Trend;
 };
@@ -168,7 +168,7 @@ export const CATEGORIES: Category[] = [
         }),
         computed("fixedPayroll", "Fixed payroll", r.fixedPayroll, {
           share: ofSales(r, r.fixedPayroll.value), total: true, indent: 0,
-          note: r.salaried.length ? undefined : "Nobody active is set to Salaried on the Team page.",
+          note: r.salaried.length ? undefined : "Nobody on the team is set to Salaried on the Team page.",
         }),
       ];
     },
@@ -250,7 +250,7 @@ export function boardSections(d: BoardData): { cat: Category; lines: Line[] }[] 
 
 /**
  * The board's derived numbers with every value as it stood on `day`: the
- * settings in force then and each active salaried person's salary in force
+ * settings in force then and each salaried, not archived person's salary in force
  * then. The schedule (bj-finance #695) reads a day's hourly goal from this.
  */
 export function boardOn(
