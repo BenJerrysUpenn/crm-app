@@ -162,6 +162,13 @@ test("a booked deal with no billed crew hours makes the target missing, naming t
   assert.ok(load.labor.target.hours.needs.includes("no billed crew hours on catering deal #3"), "the week line names the deal");
 });
 
+test("an archived deal adds no crew hours to the target, even when booked and billed", async () => {
+  db.tables.deals.push({ id: 4, stage: "Booked Paid", payment_status: "Paid", event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "300", total_with_tax: null, amount_paid: "300", company: "Archived Co", source: "form", archived: 1, labor_hours: 6, staff_count: 1 });
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.equal(load.labor.days[1].cateringHours.value, 8, "deal #1's 8 only; the archived deal's 6 is not counted");
+});
+
 test("the deal's crew on its Catering shifts sets the crew cost, with the board's premium", async () => {
   db.tables.control_settings.push({ id: 9, key: "rule.catering_premium", value: "2", detail: { cap_rate: 21 }, ...NOTE });
   const load = await loadScheduleLabor(createClient(), {
