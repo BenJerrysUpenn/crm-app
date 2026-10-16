@@ -126,6 +126,19 @@ submits to The Hartford; the human sends. Its only write is `coi_sent_at` plus
 required, unsent and the event is 0 to 14 days out (`COI_URGENT_WINDOW_DAYS`), the
 same window as Catering-Manager `revive.coi_required_unsent`.
 
+## Winter menu (deal drawer)
+No winter package exists: a winter item is an existing package plus extras (bj-finance
+#717). `supabase/crm/012_winter_menu_extras.sql` adds the three Price Book extras (Belgian
+Waffle, Winter Dry Toppings, Winter Pourable Toppings); `lib/menuOptions.ts` lists them
+and the two topping groups, and the drawer's toppings picker offers both groups. The drawer
+also edits `deals.custom_menu_line` (printed on the quote in place of the package name) and
+`deals.price_override` (a per-guest price replacing the package's on every quote of the
+deal; blank, 0 or negative clears it). Both columns belong to Catering-Manager migration
+`026`. `winterMenuWarnings` (`lib/winterMenu.ts`) shows amber notes for an event outside
+Nov 1 - Mar 31, an empty custom menu line, a topping-pick count other than 3, and winter
+toppings picked without their extra. It mirrors Catering-Manager `modules/winter_menu.py`
+and never blocks a save.
+
 ## Local dev (optional)
 ```
 npm install
