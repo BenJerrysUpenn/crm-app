@@ -259,3 +259,14 @@ test("when the catering crew's billed hours take up every hour paid, the week is
   assert.equal(w.varianceHours, null);
   assert.ok(w.why.includes("no in-store hours left once the catering crew's billed hours are taken off"), w.why.join("; "));
 });
+
+test("when the catering offset leaves hourly labor at zero or less, the week is n/a and says why", () => {
+  // An invented crew rate of 100 an hour (the only active hourly person), + 5 premium.
+  const people: LaborPerson[] = [{ id: "p9", name: "Person Nine", hourly_rate: 100, pay_type: "hourly", active: true }];
+  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 20)], shifts: [], people } })).weeks[0];
+  // 20 billed hours x 105 = 2,100 off 1,120 paid: -980, -1,225 all-in. 50 in-store hours remain.
+  close(w.actual, -1_225);
+  assert.equal(w.available, false);
+  assert.equal(w.varianceHours, null);
+  assert.ok(w.why.includes("hourly labor is zero or less once the catering crew's billed hours are taken off"), w.why.join("; "));
+});

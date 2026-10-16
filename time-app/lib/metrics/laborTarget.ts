@@ -148,6 +148,7 @@ export const WHY = {
   sales: (n: number) => `in-store sales on file for ${n} of 7 days`,
   varying: "the week's sales (the target changed during the week)",
   noInStoreHours: "no in-store hours left once the catering crew's billed hours are taken off",
+  noInStoreLabor: "hourly labor is zero or less once the catering crew's billed hours are taken off",
 } as const;
 
 function week(
@@ -231,6 +232,7 @@ function week(
   const varianceDollars = actual != null && targetDollars != null ? actual - targetDollars : null;
   const inStoreHours = hours != null && cateringHours != null ? hours - cateringHours : null;
   if (actual != null && inStoreHours != null && !(inStoreHours > 0)) why.push(WHY.noInStoreHours);
+  else if (actual != null && inStoreHours != null && !(actual > 0)) why.push(WHY.noInStoreLabor);
   const varianceHours =
     varianceDollars != null && inStoreHours != null && inStoreHours > 0 && actual! > 0 ? varianceDollars / (actual! / inStoreHours) : null;
 
