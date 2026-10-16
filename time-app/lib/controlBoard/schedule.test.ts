@@ -431,6 +431,27 @@ test("a booked deal with no billed crew hours makes the day's target missing, na
   assert.notEqual(l.days[2].targetHours.value, null, "other days keep their targets");
 });
 
+test("two booked deals on one day both add their billed crew hours, each at its own crew's cost", () => {
+  // Deal 7: 4h, crew ten (10 + 2 = 12) -> 48. Deal 8: 6h, nobody (15 + 2 = 17) -> 102.
+  const l = scheduleLabor(input({
+    catering: [deal(7, 4), deal(8, 6), deal(9, 3, "2030-10-15")],
+    shifts: [onDeal(shift("ten", MON, "10:00", "14:00", "Catering"), 7)],
+  }));
+  close(val(l.days[1].cateringHours), 10);
+  close(val(l.days[1].cateringDollars), 150);
+  close(val(l.days[1].targetHours), inStoreMonHours + 10);
+  close(val(l.days[2].cateringHours), 3, "a deal on Tuesday is Tuesday's");
+});
+
+test("with no average rate and nobody on the deal, the target $ is missing, never priced at zero", () => {
+  const l = scheduleLabor(input({ people: new Map(), catering: [deal(7, 6)] }));
+  close(val(l.days[1].cateringHours), 6);
+  assert.equal(l.days[1].cateringDollars.value, null);
+  assert.equal(l.days[1].targetDollars.value, null);
+  assert.deepEqual(l.days[1].targetDollars.needs, [MISSING.avgRate]);
+  close(val(l.days[2].targetDollars), inStoreMon, "a day with no catering does not need the average for its $");
+});
+
 test("with no premium on the board, a day with booked catering has its target $ missing, not priced without it", () => {
   const settings = BOARD.filter((r) => r.key !== "rule.catering_premium");
   const l = scheduleLabor(input({ settings, catering: [deal(7, 4)] }));
