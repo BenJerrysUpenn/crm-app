@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { monthProgress, targetFor, type SalesTargetRow } from "./targets.ts";
 import { TEST_TARGETS } from "./targets.fixture.ts";
 import { ler, lerPair, OWNER_COMP_WEEKLY, OWNER_COMP_MONTHLY } from "./ler.ts";
-import { arSummary, bookedEvidence, cateringByDay, cateringValue, isBooked, type DealRow } from "./catering.ts";
+import { arSummary, billedCrewHours, bookedEvidence, cateringByDay, cateringValue, isBooked, type DealRow } from "./catering.ts";
 import { addDays, daysInMonth, lastWeeks, mondayOf } from "./dates.ts";
 
 // ---- targets and pace -----------------------------------------------------------
@@ -210,6 +210,25 @@ test("a booked deal with no quote total is named as missing and adds nothing to 
   assert.deepEqual(days.missingValueIds, [7]);
   assert.equal(days.total, 200);
   assert.equal(days.byDay["2026-10-03"], 200);
+});
+
+test("a deal's billed crew hours are labor_hours per crew member x staff_count, read from numbers or numeric text", () => {
+  assert.equal(billedCrewHours({ labor_hours: 4, staff_count: 2 }), 8);
+  assert.equal(billedCrewHours({ labor_hours: "3.5", staff_count: "3" }), 10.5);
+});
+
+test("a deal missing either labor_hours or staff_count, or with either at zero, bills no crew hours: null, never a guess", () => {
+  for (const d of [
+    { labor_hours: null, staff_count: 2 },
+    { labor_hours: 4, staff_count: null },
+    { labor_hours: "", staff_count: 2 },
+    { labor_hours: 4, staff_count: "" },
+    { labor_hours: 0, staff_count: 2 },
+    { labor_hours: 4, staff_count: 0 },
+    { labor_hours: "four", staff_count: 2 },
+    { staff_count: 2 },
+    {},
+  ]) assert.equal(billedCrewHours(d), null, JSON.stringify(d));
 });
 
 // ---- catering AR -------------------------------------------------------------------------
