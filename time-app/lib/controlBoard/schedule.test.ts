@@ -84,7 +84,7 @@ function input(over: Partial<ScheduleLaborInput> = {}): ScheduleLaborInput {
     salaried: [],
     trend: trendFactor(TODAY, MONTHLY, []),
     inStoreByDay: lastYear(),
-    cateringByDay: {},
+    catering: [],
     ...over,
   };
 }
@@ -93,24 +93,26 @@ function input(over: Partial<ScheduleLaborInput> = {}): ScheduleLaborInput {
 // Day headers: all scheduled hours / that day's target hours
 // ---------------------------------------------------------------------------
 
-test("a day's target is last year's same weekday x trend plus this year's catering booked, x the hourly goal, / the average active hourly rate", () => {
-  const l = scheduleLabor(input({ cateringByDay: { "2030-10-14": 400 } }));
+test("a day's target is last year's same weekday x trend, x the hourly goal, / the average active hourly rate: in-store only", () => {
+  const l = scheduleLabor(input());
   const sun = l.days[0];
   assert.equal(sun.lastYearDay, "2029-10-14", "52 weeks earlier: the same weekday");
   close(val(sun.trendedInStore), 1_100);
   close(val(sun.projectedSales), 1_100);
   close(val(sun.hourlyGoal), 0.2);
+  close(val(sun.cateringHours), 0, "no booked catering: no offset");
   close(val(sun.targetDollars), 220);
   close(val(sun.targetHours), 220 / 15);
 
-  const mon = l.days[1];
-  close(val(mon.projectedSales), 1_500, "1,000 x 1.1 + 400 of catering booked");
-  close(val(mon.targetDollars), 300);
-  close(val(mon.targetHours), 20);
-
-  close(val(l.target.dollars), 220 * 6 + 300, "the week's target is the sum of its days");
-  close(val(l.target.hours), (220 * 6 + 300) / 15);
+  close(val(l.target.dollars), 220 * 7, "the week's target is the sum of its days");
+  close(val(l.target.hours), (220 * 7) / 15);
   assert.equal(l.boardEmpty, false);
+});
+
+test("projected sales are in-store only: a booked catering deal never adds its $ to projected sales", () => {
+  const l = scheduleLabor(input({ catering: [{ id: 7, day: "2030-10-14", billedHours: 10 }] }));
+  close(val(l.days[1].projectedSales), 1_100, "1,000 x 1.1, whatever the deal is worth");
+  close(val(l.days[1].trendedInStore), 1_100);
 });
 
 test("the day header counts ALL scheduled hours that day, whoever works them", () => {
@@ -176,10 +178,11 @@ test("a trend with a partial month is missing, not 1 and not 0", () => {
   assert.equal(l.days[0].short, "no trend");
 });
 
-test("when the catering bookings cannot be read, projected sales are missing rather than counting no catering", () => {
-  const l = scheduleLabor(input({ cateringByDay: null }));
-  assert.equal(l.days[0].projectedSales.value, null);
-  assert.deepEqual(l.days[0].projectedSales.needs, [MISSING.catering]);
+test("when the catering bookings cannot be read, the target is missing rather than counting no catering", () => {
+  const l = scheduleLabor(input({ catering: null }));
+  close(val(l.days[0].projectedSales), 1_100, "projected sales do not need catering");
+  assert.equal(l.days[0].targetHours.value, null);
+  assert.deepEqual(l.days[0].targetHours.needs, [MISSING.catering]);
   assert.equal(l.days[0].short, "catering unread");
 });
 
@@ -335,6 +338,110 @@ test("shifts on the padding days either side of the week are not counted", () =>
   assert.equal(l.totalHours, 0);
   assert.equal(l.labor.total, 0);
   assert.equal(l.labor.none, false, "nothing to price is a real $0");
+});
+
+// ---------------------------------------------------------------------------
+// Catering offset (Alina, 2026-10-16): the target adds the crew hours billed
+// on each booked deal, priced at crew cost + the catering premium, so the
+// deal's scheduled Catering shifts net against them.
+// ---------------------------------------------------------------------------
+
+const MON = "2030-10-14";
+const deal = (id: number, billedHours: number | null, day = MON) => ({ id, day, billedHours });
+const onDeal = (s: LaborShift, dealId: number): LaborShift => ({ ...s, deal_id: dealId });
+const inStoreMon = 220; // 1,000 x 1.1 x 20%
+const inStoreMonHours = 220 / 15;
+
+test("a booked deal adds its billed crew hours to the target, priced at the crew's rate + premium (capped per person)", () => {
+  // Billed 2 crew x 5h = 10h. Crew on the deal: ten 5h, twenty 5h. Per hour:
+  // ten 10 + 2 = 12; twenty min(20 + 2, 21) = 21. Hours-weighted 16.5.
+  const l = scheduleLabor(input({
+    catering: [deal(7, 10)],
+    shifts: [onDeal(shift("ten", MON, "10:00", "15:00", "Catering"), 7), onDeal(shift("twenty", MON, "10:00", "15:00", "Catering"), 7)],
+  }));
+  const mon = l.days[1];
+  close(val(mon.cateringHours), 10);
+  close(val(mon.cateringDollars), 165);
+  close(val(mon.targetHours), inStoreMonHours + 10);
+  close(val(mon.targetDollars), inStoreMon + 165);
+});
+
+test("staffing a deal exactly as billed nets to zero against the scheduled side", () => {
+  const crew = [onDeal(shift("ten", MON, "10:00", "15:00", "Catering"), 7), onDeal(shift("twenty", MON, "10:00", "15:00", "Catering"), 7)];
+  const without = scheduleLabor(input());
+  const withDeal = scheduleLabor(input({ catering: [deal(7, 10)], shifts: crew }));
+  close(withDeal.hourlyHours - without.hourlyHours, val(withDeal.target.hours)! - val(without.target.hours)!, "hours added on both sides alike");
+  close(withDeal.labor.total - without.labor.total, val(withDeal.target.dollars)! - val(without.target.dollars)!, "$ added on both sides alike");
+
+  // Over-staffed: a third crew member the client did not pay for shows as over target.
+  const over = scheduleLabor(input({ catering: [deal(7, 10)], shifts: [...crew, onDeal(shift("ten", MON, "10:00", "15:00", "Catering"), 7)] }));
+  close(val(over.target.hours)! - val(withDeal.target.hours)!, 0, "the target does not grow with the crew");
+  close(over.hourlyHours - withDeal.hourlyHours, 5);
+});
+
+test("an open Catering shift on the deal prices at the average rate + premium, so it nets too", () => {
+  const l = scheduleLabor(input({ catering: [deal(7, 4)], shifts: [onDeal(shift(null, MON, "10:00", "14:00", "Catering"), 7)] }));
+  close(val(l.days[1].cateringDollars), 4 * (15 + 2));
+  close(l.labor.open, 4 * (15 + 2));
+});
+
+test("with nobody scheduled on the deal, the crew cost is the average active hourly rate + premium", () => {
+  const l = scheduleLabor(input({ catering: [deal(7, 6)] }));
+  close(val(l.days[1].cateringHours), 6);
+  close(val(l.days[1].cateringDollars), 6 * (15 + 2));
+  // Shifts on another deal, or not Catering, are not this deal's crew.
+  const other = scheduleLabor(input({
+    catering: [deal(7, 6)],
+    shifts: [onDeal(shift("twenty", MON, "10:00", "16:00", "Catering"), 8), onDeal(shift("twenty", MON, "16:00", "18:00", "Scooper"), 7)],
+  }));
+  close(val(other.days[1].cateringDollars), 6 * (15 + 2));
+});
+
+test("the premium's cap holds on the target side: a crew rate above the cap gets no premium", () => {
+  const settings = BOARD.map((r) => (r.key === "rule.catering_premium" ? { ...r, detail: { cap_rate: 16 } } : r));
+  // twenty is over the 16 cap: 20/h, no premium. ten: min(12, 16) = 12.
+  const l = scheduleLabor(input({
+    settings,
+    catering: [deal(7, 8)],
+    shifts: [onDeal(shift("twenty", MON, "10:00", "14:00", "Catering"), 7), onDeal(shift("ten", MON, "10:00", "14:00", "Catering"), 7)],
+  }));
+  close(val(l.days[1].cateringDollars), 4 * 20 + 4 * 12);
+  close(l.labor.premium, 4 * 2);
+  // With nobody scheduled the average 15 + 2 is capped at 16.
+  const avg = scheduleLabor(input({ settings, catering: [deal(7, 8)] }));
+  close(val(avg.days[1].cateringDollars), 8 * 16);
+});
+
+test("a booked deal with no billed crew hours makes the day's target missing, naming the deal, never zero", () => {
+  const l = scheduleLabor(input({ catering: [deal(7, 10), deal(9, null)] }));
+  const mon = l.days[1];
+  assert.equal(mon.cateringHours.value, null);
+  assert.equal(mon.targetHours.value, null);
+  assert.equal(mon.targetDollars.value, null);
+  assert.deepEqual(mon.targetHours.needs, ["no billed crew hours on catering deal #9"]);
+  assert.equal(mon.short, "no billed crew hours");
+  assert.deepEqual(l.target.hours.needs, ["no billed crew hours on catering deal #9"], "the week's target says which deal");
+  assert.notEqual(l.days[2].targetHours.value, null, "other days keep their targets");
+});
+
+test("with no premium on the board, a day with booked catering has its target $ missing, not priced without it", () => {
+  const settings = BOARD.filter((r) => r.key !== "rule.catering_premium");
+  const l = scheduleLabor(input({ settings, catering: [deal(7, 4)] }));
+  close(val(l.days[1].cateringHours), 4);
+  assert.equal(l.days[1].targetDollars.value, null);
+  assert.deepEqual(l.days[1].targetDollars.needs, [MISSING.premium]);
+  close(val(l.days[2].targetDollars), inStoreMon, "a day with no catering does not need the premium");
+});
+
+test("overhead and salaried staff on a deal's Catering shift are not crew cost: the deal falls back to the average", () => {
+  const l = scheduleLabor(input({
+    people: withPeople({ id: "ovh", name: "Over Head", hourly_rate: 40, pay_type: "hourly", active: true, overhead: true }),
+    catering: [deal(7, 8)],
+    shifts: [onDeal(shift("ovh", MON, "10:00", "14:00", "Catering"), 7), onDeal(shift("sal", MON, "10:00", "14:00", "Catering"), 7)],
+  }));
+  close(val(l.days[1].cateringDollars), 8 * (15 + 2), "neither the overhead 40 nor the salaried person sets the crew cost");
+  close(l.labor.total, 0, "and neither is in scheduled hourly labor");
+  assert.equal(l.hourlyHours, 0);
 });
 
 // ---------------------------------------------------------------------------

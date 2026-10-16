@@ -1,16 +1,17 @@
 // Server-side reads for the Schedule page's labor line (bj-finance #695).
 // Reads as the signed-in manager. The control board's own loader
 // (loadBoard) supplies the settings, salaries and the trend's sales; this
-// adds last year's days, this week's catering bookings and the rates of
+// adds last year's days, this week's booked catering deals with the crew
+// hours billed on each (deals.labor_hours x staff_count) and the rates of
 // anyone on the week's shifts who is no longer active.
 //
 // A read that fails is reported and what it fed shows as missing, never zero.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { BOOKED_STAGES, cateringByDay, type DealRow } from "@/lib/metrics/catering";
+import { BOOKED_STAGES, billedCrewHours, eventDay, isBooked, type DealRow } from "@/lib/metrics/catering";
 import { loadBoard } from "./load";
 import { trendFactor } from "./math";
-import { addDays, scheduleLabor, type LaborPerson, type LaborShift, type ScheduleLabor } from "./schedule";
+import { addDays, scheduleLabor, type CateringBooking, type LaborPerson, type LaborShift, type ScheduleLabor } from "./schedule";
 
 export type ScheduleLaborLoad = { ready: true; labor: ScheduleLabor; problems: string[] } | { ready: false; reason: string };
 
@@ -24,7 +25,9 @@ type ProfileLike = {
 };
 type ShiftTypeLike = { name: string; in_store?: boolean | null };
 
-const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived";
+const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived, labor_hours, staff_count";
+
+type BookingDeal = DealRow & { labor_hours: number | string | null; staff_count: number | string | null };
 
 function person(p: ProfileLike): LaborPerson {
   return {
@@ -69,11 +72,11 @@ export async function loadScheduleLabor(
   if (lastYearRes.error) problems.push(`Last year's daily sales could not be read: ${lastYearRes.error.message}`);
   for (const r of (lastYearRes.data as { day: string; in_store: number | string }[] | null) ?? []) inStoreByDay.set(r.day, Number(r.in_store));
 
-  let catering: Record<string, number> | null = null;
+  let catering: CateringBooking[] | null = null;
   if (dealRes.error) {
     problems.push(`Catering bookings could not be read: ${dealRes.error.message}`);
   } else {
-    const deals = (dealRes.data as DealRow[] | null) ?? [];
+    const deals = (dealRes.data as BookingDeal[] | null) ?? [];
     const bookedBefore = new Set<number>();
     let historyOk = true;
     if (deals.length) {
@@ -90,9 +93,12 @@ export async function loadScheduleLabor(
       for (const e of (ev.data as { deal_id: number }[] | null) ?? []) bookedBefore.add(e.deal_id);
     }
     if (historyOk) {
-      const days = cateringByDay(deals, weekStart, weekEnd, today, bookedBefore);
-      catering = days.byDay;
-      if (days.missingValueIds.length) problems.push(`Booked catering with no value on the deal, left out of projected sales: #${days.missingValueIds.join(", #")}`);
+      catering = [];
+      for (const d of deals) {
+        const day = eventDay(d);
+        if (d.archived || !day || day < weekStart || day > weekEnd || !isBooked(d, today, bookedBefore)) continue;
+        catering.push({ id: d.id, day, billedHours: billedCrewHours(d) });
+      }
     }
   }
 
@@ -106,7 +112,7 @@ export async function loadScheduleLabor(
     salaried: board.salaried,
     trend: trendFactor(trendDay, board.monthly, board.daily),
     inStoreByDay,
-    cateringByDay: catering,
+    catering,
   });
   return { ready: true, labor, problems };
 }

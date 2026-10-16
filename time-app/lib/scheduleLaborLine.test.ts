@@ -88,7 +88,7 @@ function labor(over: Partial<ScheduleLaborInput> = {}): ScheduleLaborLoad {
       { month: "2029-09-01", source: "seller", in_store: 10_000 },
     ], []),
     inStoreByDay: new Map(DATES.map((d) => [addDays(d, -364), 1_000])),
-    cateringByDay: {},
+    catering: [],
     ...over,
   });
   return { ready: true, labor: l, problems: [] };
