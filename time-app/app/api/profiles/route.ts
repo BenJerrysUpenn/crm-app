@@ -1,10 +1,8 @@
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
-import { sendInvite, siteOrigin } from "@/lib/authLinks";
+import { siteOrigin } from "@/lib/authLinks";
+import { inviteTeamMember } from "@/lib/team";
 import { NextResponse } from "next/server";
-import { isRole, isManager, canAssignRole, canEditProfile, OWNER_ONLY_EDIT } from "@/lib/roles";
-import type { Role } from "@/lib/types";
+import { isManager } from "@/lib/roles";
 
 // POST /api/profiles
 //
@@ -21,6 +19,11 @@ import type { Role } from "@/lib/types";
 //
 // If the auth user already exists (someone re-invited), we still upsert
 // their profile fields so the manager's input isn't lost.
+//
+// The work itself lives in lib/team.ts (inviteTeamMember) so the Team page's
+// Add employee and Re-invite steps (lib/staffing/execute.ts) run the
+// identical path, owner checks included: only an owner may make someone an
+// owner or re-invite an owner's email (lib/roles.ts).
 //
 // Per Alina 2026-08-27: "Add a way to add new employees on the team page."
 export async function POST(request: Request) {
@@ -41,100 +44,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
   }
 
-  const email = (body.email || "").trim().toLowerCase();
-  if (!email || !email.includes("@"))
-    return NextResponse.json({ error: "Valid email required" }, { status: 400 });
-
-  // Required. Without it the handle_new_user trigger has no name to store.
-  const full_name = (body.full_name || "").trim();
-  if (!full_name || full_name.includes("@"))
-    return NextResponse.json({ error: "Full name required (not an email)" }, { status: 400 });
-  // Anything unrecognised is an employee. Only an owner may make
-  // someone an owner (lib/roles.ts).
-  const role: Role = isRole(body.role) ? body.role : "employee";
-  if (!canAssignRole(me, role))
-    return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
-  const phone = (body.phone || "").trim() || null;
-  const hourly_rate =
-    typeof body.hourly_rate === "number" && !isNaN(body.hourly_rate)
-      ? body.hourly_rate
-      : null;
-
-  const admin = createAdminClient();
-
-  // Re-inviting an existing account rewrites its role and active flag below,
-  // through the service role, which the database guard does not stop. So a
-  // manager is refused here, before anything is sent, when the email belongs
-  // to an owner.
-  const { data: before } = await admin.auth.admin.listUsers({ perPage: 1000 });
-  const existing = (before?.users ?? []).find(
-    (u) => (u.email ?? "").toLowerCase() === email,
-  );
-  if (existing) {
-    const { data: existingProfile } = await admin
-      .from("profiles")
-      .select("role")
-      .eq("id", existing.id)
-      .maybeSingle();
-    if (!canEditProfile(me, existingProfile))
-      return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
-  }
-
-  // Creates the auth user (which fires handle_new_user) and emails the link.
-  const invite = await sendInvite({
-    email,
-    fullName: full_name,
-    invitedBy: me.full_name,
+  const r = await inviteTeamMember({
+    email: body.email ?? "",
+    full_name: body.full_name ?? "",
+    role: body.role,
+    phone: body.phone,
+    hourly_rate: body.hourly_rate,
+    me,
     origin: siteOrigin(request),
   });
-  if ("error" in invite)
-    return NextResponse.json({ error: invite.error }, { status: 400 });
-
-  // A re-invite goes out as a magic link, which doesn't always carry the
-  // user back, so look the existing account up by email in that case.
-  let userId = invite.userId ?? existing?.id ?? null;
-  if (!userId) {
-    const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    const created = (list?.users ?? []).find(
-      (u) => (u.email ?? "").toLowerCase() === email,
-    );
-    userId = created?.id ?? null;
-  }
-  if (!userId)
-    return NextResponse.json({ error: "No user id returned" }, { status: 500 });
-
-  // Upsert the profile fields. On brand-new invites the trigger may
-  // race with our update, so use the service-role client (bypasses RLS)
-  // to make the write predictable regardless of trigger timing.
-  const supabase = createClient();
-  const patch: Record<string, unknown> = {
-    id: userId,
-    role,
-    active: true,
-  };
-  patch.full_name = full_name;
-  if (phone !== null) patch.phone = phone;
-  if (hourly_rate !== null) patch.hourly_rate = hourly_rate;
-
-  // Try admin-client upsert first (bypasses RLS); fall back to
-  // server client on any failure.
-  let profErr: { message: string } | null = null;
-  const { error: adminUpsertErr } = await admin
-    .from("profiles")
-    .upsert(patch, { onConflict: "id" });
-  if (adminUpsertErr) {
-    const { error: e } = await supabase
-      .from("profiles")
-      .upsert(patch, { onConflict: "id" });
-    profErr = e;
-  }
-  if (profErr)
-    return NextResponse.json({ error: profErr.message }, { status: 400 });
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
 
   return NextResponse.json({
     ok: true,
-    user_id: userId,
-    email,
-    delivery: invite.delivery,
+    user_id: r.user_id,
+    email: r.email,
+    delivery: r.delivery,
   });
 }

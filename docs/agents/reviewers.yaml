@@ -128,6 +128,10 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/supabase/migration_41*.sql"]
     docs: [README.md]
+  - paths: ["time-app/lib/staffing/**", "time-app/lib/team.ts", "time-app/app/api/staffing/**", "time-app/app/api/profiles/route.ts", "time-app/components/TeamAdmin.tsx", "time-app/components/StaffingRecords.tsx", "time-app/supabase/migration_44.sql"]
+    docs: [time-app/docs/staffing.md]
+  - paths: ["time-app/supabase/migration_44.sql"]
+    docs: [README.md]
   - paths: ["time-app/supabase/migration_43*.sql", "time-app/lib/controlBoard/**", "time-app/app/payroll/targets/**", "time-app/app/api/payroll/targets/**", "time-app/components/finance/targets/**", "time-app/components/SalaryPanel.tsx"]
     docs: [README.md]
 
