@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingTable } from "@/lib/storeHours";
+import { nyDay } from "@/lib/metrics/dates";
 import type { SalaryRow, SettingRow } from "./settings";
 import { monthStart, trendMonths, type DailySalesRow, type MonthlySalesRow } from "./math";
 
@@ -22,9 +23,6 @@ export const NEEDS_MIGRATION = "The control board needs migration 43. Run time-a
  * ruled 2026-10-15). Who counts on a given day is inFixedPayroll (board.ts).
  */
 export type SalariedProfile = { id: string; name: string; archivedOn?: string | null };
-
-/** The New York day of a timestamp. */
-const nyDay = (ts: string) => new Date(ts).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
 export type BoardLoad =
   | {
