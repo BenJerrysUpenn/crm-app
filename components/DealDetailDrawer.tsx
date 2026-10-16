@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   FLAVOR_NAMES,
   EXTRA_LABELS,
-  TOPPING_NAMES,
+  DRAWER_TOPPING_OPTIONS,
   PACKAGES,
   PAYMENT_STATUSES,
   defaultExtraQuantity,
@@ -39,6 +39,7 @@ import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
 import { missingRequiredFields } from "@/lib/required";
+import { winterMenuWarnings } from "@/lib/winterMenu";
 
 function ReadOnlyRow({
   label,
@@ -71,6 +72,14 @@ function numericInput(v: string): number | null {
   if (trimmed === "") return null;
   const n = Number(trimmed);
   return Number.isFinite(n) ? n : null;
+}
+
+// The price override is a per-guest price, so only a positive number is one
+// (deals_price_override_check, Catering-Manager migration 026). Blank, zero
+// or negative clears it back to the Price Book price.
+function positiveOrNull(v: string): number | null {
+  const n = numericInput(v);
+  return n !== null && n > 0 ? n : null;
 }
 
 export default function DealDetailDrawer({
@@ -388,6 +397,14 @@ export default function DealDetailDrawer({
   // Multi-select binding helpers.
   const flavorsSelected = parseFlavorsField(current.flavors);
   const extrasSelected = parseExtrasField(current.extras);
+  const winterWarnings = winterMenuWarnings({
+    packageName: current.package_name,
+    extras: extrasSelected,
+    toppings: parseToppingsField(current.toppings),
+    eventDate: current.event_date,
+    customMenuLine: current.custom_menu_line,
+    priceOverride: current.price_override,
+  });
   // Source of truth: mileage_charge_eligible (1 = we drove, charged mileage;
   // 0 = we ubered). transport_mode is the picklist-side derived cache.
   // Uber checked → mileage_charge_eligible = 0.
@@ -875,7 +892,7 @@ export default function DealDetailDrawer({
                 </FieldRow>
                 <FieldRow label="Toppings">
                   <MultiSelect
-                    options={TOPPING_NAMES}
+                    options={DRAWER_TOPPING_OPTIONS}
                     value={parseToppingsField(current.toppings)}
                     onChange={(next) =>
                       setField("toppings", serializeMultiselect(next))
@@ -897,6 +914,33 @@ export default function DealDetailDrawer({
                     }
                   />
                 </FieldRow>
+                <FieldRow label="Custom menu line">
+                  <TextInput
+                    value={current.custom_menu_line ?? ""}
+                    onChange={(v) => setField("custom_menu_line", v.trim() ? v : null)}
+                    placeholder="Printed on the quote instead of the package"
+                  />
+                </FieldRow>
+                <FieldRow label="Price override">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={
+                      current.price_override == null
+                        ? ""
+                        : String(current.price_override)
+                    }
+                    onChange={(v) => setField("price_override", positiveOrNull(v))}
+                    placeholder="Per guest, replaces the package price"
+                  />
+                </FieldRow>
+                {winterWarnings.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-[11px] text-amber-300">
+                    {winterWarnings.map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                )}
               </section>
 
               <section>
