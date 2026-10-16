@@ -315,6 +315,7 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_35.sql` | redefines `payroll_punch_blockers()`: 1.5 measures a punch only against its own shift (explicit or the person's that day), never a 1.10 cover; a person's latest punch is no longer skipped as a NULL runaway |
 | `time-app/supabase/migration_36.sql` | `payroll_sheets` (every pay table build and Rebuild request; service-role writes, manager reads, built rows frozen), `payroll_rulings` audited in `row_audit`, and the submittal guard's pay-table condition |
 | `time-app/supabase/migration_42.sql` | the `owner` role: `is_manager()` is now true for owners, so every manager policy here (rulings, submittals, sheets) admits them, and migration 37's travel-reimbursement guard and payroll views read the owner role; `is_owner()` and a profile guard keep the owner role and owners' rows to owners |
+| `time-app/supabase/migration_46.sql` | `labor_paycheck_actuals`: one row per hourly paycheck as QBO Payroll paid it, written from the saved paystub PDFs by bj-finance (`modules.labor_actuals`), and `labor_daily_actuals`: a tied pay period's labor placed on its days (When I Work timesheets before the time app, punches after). Both read by managers only. Nothing in the verify reads them; see README, "Hourly payroll actuals" |
 
 All of these are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_N_verify.sql` to run afterwards (in a

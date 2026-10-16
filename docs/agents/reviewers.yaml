@@ -136,6 +136,8 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/components/ScheduleLaborLine.tsx", "time-app/components/ScheduleBoard.tsx"]
     docs: [README.md]
+  - paths: ["time-app/supabase/migration_46*.sql"]
+    docs: [README.md, docs/payroll-verify.md]
   - paths: ["lib/coverageReminder.ts", "lib/coverageReminderCli.ts", "lib/coverageReminderPg.ts", "lib/gmailSend.ts", "scripts/coverage-reminder.ts"]
     docs: [README.md]
 
