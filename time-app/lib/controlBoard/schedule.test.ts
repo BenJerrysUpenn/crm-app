@@ -180,6 +180,7 @@ test("when the catering bookings cannot be read, projected sales are missing rat
   const l = scheduleLabor(input({ cateringByDay: null }));
   assert.equal(l.days[0].projectedSales.value, null);
   assert.deepEqual(l.days[0].projectedSales.needs, [MISSING.catering]);
+  assert.equal(l.days[0].short, "catering unread");
 });
 
 test("with no active hourly staff on a rate, target hours are missing but target dollars still show", () => {
@@ -187,6 +188,24 @@ test("with no active hourly staff on a rate, target hours are missing but target
   close(val(l.days[0].targetDollars), 220);
   assert.equal(l.days[0].targetHours.value, null);
   assert.deepEqual(l.days[0].targetHours.needs, [MISSING.avgRate]);
+  assert.equal(l.days[0].short, "no average rate");
+});
+
+test("with no active hourly staff on a rate, an open shift's $ is missing and the line says why, never $0", () => {
+  const l = scheduleLabor(input({ people: new Map([["sal", PEOPLE[2]]]), shifts: [shift(null, "2030-10-14", "12:00", "16:00")] }));
+  assert.equal(l.hourlyHours, 4);
+  assert.equal(l.labor.total, 0);
+  assert.equal(l.labor.none, true);
+  assert.deepEqual(l.labor.notCounted, ["open shifts (4.0h): no active hourly staff with a rate on the Team page"]);
+});
+
+test("a board with sales estimates of zero says it needs a sales estimate above zero", () => {
+  const settings = BOARD.map((r) => (r.key.startsWith("sales_estimate.") ? { ...r, value: 0 } : r));
+  const l = scheduleLabor(input({ settings }));
+  assert.equal(l.days[0].hourlyGoal.value, null);
+  assert.deepEqual(l.days[0].hourlyGoal.needs, ["a sales estimate above zero"]);
+  assert.equal(l.days[0].short, "board not set");
+  assert.equal(l.boardEmpty, false, "values are on the board, just not usable");
 });
 
 test("the hourly goal is the board's as it stood on each day: a payroll target changed mid-week moves only the days after it", () => {
