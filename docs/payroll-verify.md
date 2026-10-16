@@ -320,7 +320,8 @@ All of these are applied by hand in the Supabase SQL editor, in order, and all a
 safe to re-run. Each has a `migration_N_verify.sql` to run afterwards (in a
 transaction that rolls back) and a `migration_N_down.sql` that reverses it;
 the header of each down script says what data it loses. Roll back in reverse
-order: 42, 36, 35, 28, 27, 26, then 25. Until 27
+order: 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
+not payroll; see README) rolls back before 42, whose `is_owner()` its policies call. Until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 
 ## Not built yet

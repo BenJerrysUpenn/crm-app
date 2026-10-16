@@ -8,7 +8,9 @@ import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } fr
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
 import { PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/payroll/payType";
-import { assignableRoles, canEditProfile } from "@/lib/roles";
+import { assignableRoles, canEditProfile, isOwnerRole } from "@/lib/roles";
+import { SalaryCell, SalaryPanel } from "@/components/SalaryPanel";
+import type { SalaryRow } from "@/lib/controlBoard/settings";
 import type { Role } from "@/lib/types";
 import {
   ARCHIVE_NEEDS_MIGRATION,
@@ -44,6 +46,8 @@ export default function TeamAdmin({
   storeExceptions,
   storeHoursReady,
   holidays,
+  salaries,
+  today,
 }: {
   // The signed-in person's role. Decides which roles the forms offer and
   // which rows are read-only (a manager cannot edit an owner).
@@ -59,6 +63,9 @@ export default function TeamAdmin({
   storeExceptions: StoreHoursException[];
   storeHoursReady: boolean;
   holidays: Holiday[];
+  // Every dated salary row (migration 43), or null before it is applied.
+  salaries: SalaryRow[] | null;
+  today: string;
 }) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -175,7 +182,9 @@ export default function TeamAdmin({
           to set their password, and then they appear in the list below. Use
           Resend invite if the link expired. <strong>Pay</strong> is salaried or
           hourly: the payroll sheet prints &ldquo;salary&rdquo; instead of hours
-          for a salaried person. <strong>On schedule</strong> shows someone on the
+          for a salaried person. <strong>Salary</strong> is a salaried
+          person&rsquo;s annual salary, dated: the control board&rsquo;s fixed
+          payroll is built from it, and only an owner sets it. <strong>On schedule</strong> shows someone on the
           schedule and availability; <strong>Archive</strong> takes them off
           everything, this list included, and deletes nothing.
         </p>
@@ -246,6 +255,7 @@ export default function TeamAdmin({
                 <th className="text-left px-3 py-2">Role</th>
                 <th className="text-right px-3 py-2">Rate $/h</th>
                 <th className="text-left px-3 py-2">Pay</th>
+                <th className="text-right px-3 py-2 whitespace-nowrap">Salary $/yr</th>
                 <th
                   className="text-center px-3 py-2 whitespace-nowrap"
                   title="On the schedule, availability, the staff pickers and the payroll roster. Unticking this does NOT end anyone's access: only banning their login does."
@@ -258,18 +268,18 @@ export default function TeamAdmin({
             </thead>
             <tbody>
               {current.map((e) => (
-                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} editable={canEditProfile(viewer, e)} roleOptions={roleOptions} onSave={saveProfile} onResend={resendInvite} />
+                <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} editable={canEditProfile(viewer, e)} roleOptions={roleOptions} onSave={saveProfile} onResend={resendInvite} salaries={salaries} today={today} viewerIsOwner={isOwnerRole(viewerRole)} />
               ))}
             </tbody>
             {showArchived && archived.length > 0 && (
               <tbody>
                 <tr className="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
-                  <th colSpan={9} className="text-left px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                  <th colSpan={10} className="text-left px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
                     Archived
                   </th>
                 </tr>
                 {archived.map((e) => (
-                  <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} editable={canEditProfile(viewer, e)} roleOptions={roleOptions} onSave={saveProfile} onResend={resendInvite} />
+                  <EmployeeRow key={e.id} e={e} email={emailById[e.id] ?? ""} saving={savingId === e.id} archiveReady={archiveReady} editable={canEditProfile(viewer, e)} roleOptions={roleOptions} onSave={saveProfile} onResend={resendInvite} salaries={salaries} today={today} viewerIsOwner={isOwnerRole(viewerRole)} />
                 ))}
               </tbody>
             )}
@@ -511,6 +521,9 @@ function EmployeeRow({
   roleOptions,
   onSave,
   onResend,
+  salaries,
+  today,
+  viewerIsOwner,
 }: {
   e: Profile;
   email: string;
@@ -521,7 +534,12 @@ function EmployeeRow({
   roleOptions: Role[];
   onSave: (id: string, patch: ProfilePatch) => Promise<string | null>;
   onResend: (id: string) => Promise<string>;
+  salaries: SalaryRow[] | null;
+  today: string;
+  viewerIsOwner: boolean;
 }) {
+  const [salaryOpen, setSalaryOpen] = useState(false);
+  const salaryRows = salaries == null ? null : salaries.filter((r) => r.profile_id === e.id);
   const [name, setName] = useState(e.full_name ?? "");
   const [phone, setPhone] = useState(e.phone ?? "");
   const [role, setRole] = useState(e.role);
@@ -579,6 +597,7 @@ function EmployeeRow({
   }
 
   return (
+    <>
     <tr className="border-t border-slate-200 dark:border-slate-800">
       <td className="px-3 py-2 text-slate-600 dark:text-slate-400 whitespace-nowrap">{email || "—"}</td>
       <td className="px-3 py-2">
@@ -610,6 +629,9 @@ function EmployeeRow({
           ))}
         </select>
         {payErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px]">{payErr}</div>}
+      </td>
+      <td className="px-3 py-2 text-right">
+        <SalaryCell rows={salaryRows} today={today} salaried={e.pay_type === "salaried"} open={salaryOpen} onToggle={() => setSalaryOpen((v) => !v)} />
       </td>
       <td className="px-3 py-2 text-center">
         <input
@@ -657,6 +679,14 @@ function EmployeeRow({
         {archiveErr && <div className="text-[11px] text-rose-500 mt-0.5 max-w-[220px] text-left">{archiveErr}</div>}
       </td>
     </tr>
+    {salaryOpen && salaryRows && e.pay_type === "salaried" && (
+      <tr className="bg-slate-50 dark:bg-slate-950/40">
+        <td colSpan={10} className="px-3 py-3">
+          <SalaryPanel profileId={e.id} name={e.full_name ?? email} rows={salaryRows} today={today} viewerIsOwner={viewerIsOwner} />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 

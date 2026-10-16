@@ -128,6 +128,8 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/supabase/migration_41*.sql"]
     docs: [README.md]
+  - paths: ["time-app/supabase/migration_43*.sql", "time-app/lib/controlBoard/**", "time-app/app/payroll/targets/**", "time-app/app/api/payroll/targets/**", "time-app/components/finance/targets/**", "time-app/components/SalaryPanel.tsx"]
+    docs: [README.md]
 
 exclusions:
   - path: docs/unsubscribe.md

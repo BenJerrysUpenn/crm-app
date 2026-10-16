@@ -19,7 +19,10 @@
 // manager. shift_notices and shift_digests (migration 38) are the service
 // role's alone. metric_views and metric_preferences (migration 39) are a
 // manager's own rows only, and two live views of one person cannot share a
-// name (23505). Every other table is readable by any signed-in caller.
+// name (23505). control_settings and profile_salaries (migration 43): a
+// manager reads, only an owner adds a row, nobody changes or removes one, and
+// the row is stamped with the caller and the database clock. Every other
+// table is readable by any signed-in caller.
 //
 // Storage (migration 37's travel-reimbursements bucket) is faked too: signed
 // upload URLs, signed read URLs and downloads, under the bucket's policies
@@ -183,6 +186,15 @@ function isManager(caller: Caller): boolean {
   return fake.tables.profiles?.some((p) => p.id === caller.id && ["manager", "owner"].includes(p.role as string)) ?? false;
 }
 
+function isOwner(caller: Caller): boolean {
+  if (caller.kind !== "user") return false;
+  // public.is_owner(), migration 42.
+  return fake.tables.profiles?.some((p) => p.id === caller.id && p.role === "owner") ?? false;
+}
+
+// Migration 43: managers read, owners add, the API never changes or removes a row.
+const OWNER_ADDS = ["control_settings", "profile_salaries"];
+
 const OWN_ROWS: Record<string, string> = {
   time_entries: "employee_id",
   travel_reimbursements: "profile_id",
@@ -198,6 +210,7 @@ const MANAGER_OWN_ROWS: Record<string, string> = { metric_views: "owner_id", met
 function canRead(table: string, caller: Caller, row: Row): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
+  if (OWNER_ADDS.includes(table)) return isManager(caller);
   const managerOwner = MANAGER_OWN_ROWS[table];
   if (managerOwner) return row[managerOwner] === caller.id && isManager(caller);
   const owner = OWN_ROWS[table];
@@ -209,6 +222,7 @@ function canWrite(table: string, caller: Caller): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
   if (table === "time_entries") return isManager(caller);
+  if (OWNER_ADDS.includes(table)) return isOwner(caller);
   if (table in MANAGER_OWN_ROWS) return isManager(caller);
   return true;
 }
@@ -302,6 +316,9 @@ const DEFAULTS: Record<string, () => Row> = {
     submitted_at: DB_NOW, created_at: DB_NOW, updated_at: DB_NOW,
   }),
   travel_reimbursement_adjustments: () => ({ adjusted_at: DB_NOW }),
+  // Migration 43.
+  control_settings: () => ({ detail: {}, method: null }),
+  profile_salaries: () => ({ method: null }),
   lyft_ride_reports: () => ({ filed_at: DB_NOW, emailed_at: null, deal_id: null, event_label: null, event_date: null, reason_note: null }),
   // Migration 39: a saved view is live until archived.
   metric_views: () => ({ position: 0, widgets: [], archived_at: null, created_at: DB_NOW, updated_at: DB_NOW }),
@@ -493,10 +510,17 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     }
     const inserted = (Array.isArray(input) ? input : [input]).map((r) => {
       const row = { ...(DEFAULTS[table]?.() ?? {}), ...r, id: all.length + 1 };
+      // Migration 43's stamp_control_row(): who and when are the database's word.
+      if (OWNER_ADDS.includes(table)) Object.assign(row, { recorded_at: DB_NOW, recorded_by: caller.kind === "user" ? caller.id : (r.recorded_by ?? null) });
       all.push(row);
       return row;
     });
     return represent(inserted, headers, 201);
+  }
+
+  // Migration 43 grants no UPDATE or DELETE on these to an API role.
+  if ((method === "PATCH" || method === "DELETE") && OWNER_ADDS.includes(table) && caller.kind !== "service") {
+    return json(403, { code: "42501", details: null, hint: null, message: `permission denied for table ${table}` });
   }
 
   if (method === "PATCH") {
