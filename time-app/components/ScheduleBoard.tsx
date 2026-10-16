@@ -936,7 +936,7 @@ function ManagerMatrix({
           return (
             <div key={i} className="px-2 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800">
               {DAYS[i]} {dayLabel(d)}
-              {laborDays ? <DayTarget day={laborDays.find((x) => x.date === d)} hours={h} /> : h > 0 ? ` · ${h.toFixed(1)}h` : ""}
+              {laborDays ? <DayTarget day={laborDays.find((x) => x.date === d)} /> : h > 0 ? ` · ${h.toFixed(1)}h` : ""}
             </div>
           );
         })}

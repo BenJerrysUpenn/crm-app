@@ -152,8 +152,9 @@ function WorkedOut({ l }: { l: ScheduleLabor }) {
 }
 
 /** The day header's target part: " / 9.0h", or " / –" and a short reason. */
-export function DayTarget({ day, hours }: { day: DayLabor | undefined; hours: number }) {
+export function DayTarget({ day }: { day: DayLabor | undefined }) {
   if (!day) return null;
+  const hours = day.scheduledHours;
   const t = day.targetHours.value;
   if (t == null) {
     return (
