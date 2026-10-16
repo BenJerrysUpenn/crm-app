@@ -53,6 +53,14 @@ describe("the deal drawer on a winter deal", () => {
     expect(html).not.toContain("winter deals fill the custom menu line");
   });
 
+  it("warns about winter toppings nothing bills, until a price override carries them", () => {
+    const toppings = '["Hot Fudge","Hot Caramel","Cherry Compote"]';
+    const unbilled =
+      "<li>Hot Fudge, Hot Caramel, Cherry Compote picked but the Winter Pourable Toppings extra is not on the deal, so nothing bills them.</li>";
+    expect(drawer(mkDeal({ toppings }))).toContain(unbilled);
+    expect(drawer(mkDeal({ toppings, price_override: 21 }))).not.toContain(unbilled);
+  });
+
   it("shows the stored custom menu line and price override", () => {
     const html = drawer(
       mkDeal({ custom_menu_line: "Winter Menu: Waffle Sundae", price_override: 21.5 }),
