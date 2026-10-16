@@ -48,12 +48,12 @@ export default function ScheduleLaborLine({ load }: { load: ScheduleLaborLoad })
   const reasons = targetReasons(l);
   return (
     <div className="mb-3 text-sm text-slate-600 dark:text-slate-400 space-y-1" data-testid="labor-line">
+      <div>Scheduled Hourly Labor: <Strong>{h1(l.hourlyHours)}</Strong></div>
       <div>
-        <span>Scheduled Hourly Labor: <Strong>{h1(l.hourlyHours)}</Strong></span>
-        <span> | Target Hourly Labor: {l.target.hours.value == null
+        Target Hourly Labor:{" "}
+        {l.target.hours.value == null
           ? <Missing title={l.boardEmpty ? MISSING.board : reasons.join("; ")} />
           : <Strong>{h1(l.target.hours.value)}</Strong>}
-        </span>
       </div>
       {l.boardEmpty ? (
         <div className="text-rose-600 dark:text-rose-400">

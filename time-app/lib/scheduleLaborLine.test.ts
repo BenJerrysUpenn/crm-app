@@ -1,7 +1,8 @@
 // The manager Schedule page as the manager reads it (bj-finance #695, copy
-// changed 2026-10-15): the week line is
-//   Scheduled Hourly Labor: <hours> | Target Hourly Labor: <hours>
-// with no total hours and no $, the day headers in the manager grid are just
+// changed 2026-10-15): the week reads as two lines,
+//   Scheduled Hourly Labor: <hours>
+//   Target Hourly Labor: <hours>
+// with no divider, no total hours and no $, the day headers in the manager grid are just
 // the day and date, and there is no "how the target is worked out" panel.
 // The numbers come from lib/controlBoard/schedule.ts (pinned in its own
 // tests); these render the board around them with react-dom/server.
@@ -106,39 +107,41 @@ function renderBoard(load: ScheduleLaborLoad) {
 /** Visible text of some markup: tags and React's text-node comments dropped. */
 const text = (html: string) => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
 
-/** The labor line block, and its first line (the week line). */
+/** The labor block, and its first two rows (the week's two lines). */
 function laborLine(html: string) {
   const m = html.match(/<div class="[^"]*" data-testid="labor-line">([\s\S]*)$/);
   assert.ok(m, "the labor line is on the manager view");
-  const first = m[1].match(/^<div>([\s\S]*?)<\/div>/);
-  assert.ok(first, "the week line is the labor line's first row");
-  return { weekLine: text(first[1]), html: m[1] };
+  const rows = m[1].match(/^<div>([\s\S]*?)<\/div><div>([\s\S]*?)<\/div>/);
+  assert.ok(rows, "the week's two lines are the labor block's first two rows");
+  return { weekLines: [text(rows[1]), text(rows[2])], html: m[1] };
 }
 
-test("the week line reads Scheduled Hourly Labor | Target Hourly Labor, in hours only", () => {
-  const { weekLine } = laborLine(renderBoard(labor()));
+test("the week reads Scheduled Hourly Labor and Target Hourly Labor on two lines, in hours only", () => {
+  const { weekLines } = laborLine(renderBoard(labor()));
   // 8h scheduled; target 7 x 1,100 x 0.2 / 15 = 102.67h.
-  assert.equal(weekLine, "Scheduled Hourly Labor: 8.0h | Target Hourly Labor: 102.7h");
+  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h", "Target Hourly Labor: 102.7h"]);
 });
 
-test("the week line drops total hours and both dollar amounts", () => {
-  const { weekLine } = laborLine(renderBoard(labor()));
-  assert.doesNotMatch(weekLine, /Total hours/);
-  assert.doesNotMatch(weekLine, /\$/);
-  assert.doesNotMatch(weekLine, /·/);
+test("the week lines drop total hours, both dollar amounts and any divider", () => {
+  const { weekLines } = laborLine(renderBoard(labor()));
+  for (const line of weekLines) {
+    assert.doesNotMatch(line, /Total hours/);
+    assert.doesNotMatch(line, /\$/);
+    assert.doesNotMatch(line, /[·|/]/);
+  }
 });
 
 test("a missing target shows as missing, with the red Target missing line and its Targets-page link", () => {
   // No last-year sales on file: every day's target, and so the week's, is missing.
-  const { weekLine, html } = laborLine(renderBoard(labor({ inStoreByDay: new Map() })));
-  assert.equal(weekLine, "Scheduled Hourly Labor: 8.0h | Target Hourly Labor: missing");
+  const { weekLines, html } = laborLine(renderBoard(labor({ inStoreByDay: new Map() })));
+  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h", "Target Hourly Labor: missing"]);
   assert.match(text(html), /Target missing: .+\. Board values are set on the Targets page\./);
   assert.match(html, /<a href="\/payroll\/targets"[^>]*>Targets page<\/a>/);
 });
 
 test("an empty board shows the target as missing and points to the Targets page", () => {
-  const { weekLine, html } = laborLine(renderBoard(labor({ settings: [] })));
-  assert.equal(weekLine, "Scheduled Hourly Labor: 8.0h | Target Hourly Labor: missing");
+  const { weekLines, html } = laborLine(renderBoard(labor({ settings: [] })));
+  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h", "Target Hourly Labor: missing"]);
   assert.match(text(html), /No labor target yet: nothing is entered on the control board\./);
 });
 
