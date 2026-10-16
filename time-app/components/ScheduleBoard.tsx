@@ -16,9 +16,8 @@ import {
 import { availabilityCell, type CellAvailability, type CellLine } from "@/lib/availabilityCell";
 import { managerAssignsOnly } from "@/lib/managerAssigns";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
-import type { DayLabor } from "@/lib/controlBoard/schedule";
 import type { ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
-import ScheduleLaborLine, { DayTarget } from "./ScheduleLaborLine";
+import ScheduleLaborLine from "./ScheduleLaborLine";
 
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -557,7 +556,6 @@ export default function ScheduleBoard({
           dayLabel={dayLabel}
           DAYS={DAYS}
           availability={availability}
-          laborDays={labor?.ready ? labor.labor.days : null}
         />
       )}
 
@@ -845,7 +843,6 @@ function ManagerMatrix({
   dayLabel,
   DAYS,
   availability,
-  laborDays,
 }: {
   dates: string[];
   employees: Profile[];
@@ -858,8 +855,6 @@ function ManagerMatrix({
   dayLabel: (d: string) => string;
   DAYS: string[];
   availability: AvailabilityRow[];
-  /** Each day's target; when set the header reads "scheduled / target" hours. */
-  laborDays: DayLabor[] | null;
 }) {
   function cellShifts(date: string, employeeId: string | null) {
     return shiftsForDay(date).filter((s) =>
@@ -931,15 +926,11 @@ function ManagerMatrix({
       {/* Header */}
       <div className="grid bg-slate-100 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800" style={{ gridTemplateColumns: cols }}>
         <div className="px-3 py-2 sticky left-0 bg-slate-100 dark:bg-slate-800/60 z-10 text-xs font-medium text-slate-500">Staff</div>
-        {dates.map((d, i) => {
-          const h = shiftsForDay(d).reduce((a, s) => a + shiftHours(s), 0);
-          return (
-            <div key={i} className="px-2 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800">
-              {DAYS[i]} {dayLabel(d)}
-              {laborDays ? <DayTarget day={laborDays.find((x) => x.date === d)} hours={h} /> : h > 0 ? ` · ${h.toFixed(1)}h` : ""}
-            </div>
-          );
-        })}
+        {dates.map((d, i) => (
+          <div key={i} className="px-2 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800">
+            {DAYS[i]} {dayLabel(d)}
+          </div>
+        ))}
       </div>
       {/* Open shifts row */}
       <Row id={null} label="Open shifts" sub={`${weekHoursFor(null).toFixed(1)}h open`} tint />
