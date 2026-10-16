@@ -28,6 +28,7 @@
 import { boardOn } from "./board.ts";
 import type { Derived, Trend } from "./math.ts";
 import { settingsInForce, type SalaryRow, type SettingRow } from "./settings.ts";
+import type { SalariedProfile } from "./load.ts";
 
 const TZ = "America/New_York";
 
@@ -62,8 +63,8 @@ export type ScheduleLaborInput = {
   /** Every control_settings row and every profile_salaries row (all dates). */
   settings: SettingRow[];
   salaries: SalaryRow[];
-  /** Salaried staff not archived (on the schedule or not), for fixed payroll. */
-  salaried: { id: string; name: string }[];
+  /** Everyone in fixed payroll. */
+  salaried: SalariedProfile[];
   trend: Trend;
   /** In-store sales by day for the days on file (last year's days are looked up here). */
   inStoreByDay: Map<string, number>;
