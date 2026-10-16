@@ -28,6 +28,24 @@ const ACTIVE: { id: string; full_name: string; hourly_rate: string; pay_type: "h
 
 let db: FakeSupabase;
 
+// The stand-in project answers every read with every column, whatever
+// select() names; hosted PostgREST returns only the named ones. Reads of
+// `table` get just the selected columns, so a column the loader forgets to
+// select arrives missing here as it would in production.
+function returnOnlySelectedColumnsOf(table: string) {
+  const project = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    const select = url.searchParams.get("select");
+    const response = await project(request);
+    if (request.method !== "GET" || url.pathname !== `/rest/v1/${table}` || !select || select === "*" || !response.ok) return response;
+    const columns = select.split(",");
+    const rows = (await response.json()) as Record<string, unknown>[];
+    return Response.json(rows.map((r) => Object.fromEntries(columns.map((c) => [c, r[c]]))), { status: response.status });
+  }) as typeof fetch;
+}
+
 beforeEach(() => {
   db = startFakeSupabase({
     profiles: [
@@ -68,6 +86,7 @@ beforeEach(() => {
     deal_events: [],
   });
   db.signIn(MANAGER);
+  returnOnlySelectedColumnsOf("profiles");
 });
 
 const at = (day: string, hh: number) => new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), hh + 4)).toISOString();
