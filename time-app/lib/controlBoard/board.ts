@@ -248,17 +248,22 @@ export function boardSections(d: BoardData): { cat: Category; lines: Line[] }[] 
   return CATEGORIES.map((cat) => ({ cat, lines: cat.lines({ d, r }) }));
 }
 
+/** Every value the board stores, over all dates, as the board's loader reads them. */
+export type BoardRecords = {
+  /** Every control_settings row. */
+  settings: SettingRow[];
+  /** Every profile_salaries row. */
+  salaries: SalaryRow[];
+  /** Active salaried staff, for fixed payroll. */
+  salaried: { id: string; name: string }[];
+};
+
 /**
  * The board's derived numbers with every value as it stood on `day`: the
  * settings in force then and each active salaried person's salary in force
  * then. The schedule (bj-finance #695) reads a day's hourly goal from this.
  */
-export function boardOn(
-  day: string,
-  settings: SettingRow[],
-  salaries: SalaryRow[],
-  salaried: { id: string; name: string }[],
-): BoardResults {
+export function boardOn(day: string, { settings, salaries, salaried }: BoardRecords): BoardResults {
   const values = new Map<string, Current>();
   for (const [key, row] of settingsInForce(settings, day)) values.set(key, { value: row.value, detail: row.detail });
   const byPerson = groupBy(salaries, "profile_id");

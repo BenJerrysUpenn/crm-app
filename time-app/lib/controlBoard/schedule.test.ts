@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 
 import { trendFactor, type Derived, type MonthlySalesRow } from "./math.ts";
 import { MISSING, scheduleLabor, type LaborPerson, type LaborShift, type ScheduleLaborInput } from "./schedule.ts";
-import type { SalaryRow, SettingRow } from "./settings.ts";
+import type { BoardRecords } from "./board.ts";
+import type { SettingRow } from "./settings.ts";
 import { addDays } from "../metrics/dates.ts";
 
 const close = (a: number | null, b: number, msg?: string) => {
@@ -74,15 +75,13 @@ const shift = (employee_id: string | null, day: string, from: string, to: string
   id: shiftId++, employee_id, starts_at: ny(day, from), ends_at: ny(day, to, toNextDay), position,
 });
 
-function input(over: Partial<ScheduleLaborInput> = {}): ScheduleLaborInput {
+function input({ settings = BOARD, salaries = [], salaried = [], ...over }: Partial<ScheduleLaborInput & BoardRecords> = {}): ScheduleLaborInput {
   return {
+    board: { settings, salaries, salaried },
     dates: DATES,
     shifts: [],
     people: new Map(PEOPLE.map((p) => [p.id, p])),
     inStoreByName: new Map([["Scooper", true], ["Catering", false], ["Meeting", false]]),
-    settings: BOARD,
-    salaries: [] as SalaryRow[],
-    salaried: [],
     trend: trendFactor(TODAY, MONTHLY, []),
     inStoreByDay: lastYear(),
     cateringByDay: {},

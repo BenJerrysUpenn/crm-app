@@ -27,9 +27,9 @@
 
 import { addDays, daysBetween, nyDay, spanHours } from "../metrics/dates.ts";
 import { CATERING_POSITION } from "../payroll/eventShift.ts";
-import { boardOn } from "./board.ts";
+import { boardOn, type BoardRecords } from "./board.ts";
 import type { Derived, Trend } from "./math.ts";
-import { settingsInForce, type SalaryRow, type SettingRow } from "./settings.ts";
+import { settingsInForce, type SettingRow } from "./settings.ts";
 
 const TZ = "America/New_York";
 
@@ -58,11 +58,8 @@ export type ScheduleLaborInput = {
   people: Map<string, LaborPerson>;
   /** Shift type name -> does it put someone behind the counter. Unknown or blank counts as in-store. */
   inStoreByName: Map<string, boolean>;
-  /** Every control_settings row and every profile_salaries row (all dates). */
-  settings: SettingRow[];
-  salaries: SalaryRow[];
-  /** Active salaried staff, for fixed payroll. */
-  salaried: { id: string; name: string }[];
+  /** The control board's stored values (all dates). */
+  board: BoardRecords;
   trend: Trend;
   /** In-store sales by day for the days on file (last year's days are looked up here). */
   inStoreByDay: Map<string, number>;
@@ -182,7 +179,8 @@ const detailText = (row: SettingRow | undefined, name: string): string | null =>
 };
 
 export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
-  const { dates, people, settings } = input;
+  const { dates, people } = input;
+  const { settings } = input.board;
   const dateSet = new Set(dates);
   const shifts = input.shifts.filter((s) => dateSet.has(nyDay(s.starts_at)));
   const onDay = (date: string) => settingsInForce(settings, date);
@@ -307,7 +305,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     const trendedInStore = both(lastYearInStore, input.trend.factor, (a, t) => a * t);
     const catering = input.cateringByDay == null ? missing(MISSING.catering) : known(input.cateringByDay[date] ?? 0);
     const projectedSales = both(trendedInStore, catering, (a, c) => a + c);
-    const board = boardOn(date, settings, input.salaries, input.salaried);
+    const board = boardOn(date, input.board);
     const hourlyGoal: Derived = board.hourlyGoalPct.value == null
       ? missing(...board.hourlyGoalPct.needs.map((n) => (n === "sales above zero" ? "a sales estimate above zero" : n)))
       : board.hourlyGoalPct;
