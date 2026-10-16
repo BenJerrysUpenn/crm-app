@@ -76,7 +76,11 @@ describe("reminderWindow", () => {
   });
 
   it("Thursday and Friday check the same two weeks", () => {
-    expect(reminderWindow("2026-10-16")).toEqual(reminderWindow("2026-10-15"));
+    expect(reminderWindow("2026-10-16")).toEqual({
+      weekStarts: ["2026-10-18", "2026-10-25"],
+      start: "2026-10-18",
+      end: "2026-10-31",
+    });
   });
 });
 
@@ -111,9 +115,12 @@ describe("store hours", () => {
   });
 
   it("a weekday with no hours row is not checked", () => {
-    // Only Saturdays have hours; an empty Sunday Oct 18 produces no line.
-    const lines = buildReminder(snapshot({ shifts: [SAT_31_COVERED] }), RUN_DATE);
-    expect(lines.some((l) => l.startsWith("Sun"))).toBe(false);
+    // Only Saturdays have hours and nobody works all fortnight: the twelve
+    // days with no hours row produce no line, only the two Saturdays do.
+    expect(buildReminder(snapshot({ shifts: [] }), RUN_DATE)).toEqual([
+      "Sat Oct 24, 2:00–6:00 PM",
+      "Sat Oct 31, 2:00–6:00 PM",
+    ]);
   });
 
   it("only published, assigned, in-store shifts cover", () => {
@@ -195,8 +202,8 @@ describe("catering", () => {
     ]);
   });
 
-  it("only events from the first Sunday to the last Saturday are checked", () => {
-    const deals = ["2026-10-17", "2026-10-18", "2026-10-31", "2026-11-01"].map((event_date, i) =>
+  it("only events from the first Sunday to the last Saturday are checked; an undated event is not", () => {
+    const deals = ["2026-10-17", "2026-10-18", "2026-10-31", "2026-11-01", null].map((event_date, i) =>
       deal({ id: i + 1, event_date }),
     );
     expect(buildReminder(snapshot({ storeHours: [], deals }), RUN_DATE)).toEqual([
@@ -207,12 +214,31 @@ describe("catering", () => {
 
   it("store and catering lines interleave in date and time order", () => {
     const deals = [
-      deal({ id: 1, event_date: "2026-10-24", event_start_time: "12:00", event_end_time: "13:00" }),
-      deal({ id: 2, event_date: "2026-10-20", event_start_time: "19:00", event_end_time: "21:00" }),
+      deal({ id: 1, event_date: "2026-10-24", event_start_time: "19:00", event_end_time: "21:00" }),
+      deal({ id: 2, event_date: "2026-10-24", event_start_time: "12:00", event_end_time: "13:00" }),
+      deal({ id: 3, event_date: "2026-10-20", event_start_time: "19:00", event_end_time: "21:00" }),
     ];
     expect(buildReminder(snapshot({ deals }), RUN_DATE)).toEqual([
       "Tue Oct 20, 7:00–9:00 PM (catering)",
       "Sat Oct 24, 12:00–1:00 PM (catering)",
+      "Sat Oct 24, 2:00–6:00 PM",
+      "Sat Oct 24, 7:00–9:00 PM (catering)",
+    ]);
+  });
+
+  it("an event with no time comes last on its day", () => {
+    const deals = [deal({ event_start_time: null, event_end_time: null })];
+    expect(buildReminder(snapshot({ deals }), RUN_DATE)).toEqual([
+      "Sat Oct 24, 2:00–6:00 PM",
+      "Sat Oct 24 (catering, time not set)",
+    ]);
+  });
+
+  it("an event and a store gap starting at the same time list the event first", () => {
+    // Both start Sat Oct 24 at 2:00 PM; the store gap is 2–6 PM, the event 2–4 PM.
+    const deals = [deal({ event_start_time: "14:00", event_end_time: "16:00" })];
+    expect(buildReminder(snapshot({ deals }), RUN_DATE)).toEqual([
+      "Sat Oct 24, 2:00–4:00 PM (catering)",
       "Sat Oct 24, 2:00–6:00 PM",
     ]);
   });
@@ -259,5 +285,14 @@ describe("selectRecipients", () => {
       "owner-a@example.test",
       "owner-b@example.test",
     ]);
+  });
+
+  it("each address once, trimmed, and a row with no address is skipped", () => {
+    const rows = [
+      person(" owner-a@example.test\n", { role: "owner", active: false }),
+      person("owner-a@example.test", { role: "manager" }),
+      { ...person("", { role: "owner" }), email: null },
+    ];
+    expect(selectRecipients(rows)).toEqual(["owner-a@example.test"]);
   });
 });
