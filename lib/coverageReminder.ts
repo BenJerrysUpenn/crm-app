@@ -12,6 +12,7 @@ import {
   type StoreHoursException,
   type StoreHoursRow,
 } from "../time-app/lib/coverage";
+import { BOOKED_STAGES } from "@/lib/cateringShifts";
 
 // The schedule coverage reminder (bj-finance #709): every Thursday and Friday
 // at noon, list every open store hour and every booked catering event in the
@@ -45,11 +46,12 @@ export type ReminderShift = CoverageShift & { published: boolean };
 
 /**
  * The catering stages that mean an event is happening, matching
- * Catering-Manager staffing/event_staffing.py ALERT_STAGES. Closed Marketing
- * Event is not a mistake: marketing events (wedding shows, tabling) are booked
- * as deals and sit at that stage while they still need staff.
+ * Catering-Manager staffing/event_staffing.py ALERT_STAGES: the booked stages
+ * plus Closed Marketing Event. That one is not a mistake: marketing events
+ * (wedding shows, tabling) are booked as deals and sit at that stage while
+ * they still need staff.
  */
-export const ALERT_STAGES = ["Booked Paid", "Booked Unpaid", "Closed Marketing Event"];
+export const ALERT_STAGES = [...BOOKED_STAGES, "Closed Marketing Event"];
 
 /** A deals row as the reminder reads it. Times are the deal's "HH:MM" text. */
 export type ReminderDeal = {
