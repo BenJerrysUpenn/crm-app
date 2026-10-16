@@ -103,6 +103,17 @@ test("fixed payroll counts a salaried person who is off the schedule but not arc
   assert.ok(!ids.includes("p-hourly"), "hourly is not fixed payroll");
 });
 
+test("someone archived late in the New York evening counts through that New York day, not the UTC one", async () => {
+  // 02:30 UTC on Oct 8 is 22:30 on Oct 7 in New York (EDT): their last day is the 7th.
+  db.tables.profiles.push({ id: "p-late", role: "manager", active: false, full_name: "Late Leaver", pay_type: "salaried", archived_at: "2030-10-08T02:30:00Z", is_overhead: false });
+  const board = await loadBoard(createClient(), TODAY);
+  assert.ok(board.ready);
+  assert.equal(board.salaried.find((p) => p.id === "p-late")?.archivedOn, "2030-10-07");
+  const counted = (day: string) => inFixedPayroll(day, board.salaried, board.salaries).some((p) => p.id === "p-late");
+  assert.equal(counted("2030-10-07"), true, "the New York archive day: still counted");
+  assert.equal(counted("2030-10-08"), false, "the next New York day: gone");
+});
+
 test("an overhead person is not in fixed payroll, salaried and on the schedule though they are", async () => {
   db.tables.profile_salaries.push({ id: 2, profile_id: "p-overhead", annual_salary: "40000.00", effective_from: "2030-01-01", ...NOTE });
   const board = await loadBoard(createClient(), TODAY);
