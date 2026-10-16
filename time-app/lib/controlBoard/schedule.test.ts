@@ -9,8 +9,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { trendFactor, type Derived, type MonthlySalesRow } from "./math.ts";
-import { addDays, MISSING, scheduleLabor, type LaborPerson, type LaborShift, type ScheduleLaborInput } from "./schedule.ts";
+import { MISSING, scheduleLabor, type LaborPerson, type LaborShift, type ScheduleLaborInput } from "./schedule.ts";
 import type { SalaryRow, SettingRow } from "./settings.ts";
+import { addDays } from "../metrics/dates.ts";
 
 const close = (a: number | null, b: number, msg?: string) => {
   assert.ok(a != null, msg ?? `expected ${b}, got null`);

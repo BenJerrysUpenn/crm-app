@@ -25,6 +25,7 @@
 //
 // Pure, so `node --test` runs it.
 
+import { addDays, daysBetween, nyDay, spanHours } from "../metrics/dates.ts";
 import { CATERING_POSITION } from "../payroll/eventShift.ts";
 import { boardOn } from "./board.ts";
 import type { Derived, Trend } from "./math.ts";
@@ -116,16 +117,6 @@ export type ScheduleLabor = {
 // Day and time helpers (New York wall time)
 // ---------------------------------------------------------------------------
 
-function nyDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
-}
-
-export function addDays(day: string, n: number): string {
-  const d = new Date(`${day}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
 /** "2025-10-13" -> "Mon, Oct 13, 2025". */
 export function longDay(day: string): string {
   return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -136,13 +127,11 @@ function nyMinutesFrom(iso: string, day: string): number {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
   const h = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
   const m = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
-  const extraDays = Math.round((Date.parse(`${nyDate(iso)}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86_400_000);
+  const extraDays = daysBetween(day, nyDay(iso));
   return extraDays * 1440 + h * 60 + m;
 }
 
-function hoursOf(s: LaborShift): number {
-  return Math.max(0, (Date.parse(s.ends_at) - Date.parse(s.starts_at)) / 3_600_000);
-}
+const hoursOf = (s: LaborShift) => spanHours(s.starts_at, s.ends_at);
 
 const hrs = (h: number) => `${h.toFixed(1)}h`;
 const missing = (...needs: string[]): Derived => ({ value: null, needs });
@@ -195,7 +184,7 @@ const detailText = (row: SettingRow | undefined, name: string): string | null =>
 export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   const { dates, people, settings } = input;
   const dateSet = new Set(dates);
-  const shifts = input.shifts.filter((s) => dateSet.has(nyDate(s.starts_at)));
+  const shifts = input.shifts.filter((s) => dateSet.has(nyDay(s.starts_at)));
   const onDay = (date: string) => settingsInForce(settings, date);
   const isCatering = (s: LaborShift) => (s.position ?? "").trim() === CATERING_POSITION;
   const isInStore = (s: LaborShift) => {
@@ -232,7 +221,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
 
   for (const s of shifts) {
     const h = hoursOf(s);
-    const date = nyDate(s.starts_at);
+    const date = nyDay(s.starts_at);
     if (!s.employee_id) {
       hourlyHours += h;
       if (avgRate.value == null) {
@@ -279,7 +268,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   let solo = 0;
   let soloUnset = false;
   for (const date of dates) {
-    const inStore = shifts.filter((s) => nyDate(s.starts_at) === date && isInStore(s));
+    const inStore = shifts.filter((s) => nyDay(s.starts_at) === date && isInStore(s));
     if (inStore.length === 0) continue;
     const rule = onDay(date).get("rule.solo_close");
     const minAlone = detailNum(rule, "min_alone_hours");
@@ -311,7 +300,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
 
   // ---- Day targets ----
   const days: DayLabor[] = dates.map((date) => {
-    const scheduledHours = input.shifts.filter((s) => nyDate(s.starts_at) === date).reduce((a, s) => a + hoursOf(s), 0);
+    const scheduledHours = input.shifts.filter((s) => nyDay(s.starts_at) === date).reduce((a, s) => a + hoursOf(s), 0);
     const lastYearDay = addDays(date, -364);
     const ly = input.inStoreByDay.get(lastYearDay);
     const lastYearInStore = ly == null ? missing(lastYearNeed(lastYearDay)) : known(ly);

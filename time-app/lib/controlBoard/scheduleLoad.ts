@@ -7,10 +7,11 @@
 // A read that fails is reported and what it fed shows as missing, never zero.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { addDays } from "@/lib/metrics/dates";
 import { BOOKED_STAGES, cateringByDay, type DealRow } from "@/lib/metrics/catering";
 import { loadBoard } from "./load";
 import { trendFactor } from "./math";
-import { addDays, scheduleLabor, type LaborPerson, type LaborShift, type ScheduleLabor } from "./schedule";
+import { scheduleLabor, type LaborPerson, type LaborShift, type ScheduleLabor } from "./schedule";
 
 export type ScheduleLaborLoad = { ready: true; labor: ScheduleLabor; problems: string[] } | { ready: false; reason: string };
 
