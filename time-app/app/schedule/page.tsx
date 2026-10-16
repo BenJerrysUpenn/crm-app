@@ -7,6 +7,8 @@ import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Ann
 import { isManagerRole } from "@/lib/roles";
 import type { AvailabilityRow } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
+import { loadScheduleLabor, type ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
+import { nyToday } from "@/lib/metrics/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +112,22 @@ export default async function SchedulePage({
     availability = load.ok ? load.rows : [];
   }
 
+  // Manager only: the week against the labor target (bj-finance #695).
+  let labor: ScheduleLaborLoad | null = null;
+  if (isManager) {
+    try {
+      labor = await loadScheduleLabor(supabase, {
+        weekStart,
+        today: nyToday(),
+        shifts: (shifts as ShiftWithEmployee[]) ?? [],
+        employees,
+        shiftTypes,
+      });
+    } catch (e) {
+      labor = { ready: false, reason: (e as { message?: string })?.message ?? String(e) };
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
@@ -128,6 +146,7 @@ export default async function SchedulePage({
             shiftTypes={shiftTypes}
             availability={availability}
             annotations={annotations}
+            labor={labor}
           />
         </div>
       </main>

@@ -16,6 +16,9 @@ import {
 import { availabilityCell, type CellAvailability, type CellLine } from "@/lib/availabilityCell";
 import { managerAssignsOnly } from "@/lib/managerAssigns";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
+import type { DayLabor } from "@/lib/controlBoard/schedule";
+import type { ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
+import ScheduleLaborLine, { DayTarget } from "./ScheduleLaborLine";
 
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -65,6 +68,7 @@ export default function ScheduleBoard({
   shiftTypes,
   availability = [],
   annotations = [],
+  labor = null,
 }: {
   isManager: boolean;
   weekStart: string; // YYYY-MM-DD (Sunday)
@@ -76,6 +80,8 @@ export default function ScheduleBoard({
   /** Dated rows for the week (padded a day) plus everyone's weekly rows. */
   availability?: AvailabilityRow[];
   annotations?: Annotation[];
+  /** Manager view: the week against the labor target (bj-finance #695). */
+  labor?: ScheduleLaborLoad | null;
 }) {
   const colorByType = new Map(shiftTypes.map((t) => [t.name, t.color]));
 
@@ -437,13 +443,17 @@ export default function ScheduleBoard({
         </div>
       )}
 
-      {/* Week totals */}
+      {/* Week totals: managers see them against the labor target. */}
+      {isManager && labor ? (
+        <ScheduleLaborLine load={labor} />
+      ) : (
       <div className="mb-3 text-sm text-slate-600 dark:text-slate-400">
         {weekHours.toFixed(1)} scheduled hours this week
         {isManager && weekCost > 0 && (
           <span> · projected labor ${weekCost.toFixed(0)}</span>
         )}
       </div>
+      )}
 
       {/* Manager: hours by person, with overtime flagged */}
       {isManager && (() => {
@@ -547,6 +557,7 @@ export default function ScheduleBoard({
           dayLabel={dayLabel}
           DAYS={DAYS}
           availability={availability}
+          laborDays={labor?.ready ? labor.labor.days : null}
         />
       )}
 
@@ -834,6 +845,7 @@ function ManagerMatrix({
   dayLabel,
   DAYS,
   availability,
+  laborDays,
 }: {
   dates: string[];
   employees: Profile[];
@@ -846,6 +858,8 @@ function ManagerMatrix({
   dayLabel: (d: string) => string;
   DAYS: string[];
   availability: AvailabilityRow[];
+  /** Each day's target; when set the header reads "scheduled / target" hours. */
+  laborDays: DayLabor[] | null;
 }) {
   function cellShifts(date: string, employeeId: string | null) {
     return shiftsForDay(date).filter((s) =>
@@ -921,7 +935,8 @@ function ManagerMatrix({
           const h = shiftsForDay(d).reduce((a, s) => a + shiftHours(s), 0);
           return (
             <div key={i} className="px-2 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800">
-              {DAYS[i]} {dayLabel(d)}{h > 0 ? ` · ${h.toFixed(1)}h` : ""}
+              {DAYS[i]} {dayLabel(d)}
+              {laborDays ? <DayTarget day={laborDays.find((x) => x.date === d)} hours={h} /> : h > 0 ? ` · ${h.toFixed(1)}h` : ""}
             </div>
           );
         })}

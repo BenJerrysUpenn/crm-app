@@ -233,6 +233,21 @@ row per key in force on that day, and `public.profile_salaries_on(date)` one per
 Apply `time-app/supabase/migration_43.sql` by hand in the Supabase SQL editor, after migration 42.
 Schema only: no values are in this repo, and owners enter every one on the board after it is
 applied. Until then the tab says it needs migration 43 and the Team page shows no salaries.
+
+### The Schedule page's labor line (bj-finance #695)
+The manager Schedule page (not the staff view) reads the board. The week line is
+`Total hours: all / Hourly labor: hours · $ / Target: hours · $`; each day header is that day's
+scheduled hours (everyone) over its target hours. Hourly labor $ is hourly staff (`pay_type =
+'hourly'`, read strictly) at their rate, plus the catering premium on Catering shifts and the
+solo-close bonus per qualifying night as the board had them on that date, plus open shifts at the
+average rate of active hourly staff; salaried staff are left out. A day's projected sales are last
+year's in-store sales on the same weekday 52 weeks earlier (`sales_daily_in_store`) times the
+trend factor, plus catering booked for that day this year. Target $ is that times the hourly goal
+in force that day; target hours divide it by the average active hourly rate. The math is
+`lib/controlBoard/schedule.ts` (it calls `boardOn` in `board.ts`, which runs `computeBoard`), the
+reads `scheduleLoad.ts`. Anything missing (nothing on the board yet, no last-year day on file, a
+partial trend month, a person with no rate) shows as missing with its reason, and the empty board
+points to the Targets tab.
 Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
 entered value; run it before `migration_42_down.sql`).
 
