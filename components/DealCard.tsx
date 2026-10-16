@@ -12,6 +12,7 @@ import {
 } from "@/lib/boomerang";
 import { fmtEasternDate, daysUntilEvent } from "@/lib/dateFormat";
 import { missingRequiredFields } from "@/lib/required";
+import { channelBadge, channelBadgeTitle } from "@/lib/channelBadge";
 
 function fmtMoney(n: number | null): string {
   if (n == null) return "";
@@ -62,6 +63,8 @@ function CardBody({
       : "bg-slate-700/40 text-slate-300 border-slate-600/40";
   const followupChipText = lastOutboundShort;
   const reminderLabel = eventReminderLabel(deal);
+  const channel = channelBadge(deal);
+  const channelTitle = channelBadgeTitle(deal);
   const missing = missingRequiredFields(deal);
   const showMissing = missing.length > 0 && !deal.stage.startsWith("Closed");
   const days = daysUntilEvent(deal.event_date);
@@ -142,6 +145,16 @@ function CardBody({
       </div>
       {contact && deal.company && (
         <div className="text-xs text-slate-400 mt-0.5 truncate">{contact}</div>
+      )}
+      {channel && (
+        <div className="mt-1">
+          <span
+            title={channelTitle ?? undefined}
+            className="inline-block text-[10px] tracking-wide bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/30 rounded px-1.5 py-0.5"
+          >
+            {channel}
+          </span>
+        </div>
       )}
       <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
         <span>{fmtEasternDate(deal.event_date) || "no date"}</span>
