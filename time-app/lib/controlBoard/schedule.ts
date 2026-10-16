@@ -245,7 +245,7 @@ const detailText = (row: SettingRow | undefined, name: string): string | null =>
  * strictly ('hourly'); an active hourly person with no rate is left out and
  * listed in `unrated`. Target hours and open shifts are priced at it.
  */
-export function averageHourlyRate(people: Iterable<LaborPerson>): { avgRate: Derived; over: number; unrated: LaborPerson[] } {
+function averageHourlyRate(people: Iterable<LaborPerson>): { avgRate: Derived; over: number; unrated: LaborPerson[] } {
   const activeHourly = [...people].filter((p) => p.active && p.pay_type === "hourly" && !p.overhead);
   const rated = activeHourly.filter((p) => p.hourly_rate != null && Number(p.hourly_rate) > 0);
   const unrated = activeHourly.filter((p) => !rated.includes(p));
@@ -254,7 +254,7 @@ export function averageHourlyRate(people: Iterable<LaborPerson>): { avgRate: Der
 }
 
 /** The catering premium per hour on `rate` on `date`: the board's rule in force, capped at its cap_rate per person. Null when not set. */
-export function cateringPremium(settings: SettingRow[], rate: number, date: string): number | null {
+function cateringPremium(settings: SettingRow[], rate: number, date: string): number | null {
   const rule = settingsInForce(settings, date).get("rule.catering_premium");
   if (!rule) return null;
   const cap = detailNum(rule, "cap_rate");
