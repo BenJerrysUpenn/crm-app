@@ -223,7 +223,7 @@ test("the catering crew the client paid for comes off hourly labor, at crew cost
   close(w.targetPct.value, 0.25); // sales stay in-store only, the target is untouched
   close(w.varianceDollars, 1_087.5 - 1_200);
   // In-store hours 70 - 10 = 60 at 1,087.50: 18.125 an hour.
-  close(w.varianceHours, -112.5 / (1_087.5 / 60));
+  close(w.varianceHours, -6.2068965517); // -112.50 / 18.125
   // The other weeks carry no offset.
   close(laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[1].actual, 1_400);
 });
@@ -250,4 +250,12 @@ test("when the catering bookings could not be read, every week's labor is n/a ra
   assert.equal(w.available, false);
   assert.equal(w.actual, null);
   assert.ok(w.why.includes("catering bookings could not be read"));
+});
+
+test("when the catering crew's billed hours take up every hour paid, the week is n/a and says why, never a variance in hours", () => {
+  // 70 hours paid in the week and 70 crew hours billed on Tuesday's deal: no in-store hours left to price a variance at.
+  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 70)], shifts: [], people: PEOPLE } })).weeks[0];
+  assert.equal(w.available, false);
+  assert.equal(w.varianceHours, null);
+  assert.ok(w.why.includes("no in-store hours left once the catering crew's billed hours are taken off"), w.why.join("; "));
 });
