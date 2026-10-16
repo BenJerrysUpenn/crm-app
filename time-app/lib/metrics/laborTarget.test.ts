@@ -304,8 +304,12 @@ test("a salaried person hired after the week is not in that week's target; someo
   const weeks = laborVsTarget(OCT, inputs({ salaries, salaried })).weeks;
   assert.equal(weeks[0].available, true, weeks[0].why.join("; "));
   close(weeks[0].targetPct.value, 0.1875, "only Person S: 250,000 - 62,500 = 187,500");
-  // From the 20th both; after the 25th only Person T: the last week is 177,500 / 1,000,000 all week.
-  close(weeks[3].targetPct.value, 0.25 - (70_000 * 1.25) / 1_000_000);
+  // Oct 20-26: both from the 20th, Person S through the 25th, the archive day. Sunday to
+  // Friday (3,800 of sales) are held to 250,000 - 62,500 - 87,500 = 100,000, 10%;
+  // Saturday the 26th (1,000) to 250,000 - 87,500 = 162,500, 16.25%. 542.50 of 4,800.
+  close(weeks[2].targetDollars, 542.5, "Person S counted through the archive day, not after");
+  // After the 25th only Person T: the last week is 162,500 / 1,000,000 all week.
+  close(weeks[3].targetPct.value, 0.1625);
 });
 
 test("a booked deal billed zero crew hours offsets nothing and leaves the week available", () => {
