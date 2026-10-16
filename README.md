@@ -236,6 +236,37 @@ applied. Until then the tab says it needs migration 43 and the Team page shows n
 Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
 entered value; run it before `migration_42_down.sql`).
 
+## Schedule coverage reminder (droplet command)
+Every Thursday and Friday at noon ET, emails the owners and on-schedule
+managers every open store hour and every booked catering event in the next two
+Sun–Sat weeks that nobody is scheduled for (bj-finance #709). No gaps, no
+email. Store hours are judged by `checkWeekCoverage` in
+`time-app/lib/coverage.ts`, the function the schedule board's "Check week"
+button runs, so the two cannot disagree. Catering events are deals at Booked
+Paid, Booked Unpaid or Closed Marketing Event (`archived = 0`); one counts as
+covered when a published shift on it has a person. Recipients are read from
+the database (`profiles` joined to `auth.users`): every owner plus every active
+manager, leaving out anyone archived or banned. Logic: `lib/coverageReminder.ts`;
+command: `lib/coverageReminderCli.ts`; reads: `lib/coverageReminderPg.ts`;
+send: `lib/gmailSend.ts`.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project |
+| `COVERAGE_REMINDER_FROM` | The From address. Set in the droplet's systemd unit, never in this repository |
+| `OUTREACH_GMAIL_CLIENT_ID`, `OUTREACH_GMAIL_CLIENT_SECRET`, `OUTREACH_GMAIL_REFRESH_TOKEN` | Gmail API credentials (gmail.send). SMTP is blocked on the droplet |
+
+```
+npm run coverage-reminder -- --dry-run   # prints the recipients and the email, sends nothing
+npm run coverage-reminder                # sends, only when there are gaps
+```
+Exit 0 = checked (sent, or nothing to send), 1 = a failure, 2 = bad argument
+or `DATABASE_URL` missing. Every failure (database read, recipient lookup,
+Gmail send) is also emailed to the fixed failure address with the subject
+"Coverage reminder could not run"; a dry run only prints that it would. Reads
+run in a read-only transaction. Where it runs: bj-box, from
+`bj-coverage-reminder.timer` (Software-Factory `droplet/systemd/`).
+
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
@@ -260,7 +291,8 @@ Where it runs: on Alina's Mac, from a clean checkout of `main` at
 `~/systems/crm-app` (the same `~/systems/` convention as the catering
 automations), never from a dev clone or the Google Drive. This is the only
 thing that runs from that checkout. It is separate from Vercel, which serves
-the web app, and from the droplet's checkout of this repo, which runs nothing.
+the web app, and from the droplet's checkout of this repo, which runs only the
+schedule coverage reminder above.
 
 The web routes that create the same shifts, `POST /api/deals/:id/booked-shifts`
 (signed-in) and `GET /api/cron/catering-shifts`, insert through supabase-js with
