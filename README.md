@@ -237,20 +237,29 @@ Schema only: no values are in this repo, and owners enter every one on the board
 applied. Until then the tab says it needs migration 43 and the Team page shows no salaries.
 
 ### The Schedule page's labor line (bj-finance #695)
-The manager Schedule page (not the staff view) reads the board. The week reads as two
-lines, `Scheduled Hourly Labor: hours · $` and `Target Hourly Labor: hours · $`, so a week with
-higher-paid people shows a higher $ against the same target; the day headers show only the day
-and date. Hourly labor $ is hourly staff (`pay_type =
+The manager Schedule page (not the staff view) reads the board. The week reads as an aligned
+block, label | hours | $ with the numbers right-aligned: `Target Hourly Labor`, `Scheduled Hourly
+Labor`, and `Remaining Hourly Labor` (target minus scheduled, with a real minus sign and in red
+when either value is negative; `missing` when the target is). A week with higher-paid people shows
+a higher $ against the same target; the day headers show only the day and date. Hourly labor $ is hourly staff (`pay_type =
 'hourly'`, read strictly) at their rate, plus the catering premium on Catering shifts and the
 solo-close bonus per qualifying night as the board had them on that date, plus open shifts at the
-average rate of active hourly staff; salaried and overhead staff are left out. A day's projected sales are last
-year's in-store sales on the same weekday 52 weeks earlier (`sales_daily_in_store`) times the
-trend factor, plus catering booked for that day this year. Target $ is that times the hourly goal
-in force that day; target hours divide it by the average active hourly rate. The math is
-`lib/controlBoard/schedule.ts` (it calls `boardOn` in `board.ts`, which runs `computeBoard`), the
-reads `scheduleLoad.ts`. Anything missing (nothing on the board yet, no last-year day on file, a
-partial trend month, a person with no rate) shows as missing with its reason, and the empty board
-points to the Targets tab.
+average rate of active hourly staff; salaried and overhead staff are left out. A day's projected
+sales are IN-STORE ONLY: last year's in-store sales on the same weekday 52 weeks earlier
+(`sales_daily_in_store`) times the trend factor; catering bookings never feed them. The in-store
+target $ is that times the hourly goal in force that day; its hours divide it by the average
+active hourly rate. Catering crew labor is cancelled out by what the client paid for (Alina,
+2026-10-16): for each booked deal that day the target adds the crew hours billed on it in the CRM
+(`deals.labor_hours`, which is per crew member, times `deals.staff_count`), priced at crew cost
+plus the board's catering premium in force (capped at its `cap_rate` per person, as on the
+scheduled side). Crew cost is the rate of whoever is on that deal's Catering shifts (`shifts.deal_id`,
+hours-weighted, open shifts at the average rate), else the average active hourly rate. The
+Catering shifts stay on the scheduled side, so an event staffed as billed nets to zero and
+over-staffing shows as over target. The math is `lib/controlBoard/schedule.ts` (it calls `boardOn`
+in `board.ts`, which runs `computeBoard`), the reads `scheduleLoad.ts`. Anything missing (nothing
+on the board yet, no last-year day on file, a partial trend month, a person with no rate, a booked
+deal with no billed crew hours, named by deal number) shows as missing with its reason, never
+zero, and the empty board points to the Targets tab.
 Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
 entered value; run it before `migration_42_down.sql`).
 
@@ -258,7 +267,8 @@ entered value; run it before `migration_42_down.sql`).
 `profiles.is_overhead` (migration 45, default false) marks a person whose pay is overhead, not
 part of the payroll target. An overhead person is left out of fixed payroll on the board (and so
 out of the hourly goal), out of the Schedule page's hourly labor hours and $, and out of the
-average active hourly rate behind open shifts and target hours. They stay on the schedule grid
+average active hourly rate behind open shifts and target hours, and out of a catering deal's crew
+cost. They stay on the schedule grid
 and in total hours. A manager sets it (an owner's row only an owner); the guard on profiles stops
 anyone else, the person included. The Team page has no control for it yet: set it in the SQL
 editor. Apply `time-app/supabase/migration_45.sql` BEFORE deploying the time app: the board's
