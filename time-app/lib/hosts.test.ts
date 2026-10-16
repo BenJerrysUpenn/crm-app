@@ -181,6 +181,22 @@ test("reimbursements: staff file them on the time site; Approvers decide them on
   });
 });
 
+// ---- Targets, the control board (bj-finance #693) ---------------------------------
+
+test("targets: the finance host serves the control board and its save routes; the Team page's salary route works on the time host", () => {
+  assert.deepEqual(routeForHost(FIN, "/payroll/targets", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(TIME, "/payroll/targets", ""), {
+    kind: "redirect",
+    location: "https://finance.withers-ventures.com/payroll/targets",
+    status: 307,
+  });
+  for (const path of ["/api/payroll/targets", "/api/payroll/targets/salary"]) {
+    assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
+    // The Team page (time host) posts a salary to the same route.
+    assert.deepEqual(routeForHost(TIME, path, ""), { kind: "next" }, path);
+  }
+});
+
 // ---- Metrics (bj-finance #671) --------------------------------------------------
 
 test("metrics: the finance host serves the Metrics page's APIs; the time host passes them through", () => {

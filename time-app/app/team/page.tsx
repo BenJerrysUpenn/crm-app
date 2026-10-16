@@ -19,6 +19,7 @@ import type {
   StoreHoursException,
 } from "@/lib/types";
 import { isManager } from "@/lib/roles";
+import { loadSalaries } from "@/lib/controlBoard/load";
 
 export const dynamic = "force-dynamic";
 
@@ -123,6 +124,8 @@ export default async function TeamPage() {
             storeExceptions={storeExceptions}
             storeHoursReady={storeHoursReady}
             holidays={holidays}
+            salaries={await loadSalaries(supabase)}
+            today={today}
           />
         </div>
       </main>

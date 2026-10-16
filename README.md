@@ -200,6 +200,42 @@ Offboard forms, five `profiles` columns, and `revoke_user_sessions`. Until it is
 actions fail. Never delete a Withers-time user: `time_entries` cascades from `profiles`. Steps,
 API and worker contract: `time-app/docs/staffing.md`.
 
+## Control board: the Targets tab (Withers Time, bj-finance #693)
+`/payroll/targets` on the finance host is the control board: the targets the business runs to
+(COGS, total payroll and prime cost as shares of sales), the 12-month sales estimate they are
+shares of, and the rates they are built from. It is the single source for those values; code
+reads them from here rather than keeping copies (bj-finance payroll will, lane #692). Managers and
+owners see it; only an owner changes a value, in the page, the routes behind it
+(`/api/payroll/targets`, `/api/payroll/targets/salary`) and the database. A salaried person's
+annual salary is set on the Team page (owners) and feeds the board's fixed payroll.
+
+Every value is dated. A change is a new row, never an edit: it carries an as-of date
+(`effective_from`), a review-by date (the green / yellow within a month / red chip; nothing is
+ever sent as a reminder), where it came from and how it was worked out. The value in force on a
+day is the row with the latest `effective_from` on or before it; a same-day correction wins (later
+`recorded_at`, then higher `id`). Categories and keys are data in `time-app/lib/controlBoard/`
+(`board.ts`, `settings.ts`): a new category is new keys, not a migration. The derived numbers
+(fixed payroll, hourly dollars, the hourly goal, the trend factor) are `lib/controlBoard/math.ts`;
+a missing input shows as missing, never as zero.
+
+| Key | `value` | `detail` |
+| --- | --- | --- |
+| `sales_estimate.in_store`, `sales_estimate.catering` | dollars, next 12 months | |
+| `target.cogs_pct`, `target.payroll_pct`, `target.prime_cost_pct` | fraction of sales (0.25 = 25%) | |
+| `tax.fica`, `tax.futa`, `tax.pa_uc` | fraction of wages | `wage_cap`: dollars a year, or null for all wages |
+| `tax.workers_comp` | dollars per $100 of wages | `class_code` |
+| `rule.catering_premium` | dollars added per catering hour | `cap_rate`: dollars an hour |
+| `rule.solo_close` | dollars a qualifying night | `min_alone_hours`, `out_at_or_after` (`HH:MM`) |
+
+Reading it from the Mac (bj-finance): `select * from public.control_settings_on(date)` gives one
+row per key in force on that day, and `public.profile_salaries_on(date)` one per person.
+
+Apply `time-app/supabase/migration_43.sql` by hand in the Supabase SQL editor, after migration 42.
+Schema only: no values are in this repo, and owners enter every one on the board after it is
+applied. Until then the tab says it needs migration 43 and the Team page shows no salaries.
+Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
+entered value; run it before `migration_42_down.sql`).
+
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
