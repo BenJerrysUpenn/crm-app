@@ -104,6 +104,14 @@ describe("a live run", () => {
     expect(h.out.join("\n")).toContain("sent 1 gap to 2 recipients");
   });
 
+  it("counts every gap in the summary line", async () => {
+    const twoGaps: ReminderSnapshot = { ...WITH_GAP, shifts: [] };
+    const h = harness({ snapshot: twoGaps });
+    expect(await runCoverageReminderCli([], h.deps)).toBe(0);
+    expect(h.sent[0].body).toBe("Sat Oct 24, 2:00–6:00 PM\nSat Oct 31, 2:00–6:00 PM\n");
+    expect(h.out.join("\n")).toContain("sent 2 gaps to 2 recipients");
+  });
+
   it("sends nothing when nothing is missing", async () => {
     const h = harness({ snapshot: NO_GAP });
     expect(await runCoverageReminderCli([], h.deps)).toBe(0);
@@ -122,6 +130,24 @@ describe("--dry-run", () => {
     expect(printed).toContain("recipients (2): manager@example.test, owner@example.test");
     expect(printed).toContain(`From: ${FROM}`);
     expect(printed).toContain("Subject: Schedule gaps");
+    expect(printed).toContain("Sat Oct 24, 2:00–6:00 PM");
+  });
+
+  it("takes the run date in New York, not UTC", async () => {
+    // 02:00 UTC Sunday Oct 18 is 10:00 PM Saturday Oct 17 in New York: the
+    // window is the two weeks after Saturday, not after Sunday.
+    const h = harness();
+    h.deps.now = () => new Date("2026-10-18T02:00:00Z");
+    expect(await runCoverageReminderCli(["--dry-run"], h.deps)).toBe(0);
+    expect(h.out.join("\n")).toContain("run date 2026-10-17, checking 2026-10-18 to 2026-10-31");
+  });
+
+  it("shows the email without a configured sender, and says the sender is not set", async () => {
+    const h = harness({ env: { DATABASE_URL: "postgres://fake" } });
+    expect(await runCoverageReminderCli(["--dry-run"], h.deps)).toBe(0);
+    expect(h.sent).toEqual([]);
+    const printed = h.out.join("\n");
+    expect(printed).toContain("From: (COVERAGE_REMINDER_FROM not set)");
     expect(printed).toContain("Sat Oct 24, 2:00–6:00 PM");
   });
 
