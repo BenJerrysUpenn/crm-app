@@ -30,7 +30,7 @@ function Missing({ title }: { title?: string }) {
   );
 }
 
-const cell = (x: Derived, show: (v: number) => string) => (x.value == null ? <span className="text-rose-600 dark:text-rose-400" title={x.needs.join("; ")}>missing</span> : show(x.value));
+const cell = (x: Derived, show: (v: number) => string) => (x.value == null ? <span className="text-rose-600 dark:text-rose-400" title={x.needs.join("; ")}>{MISSING_MARK}</span> : show(x.value));
 
 function TargetsLink() {
   return (
@@ -96,15 +96,15 @@ function WorkedOut({ l }: { l: ScheduleLabor }) {
         <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
           <div>
             Hourly goal (control board):{" "}
-            {goals.length === 1 && goals[0] != null ? <Strong>{goals[0]}</Strong> : goals.every((g) => g == null) ? <span className="text-rose-600 dark:text-rose-400">missing</span> : <Strong>changes during the week, see each day</Strong>}
+            {goals.length === 1 && goals[0] != null ? <Strong>{goals[0]}</Strong> : goals.every((g) => g == null) ? <span className="text-rose-600 dark:text-rose-400">{MISSING_MARK}</span> : <Strong>changes during the week, see each day</Strong>}
           </div>
           <div>
-            Trend factor: {t.factor.value == null ? <span className="text-rose-600 dark:text-rose-400">missing ({t.factor.needs.join("; ")})</span> : <Strong>{t.factor.value.toFixed(3)}</Strong>}
+            Trend factor: {t.factor.value == null ? <span className="text-rose-600 dark:text-rose-400">{MISSING_MARK} ({t.factor.needs.join("; ")})</span> : <Strong>{t.factor.value.toFixed(3)}</Strong>}
             <span className="text-slate-500"> = {side(t.lastMonth)} ÷ {side(t.sameMonthLastYear)}</span>
           </div>
           <div>
             Average rate, active hourly staff:{" "}
-            {l.avgRate.value == null ? <span className="text-rose-600 dark:text-rose-400">missing ({l.avgRate.needs.join("; ")})</span> : <><Strong>{usd2(l.avgRate.value)}</Strong> over {l.avgRateOver} {l.avgRateOver === 1 ? "person" : "people"}</>}
+            {l.avgRate.value == null ? <span className="text-rose-600 dark:text-rose-400">{MISSING_MARK} ({l.avgRate.needs.join("; ")})</span> : <><Strong>{usd2(l.avgRate.value)}</Strong> over {l.avgRateOver} {l.avgRateOver === 1 ? "person" : "people"}</>}
           </div>
           <div>
             Projected hourly labor: wages {usd(l.labor.wages)} + catering premium {usd(l.labor.premium)} + solo close {usd(l.labor.solo)} + open shifts {usd(l.labor.open)}
