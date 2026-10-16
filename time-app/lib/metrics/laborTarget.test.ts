@@ -270,3 +270,14 @@ test("when the catering offset leaves hourly labor at zero or less, the week is 
   assert.equal(w.varianceHours, null);
   assert.ok(w.why.includes("hourly labor is zero or less once the catering crew's billed hours are taken off"), w.why.join("; "));
 });
+
+test("when the catering offset leaves hourly labor at exactly zero, the week is n/a and says why, never a variance in hours", () => {
+  // An invented crew rate of 107 an hour (the only active hourly person), + 5 premium: 112 an hour.
+  // 10 billed hours x 112 = 1,120 off the week's 1,120 paid: nothing left, 0 all-in. 60 in-store hours remain.
+  const people: LaborPerson[] = [{ id: "p9", name: "Person Nine", hourly_rate: 107, pay_type: "hourly", active: true }];
+  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people } })).weeks[0];
+  assert.equal(w.actual, 0);
+  assert.equal(w.available, false);
+  assert.equal(w.varianceHours, null);
+  assert.deepEqual(w.why, ["hourly labor is zero or less once the catering crew's billed hours are taken off"]);
+});
