@@ -54,6 +54,7 @@ const BOARD: SettingRow[] = [
 const PEOPLE: LaborPerson[] = [
   { id: "ten", name: "Ten Hourly", hourly_rate: 10, pay_type: "hourly", active: true },
   { id: "twenty", name: "Twenty Hourly", hourly_rate: 20, pay_type: "hourly", active: true },
+  { id: "sal", name: "Sal Salaried", hourly_rate: null, pay_type: "salaried", active: true },
 ];
 
 // Monday 12:00-20:00 New York: 8 hours for "ten".
@@ -63,10 +64,19 @@ const SHIFT = {
   profiles: { id: "ten", full_name: "Ten Hourly" },
 };
 
+// Tuesday 09:00-13:00 New York: 4 hours for the salaried "sal". On the board,
+// so in total hours (12h), but not in Scheduled Hourly Labor (8h). Fixed
+// payroll is left off (salaried: []) so the target stays the worked 102.7h.
+const SAL_SHIFT = {
+  ...SHIFT, id: 2, employee_id: "sal", starts_at: "2030-10-15T13:00:00.000Z", ends_at: "2030-10-15T17:00:00.000Z",
+  profiles: { id: "sal", full_name: "Sal Salaried" },
+};
+const SHIFTS = [SHIFT, SAL_SHIFT];
+
 function labor(over: Partial<ScheduleLaborInput> = {}): ScheduleLaborLoad {
   const l = scheduleLabor({
     dates: DATES,
-    shifts: [SHIFT],
+    shifts: SHIFTS,
     people: new Map(PEOPLE.map((p) => [p.id, p])),
     inStoreByName: new Map([["Scooper", true]]),
     settings: BOARD,
@@ -92,8 +102,8 @@ function renderBoard(load: ScheduleLaborLoad) {
       createElement(ScheduleBoard as never, {
         isManager: true,
         weekStart: WEEK,
-        shifts: [SHIFT],
-        employees: PEOPLE.map((p) => ({ id: p.id, full_name: p.name, phone: null, role: "employee", hourly_rate: p.hourly_rate, active: true, pay_type: "hourly" })),
+        shifts: SHIFTS,
+        employees: PEOPLE.map((p) => ({ id: p.id, full_name: p.name, phone: null, role: "employee", hourly_rate: p.hourly_rate, active: true, pay_type: p.pay_type })),
         locations: [],
         dropRequests: [],
         shiftTypes: [{ id: 1, name: "Scooper", color: "#10b981", in_store: true }],
@@ -115,17 +125,19 @@ function laborLine(html: string) {
   return { weekLine: text(first[1]), html: m[1] };
 }
 
-test("the week line reads Scheduled Hourly Labor | Target Hourly Labor, in hours only", () => {
+test("the week line reads Scheduled Hourly Labor | Target Hourly Labor, in hours only, salaried hours left out", () => {
   const { weekLine } = laborLine(renderBoard(labor()));
-  // 8h scheduled; target 7 x 1,100 x 0.2 / 15 = 102.67h.
+  // 8h hourly scheduled (the salaried 4h is not hourly labor); target 7 x 1,100 x 0.2 / 15 = 102.67h.
   assert.equal(weekLine, "Scheduled Hourly Labor: 8.0h | Target Hourly Labor: 102.7h");
 });
 
-test("the week line drops total hours and both dollar amounts", () => {
-  const { weekLine } = laborLine(renderBoard(labor()));
-  assert.doesNotMatch(weekLine, /Total hours/);
-  assert.doesNotMatch(weekLine, /\$/);
-  assert.doesNotMatch(weekLine, /·/);
+test("the labor line shows no total hours and no dollar amounts when the labor is fully priced", () => {
+  const { html } = laborLine(renderBoard(labor()));
+  const all = text(html);
+  assert.doesNotMatch(all, /Total hours/);
+  assert.doesNotMatch(all, /12\.0h/, "the 12h board total (hourly + salaried) is not shown");
+  assert.doesNotMatch(all, /\$/);
+  assert.doesNotMatch(all, /·/);
 });
 
 test("a missing target shows as missing, with the red Target missing line and its Targets-page link", () => {
