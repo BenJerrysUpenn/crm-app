@@ -157,10 +157,12 @@ views in the browser's localStorage. Sales targets come only from `public.sales_
 draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
 bj-finance feed (migration 40). Labor vs target (bj-finance #696, `lib/metrics/laborTarget.ts`)
 reads `labor_daily_actuals` (migration 46), `sales_daily_in_store` (migration 41) and the control
-board's settings in force on each day. Both sides are all-in (taxes and workers' comp): the target is
+board's settings in force on each day, plus the booked catering deals, their Catering shifts and the
+team, read as the Schedule page reads them. Both sides are all-in (taxes and workers' comp): the target is
 the board's `hourlyAllInPct`, and the catering crew clients paid for comes off the actual through the
 Schedule page's own `cateringOffset`. A Sunday-to-Saturday week shows only once it is over with all
-seven days of payroll and sales on file and every booked catering deal priced, otherwise "n/a". Tests: `npm test` in `time-app/` includes
+seven days of payroll and sales on file, every booked catering deal priced, and hours and hourly labor
+still above zero after the catering crew comes off, otherwise "n/a" with the reason. Tests: `npm test` in `time-app/` includes
 `lib/metrics/*.test.ts`.
 
 ## Travel Reimbursements (Withers Time)
