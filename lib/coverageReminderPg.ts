@@ -83,9 +83,7 @@ export function pgReminderStore(sql: Sql): ReminderStore {
       return {
         storeHours,
         exceptions,
-        // in_store is `not null default true`; anything else reads as in-store,
-        // as the button does, so an unclassified type never excuses a gap.
-        shiftTypes: shiftTypes.map((t) => ({ name: t.name, in_store: t.in_store !== false })),
+        shiftTypes,
         shifts,
         closedRanges,
         deals,

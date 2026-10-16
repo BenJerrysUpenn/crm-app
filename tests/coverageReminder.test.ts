@@ -133,6 +133,12 @@ describe("store hours", () => {
     expect(covered).toEqual([]);
   });
 
+  it("a shift type with no in_store answer counts as in-store, so it never excuses a gap", () => {
+    const sat24 = shift("2026-10-24T14:00:00-04:00", "2026-10-24T18:00:00-04:00", { position: "Unclassified" });
+    const shiftTypes = [...SHIFT_TYPES, { name: "Unclassified", in_store: null }];
+    expect(buildReminder(snapshot({ shiftTypes, shifts: [SAT_31_COVERED, sat24] }), RUN_DATE)).toEqual([]);
+  });
+
   it("checks Sunday to Saturday: the run week and the week after the window are not checked", () => {
     const everyDay = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
       weekday,

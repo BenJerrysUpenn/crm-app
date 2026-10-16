@@ -71,7 +71,8 @@ export type ReminderSnapshot = {
   storeHours: StoreHoursRow[];
   exceptions: StoreHoursException[];
   closedRanges: ClosedDateRange[];
-  shiftTypes: ShiftTypeCoverage[];
+  /** shift_types rows as read; an in_store that is not false reads as in-store. */
+  shiftTypes: { name: string; in_store: boolean | null }[];
   /** Shifts around the window, for the store check. */
   shifts: ReminderShift[];
   /** Deals whose event_date falls in the window, any stage. */
@@ -121,13 +122,19 @@ function cateringLines(snapshot: ReminderSnapshot, window: ReminderWindow): Line
 export function buildReminder(snapshot: ReminderSnapshot, runDate: string): string[] {
   const window = reminderWindow(runDate);
   const published = snapshot.shifts.filter((s) => s.published);
+  // in_store is `not null default true`; anything but false reads as in-store,
+  // as the Check week button reads it, so an unclassified type never excuses a gap.
+  const shiftTypes: ShiftTypeCoverage[] = snapshot.shiftTypes.map((t) => ({
+    name: t.name,
+    in_store: t.in_store !== false,
+  }));
   const lines: Line[] = cateringLines(snapshot, window);
   for (const weekStart of window.weekStarts) {
     const { gaps } = checkWeekCoverage({
       weekStart,
       storeHours: snapshot.storeHours,
       exceptions: snapshot.exceptions,
-      shiftTypes: snapshot.shiftTypes,
+      shiftTypes,
       shifts: shiftsTouchingWeek(published, weekStart),
       closedRanges: snapshot.closedRanges,
     });
