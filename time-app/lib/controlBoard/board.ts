@@ -12,6 +12,7 @@
 import { computeBoard, type BoardInputs, type BoardResults, type Derived, type Trend } from "./math.ts";
 import { capWords, money, monthName, pct, pctFixed, per100 } from "./format.ts";
 import { groupBy, inForce, settingsInForce, type SalaryRow, type SettingRow } from "./settings.ts";
+import type { SalariedProfile } from "./load.ts";
 
 /** What a stored line's value is, as the board has it now (saved, or an owner's unsaved change). */
 export type Current = { value: number; detail: Record<string, number | string | null> };
@@ -21,8 +22,8 @@ export type BoardData = {
   values: Map<string, Current>;
   /** Setting key -> the saved row in force today (its dates and notes). */
   saved: Map<string, SettingRow>;
-  /** Active salaried staff, with the salary row in force today. */
-  salaried: { id: string; name: string; salary: SalaryRow | null }[];
+  /** Everyone in fixed payroll, with the salary row in force today. */
+  salaried: (SalariedProfile & { salary: SalaryRow | null })[];
   trend: Trend;
 };
 
@@ -168,7 +169,7 @@ export const CATEGORIES: Category[] = [
         }),
         computed("fixedPayroll", "Fixed payroll", r.fixedPayroll, {
           share: ofSales(r, r.fixedPayroll.value), total: true, indent: 0,
-          note: r.salaried.length ? undefined : "Nobody active is set to Salaried on the Team page.",
+          note: r.salaried.length ? undefined : "Nobody on the team is set to Salaried on the Team page.",
         }),
       ];
     },
@@ -250,14 +251,14 @@ export function boardSections(d: BoardData): { cat: Category; lines: Line[] }[] 
 
 /**
  * The board's derived numbers with every value as it stood on `day`: the
- * settings in force then and each active salaried person's salary in force
- * then. The schedule (bj-finance #695) reads a day's hourly goal from this.
+ * settings in force then and the salary in force then of each person in fixed
+ * payroll. The schedule (bj-finance #695) reads a day's hourly goal from this.
  */
 export function boardOn(
   day: string,
   settings: SettingRow[],
   salaries: SalaryRow[],
-  salaried: { id: string; name: string }[],
+  salaried: SalariedProfile[],
 ): BoardResults {
   const values = new Map<string, Current>();
   for (const [key, row] of settingsInForce(settings, day)) values.set(key, { value: row.value, detail: row.detail });
