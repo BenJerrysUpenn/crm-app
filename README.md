@@ -23,7 +23,7 @@ A `.env.example` is included as a reference. For local dev, copy it to `.env.loc
 `profiles.role` decides, through `lib/roles.ts`: `manager` and `owner` reach
 the CRM, `employee` does not. An owner passes every manager gate (in the
 database too: `is_manager()` is true for owners). `profiles.active` means "on
-the staff roster" and is never an access check; access ends by banning the
+the schedule" and is never an access check; access ends by banning the
 login. The owner role and its guard are time-app migration 42, applied by
 hand in the Supabase SQL editor after both apps deploy (its header has the
 order; `migration_42_verify.sql` checks it, `migration_42_down.sql` reverses it).
@@ -207,7 +207,9 @@ shares of, and the rates they are built from. It is the single source for those 
 reads them from here rather than keeping copies (bj-finance payroll will, lane #692). Managers and
 owners see it; only an owner changes a value, in the page, the routes behind it
 (`/api/payroll/targets`, `/api/payroll/targets/salary`) and the database. A salaried person's
-annual salary is set on the Team page (owners) and feeds the board's fixed payroll.
+annual salary is set on the Team page (owners) and feeds the board's fixed payroll. Fixed payroll
+counts everyone set to Salaried who is not archived, on the schedule or not: `profiles.active`
+means "on the schedule", and `archived_at` is what marks someone gone.
 
 Every value is dated. A change is a new row, never an edit: it carries an as-of date
 (`effective_from`), a review-by date (the green / yellow within a month / red chip; nothing is

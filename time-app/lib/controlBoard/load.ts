@@ -13,6 +13,11 @@ import { monthStart, trendMonths, type DailySalesRow, type MonthlySalesRow } fro
 
 export const NEEDS_MIGRATION = "The control board needs migration 43. Run time-app/supabase/migration_43.sql in the Supabase SQL editor first.";
 
+/**
+ * Someone in fixed payroll: pay_type 'salaried' and not archived. Whether
+ * they are on the schedule (profiles.active) does not matter; archived_at is
+ * what marks someone gone.
+ */
 export type SalariedProfile = { id: string; name: string };
 
 export type BoardLoad =
@@ -49,7 +54,7 @@ export async function loadBoard(supabase: SupabaseClient, today: string): Promis
   const [settingsRes, salariesRes, peopleRes] = await Promise.all([
     supabase.from("control_settings").select("*"),
     supabase.from("profile_salaries").select("*"),
-    supabase.from("profiles").select("id, full_name").eq("active", true).eq("pay_type", "salaried").order("full_name"),
+    supabase.from("profiles").select("id, full_name").eq("pay_type", "salaried").is("archived_at", null).order("full_name"),
   ]);
   if (isMissingTable(settingsRes.error) || isMissingTable(salariesRes.error)) return { ready: false, reason: NEEDS_MIGRATION };
   if (settingsRes.error) return { ready: false, reason: `The settings could not be read: ${settingsRes.error.message}` };
