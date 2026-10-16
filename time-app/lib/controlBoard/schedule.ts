@@ -58,6 +58,9 @@ const TZ = "America/New_York";
 /** The shift position the CRM and the payroll page give a catering event's crew (lib/payroll/eventShift.ts). */
 export const CATERING_POSITION = "Catering";
 
+/** A shift crewing a catering event: its position is CATERING_POSITION. */
+const isCatering = (s: LaborShift) => (s.position ?? "").trim() === CATERING_POSITION;
+
 export type LaborShift = {
   id: number;
   employee_id: string | null;
@@ -290,7 +293,7 @@ export function cateringOffset(input: CateringOffsetInput, date: string): { hour
     let hours = 0;
     let dollars = 0;
     for (const s of input.shifts) {
-      if (s.deal_id !== dealId || (s.position ?? "").trim() !== CATERING_POSITION) continue;
+      if (s.deal_id !== dealId || !isCatering(s)) continue;
       let rate: number | null = null;
       if (!s.employee_id) rate = avgRate.value;
       else {
@@ -324,7 +327,6 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   const dateSet = new Set(dates);
   const shifts = input.shifts.filter((s) => dateSet.has(nyDate(s.starts_at)));
   const onDay = (date: string) => settingsInForce(settings, date);
-  const isCatering = (s: LaborShift) => (s.position ?? "").trim() === CATERING_POSITION;
   const isInStore = (s: LaborShift) => {
     const key = s.position?.trim();
     return key ? input.inStoreByName.get(key) ?? true : true;
