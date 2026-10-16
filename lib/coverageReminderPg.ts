@@ -49,7 +49,7 @@ export function pgReminderStore(sql: Sql): ReminderStore {
             select date, label, is_closed, opens, closes from public.store_hours_exceptions
             where date >= ${window.start}::date and date < ${afterEnd}::date
           ) e`),
-        jsonRows<{ name: string; in_store: boolean | null }>(sql`
+        jsonRows<ReminderSnapshot["shiftTypes"][number]>(sql`
           select to_json(t) as row from (select name, in_store from public.shift_types) t`),
         jsonRows<ReminderShift>(sql`
           select to_json(s) as row from (
