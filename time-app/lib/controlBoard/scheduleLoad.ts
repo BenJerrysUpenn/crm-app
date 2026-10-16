@@ -29,7 +29,10 @@ const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtota
 
 type BookingDeal = DealRow & { labor_hours: number | string | null; staff_count: number | string | null };
 
-function person(p: ProfileLike): LaborPerson {
+/** A profiles row as the labor math reads it. */
+export const PROFILE_COLUMNS = "id, full_name, hourly_rate, pay_type, active, is_overhead";
+
+export function laborPerson(p: ProfileLike): LaborPerson {
   return {
     id: p.id,
     name: p.full_name ?? "Unnamed",
@@ -54,53 +57,26 @@ export async function loadScheduleLabor(
   const problems = [...board.problems];
 
   // Everyone active, plus anyone on this week's shifts who is not (their shift still costs).
-  const people = new Map<string, LaborPerson>(week.employees.map((e) => [e.id, person(e)]));
+  const people = new Map<string, LaborPerson>(week.employees.map((e) => [e.id, laborPerson(e)]));
   const absent = [...new Set(week.shifts.map((s) => s.employee_id).filter((id): id is string => !!id && !people.has(id)))];
 
-  const [absentRes, lastYearRes, dealRes] = await Promise.all([
+  const [absentRes, lastYearRes, bookings] = await Promise.all([
     absent.length
-      ? supabase.from("profiles").select("id, full_name, hourly_rate, pay_type, active, is_overhead").in("id", absent)
+      ? supabase.from("profiles").select(PROFILE_COLUMNS).in("id", absent)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("sales_daily_in_store").select("day, in_store").gte("day", addDays(weekStart, -364)).lte("day", addDays(weekEnd, -364)),
-    supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", weekStart).lte("event_date", `${weekEnd}T23:59:59`),
+    loadCateringBookings(supabase, weekStart, weekEnd, today),
   ]);
 
   if (absentRes.error) problems.push(`Staff on this week's shifts could not be read: ${absentRes.error.message}`);
-  for (const p of (absentRes.data as ProfileLike[] | null) ?? []) people.set(p.id, person(p));
+  for (const p of (absentRes.data as ProfileLike[] | null) ?? []) people.set(p.id, laborPerson(p));
 
   const inStoreByDay = new Map<string, number>();
   if (lastYearRes.error) problems.push(`Last year's daily sales could not be read: ${lastYearRes.error.message}`);
   for (const r of (lastYearRes.data as { day: string; in_store: number | string }[] | null) ?? []) inStoreByDay.set(r.day, Number(r.in_store));
 
-  let catering: CateringBooking[] | null = null;
-  if (dealRes.error) {
-    problems.push(`Catering bookings could not be read: ${dealRes.error.message}`);
-  } else {
-    const deals = (dealRes.data as BookingDeal[] | null) ?? [];
-    const bookedBefore = new Set<number>();
-    let historyOk = true;
-    if (deals.length) {
-      const ev = await supabase
-        .from("deal_events")
-        .select("deal_id, new_value")
-        .eq("field", "stage")
-        .in("new_value", BOOKED_STAGES)
-        .in("deal_id", deals.map((d) => d.id));
-      if (ev.error) {
-        historyOk = false;
-        problems.push(`Catering bookings could not be read: ${ev.error.message}`);
-      }
-      for (const e of (ev.data as { deal_id: number }[] | null) ?? []) bookedBefore.add(e.deal_id);
-    }
-    if (historyOk) {
-      catering = [];
-      for (const d of deals) {
-        const day = eventDay(d);
-        if (d.archived || !day || day < weekStart || day > weekEnd || !isBooked(d, today, bookedBefore)) continue;
-        catering.push({ id: d.id, day, billedHours: billedCrewHours(d) });
-      }
-    }
-  }
+  problems.push(...bookings.problems);
+  const catering = bookings.catering;
 
   const labor = scheduleLabor({
     dates,
@@ -115,4 +91,56 @@ export async function loadScheduleLabor(
     catering,
   });
   return { ready: true, labor, problems };
+}
+
+const PAGE = 1000; // PostgREST's row cap per request
+const ID_CHUNK = 200; // deal ids per stage-history read, to keep the URL short
+
+/**
+ * The booked catering deals with an event day from `from` to `to` (New York),
+ * each with the crew hours billed on it (deals.labor_hours x staff_count). A
+ * deal counts when there is evidence it is booked (isBooked, with its stage
+ * history). The Schedule page's labor line and the Labor vs target metric
+ * (bj-finance #696) both read them here. A read that fails returns null and
+ * says why, so the offset shows as missing, never as no catering.
+ */
+export async function loadCateringBookings(
+  supabase: SupabaseClient,
+  from: string,
+  to: string,
+  today: string,
+): Promise<{ catering: CateringBooking[] | null; problems: string[] }> {
+  const fail = (message: string) => ({ catering: null, problems: [`Catering bookings could not be read: ${message}`] });
+  const deals: BookingDeal[] = [];
+  for (let page = 0; ; page++) {
+    const res = await supabase
+      .from("deals")
+      .select(DEAL_COLUMNS)
+      .gte("event_date", from)
+      .lte("event_date", `${to}T23:59:59`)
+      .order("id")
+      .range(page * PAGE, (page + 1) * PAGE - 1);
+    if (res.error) return fail(res.error.message);
+    const rows = (res.data as BookingDeal[] | null) ?? [];
+    deals.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  const bookedBefore = new Set<number>();
+  for (let k = 0; k < deals.length; k += ID_CHUNK) {
+    const ev = await supabase
+      .from("deal_events")
+      .select("deal_id, new_value")
+      .eq("field", "stage")
+      .in("new_value", BOOKED_STAGES)
+      .in("deal_id", deals.slice(k, k + ID_CHUNK).map((d) => d.id));
+    if (ev.error) return fail(ev.error.message);
+    for (const e of (ev.data as { deal_id: number }[] | null) ?? []) bookedBefore.add(e.deal_id);
+  }
+  const catering: CateringBooking[] = [];
+  for (const d of deals) {
+    const day = eventDay(d);
+    if (d.archived || !day || day < from || day > to || !isBooked(d, today, bookedBefore)) continue;
+    catering.push({ id: d.id, day, billedHours: billedCrewHours(d) });
+  }
+  return { catering, problems: [] };
 }

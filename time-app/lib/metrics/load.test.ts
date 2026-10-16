@@ -119,7 +119,9 @@ test("before profiles has pay_type the people read is a problem, never a read wi
       : undefined,
   );
   const data = buildMetricsData(await loadMetricsInputs(client, NOW));
-  assert.deepEqual(data.problems, ["people: column profiles.pay_type does not exist"]);
+  // Labor vs target prices the catering crew from the team, so it cannot load either.
+  assert.deepEqual(data.problems, ["people: column profiles.pay_type does not exist", "labor vs target: column profiles.pay_type does not exist"]);
+  assert.equal(data.laborTarget, null);
   assert.equal(data.labour, null);
   assert.equal(data.forward, null);
   assert.equal(data.catering?.byDay["2026-10-04"], 1000);
@@ -131,7 +133,8 @@ test("a section that cannot load is null and named in problems, never zeros; the
   assert.equal(data.outreach, null);
   assert.equal(data.labour, null); // hours need the shifts to split catering from in-store
   assert.equal(data.forward, null);
-  assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["outreach", "shifts"]);
+  assert.equal(data.laborTarget, null); // the catering crew's shifts price its offset
+  assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["labor vs target", "outreach", "shifts"]);
   assert.equal(data.catering?.byDay["2026-10-04"], 1000);
 });
 
@@ -142,7 +145,9 @@ test("when the deals cannot load, every deal-based widget is null rather than em
   assert.equal(data.ar, null);
   assert.equal(data.leads, null);
   assert.equal(data.quotes, null);
-  assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["catering deals", "new enquiries"]);
+  assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["catering deals", "labor vs target", "new enquiries"]);
+  // The card still draws, with no labor for a week whose catering offset cannot be known.
+  assert.ok(data.laborTarget?.months.find((m) => m.month === "2026-09")?.weeks[0].why.includes("catering bookings could not be read"));
   assert.equal(data.outreach?.at(-1)?.sent, 1);
 });
 
@@ -209,6 +214,38 @@ test("labor vs target: each week of the last full month by default, from the pai
   assert.equal(second.available, false);
   assert.equal(second.actual, null);
   assert.deepEqual(second.why, ["hourly payroll on file for 0 of 7 days", "in-store sales on file for 0 of 7 days"]);
+});
+
+test("labor vs target: a booked deal's billed crew hours come off the week's labor at crew cost + premium, all-in", async () => {
+  seedLaborTarget();
+  // Invented: a premium of 5 an hour; the one active hourly person is on 15, so the crew costs 20 an hour.
+  (db.tables.control_settings as Record<string, unknown>[]).push({
+    id: 8, key: "rule.catering_premium", value: 5, detail: { cap_rate: null }, effective_from: "2026-01-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-01-01T00:00:00Z",
+  });
+  // Booked on Tuesday the 8th: 5 hours x 2 crew = 10 billed hours, 200 of crew cost, 250 with taxes and comp.
+  db.tables.deals.push(deal({ id: 3, event_date: "2026-09-08", labor_hours: "5", staff_count: 2 }));
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  assert.deepEqual(data.problems, []);
+  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  assert.equal(first.available, true);
+  assert.equal(first.cateringHours, 10);
+  assert.equal(first.cateringOffset, 250);
+  assert.equal(first.actual, 1_150);
+  assert.equal(first.targetPct.value, 0.25);
+  assert.equal(first.varianceDollars, 1_150 - 1_225);
+});
+
+test("labor vs target: a booked deal with no billed crew hours reads n/a for its week, naming the deal", async () => {
+  seedLaborTarget();
+  db.tables.control_settings.push({
+    id: 8, key: "rule.catering_premium", value: 5, detail: { cap_rate: null }, effective_from: "2026-01-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-01-01T00:00:00Z",
+  });
+  db.tables.deals.push(deal({ id: 4, event_date: "2026-09-09", labor_hours: null, staff_count: null }));
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  assert.equal(first.available, false);
+  assert.equal(first.actual, null);
+  assert.ok(first.why.includes("no billed crew hours on catering deal #4"), first.why.join("; "));
 });
 
 test("labor vs target: when the paid actuals cannot be read the card cannot load and says so; the rest still draws", async () => {

@@ -511,8 +511,9 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
   if (!lt) return <CouldNotLoad what="hourly payroll, daily sales or the control board" />;
   const chosen = lt.months.find((m) => m.month === settings.month) ?? lt.months.find((m) => m.month === lt.defaultMonth) ?? lt.months[0];
   const weeks = chosen.weeks;
-  const goals = [...new Set(weeks.map((w) => w.hourlyGoalPct.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
+  const goals = [...new Set(weeks.map((w) => w.allInGoalPct.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
   const unavailable = weeks.filter((w) => !w.available);
+  const withCatering = weeks.filter((w) => w.cateringHours != null && w.cateringHours > 0 && w.cateringOffset != null);
   const cell = "py-1.5 pl-3 text-right whitespace-nowrap";
   return (
     <div>
@@ -523,9 +524,9 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
             <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
               <th scope="col" className={`${STICKY} py-1 pr-3 font-medium`}>Week</th>
               <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Sales</th>
-              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Hourly labor</th>
+              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Hourly labor, all-in</th>
               <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Actual %</th>
-              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Target %</th>
+              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Target %, all-in</th>
               <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance $</th>
               <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance hours</th>
             </tr>
@@ -551,6 +552,16 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
           </tbody>
         </table>
       </div>
+      {withCatering.length > 0 && (
+        <ul className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
+          {withCatering.map((w) => (
+            <li key={w.start}>
+              {sunSatLabel(w.start, w.end)}: catering crew billed to clients, {formatValue(w.cateringHours!, "hours")} and {money(w.cateringOffset!)} all-in,
+              taken off hourly labor.
+            </li>
+          ))}
+        </ul>
+      )}
       {unavailable.length > 0 && (
         <div className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
           <p>Not available (n/a), never counted as zero:</p>
@@ -573,18 +584,27 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
           sales makes that week not available. Nothing is estimated from punches or the schedule.
         </p>
         <p>
-          Hourly labor = wages, catering premium and solo-close bonuses as QBO Payroll paid them to hourly staff (salaried and overhead
-          staff are left out), each pay period spread over its days by hours worked, plus employer taxes and workers&rsquo; comp at the
-          Targets tab&rsquo;s rates in force on each day (FICA, FUTA, PA UC and workers&rsquo; comp, full rates, no wage caps).
+          Both sides are all-in: payroll cost with employer taxes and workers&rsquo; comp, not just wages.
         </p>
         <p>
-          Target % = the Targets tab&rsquo;s hourly goal in force on each day
-          {goals.length ? ` (${goals.join(", ")} of sales in hourly wages this month)` : ""}, plus the taxes and workers&rsquo; comp on
-          those wages, so it is on the same footing as the actual. Each day&rsquo;s sales are held to that day&rsquo;s target.
+          Hourly labor, all-in = wages, catering premium and solo-close bonuses as QBO Payroll paid them to hourly staff (salaried and
+          overhead staff are left out), each pay period spread over its days by hours worked, less the catering crew the client paid
+          for, plus employer taxes and workers&rsquo; comp on the rest at the Targets tab&rsquo;s rates in force on each day (FICA, FUTA,
+          PA UC and workers&rsquo; comp, full rates, no wage caps).
+        </p>
+        <p>
+          Catering crew the client paid for = each booked deal&rsquo;s billed crew hours (labor hours x staff count) at crew cost plus
+          the catering premium, worked out exactly as the Schedule page&rsquo;s labor line does, so the two agree. Sales are in-store
+          only, so catering comes out of both sides. A booked deal with no billed crew hours makes its week not available.
+        </p>
+        <p>
+          Target %, all-in = the Targets tab&rsquo;s all-in hourly goal in force on each day (the payroll target less fixed payroll,
+          as a share of sales{goals.length ? `: ${goals.join(", ")} of sales this month` : ""}). Each day&rsquo;s sales are held to
+          that day&rsquo;s target.
         </p>
         <p>
           Variance $ = hourly labor less target % x sales; above zero (red) is over target. Variance hours = variance $ at the
-          week&rsquo;s own cost per hour (hourly labor / hours paid).
+          week&rsquo;s own in-store cost per hour (hourly labor / hours paid less the catering crew&rsquo;s billed hours).
         </p>
       </Method>
     </div>
