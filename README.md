@@ -249,7 +249,7 @@ Where it runs: on Alina's Mac, from a clean checkout of `main` at
 automations), never from a dev clone or the Google Drive. This is the only
 thing that runs from that checkout. It is separate from Vercel, which serves
 the web app, and from the droplet's checkout of this repo, which runs only the
-schedule coverage reminder below.
+schedule coverage reminder above.
 
 The web routes that create the same shifts, `POST /api/deals/:id/booked-shifts`
 (signed-in) and `GET /api/cron/catering-shifts`, insert through supabase-js with
