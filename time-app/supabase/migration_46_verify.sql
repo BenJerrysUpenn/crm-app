@@ -29,6 +29,13 @@ declare
   n        integer;
   t        timestamptz;
   refused  boolean;
+  col      text;
+  spare    uuid := gen_random_uuid();
+  whole    jsonb := jsonb_build_object(
+    'pay_date', '2018-07-18', 'period_start', '2018-07-02', 'period_end', '2018-07-15',
+    'employee', 'Test Person', 'ytd_gross', 2.00, 'regular_hours', 1, 'regular_pay', 1,
+    'overtime_hours', 0, 'overtime_pay', 0, 'catering_premium', 0, 'solo_close', 0,
+    'source', 'paystub', 'built_by', 'verify-46-whole');
 begin
   select id into mgr from public.profiles where role = 'manager' order by created_at limit 1;
   select id into emp from public.profiles where role = 'employee' order by created_at limit 1;
@@ -108,7 +115,19 @@ begin
   exception when check_violation then
     refused := true;
   end;
-  if not refused then raise exception 'negative hours were accepted'; end if;
+  if not refused then raise exception 'negative regular hours were accepted'; end if;
+  begin
+    insert into public.labor_paycheck_actuals
+      (pay_date, period_start, period_end, employee, ytd_gross,
+       regular_hours, regular_pay, overtime_hours, overtime_pay,
+       catering_premium, solo_close, source, built_by)
+    values (date '2018-07-04', date '2018-06-18', date '2018-07-01', 'Test Person',
+            1.00, 1, 1, -1, 0, 0, 0, 'paystub', 'verify-46');
+    refused := false;
+  exception when check_violation then
+    refused := true;
+  end;
+  if not refused then raise exception 'negative overtime hours were accepted'; end if;
   begin
     insert into public.labor_paycheck_actuals
       (pay_date, period_start, period_end, employee, ytd_gross,
@@ -121,30 +140,24 @@ begin
     refused := true;
   end;
   if not refused then raise exception 'a blank name was accepted'; end if;
-  begin
-    insert into public.labor_paycheck_actuals
-      (pay_date, period_start, period_end, employee, ytd_gross,
-       regular_hours, overtime_hours, overtime_pay,
-       catering_premium, solo_close, source, built_by)
-    values (date '2018-07-04', date '2018-06-18', date '2018-07-01', 'Test Person',
-            1.00, 1, 0, 0, 0, 0, 'paystub', 'verify-46');
-    refused := false;
-  exception when not_null_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'a paycheck without its regular pay was accepted'; end if;
-  begin
-    insert into public.labor_paycheck_actuals
-      (pay_date, period_start, period_end, employee, ytd_gross,
-       regular_hours, regular_pay, overtime_hours, overtime_pay,
-       catering_premium, solo_close, source)
-    values (date '2018-07-04', date '2018-06-18', date '2018-07-01', 'Test Person',
-            1.00, 1, 1, 0, 0, 0, 0, 'paystub');
-    refused := false;
-  exception when not_null_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'a paycheck without built_by was accepted'; end if;
+  -- Every figure is present: a whole paycheck lands, and the same paycheck
+  -- missing any one figure is refused.
+  insert into public.labor_paycheck_actuals
+  select * from jsonb_populate_record(null::public.labor_paycheck_actuals, whole);
+  delete from public.labor_paycheck_actuals where built_by = 'verify-46-whole';
+  if not found then raise exception 'a whole paycheck did not land'; end if;
+  foreach col in array array['ytd_gross', 'regular_hours', 'regular_pay', 'overtime_hours',
+                             'overtime_pay', 'catering_premium', 'solo_close', 'source',
+                             'built_by'] loop
+    begin
+      insert into public.labor_paycheck_actuals
+      select * from jsonb_populate_record(null::public.labor_paycheck_actuals, whole - col);
+      refused := false;
+    exception when not_null_violation then
+      refused := true;
+    end;
+    if not refused then raise exception 'a paycheck without its % was accepted', col; end if;
+  end loop;
   begin
     insert into public.labor_paycheck_actuals
       (pay_date, period_start, period_end, employee, ytd_gross,
@@ -212,11 +225,19 @@ begin
   end if;
 
   -- ---- 4. the profile link -----------------------------------------------------------------
-  select count(*) into n
-    from information_schema.referential_constraints
-   where constraint_schema = 'public'
-     and constraint_name = 'labor_paycheck_actuals_profile_id_fkey'
-     and delete_rule = 'SET NULL';
+  -- A login invented for this run gets a profile, a paycheck links to it, and
+  -- the profile goes: the paycheck stays, unlinked.
+  insert into auth.users (id, email, raw_user_meta_data)
+  values (spare, 'verify-46@example.test', '{"full_name":"Verify 46"}');
+  insert into public.labor_paycheck_actuals
+    (pay_date, period_start, period_end, employee, ytd_gross, profile_id,
+     regular_hours, regular_pay, overtime_hours, overtime_pay,
+     catering_premium, solo_close, source, built_by)
+  values (date '2018-07-18', date '2018-07-02', date '2018-07-15', 'Verify 46',
+          100.00, spare, 1, 1, 0, 0, 0, 0, 'paystub', 'verify-46-link');
+  delete from public.profiles where id = spare;
+  select count(*) into n from public.labor_paycheck_actuals
+   where built_by = 'verify-46-link' and profile_id is null;
   if n <> 1 then raise exception 'profile_id is not cleared when its profile goes'; end if;
 
   raise notice 'migration 46 verified';
