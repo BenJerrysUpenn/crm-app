@@ -347,8 +347,6 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   let openUnpriced = 0;
   let premiumUnset = false;
 
-  const premiumFor = (rate: number, date: string) => cateringPremium(settings, rate, date);
-
   for (const s of shifts) {
     const h = hoursOf(s);
     const date = nyDate(s.starts_at);
@@ -360,7 +358,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
       }
       let prem = 0;
       if (isCatering(s)) {
-        const p = premiumFor(avgRate.value, date);
+        const p = cateringPremium(settings, avgRate.value, date);
         if (p == null) premiumUnset = true;
         else prem = p;
       }
@@ -384,7 +382,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     wages += h * rate;
     priced++;
     if (isCatering(s)) {
-      const p = premiumFor(rate, date);
+      const p = cateringPremium(settings, rate, date);
       if (p == null) premiumUnset = true;
       else premium += h * p;
     }
