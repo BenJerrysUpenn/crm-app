@@ -30,6 +30,7 @@ declare
   t        timestamptz;
   refused  boolean;
   col      text;
+  probe    jsonb;
   spare    uuid := gen_random_uuid();
   whole    jsonb := jsonb_build_object(
     'pay_date', '2018-07-18', 'period_start', '2018-07-02', 'period_end', '2018-07-15',
@@ -80,66 +81,6 @@ begin
   if n <> 2 then raise exception 'two paychecks of one period and pay date did not both land'; end if;
 
   -- ---- 2. shape ----------------------------------------------------------------------
-  begin
-    insert into public.labor_paycheck_actuals
-      (pay_date, period_start, period_end, employee, ytd_gross,
-       regular_hours, regular_pay, overtime_hours, overtime_pay,
-       catering_premium, solo_close, source, built_by)
-    values (date '2018-07-04', date '2018-06-18', date '2018-07-01', 'Test Person',
-            1.00, 1, 1, 0, 0, 0, 0, 'schedule', 'verify-46');
-    refused := false;
-  exception when check_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'a source other than paystub was accepted'; end if;
-  begin
-    insert into public.labor_paycheck_actuals
-      (pay_date, period_start, period_end, employee, ytd_gross,
-       regular_hours, regular_pay, overtime_hours, overtime_pay,
-       catering_premium, solo_close, source, built_by)
-    values (date '2018-07-04', date '2018-07-01', date '2018-06-18', 'Test Person',
-            1.00, 1, 1, 0, 0, 0, 0, 'paystub', 'verify-46');
-    refused := false;
-  exception when check_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'a period ending before it starts was accepted'; end if;
-  begin
-    insert into public.labor_paycheck_actuals
-      (pay_date, period_start, period_end, employee, ytd_gross,
-       regular_hours, regular_pay, overtime_hours, overtime_pay,
-       catering_premium, solo_close, source, built_by)
-    values (date '2018-07-04', date '2018-06-18', date '2018-07-01', 'Test Person',
-            1.00, -1, 1, 0, 0, 0, 0, 'paystub', 'verify-46');
-    refused := false;
-  exception when check_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'negative regular hours were accepted'; end if;
-  begin
-    insert into public.labor_paycheck_actuals
-      (pay_date, period_start, period_end, employee, ytd_gross,
-       regular_hours, regular_pay, overtime_hours, overtime_pay,
-       catering_premium, solo_close, source, built_by)
-    values (date '2018-07-04', date '2018-06-18', date '2018-07-01', 'Test Person',
-            1.00, 1, 1, -1, 0, 0, 0, 'paystub', 'verify-46');
-    refused := false;
-  exception when check_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'negative overtime hours were accepted'; end if;
-  begin
-    insert into public.labor_paycheck_actuals
-      (pay_date, period_start, period_end, employee, ytd_gross,
-       regular_hours, regular_pay, overtime_hours, overtime_pay,
-       catering_premium, solo_close, source, built_by)
-    values (date '2018-07-04', date '2018-06-18', date '2018-07-01', '  ',
-            1.00, 1, 1, 0, 0, 0, 0, 'paystub', 'verify-46');
-    refused := false;
-  exception when check_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'a blank name was accepted'; end if;
   -- Every figure is present: a whole paycheck lands, and the same paycheck
   -- missing any one figure is refused.
   insert into public.labor_paycheck_actuals
@@ -157,6 +98,28 @@ begin
       refused := true;
     end;
     if not refused then raise exception 'a paycheck without its % was accepted', col; end if;
+  end loop;
+  -- Each check: the same whole paycheck with one field made wrong is refused.
+  foreach probe in array array[
+    jsonb_build_object('change', jsonb_build_object('source', 'schedule'),
+                       'accepted', 'a source other than paystub was accepted'),
+    jsonb_build_object('change', jsonb_build_object('period_start', '2018-07-16'),
+                       'accepted', 'a period ending before it starts was accepted'),
+    jsonb_build_object('change', jsonb_build_object('regular_hours', -1),
+                       'accepted', 'negative regular hours were accepted'),
+    jsonb_build_object('change', jsonb_build_object('overtime_hours', -1),
+                       'accepted', 'negative overtime hours were accepted'),
+    jsonb_build_object('change', jsonb_build_object('employee', '  '),
+                       'accepted', 'a blank name was accepted')] loop
+    begin
+      insert into public.labor_paycheck_actuals
+      select * from jsonb_populate_record(null::public.labor_paycheck_actuals,
+                                          whole || (probe -> 'change'));
+      refused := false;
+    exception when check_violation then
+      refused := true;
+    end;
+    if not refused then raise exception '%', probe ->> 'accepted'; end if;
   end loop;
   begin
     insert into public.labor_paycheck_actuals
