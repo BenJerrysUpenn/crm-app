@@ -4,14 +4,18 @@
 // them; the Labor vs target metric (#696) is to import them too, not
 // recompute them.
 //
-//   Fixed payroll  = salaries of everyone in fixed payroll (who that is:
-//                    SalariedProfile in load.ts) + their employer taxes WITH
+//   Fixed payroll  = salaries of everyone in fixed payroll (who that is on a
+//                    day: inFixedPayroll in board.ts) + their employer taxes WITH
 //                    the wage caps + workers' comp on the salaries.
 //   Hourly dollars = (payroll target x sales estimate - fixed payroll)
 //                    / (1 + employer tax rates + workers' comp rate), so hourly
 //                    staff's taxes and workers' comp fit inside the target too.
 //                    Hourly wages carry the full rates, no caps.
 //   Hourly goal    = hourly dollars / sales estimate.
+//   All-in hourly  = (hourly dollars + their taxes and workers' comp) / sales
+//   goal             estimate: the payroll target less fixed payroll, as a
+//                    share of sales. What actual all-in hourly payroll is
+//                    held to (Labor vs target, #696, ruled 2026-10-16).
 //   Trend factor   = last full month's in-store sales / the same month a year
 //                    earlier, in-store only on both sides.
 //
@@ -35,7 +39,7 @@ export type BoardInputs = {
   paUc: TaxRate | null;
   /** Dollars per $100 of wages. */
   workersCompPer100: number | null;
-  /** Everyone in fixed payroll (SalariedProfile in load.ts), salary in force or null. */
+  /** Everyone in fixed payroll on the day (inFixedPayroll in board.ts), salary in force or null. */
   salaried: SalariedPerson[];
 };
 
@@ -71,6 +75,8 @@ export type BoardResults = {
   hourlyDollars: Derived;
   hourlyLoadDollars: Derived;
   hourlyGoalPct: Derived;
+  /** Hourly wages plus their taxes and WC, as a share of sales: the all-in hourly goal (= payroll target less fixed payroll). */
+  hourlyAllInPct: Derived;
   /** Employer taxes and WC for everyone: salaried (with caps) plus hourly (no caps). */
   allTaxesWc: Derived;
   /** The same, as a share of sales. */
@@ -155,12 +161,13 @@ export function computeBoard(i: BoardInputs): BoardResults {
   const hourlyDollars = from([hourlyPool, hourlyLoad], (pool, load) => pool / (1 + load));
   const hourlyLoadDollars = from([hourlyDollars, hourlyLoad], (h, load) => h * load);
   const hourlyGoalPct = from([hourlyDollars, salesTotal], (h, s) => (s > 0 ? h / s : null));
+  const hourlyAllInPct = from([hourlyDollars, hourlyLoadDollars, salesTotal], (h, t, s) => (s > 0 ? (h + t) / s : null));
   const allTaxesWc = from([fixedTaxesWc, hourlyLoadDollars], (f, h) => f + h);
   const allTaxesWcPct = from([allTaxesWc, salesTotal], (t, s) => (s > 0 ? t / s : null));
 
   return {
     salesTotal, cogsDollars, totalPayroll, primeDollars, primeShare, salaried, salaries, fixedTaxesWc, fixedPayroll,
-    hourlyLoad, hourlyPool, hourlyDollars, hourlyLoadDollars, hourlyGoalPct, allTaxesWc, allTaxesWcPct,
+    hourlyLoad, hourlyPool, hourlyDollars, hourlyLoadDollars, hourlyGoalPct, hourlyAllInPct, allTaxesWc, allTaxesWcPct,
   };
 }
 

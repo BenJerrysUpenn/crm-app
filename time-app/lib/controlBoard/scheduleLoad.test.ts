@@ -46,6 +46,22 @@ function returnOnlySelectedColumnsOf(table: string) {
   }) as typeof fetch;
 }
 
+// Hosted PostgREST returns at most 1,000 rows a request, whatever range was
+// asked for; the stand-in project returns them all. Reads of `table` are cut
+// to that cap, so a loader that does not page loses the rows past it here too.
+function capRowsPerRequestOf(table: string, cap = 1000) {
+  const project = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const response = await project(request);
+    if (request.method !== "GET" || new URL(request.url).pathname !== `/rest/v1/${table}` || !response.ok) return response;
+    const rows = (await response.json()) as unknown[];
+    return Response.json(Array.isArray(rows) ? rows.slice(0, cap) : rows, { status: response.status });
+  }) as typeof fetch;
+}
+
+const quote = (id: number) => ({ id, stage: "Sent Quote", payment_status: null, event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "100", total_with_tax: null, amount_paid: null, company: "Invented Quote", source: "form", archived: 0, labor_hours: 1, staff_count: 1 });
+
 beforeEach(() => {
   db = startFakeSupabase({
     profiles: [
@@ -162,6 +178,14 @@ test("a booked deal with no billed crew hours makes the target missing, naming t
   assert.ok(load.labor.target.hours.needs.includes("no billed crew hours on catering deal #3"), "the week line names the deal");
 });
 
+test("a booked deal billed zero crew hours (a pickup the client collects) offsets nothing, where no hours on file is missing", async () => {
+  db.tables.deals.push({ id: 4, stage: "Booked Paid", payment_status: "Paid", event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "200", total_with_tax: null, amount_paid: "200", company: "Pickup Co", source: "form", archived: 0, labor_hours: 0, staff_count: 1 });
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.ok(!load.labor.target.hours.needs.includes("no billed crew hours on catering deal #4"), "deal 4 bills no crew: nothing to wait for");
+  assert.equal(load.labor.days[1].cateringHours.value, 8, "deal 1's 8 hours plus deal 4's none");
+});
+
 test("the deal's crew on its Catering shifts sets the crew cost, with the board's premium", async () => {
   db.tables.control_settings.push({ id: 9, key: "rule.catering_premium", value: "2", detail: { cap_rate: 21 }, ...NOTE });
   const load = await loadScheduleLabor(createClient(), {
@@ -211,4 +235,27 @@ test("overhead staff: an overhead salary stays out of the goal, and an overhead 
   assert.equal(labor.hourlyHours, 0);
   assert.equal(labor.labor.wages, 0, "the inactive overhead person's shift is read as overhead too");
   assert.ok(!labor.labor.notCounted.some((n) => /Overhead/.test(n)), "overhead people are not listed as gaps");
+});
+
+test("a booked deal past the first 1,000 deals of the week still adds its billed crew hours", async () => {
+  capRowsPerRequestOf("deals");
+  for (let id = 1001; id <= 2000; id++) db.tables.deals.push(quote(id));
+  // Ordered by id it is the 1,003rd deal: 3h x 2 crew on the Tuesday.
+  db.tables.deals.push({ id: 3000, stage: "Booked Paid", payment_status: "Paid", event_date: "2030-10-15", created_at: "2030-09-01", subtotal_pretax: "300", total_with_tax: null, amount_paid: "300", company: "Late Row Co", source: "form", archived: 0, labor_hours: 3, staff_count: 2 });
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, []);
+  assert.equal(load.labor.days[1].cateringHours.value, 8, "Monday's booked deal, on the first page");
+  assert.equal(load.labor.days[2].cateringHours.value, 6, "Tuesday's booked deal, on the second page");
+});
+
+test("a future deal booked only by its stage history counts however many deals the week has", async () => {
+  // 252 deals in the week; the 252nd is marked Event Complete ahead of its day, and only its history shows it was booked.
+  for (let id = 1001; id <= 1250; id++) db.tables.deals.push(quote(id));
+  db.tables.deals.push({ id: 1300, stage: "Event Complete", payment_status: null, event_date: "2030-10-15", created_at: "2030-09-01", subtotal_pretax: "300", total_with_tax: null, amount_paid: null, company: "History Co", source: "form", archived: 0, labor_hours: 2, staff_count: 3 });
+  db.tables.deal_events.push({ id: 1, deal_id: 1300, field: "stage", new_value: "Booked Paid", at: "2030-09-02T12:00:00Z" });
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, []);
+  assert.equal(load.labor.days[2].cateringHours.value, 6, "2h x 3 crew, booked by its history");
 });

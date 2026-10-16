@@ -250,9 +250,29 @@ export function boardSections(d: BoardData): { cat: Category; lines: Line[] }[] 
 }
 
 /**
+ * Who is in fixed payroll on `day`: the salaried people (not overhead) who
+ * were salaried employees that day (bj-finance #696, 2026-10-16). Someone
+ * whose salary rows all start after `day` was not employed yet and is left
+ * out, not missing; someone archived is left out after their archive day.
+ * Someone with no salary row at all is counted, so their salary shows as
+ * missing until it is set. Each comes with the salary in force on `day`
+ * (null for someone with no salary row).
+ */
+export function inFixedPayroll<P extends SalariedProfile>(day: string, salaried: P[], salaries: SalaryRow[]): (P & { salary: SalaryRow | null })[] {
+  const byPerson = groupBy(salaries, "profile_id");
+  return salaried.flatMap((p) => {
+    if (p.archivedOn && day > p.archivedOn) return [];
+    const rows = byPerson.get(p.id);
+    const salary = rows ? inForce(rows, day) : null;
+    return rows && salary == null ? [] : [{ ...p, salary }];
+  });
+}
+
+/**
  * The board's derived numbers with every value as it stood on `day`: the
- * settings in force then and the salary in force then of each person in fixed
- * payroll. The schedule (bj-finance #695) reads a day's hourly goal from this.
+ * settings in force then, and the salary in force then of each person in
+ * fixed payroll that day (inFixedPayroll). The schedule (bj-finance #695) and
+ * the Labor vs target metric (#696) read a day's hourly goal from this.
  */
 export function boardOn(
   day: string,
@@ -262,6 +282,5 @@ export function boardOn(
 ): BoardResults {
   const values = new Map<string, Current>();
   for (const [key, row] of settingsInForce(settings, day)) values.set(key, { value: row.value, detail: row.detail });
-  const byPerson = groupBy(salaries, "profile_id");
-  return computeBoard(boardInputs({ values, salaried: salaried.map((p) => ({ ...p, salary: inForce(byPerson.get(p.id) ?? [], day) })) }));
+  return computeBoard(boardInputs({ values, salaried: inFixedPayroll(day, salaried, salaries) }));
 }

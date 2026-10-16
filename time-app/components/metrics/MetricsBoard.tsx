@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MetricsData } from "@/lib/metrics/load";
 import { METRICS, METRIC_IDS, PERIOD_LABEL, blurbFor, type MetricId, type WidgetConfig, type WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, STREAMS, type StreamFilter } from "@/lib/metrics/targets";
+import { monthLabel } from "@/lib/metrics/dates";
 import {
   MAX_NAME, MAX_VIEWS, MAX_WIDGETS, addWidget, checkName, freeName, moveView, moveWidget, ordered, removeWidget,
   updateWidgetSettings, type View,
@@ -18,7 +19,7 @@ import {
 import type { ViewsState } from "@/lib/metrics/viewsServer";
 import { NotEnabled, applyPatch, localStore, readLocal, serverStore, writeLocal, type ViewPatch, type ViewStore } from "./viewStore";
 import {
-  ArWidget, ForwardWidget, LabourWidget, LeadsWidget, OutreachWidget, QuotesWidget, SalesWidget,
+  ArWidget, ForwardWidget, LaborTargetWidget, LabourWidget, LeadsWidget, OutreachWidget, QuotesWidget, SalesWidget,
 } from "./widgets";
 import { CashWidget, ClosedMonthWidget, LerWidget } from "./feedWidgets";
 
@@ -221,7 +222,12 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
           editing={editing}
           first={i === 0}
           last={i === active.widgets.length - 1}
-          onSettings={(s) => changeWidgets(updateWidgetSettings(active, w.id, s), `${METRICS[w.metric].title}: ${PERIOD_LABEL[s.period ?? w.settings.period]}.`)}
+          onSettings={(s) =>
+            changeWidgets(
+              updateWidgetSettings(active, w.id, s),
+              `${METRICS[w.metric].title}: ${s.month ? monthLabel(s.month) : PERIOD_LABEL[s.period ?? w.settings.period]}.`,
+            )
+          }
           onMove={(d) => {
             const atEnd = d < 0 ? i + d <= 0 : i + d >= active.widgets.length - 1;
             changeWidgets(moveWidget(active, w.id, d), `Moved ${METRICS[w.metric].title} ${d < 0 ? "up" : "down"}.`);
@@ -520,6 +526,25 @@ function WidgetCard({
               </select>
             </>
           )}
+          {def.month && data.laborTarget && (
+            <>
+              <label className="sr-only" htmlFor={`month-${widget.id}`}>
+                Month for {def.title}
+              </label>
+              <select
+                id={`month-${widget.id}`}
+                className={SELECT}
+                value={data.laborTarget.months.some((m) => m.month === widget.settings.month) ? widget.settings.month : data.laborTarget.defaultMonth}
+                onChange={(e) => onSettings({ month: e.target.value })}
+              >
+                {data.laborTarget.months.map((m) => (
+                  <option key={m.month} value={m.month}>
+                    {monthLabel(m.month)}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           {def.streams && (
             <>
               <label className="sr-only" htmlFor={`stream-${widget.id}`}>
@@ -569,6 +594,8 @@ function WidgetBody({ widget, data }: { widget: WidgetConfig; data: MetricsData 
       return <ForwardWidget data={data} />;
     case "labour":
       return <LabourWidget data={data} settings={s} />;
+    case "labor_vs_target":
+      return <LaborTargetWidget data={data} settings={s} />;
     case "closed_month":
       return <ClosedMonthWidget data={data} settings={s} />;
     case "leads":

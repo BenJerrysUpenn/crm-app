@@ -505,3 +505,53 @@ test("not overhead is unchanged: the same person without the flag is hourly labo
   const unset = scheduleLabor(input({ people: withPeople({ ...OVERHEAD, overhead: undefined }), shifts: [shift("ovh", "2030-10-14", "12:00", "18:00")] }));
   close(unset.labor.wages, 240, "no flag reads as not overhead");
 });
+
+// ---------------------------------------------------------------------------
+// Past weeks (bj-finance #696 fix, 2026-10-16): a pay rule (rule.*) did not
+// exist before its first row, so on those days it costs nothing; a key with
+// no rows at all is still missing. A deal billed zero crew hours offsets
+// nothing.
+// ---------------------------------------------------------------------------
+
+const THU = "2030-10-17";
+const lateRules = () => [
+  ...BOARD.filter((r) => !r.key.startsWith("rule.")),
+  row("rule.catering_premium", 2, { cap_rate: 21 }, THU),
+  row("rule.solo_close", 30, { min_alone_hours: 4, out_at_or_after: "22:00" }, THU),
+];
+
+test("before a pay rule's first row the rule did not exist: no premium and no solo-close bonus, and nothing listed as not counted", () => {
+  const l = scheduleLabor(input({
+    settings: lateRules(),
+    catering: [deal(7, 4)],
+    shifts: [onDeal(shift("ten", MON, "10:00", "14:00", "Catering"), 7), shift("twenty", MON, "16:00", "23:00")],
+  }));
+  assert.deepEqual(l.labor.notCounted, []);
+  close(l.labor.premium, 0, "Monday is before the premium's first row");
+  close(l.labor.solo, 0, "Monday is before the solo-close rule's first row");
+  close(l.labor.total, 4 * 10 + 7 * 20);
+  close(val(l.days[1].cateringDollars), 4 * 10, "the deal's crew at cost, no premium");
+  close(val(l.days[1].targetDollars), inStoreMon + 40);
+});
+
+test("from a pay rule's first row on, it applies as before", () => {
+  const l = scheduleLabor(input({
+    settings: lateRules(),
+    catering: [deal(7, 4, THU)],
+    shifts: [onDeal(shift("ten", THU, "10:00", "14:00", "Catering"), 7), shift("twenty", THU, "16:00", "23:00")],
+  }));
+  assert.deepEqual(l.labor.notCounted, []);
+  close(l.labor.premium, 4 * 2);
+  close(l.labor.solo, 30);
+  close(val(l.days[4].cateringDollars), 4 * 12);
+});
+
+test("a booked deal billed zero crew hours (a pickup with no crew) offsets nothing: zero, not missing", () => {
+  const l = scheduleLabor(input({ catering: [deal(7, 0)] }));
+  close(val(l.days[1].cateringHours), 0);
+  close(val(l.days[1].cateringDollars), 0);
+  close(val(l.days[1].targetDollars), inStoreMon);
+  // Even with no premium on the board: zero hours need no price.
+  const noPremium = scheduleLabor(input({ settings: BOARD.filter((r) => r.key !== "rule.catering_premium"), catering: [deal(7, 0)] }));
+  close(val(noPremium.days[1].targetDollars), inStoreMon);
+});

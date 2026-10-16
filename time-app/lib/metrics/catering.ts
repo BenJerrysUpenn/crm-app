@@ -118,12 +118,15 @@ export function cateringByDay(deals: DealRow[], from: string, to: string, today:
  * Crew hours billed on a deal: labor_hours is per crew member (the CRM's
  * quote prices per_staff_hours x staff_count; its shift writer gives each
  * crew member a shift of labor_hours, crm-app lib/cateringShifts.ts), so the
- * deal bills labor_hours x staff_count. Null when either is missing or not
- * above zero: no guess, unlike the shift writer's defaults.
+ * deal bills labor_hours x staff_count. labor_hours set to 0 bills no crew
+ * (a pickup the client collects): 0, whatever staff_count says. Otherwise
+ * null when either is missing or not above zero: no guess, unlike the shift
+ * writer's defaults.
  */
 export function billedCrewHours(d: { labor_hours?: number | string | null; staff_count?: number | string | null }): number | null {
   const hours = d.labor_hours == null || d.labor_hours === "" ? NaN : Number(d.labor_hours);
   const crew = d.staff_count == null || d.staff_count === "" ? NaN : Number(d.staff_count);
+  if (hours === 0) return 0;
   if (!(hours > 0) || !(crew > 0)) return null;
   return hours * crew;
 }

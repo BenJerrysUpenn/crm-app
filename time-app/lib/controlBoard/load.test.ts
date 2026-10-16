@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "../testing/fakeSupabase.ts";
+import { inFixedPayroll } from "./board.ts";
 
 type LoadModule = typeof import("./load.ts");
 const { loadBoard, loadSalaries, NEEDS_MIGRATION } = await loadAppModule<LoadModule>("lib/controlBoard/load.ts");
@@ -67,7 +68,7 @@ test("before migration 43 the board says it needs the migration instead of drawi
   assert.deepEqual(await loadBoard(createClient(), TODAY), { ready: false, reason: NEEDS_MIGRATION });
 });
 
-test("a manager gets the stored values as numbers, the salaried staff not archived by name, and the trend's two months", async () => {
+test("a manager gets the stored values as numbers, the salaried staff by name with the day any was archived, and the trend's two months", async () => {
   const board = await loadBoard(createClient(), TODAY);
   assert.ok(board.ready);
   assert.equal(board.settings[0].value, 0.3);
@@ -76,12 +77,13 @@ test("a manager gets the stored values as numbers, the salaried staff not archiv
   assert.deepEqual(
     board.salaried,
     [
-      { id: "p-amy", name: "Amy Salaried" },
-      { id: "p-off", name: "Off Schedule Salaried" },
-      { id: "p-zed", name: "Zed Salaried" },
-      { id: "p-nameless", name: "Unnamed" },
+      { id: "p-amy", name: "Amy Salaried", archivedOn: null },
+      { id: "p-old", name: "Gone Salaried", archivedOn: "2030-10-04" },
+      { id: "p-off", name: "Off Schedule Salaried", archivedOn: null },
+      { id: "p-zed", name: "Zed Salaried", archivedOn: null },
+      { id: "p-nameless", name: "Unnamed", archivedOn: null },
     ],
-    "salaried, not archived and not overhead, by name; archived, overhead and hourly left out",
+    "salaried and not overhead, by name, archived ones with their New York archive day (a past day's fixed payroll counts them); overhead and hourly left out",
   );
   assert.deepEqual(
     board.monthly.map((m) => [m.month, m.in_store]).sort(),
@@ -91,13 +93,25 @@ test("a manager gets the stored values as numbers, the salaried staff not archiv
   assert.deepEqual(board.problems, []);
 });
 
-test("fixed payroll counts a salaried person who is off the schedule but not archived, and never an archived one", async () => {
+test("fixed payroll counts a salaried person who is off the schedule but not archived, and an archived one only up to the archive day", async () => {
   const board = await loadBoard(createClient(), TODAY);
   assert.ok(board.ready);
-  const ids = board.salaried.map((p) => p.id);
+  const ids = inFixedPayroll(TODAY, board.salaried, board.salaries).map((p) => p.id);
+  assert.ok(inFixedPayroll("2030-10-04", board.salaried, board.salaries).some((p) => p.id === "p-old"), "on the archive day: still counted");
   assert.ok(ids.includes("p-off"), "salaried, not on the schedule (active false), not archived: paid, so counted");
   assert.ok(!ids.includes("p-old"), "archived: gone, left out whatever else is set");
   assert.ok(!ids.includes("p-hourly"), "hourly is not fixed payroll");
+});
+
+test("someone archived late in the New York evening counts through that New York day, not the UTC one", async () => {
+  // 02:30 UTC on Oct 8 is 22:30 on Oct 7 in New York (EDT): their last day is the 7th.
+  db.tables.profiles.push({ id: "p-late", role: "manager", active: false, full_name: "Late Leaver", pay_type: "salaried", archived_at: "2030-10-08T02:30:00Z", is_overhead: false });
+  const board = await loadBoard(createClient(), TODAY);
+  assert.ok(board.ready);
+  assert.equal(board.salaried.find((p) => p.id === "p-late")?.archivedOn, "2030-10-07");
+  const counted = (day: string) => inFixedPayroll(day, board.salaried, board.salaries).some((p) => p.id === "p-late");
+  assert.equal(counted("2030-10-07"), true, "the New York archive day: still counted");
+  assert.equal(counted("2030-10-08"), false, "the next New York day: gone");
 });
 
 test("an overhead person is not in fixed payroll, salaried and on the schedule though they are", async () => {
@@ -105,7 +119,7 @@ test("an overhead person is not in fixed payroll, salaried and on the schedule t
   const board = await loadBoard(createClient(), TODAY);
   assert.ok(board.ready);
   assert.ok(!board.salaried.some((p) => p.id === "p-overhead"), "overhead: not part of the payroll target");
-  assert.equal(board.salaried.length, 4, "everyone else salaried and not archived is still counted");
+  assert.equal(inFixedPayroll(TODAY, board.salaried, board.salaries).length, 4, "everyone else salaried and not archived is still counted");
 });
 
 test("loadSalaries returns null only before migration 43, so the Team page may read null as 'not set up'", async () => {

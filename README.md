@@ -168,7 +168,18 @@ never drawn as zeros. Saved views live in `public.metric_views` and `metric_pref
 views in the browser's localStorage. Sales targets come only from `public.sales_targets`
 (migration 39): there is no copy in the page code, and when the read fails the sales widget
 draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
-bj-finance feed (migration 40). Tests: `npm test` in `time-app/` includes `lib/metrics/*.test.ts`.
+bj-finance feed (migration 40). Labor vs target (bj-finance #696, `lib/metrics/laborTarget.ts`)
+reads `labor_daily_actuals` (migration 46), `sales_daily_in_store` (migration 41) and the control
+board's settings in force on each day, plus the booked catering deals, their Catering shifts and the
+team, read as the Schedule page reads them. Both sides are all-in (taxes and workers' comp): the target is
+the board's `hourlyAllInPct`, and the catering crew clients paid for comes off the actual through the
+Schedule page's own `cateringOffset`. Every board value is the one in force on the day, so a past week
+is judged by the board as it stood then: a pay rule before its first row paid nothing, and fixed payroll
+counts only the people salaried that day. A Sunday-to-Saturday week shows only once it is over with all
+seven days of payroll and sales on file, every booked catering deal priced (a deal billed zero crew hours,
+a pickup, takes nothing off), and hours and hourly labor
+still above zero after the catering crew comes off, otherwise "n/a" with the reason. Tests: `npm test` in `time-app/` includes
+`lib/metrics/*.test.ts`.
 
 ## Travel Reimbursements (Withers Time)
 Staff log mileage, tolls and parking in `time-app/` at `/reimbursements`; Approvers decide
@@ -221,8 +232,10 @@ reads them from here rather than keeping copies (bj-finance payroll will, lane #
 owners see it; only an owner changes a value, in the page, the routes behind it
 (`/api/payroll/targets`, `/api/payroll/targets/salary`) and the database. A salaried person's
 annual salary is set on the Team page (owners) and feeds the board's fixed payroll. Fixed payroll
-counts everyone set to Salaried who is not archived and not overhead, on the schedule or not:
-`profiles.active` means "on the schedule", and `archived_at` is what marks someone gone.
+counts everyone set to Salaried who is not overhead, on the schedule or not, on each day they were
+employed: `profiles.active` means "on the schedule", `archived_at` (its New York day is the last day
+they count) is what marks someone gone, and someone whose first salary starts after a day was not
+employed yet (`inFixedPayroll` in `board.ts`). Someone with no salary row at all still counts, as a missing salary.
 
 Every value is dated. A change is a new row, never an edit: it carries an as-of date
 (`effective_from`), a review-by date (the green / yellow within a month / red chip; nothing is
@@ -264,14 +277,14 @@ target $ is that times the hourly goal in force that day; its hours divide it by
 active hourly rate. Catering crew labor is cancelled out by what the client paid for (Alina,
 2026-10-16): for each booked deal that day the target adds the crew hours billed on it in the CRM
 (`deals.labor_hours`, which is per crew member, times `deals.staff_count`), priced at crew cost
-plus the board's catering premium in force (capped at its `cap_rate` per person, as on the
+plus the board's catering premium in force (zero before the rule's first row; capped at its `cap_rate` per person, as on the
 scheduled side). Crew cost is the rate of whoever is on that deal's Catering shifts (`shifts.deal_id`,
 hours-weighted, open shifts at the average rate), else the average active hourly rate. The
 Catering shifts stay on the scheduled side, so an event staffed as billed nets to zero and
 over-staffing shows as over target. The math is `lib/controlBoard/schedule.ts` (it calls `boardOn`
 in `board.ts`, which runs `computeBoard`), the reads `scheduleLoad.ts`. Anything missing (nothing
 on the board yet, no last-year day on file, a partial trend month, a person with no rate, a booked
-deal with no billed crew hours, named by deal number) shows as missing with its reason, never
+deal with no billed crew hours on file, named by deal number; zero billed hours is a pickup and offsets nothing) shows as missing with its reason, never
 zero, and the empty board points to the Targets tab.
 Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
 entered value; run it before `migration_42_down.sql`).
@@ -287,6 +300,22 @@ anyone else, the person included. The Team page has no control for it yet: set i
 editor. Apply `time-app/supabase/migration_45.sql` BEFORE deploying the time app: the board's
 read of the salaried team filters on the column. Verify with `migration_45_verify.sql`; roll back
 with `migration_45_down.sql` (code first).
+
+### Hourly payroll actuals (bj-finance #721)
+Apply `time-app/supabase/migration_46.sql` by hand in the Supabase SQL editor, after migration 45.
+It adds `labor_paycheck_actuals`: one row per hourly paycheck as QBO Payroll paid it (pay period,
+pay date, the stub's name and year-to-date gross, Regular and Overtime hours and pay, catering
+premium and solo close kept apart), with `profile_id` when exactly one profile has the stub's
+name, read from the saved paystub PDFs. bj-finance writes every row of both tables from the Mac
+(`modules.labor_actuals`), never through the API; managers read them. Salaried paychecks, tips and
+reimbursements are not in it, and nor are employer taxes (a paystub does not carry them: readers
+apply the Targets tab's rates). It also adds `labor_daily_actuals`: one row per day of a pay period
+whose daily hours (When I Work timesheets before the time app, punches after) tie to the hours QBO
+paid, with the period's wages, catering premium and solo close spread over its days by hours.
+Hourly, non-overhead labor only; a period that does not tie has no days (unknown, not zero), and
+Sunday to Saturday weeks are the reader's grouping. Only the Labor vs target card (bj-finance #696) reads them; apply this
+migration before deploying that card, or it says it could not load. Verify with `migration_46_verify.sql`; roll back with
+`migration_46_down.sql`.
 
 ## Schedule coverage reminder (droplet command)
 Every Thursday and Friday at noon ET, emails the owners and on-schedule
