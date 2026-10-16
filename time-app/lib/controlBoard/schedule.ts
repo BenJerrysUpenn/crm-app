@@ -267,9 +267,8 @@ export type CateringOffsetInput = {
   catering: CateringBooking[] | null;
   /** Shifts that may crew those deals: a deal's Catering shifts (deal_id) set its crew rate. */
   shifts: LaborShift[];
+  /** Everyone who may be on those shifts; open shifts and unstaffed deals are priced at their averageHourlyRate. */
   people: Map<string, LaborPerson>;
-  /** averageHourlyRate(people). */
-  avgRate: Derived;
   /** Every control_settings row (all dates). */
   settings: SettingRow[];
 };
@@ -287,7 +286,8 @@ export type CateringOffsetInput = {
  * both take it from here.
  */
 export function cateringOffset(input: CateringOffsetInput, date: string): { hours: Derived; dollars: Derived } {
-  const { people, avgRate, settings } = input;
+  const { people, settings } = input;
+  const { avgRate } = averageHourlyRate(people.values());
   if (input.catering == null) return { hours: missing(MISSING.catering), dollars: missing(MISSING.catering) };
   const crewCostPerHour = (dealId: number): Derived => {
     let hours = 0;
@@ -441,7 +441,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
       : board.hourlyGoalPct;
     const inStoreDollars = both(projectedSales, hourlyGoal, (s, g) => s * g);
     const inStoreHours = both(inStoreDollars, avgRate, (d, r) => (r > 0 ? d / r : null));
-    const { hours: cateringHours, dollars: cateringDollars } = cateringOffset({ catering: input.catering, shifts: input.shifts, people, avgRate, settings }, date);
+    const { hours: cateringHours, dollars: cateringDollars } = cateringOffset({ catering: input.catering, shifts: input.shifts, people, settings }, date);
     const targetDollars = both(inStoreDollars, cateringDollars, (a, c) => a + c);
     const targetHours = both(inStoreHours, cateringHours, (a, c) => a + c);
     const day = { date, lastYearDay, scheduledHours, lastYearInStore, trendedInStore, projectedSales, hourlyGoal, cateringHours, cateringDollars, targetDollars, targetHours, short: null as string | null };

@@ -49,7 +49,7 @@ import { boardOn } from "../controlBoard/board.ts";
 import type { Derived } from "../controlBoard/math.ts";
 import type { SalaryRow, SettingRow } from "../controlBoard/settings.ts";
 import type { SalariedProfile } from "../controlBoard/load.ts";
-import { averageHourlyRate, cateringOffset, type CateringBooking, type CateringOffsetInput, type LaborPerson, type LaborShift } from "../controlBoard/schedule.ts";
+import { cateringOffset, type CateringBooking, type CateringOffsetInput, type LaborPerson, type LaborShift } from "../controlBoard/schedule.ts";
 import { addDays, addMonths, eachDay, monthEnd } from "./dates.ts";
 
 /** A row of public.labor_daily_actuals, as the card reads it. */
@@ -266,7 +266,6 @@ export function laborVsTarget(month: string, i: LaborTargetInputs): LaborTargetM
     catering: i.catering.bookings,
     shifts: i.catering.shifts,
     people,
-    avgRate: averageHourlyRate(people.values()).avgRate,
     settings: i.settings,
   };
   return { month, weeks: monthWeeks(month).map((start) => week(start, i, labor, sales, offsetInput)) };
