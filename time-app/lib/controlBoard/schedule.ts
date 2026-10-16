@@ -25,14 +25,12 @@
 //
 // Pure, so `node --test` runs it.
 
+import { CATERING_POSITION } from "../payroll/eventShift.ts";
 import { boardOn } from "./board.ts";
 import type { Derived, Trend } from "./math.ts";
 import { settingsInForce, type SalaryRow, type SettingRow } from "./settings.ts";
 
 const TZ = "America/New_York";
-
-/** The shift position the CRM and the payroll page give a catering event's crew (lib/payroll/eventShift.ts). */
-export const CATERING_POSITION = "Catering";
 
 export type LaborShift = {
   id: number;
