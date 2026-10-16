@@ -23,7 +23,7 @@ A `.env.example` is included as a reference. For local dev, copy it to `.env.loc
 `profiles.role` decides, through `lib/roles.ts`: `manager` and `owner` reach
 the CRM, `employee` does not. An owner passes every manager gate (in the
 database too: `is_manager()` is true for owners). `profiles.active` means "on
-the staff roster" and is never an access check; access ends by banning the
+the schedule" and is never an access check; access ends by banning the
 login. The owner role and its guard are time-app migration 42, applied by
 hand in the Supabase SQL editor after both apps deploy (its header has the
 order; `migration_42_verify.sql` checks it, `migration_42_down.sql` reverses it).
