@@ -19,8 +19,11 @@
 --      writes, removes or empties it; anon reads nothing.
 --   4. A profile link is cleared, not cascaded, if the profile goes.
 --   5. labor_daily_actuals: written and rewritten on its day by the service
---      role only, its source, its day inside its period, hours not negative,
---      wages present; managers read, employees and anon do not.
+--      role only, updated_at the database's clock on both; its source, its
+--      day inside its period at either end, hours not negative, every figure
+--      present; managers read, employees and anon do not; nobody signed in
+--      writes, changes, removes or empties it.
+--   6. The updated_at trigger function is not callable through the API.
 -- ============================================================================
 
 begin;
@@ -40,6 +43,10 @@ declare
     'employee', 'Test Person', 'ytd_gross', 2.00, 'regular_hours', 1, 'regular_pay', 1,
     'overtime_hours', 0, 'overtime_pay', 0, 'catering_premium', 0, 'solo_close', 0,
     'source', 'paystub', 'built_by', 'verify-46-whole');
+  whole_day jsonb := jsonb_build_object(
+    'day', '2018-06-10', 'hours', 1, 'wages', 1, 'catering_premium', 0, 'solo_close', 0,
+    'period_start', '2018-06-04', 'period_end', '2018-06-17',
+    'source', 'punches', 'built_by', 'verify-46-whole-day');
 begin
   select id into mgr from public.profiles where role = 'manager' order by created_at limit 1;
   select id into emp from public.profiles where role = 'employee' order by created_at limit 1;
@@ -221,54 +228,61 @@ begin
   values (date '2018-06-05', 8.00, 120.00, 0, 30.00, date '2018-06-04', date '2018-06-17',
           'punches', 'verify-46')
   on conflict (day) do update
-    set hours = excluded.hours, wages = excluded.wages, source = excluded.source;
+    set hours = excluded.hours, wages = excluded.wages, source = excluded.source,
+        updated_at = timestamptz '2001-01-01';
   select count(*) into n from public.labor_daily_actuals
-   where day = date '2018-06-05' and hours = 8.00 and source = 'punches';
-  if n <> 1 then raise exception 'a day was not rewritten on its key'; end if;
-  begin
-    insert into public.labor_daily_actuals
-      (day, hours, wages, catering_premium, solo_close, period_start, period_end,
-       source, built_by)
-    values (date '2018-06-06', 1, 1, 0, 0, date '2018-06-04', date '2018-06-17',
-            'schedule', 'verify-46');
-    refused := false;
-  exception when check_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'a day source other than when_i_work/punches was accepted'; end if;
-  begin
-    insert into public.labor_daily_actuals
-      (day, hours, wages, catering_premium, solo_close, period_start, period_end,
-       source, built_by)
-    values (date '2018-06-20', 1, 1, 0, 0, date '2018-06-04', date '2018-06-17',
-            'punches', 'verify-46');
-    refused := false;
-  exception when check_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'a day outside its pay period was accepted'; end if;
-  begin
-    insert into public.labor_daily_actuals
-      (day, hours, wages, catering_premium, solo_close, period_start, period_end,
-       source, built_by)
-    values (date '2018-06-06', -1, 1, 0, 0, date '2018-06-04', date '2018-06-17',
-            'punches', 'verify-46');
-    refused := false;
-  exception when check_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'a day with negative hours was accepted'; end if;
-  begin
-    insert into public.labor_daily_actuals
-      (day, hours, catering_premium, solo_close, period_start, period_end,
-       source, built_by)
-    values (date '2018-06-06', 1, 0, 0, date '2018-06-04', date '2018-06-17',
-            'punches', 'verify-46');
-    refused := false;
-  exception when not_null_violation then
-    refused := true;
-  end;
-  if not refused then raise exception 'a day without its wages was accepted'; end if;
+   where day = date '2018-06-05' and hours = 8.00 and source = 'punches'
+     and updated_at > now() - interval '1 minute';
+  if n <> 1 then raise exception 'a day was not rewritten on its key with the database clock'; end if;
+  -- Every figure is present: a whole day lands, and the same day missing any
+  -- one figure is refused.
+  insert into public.labor_daily_actuals
+  select * from jsonb_populate_record(null::public.labor_daily_actuals, whole_day);
+  delete from public.labor_daily_actuals where built_by = 'verify-46-whole-day';
+  if not found then raise exception 'a whole day did not land'; end if;
+  foreach col in array array['day', 'hours', 'wages', 'catering_premium', 'solo_close',
+                             'period_start', 'period_end', 'source', 'built_by'] loop
+    begin
+      insert into public.labor_daily_actuals
+      select * from jsonb_populate_record(null::public.labor_daily_actuals, whole_day - col);
+      refused := false;
+    exception when not_null_violation then
+      refused := true;
+    end;
+    if not refused then raise exception 'a day without its % was accepted', col; end if;
+  end loop;
+  -- Each check: the same whole day with one field made wrong is refused.
+  foreach probe in array array[
+    jsonb_build_object('change', jsonb_build_object('source', 'schedule'),
+                       'accepted', 'a day source other than when_i_work/punches was accepted'),
+    jsonb_build_object('change', jsonb_build_object('source', 'paystub'),
+                       'accepted', 'a day with source paystub was accepted'),
+    jsonb_build_object('change', jsonb_build_object('day', '2018-06-18'),
+                       'accepted', 'a day after its pay period was accepted'),
+    jsonb_build_object('change', jsonb_build_object('day', '2018-06-03'),
+                       'accepted', 'a day before its pay period was accepted'),
+    jsonb_build_object('change', jsonb_build_object('hours', -1),
+                       'accepted', 'a day with negative hours was accepted')] loop
+    begin
+      insert into public.labor_daily_actuals
+      select * from jsonb_populate_record(null::public.labor_daily_actuals,
+                                          whole_day || (probe -> 'change'));
+      refused := false;
+    exception when check_violation then
+      refused := true;
+    end;
+    if not refused then raise exception '%', probe ->> 'accepted'; end if;
+  end loop;
+  -- The first and last days of a period are inside it.
+  insert into public.labor_daily_actuals
+  select * from jsonb_populate_record(null::public.labor_daily_actuals,
+                                      whole_day || '{"day": "2018-06-04"}');
+  insert into public.labor_daily_actuals
+  select * from jsonb_populate_record(null::public.labor_daily_actuals,
+                                      whole_day || '{"day": "2018-06-17"}');
+  delete from public.labor_daily_actuals where built_by = 'verify-46-whole-day';
+  get diagnostics n = row_count;
+  if n <> 2 then raise exception 'a period''s first and last days did not both land'; end if;
   reset role;
 
   perform set_config('request.jwt.claims', json_build_object('sub', mgr, 'role', 'authenticated')::text, true);
@@ -276,12 +290,30 @@ begin
   select count(*) into n from public.labor_daily_actuals where built_by = 'verify-46';
   if n <> 1 then raise exception 'a manager reads % of 1 day', n; end if;
   begin
+    insert into public.labor_daily_actuals
+      (day, hours, wages, catering_premium, solo_close, period_start, period_end,
+       source, built_by)
+    values (date '2018-06-07', 1, 1, 0, 0, date '2018-06-04', date '2018-06-17',
+            'punches', 'x');
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'a manager wrote a day through the API'; end if;
+  begin
     update public.labor_daily_actuals set wages = 1 where built_by = 'verify-46';
     refused := false;
   exception when insufficient_privilege then
     refused := true;
   end;
   if not refused then raise exception 'a manager changed a day through the API'; end if;
+  begin
+    delete from public.labor_daily_actuals where built_by = 'verify-46';
+    refused := false;
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then raise exception 'a manager removed a day through the API'; end if;
   begin
     truncate public.labor_daily_actuals;
     refused := false;
@@ -298,6 +330,13 @@ begin
   perform set_config('request.jwt.claims', '', true);
   if has_table_privilege('anon', 'public.labor_daily_actuals', 'select') then
     raise exception 'anon can read days';
+  end if;
+
+  -- ---- 6. the trigger function is trigger-only ------------------------------------------
+  if has_function_privilege('anon', 'public.touch_labor_paycheck_actuals()', 'execute')
+     or has_function_privilege('authenticated', 'public.touch_labor_paycheck_actuals()', 'execute')
+     or has_function_privilege('service_role', 'public.touch_labor_paycheck_actuals()', 'execute') then
+    raise exception 'the updated_at trigger function is callable through the API';
   end if;
 
   raise notice 'migration 46 verified';
