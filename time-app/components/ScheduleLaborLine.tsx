@@ -11,6 +11,7 @@ import type { ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
 /** The Targets tab. On the time host the middleware sends it on to the finance site. */
 export const TARGETS_HREF = "/payroll/targets";
 
+const usd = (v: number) => `$${Math.round(v).toLocaleString("en-US")}`;
 const h1 = (v: number) => `${v.toFixed(1)}h`;
 const MISSING_MARK = "missing";
 
@@ -48,12 +49,15 @@ export default function ScheduleLaborLine({ load }: { load: ScheduleLaborLoad })
   const reasons = targetReasons(l);
   return (
     <div className="mb-3 text-sm text-slate-600 dark:text-slate-400 space-y-1" data-testid="labor-line">
-      <div>Scheduled Hourly Labor: <Strong>{h1(l.hourlyHours)}</Strong></div>
+      <div>
+        Scheduled Hourly Labor: <Strong>{h1(l.hourlyHours)} · </Strong>{l.labor.none ? <Missing title={l.labor.notCounted.join("; ")} /> : <Strong>{usd(l.labor.total)}</Strong>}
+        {!l.labor.none && l.labor.notCounted.length > 0 && <span className="text-rose-600 dark:text-rose-400"> (incomplete)</span>}
+      </div>
       <div>
         Target Hourly Labor:{" "}
-        {l.target.hours.value == null
+        {l.target.hours.value == null || l.target.dollars.value == null
           ? <Missing title={l.boardEmpty ? MISSING.board : reasons.join("; ")} />
-          : <Strong>{h1(l.target.hours.value)}</Strong>}
+          : <Strong>{h1(l.target.hours.value)} · {usd(l.target.dollars.value)}</Strong>}
       </div>
       {l.boardEmpty ? (
         <div className="text-rose-600 dark:text-rose-400">

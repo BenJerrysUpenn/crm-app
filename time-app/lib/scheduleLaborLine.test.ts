@@ -1,8 +1,8 @@
 // The manager Schedule page as the manager reads it (bj-finance #695): the
 // week reads as two lines,
-//   Scheduled Hourly Labor: <hours>
-//   Target Hourly Labor: <hours>
-// with no divider, no total hours and no $, the day headers in the manager grid are just
+//   Scheduled Hourly Labor: <hours> · <$>
+//   Target Hourly Labor: <hours> · <$>
+// with no divider and no total hours, the day headers in the manager grid are just
 // the day and date, and there is no "how the target is worked out" panel.
 // The numbers come from lib/controlBoard/schedule.ts (pinned in its own
 // tests); these render the board around them with react-dom/server.
@@ -126,33 +126,40 @@ function laborLine(html: string) {
   return { weekLines: [text(rows[1]), text(rows[2])], html: m[1] };
 }
 
-test("the week reads Scheduled Hourly Labor and Target Hourly Labor on two lines, in hours only, salaried hours left out", () => {
+test("the week reads Scheduled Hourly Labor and Target Hourly Labor on two lines, hours and $, salaried hours left out", () => {
   const { weekLines } = laborLine(renderBoard(labor()));
-  // 8h hourly scheduled (the salaried 4h is not hourly labor); target 7 x 1,100 x 0.2 / 15 = 102.67h.
-  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h", "Target Hourly Labor: 102.7h"]);
+  // 8h hourly scheduled at 10 = $80 (the salaried 4h is not hourly labor);
+  // target 7 x 1,100 x 0.2 = $1,540, / 15 = 102.67h.
+  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h · $80", "Target Hourly Labor: 102.7h · $1,540"]);
 });
 
-test("the labor line shows no total hours, no dollar amounts and no divider when the labor is fully priced", () => {
+test("the labor line shows no total hours, no divider and no warnings when the labor is fully priced", () => {
   const { weekLines, html } = laborLine(renderBoard(labor()));
   const all = text(html);
   assert.doesNotMatch(all, /Total hours/);
   assert.doesNotMatch(all, /12\.0h/, "the 12h board total (hourly + salaried) is not shown");
-  assert.doesNotMatch(all, /\$/);
-  assert.doesNotMatch(all, /·/);
+  assert.doesNotMatch(all, /Not in the \$|Hourly labor \$ missing|incomplete/);
   for (const line of weekLines) assert.doesNotMatch(line, /[|/]/);
+});
+
+test("a higher-paid person moves the scheduled $, not the target", () => {
+  // The same 8h, but Twenty's (rate 20): $160 against the same $1,540 target.
+  const shift = { ...SHIFT, employee_id: "twenty", profiles: { id: "twenty", full_name: "Twenty Hourly" } };
+  const { weekLines } = laborLine(renderBoard(labor({ shifts: [shift, SAL_SHIFT] })));
+  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h · $160", "Target Hourly Labor: 102.7h · $1,540"]);
 });
 
 test("a missing target shows as missing, with the red Target missing line and its Targets-page link", () => {
   // No last-year sales on file: every day's target, and so the week's, is missing.
   const { weekLines, html } = laborLine(renderBoard(labor({ inStoreByDay: new Map() })));
-  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h", "Target Hourly Labor: missing"]);
+  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h · $80", "Target Hourly Labor: missing"]);
   assert.match(text(html), /Target missing: .+\. Board values are set on the Targets page\./);
   assert.match(html, /<a href="\/payroll\/targets"[^>]*>Targets page<\/a>/);
 });
 
 test("an empty board shows the target as missing and points to the Targets page", () => {
   const { weekLines, html } = laborLine(renderBoard(labor({ settings: [] })));
-  assert.deepEqual(weekLines, ["Scheduled Hourly Labor: 8.0h", "Target Hourly Labor: missing"]);
+  assert.deepEqual(weekLines[1], "Target Hourly Labor: missing");
   assert.match(text(html), /No labor target yet: nothing is entered on the control board\./);
 });
 
@@ -169,21 +176,21 @@ test("there is no 'How the target is worked out' panel", () => {
   assert.doesNotMatch(html, /<details/);
 });
 
-test("labor that is only partly priced still says what is not in the $, with no dollar amount", () => {
+test("labor that is only partly priced shows its $ as incomplete and says what is not in it", () => {
   // No solo-close rule on the board: the 8h are priced, the solo-close bonus is not.
-  const { html } = laborLine(renderBoard(labor({ settings: BOARD.filter((r) => r.key !== "rule.solo_close") })));
+  const { weekLines, html } = laborLine(renderBoard(labor({ settings: BOARD.filter((r) => r.key !== "rule.solo_close") })));
+  assert.equal(weekLines[0], "Scheduled Hourly Labor: 8.0h · $80 (incomplete)");
   const all = text(html);
   assert.match(all, /Not in the \$: solo-close bonus not set on the control board\./);
   assert.doesNotMatch(all, /Hourly labor \$ missing/);
-  assert.doesNotMatch(all, /\$\d/);
 });
 
-test("labor with nothing priced says the hourly labor $ is missing and why, with no dollar amount", () => {
+test("labor with nothing priced shows its $ as missing and says why", () => {
   // The only hourly shift is Ten's, and Ten has no rate on the Team page.
   const people = PEOPLE.map((p) => (p.id === "ten" ? { ...p, hourly_rate: null } : p));
-  const { html } = laborLine(renderBoard(labor({ people: new Map(people.map((p) => [p.id, p])) })));
+  const { weekLines, html } = laborLine(renderBoard(labor({ people: new Map(people.map((p) => [p.id, p])) })));
+  assert.equal(weekLines[0], "Scheduled Hourly Labor: 8.0h · missing");
   const all = text(html);
   assert.match(all, /Hourly labor \$ missing: Ten Hourly: no hourly rate \(8\.0h\)\./);
   assert.doesNotMatch(all, /Not in the \$/);
-  assert.doesNotMatch(all, /\$\d/);
 });
