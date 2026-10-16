@@ -24,6 +24,11 @@ export type Profile = {
   // everywhere. Optional because the column arrives in migration 32;
   // undefined means the column is not there yet (lib/teamArchive.ts).
   archived_at?: string | null;
+  // Overhead: left out of the payroll target (fixed payroll on the control
+  // board, the Schedule page's hourly labor and its average rate), still
+  // scheduled. Set by a manager (bj-finance #692, ruled 2026-10-15). Optional
+  // because the column arrives in migration 45.
+  is_overhead?: boolean;
   notif_prefs: Record<string, boolean> | null;
   // Staffing forms (lib/staffing/). Optional because the columns arrive in
   // migration 44; undefined means the column is not there yet. qbo_employee_id

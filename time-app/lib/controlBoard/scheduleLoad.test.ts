@@ -31,9 +31,12 @@ let db: FakeSupabase;
 beforeEach(() => {
   db = startFakeSupabase({
     profiles: [
-      { ...ACTIVE[0], role: "manager" },
-      { ...ACTIVE[1], role: "employee" },
-      { id: "p-gone", role: "employee", full_name: "Gone Hourly", hourly_rate: "12", pay_type: "hourly", active: false },
+      // is_overhead is NOT NULL DEFAULT false in the database (migration 45).
+      { ...ACTIVE[0], role: "manager", is_overhead: false },
+      { ...ACTIVE[1], role: "employee", is_overhead: false },
+      { id: "p-gone", role: "employee", full_name: "Gone Hourly", hourly_rate: "12", pay_type: "hourly", active: false, is_overhead: false },
+      { id: "p-gone-overhead", role: "employee", full_name: "Gone Overhead", hourly_rate: "30", pay_type: "hourly", active: false, is_overhead: true },
+      { id: "p-overhead-salaried", role: "manager", full_name: "Overhead Salaried", hourly_rate: null, pay_type: "salaried", active: true, is_overhead: true },
     ],
     // Sales 800,000 + 200,000, payroll 25%, taxes and comp 25% of wages: a 20% hourly goal.
     control_settings: [
@@ -45,7 +48,9 @@ beforeEach(() => {
       { id: 6, key: "tax.pa_uc", value: "0.04", detail: { wage_cap: null }, ...NOTE },
       { id: 7, key: "tax.workers_comp", value: "1", detail: {}, ...NOTE },
     ],
-    profile_salaries: [],
+    profile_salaries: [
+      { id: 1, profile_id: "p-overhead-salaried", annual_salary: "50000.00", ...NOTE },
+    ],
     sales_monthly: [
       { month: "2030-09-01", source: "qbo", in_store: "11000.00" },
       { month: "2029-09-01", source: "seller", in_store: "10000.00" },
@@ -145,4 +150,25 @@ test("a shift type marked not in-store does not close the night for the solo-clo
   assert.ok(asInStore.ready && notInStore.ready);
   assert.equal(asInStore.labor.labor.solo, 30, "alone 18:00-23:00, out at 23:00");
   assert.equal(notInStore.labor.labor.solo, 0, "the in-store closer is out at 18:00");
+});
+
+test("overhead staff: an overhead salary stays out of the goal, and an overhead person's shift and rate stay out of hourly labor", async () => {
+  const load = await loadScheduleLabor(createClient(), {
+    weekStart: WEEK,
+    today: TODAY,
+    shifts: [
+      { id: 1, employee_id: "p-gone-overhead", starts_at: at("2030-10-14", 12), ends_at: at("2030-10-14", 17), position: "Scooper" },
+      { id: 2, employee_id: "p-overhead-salaried", starts_at: at("2030-10-14", 9), ends_at: at("2030-10-14", 12), position: "Scooper" },
+    ],
+    employees: [...ACTIVE, { id: "p-active-overhead", full_name: "Active Overhead", hourly_rate: "40", pay_type: "hourly", active: true, is_overhead: true }],
+    shiftTypes: [{ name: "Scooper", in_store: true }],
+  });
+  assert.ok(load.ready);
+  const { labor } = load;
+  assert.ok(Math.abs((labor.days[0].hourlyGoal.value ?? 0) - 0.2) < 1e-9, "the overhead salary is not fixed payroll: the goal stays 20%");
+  assert.equal(labor.avgRate.value, 15, "the active overhead person's rate is not in the average");
+  assert.equal(labor.totalHours, 8, "both overhead shifts count in total hours");
+  assert.equal(labor.hourlyHours, 0);
+  assert.equal(labor.labor.wages, 0, "the inactive overhead person's shift is read as overhead too");
+  assert.ok(!labor.labor.notCounted.some((n) => /Overhead/.test(n)), "overhead people are not listed as gaps");
 });

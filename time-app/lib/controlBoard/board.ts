@@ -169,7 +169,7 @@ export const CATEGORIES: Category[] = [
         }),
         computed("fixedPayroll", "Fixed payroll", r.fixedPayroll, {
           share: ofSales(r, r.fixedPayroll.value), total: true, indent: 0,
-          note: r.salaried.length ? undefined : "Nobody on the team is set to Salaried on the Team page.",
+          note: r.salaried.length ? undefined : "Nobody is in fixed payroll: it counts staff set to Salaried on the Team page who are not archived and not overhead.",
         }),
       ];
     },
