@@ -109,6 +109,12 @@ export type Extra = {
   defaultQty: "one" | "per_guest";
 };
 
+// The winter extras' labels (bj-finance #717), named once: lib/winterMenu.ts
+// keys its warnings on them.
+export const BELGIAN_WAFFLE = "Belgian Waffle";
+export const WINTER_DRY_TOPPINGS_EXTRA = "Winter Dry Toppings";
+export const WINTER_POURABLE_TOPPINGS_EXTRA = "Winter Pourable Toppings";
+
 // Labels MUST match the canonical keys in
 // `Catering Automations/v2/modules/pricing_data.py::_EXTRAS_RAW`. The
 // quote module looks up extras by exact label, so a mismatch silently
@@ -129,6 +135,18 @@ export const EXTRAS: ReadonlyArray<Extra> = [
   { key: "cookies", label: "Cookies", price: 2, unit: "per_guest", defaultQty: "per_guest" },
   { key: "umbrella", label: "Umbrella Rental", price: 75, unit: "flat", defaultQty: "one" },
   { key: "tent", label: "Tent Rental", price: 175, unit: "flat", defaultQty: "one" },
+  // The winter menu (Nov 1 - Mar 31, bj-finance #717). Price Book rows in
+  // supabase/crm/012_winter_menu_extras.sql. The Waffle Sundae is Cup or Cone
+  // Party + Belgian Waffle; each toppings extra bills the 3 picks the
+  // customer makes from its group (WINTER_DRY_TOPPINGS / _POURABLE_ below).
+  // $0 garnishes for a sundae built on Cup or Cone Party (the winter Warmed
+  // Cookie and Brownie Sundaes). The Price Book already has both rows at $0;
+  // every Sundae-family package already includes them.
+  { key: "whipped_cream", label: "Whipped Cream", price: 0, unit: "per_guest", defaultQty: "one" },
+  { key: "chocolate_sauce", label: "Chocolate Sauce", price: 0, unit: "per_guest", defaultQty: "one" },
+  { key: "belgian_waffle", label: BELGIAN_WAFFLE, price: 3, unit: "per_guest", defaultQty: "per_guest" },
+  { key: "winter_dry_toppings", label: WINTER_DRY_TOPPINGS_EXTRA, price: 2, unit: "per_guest", defaultQty: "per_guest" },
+  { key: "winter_pourable_toppings", label: WINTER_POURABLE_TOPPINGS_EXTRA, price: 2, unit: "per_guest", defaultQty: "per_guest" },
 ];
 
 export const EXTRA_BY_LABEL: ReadonlyMap<string, Extra> = new Map(
@@ -183,6 +201,12 @@ const EXTRA_ALIASES: Record<string, string> = {
   "brownies": "Brownies",
   "cookies": "Cookies",
   "chocolate chip cookies": "Cookies",
+  "whipped cream": "Whipped Cream",
+  "chocolate sauce": "Chocolate Sauce",
+  "belgian waffle": BELGIAN_WAFFLE,
+  "belgian waffles": BELGIAN_WAFFLE,
+  "winter dry toppings": WINTER_DRY_TOPPINGS_EXTRA,
+  "winter pourable toppings": WINTER_POURABLE_TOPPINGS_EXTRA,
 };
 
 export function normaliseExtraLabel(raw: string): string {
@@ -211,6 +235,35 @@ export const TOPPING_NAMES: ReadonlyArray<string> = [
   "Peanuts",
   "Walnuts",
   "Gummy Bears",
+];
+
+// The winter menu's two topping groups (bj-finance #717), spelled exactly as
+// Catering-Manager modules/pricing_data.py WINTER_DRY_TOPPINGS /
+// WINTER_POURABLE_TOPPINGS. The customer picks WINTER_TOPPING_PICKS from a
+// group; the picks go into the deal's toppings beside any summer ones.
+// Walnuts is in the dry group and in TOPPING_NAMES.
+export const WINTER_DRY_TOPPINGS: ReadonlyArray<string> = [
+  "Crushed Candy Cane",
+  "Gingersnap Cookies",
+  "Marshmallow",
+  "Pecans",
+  "Walnuts",
+  "Biscoff Cookie Crumble",
+];
+export const WINTER_POURABLE_TOPPINGS: ReadonlyArray<string> = [
+  "Hot Fudge",
+  "Hot Caramel",
+  "Apple Pie Filling",
+  "Cherry Compote",
+  "Cookie Butter Drizzle",
+  "Choco Hazelnut Drizzle",
+];
+export const WINTER_TOPPING_PICKS = 3;
+
+// What the deal drawer's toppings picker offers: the summer list, then the
+// winter groups, each name once.
+export const DRAWER_TOPPING_OPTIONS: ReadonlyArray<string> = [
+  ...Array.from(new Set([...TOPPING_NAMES, ...WINTER_DRY_TOPPINGS, ...WINTER_POURABLE_TOPPINGS])),
 ];
 
 // Alias map: lowercased messy variants → canonical label. Covers the
@@ -267,6 +320,10 @@ function splitCombinedToppings(s: string): string[] {
     .filter(Boolean);
 }
 
+// Spelled byte for byte as deals_package_name_check (supabase/crm/008)
+// and Catering-Manager have it. The winter menu warnings key on it too.
+export const HOT_CHOCOLATE_FLOAT_PARTY = "Hot Chocolate Float Party";
+
 export const PACKAGES: ReadonlyArray<Package> = [
   { value: "Single Scoop Cup and Cone Party", description: "1 scoop, $6/guest" },
   { value: "Cup or Cone Party", description: "" },
@@ -282,9 +339,8 @@ export const PACKAGES: ReadonlyArray<Package> = [
     description: "cookies, brownies, 6 toppings",
   },
   {
-    // Spelled byte for byte as deals_package_name_check (supabase/crm/008)
-    // and Catering-Manager have it. Upgrades: cookies and brownies only.
-    value: "Hot Chocolate Float Party",
+    // Upgrades: cookies and brownies only.
+    value: HOT_CHOCOLATE_FLOAT_PARTY,
     description: "1 scoop on hot chocolate, whipped cream, chocolate sauce",
   },
 ];
