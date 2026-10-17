@@ -14,10 +14,13 @@
 // They never block a save or a quote.
 
 import {
+  BELGIAN_WAFFLE,
   HOT_CHOCOLATE_FLOAT_PARTY,
   TOPPING_NAMES,
   WINTER_DRY_TOPPINGS,
+  WINTER_DRY_TOPPINGS_EXTRA,
   WINTER_POURABLE_TOPPINGS,
+  WINTER_POURABLE_TOPPINGS_EXTRA,
   WINTER_TOPPING_PICKS,
   parseExtrasField,
   parseToppingsField,
@@ -29,9 +32,9 @@ const WINTER_EXTRAS: ReadonlyArray<{
   label: string;
   group: ReadonlyArray<string> | null;
 }> = [
-  { label: "Belgian Waffle", group: null },
-  { label: "Winter Dry Toppings", group: WINTER_DRY_TOPPINGS },
-  { label: "Winter Pourable Toppings", group: WINTER_POURABLE_TOPPINGS },
+  { label: BELGIAN_WAFFLE, group: null },
+  { label: WINTER_DRY_TOPPINGS_EXTRA, group: WINTER_DRY_TOPPINGS },
+  { label: WINTER_POURABLE_TOPPINGS_EXTRA, group: WINTER_POURABLE_TOPPINGS },
 ];
 
 /** True for Nov 1 - Mar 31 (both ends included), null when `eventDate` is

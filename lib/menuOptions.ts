@@ -109,6 +109,12 @@ export type Extra = {
   defaultQty: "one" | "per_guest";
 };
 
+// The winter extras' labels (bj-finance #717), named once: lib/winterMenu.ts
+// keys its warnings on them.
+export const BELGIAN_WAFFLE = "Belgian Waffle";
+export const WINTER_DRY_TOPPINGS_EXTRA = "Winter Dry Toppings";
+export const WINTER_POURABLE_TOPPINGS_EXTRA = "Winter Pourable Toppings";
+
 // Labels MUST match the canonical keys in
 // `Catering Automations/v2/modules/pricing_data.py::_EXTRAS_RAW`. The
 // quote module looks up extras by exact label, so a mismatch silently
@@ -138,9 +144,9 @@ export const EXTRAS: ReadonlyArray<Extra> = [
   // every Sundae-family package already includes them.
   { key: "whipped_cream", label: "Whipped Cream", price: 0, unit: "per_guest", defaultQty: "one" },
   { key: "chocolate_sauce", label: "Chocolate Sauce", price: 0, unit: "per_guest", defaultQty: "one" },
-  { key: "belgian_waffle", label: "Belgian Waffle", price: 3, unit: "per_guest", defaultQty: "per_guest" },
-  { key: "winter_dry_toppings", label: "Winter Dry Toppings", price: 2, unit: "per_guest", defaultQty: "per_guest" },
-  { key: "winter_pourable_toppings", label: "Winter Pourable Toppings", price: 2, unit: "per_guest", defaultQty: "per_guest" },
+  { key: "belgian_waffle", label: BELGIAN_WAFFLE, price: 3, unit: "per_guest", defaultQty: "per_guest" },
+  { key: "winter_dry_toppings", label: WINTER_DRY_TOPPINGS_EXTRA, price: 2, unit: "per_guest", defaultQty: "per_guest" },
+  { key: "winter_pourable_toppings", label: WINTER_POURABLE_TOPPINGS_EXTRA, price: 2, unit: "per_guest", defaultQty: "per_guest" },
 ];
 
 export const EXTRA_BY_LABEL: ReadonlyMap<string, Extra> = new Map(
@@ -197,10 +203,10 @@ const EXTRA_ALIASES: Record<string, string> = {
   "chocolate chip cookies": "Cookies",
   "whipped cream": "Whipped Cream",
   "chocolate sauce": "Chocolate Sauce",
-  "belgian waffle": "Belgian Waffle",
-  "belgian waffles": "Belgian Waffle",
-  "winter dry toppings": "Winter Dry Toppings",
-  "winter pourable toppings": "Winter Pourable Toppings",
+  "belgian waffle": BELGIAN_WAFFLE,
+  "belgian waffles": BELGIAN_WAFFLE,
+  "winter dry toppings": WINTER_DRY_TOPPINGS_EXTRA,
+  "winter pourable toppings": WINTER_POURABLE_TOPPINGS_EXTRA,
 };
 
 export function normaliseExtraLabel(raw: string): string {
