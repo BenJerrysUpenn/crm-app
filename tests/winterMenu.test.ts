@@ -56,8 +56,19 @@ describe("the winter extras in the drawer", () => {
   });
 
   it("reads the winter names back from stored or typed text", () => {
-    expect(normaliseExtraLabel("belgian waffles")).toBe("Belgian Waffle");
-    expect(normaliseExtraLabel("Winter Dry Toppings")).toBe("Winter Dry Toppings");
+    // Typed in any case, with stray spaces: an already-canonical label would
+    // pass through unchanged, so only a non-canonical spelling proves the
+    // drawer recognises the name.
+    for (const [typed, label] of [
+      ["belgian waffles", "Belgian Waffle"],
+      ["BELGIAN WAFFLE", "Belgian Waffle"],
+      [" winter dry toppings ", "Winter Dry Toppings"],
+      ["WINTER POURABLE TOPPINGS", "Winter Pourable Toppings"],
+      ["whipped cream", "Whipped Cream"],
+      ["CHOCOLATE SAUCE", "Chocolate Sauce"],
+    ] as const) {
+      expect(normaliseExtraLabel(typed)).toBe(label);
+    }
     // The $0 strip-and-flag alias keeps its meaning.
     expect(normaliseExtraLabel("dry toppings")).toBe("Extra Toppings");
   });
@@ -194,6 +205,14 @@ describe("winterMenuWarnings", () => {
           customMenuLine: OLGA_LINE,
           priceOverride: 21,
         }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("counts walnuts as one of the three dry picks when the deal bills dry toppings", () => {
+    expect(
+      winterMenuWarnings(
+        deal({ extras: ["Winter Dry Toppings"], toppings: ["Pecans", "Marshmallow", "Walnuts"] }),
       ),
     ).toEqual([]);
   });
