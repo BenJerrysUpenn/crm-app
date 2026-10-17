@@ -19,20 +19,28 @@ import {
   parseToppingsField,
   serializeMultiselect,
 } from "@/lib/menuOptions";
-import { positiveOrNull, winterMenuWarnings, type WinterDealView } from "@/lib/winterMenu";
+import { positiveOrNull, winterMenuWarnings, type WinterDealFields } from "@/lib/winterMenu";
 
 const POURABLES = ["Hot Fudge", "Hot Caramel", "Cherry Compote"];
 const OLGA_LINE = "Winter Menu: Hot Chocolate Float + Waffle Sundae (with pourable toppings)";
 
-function deal(over: Partial<WinterDealView> = {}): WinterDealView {
+// A deals row as the drawer holds it, with extras and toppings given as the
+// lists the drawer stores (serialised as it serialises them).
+type DealOverrides = Partial<Omit<WinterDealFields, "extras" | "toppings">> & {
+  extras?: string[];
+  toppings?: string[];
+};
+
+function deal(over: DealOverrides = {}): WinterDealFields {
+  const { extras = Array(40).fill("Belgian Waffle"), toppings = [], ...rest } = over;
   return {
-    packageName: "Cup or Cone Party",
-    extras: Array(40).fill("Belgian Waffle"),
-    toppings: [],
-    eventDate: "2026-12-05",
-    customMenuLine: "Waffle Sundae",
-    priceOverride: null,
-    ...over,
+    package_name: "Cup or Cone Party",
+    event_date: "2026-12-05",
+    custom_menu_line: "Waffle Sundae",
+    price_override: null,
+    ...rest,
+    extras: serializeMultiselect(extras),
+    toppings: serializeMultiselect(toppings),
   };
 }
 
@@ -111,16 +119,16 @@ describe("winterMenuWarnings: the season", () => {
 
   it("is Nov 1 through Mar 31", () => {
     for (const d of ["2026-11-01", "2026-12-25", "2027-03-31"]) {
-      expect(winterMenuWarnings(deal({ eventDate: d }))).toEqual([]);
+      expect(winterMenuWarnings(deal({ event_date: d }))).toEqual([]);
     }
     for (const d of ["2027-04-01", "2026-07-04", "2026-10-31"]) {
-      expect(winterMenuWarnings(deal({ eventDate: d }))).toEqual([OUT_OF_SEASON(d)]);
+      expect(winterMenuWarnings(deal({ event_date: d }))).toEqual([OUT_OF_SEASON(d)]);
     }
   });
 
   it("gives no season verdict without a real date", () => {
     for (const d of [null, undefined, "", "TBD", "2026-02-30", "2026-06-31"]) {
-      expect(winterMenuWarnings(deal({ eventDate: d }))).toEqual([]);
+      expect(winterMenuWarnings(deal({ event_date: d }))).toEqual([]);
     }
   });
 });
@@ -130,17 +138,17 @@ describe("winterMenuWarnings: the winter items it names", () => {
     expect(
       winterMenuWarnings(
         deal({
-          packageName: "Hot Chocolate Float Party",
+          package_name: "Hot Chocolate Float Party",
           extras: ["Winter Pourable Toppings", "Winter Pourable Toppings", "Cookies", "Belgian Waffle"],
           toppings: POURABLES,
-          customMenuLine: null,
+          custom_menu_line: null,
         }),
       ),
     ).toEqual([
       "Hot Chocolate Float Party, Belgian Waffle, Winter Pourable Toppings: winter deals fill the custom menu line, or the quote prints the package name.",
     ]);
     expect(
-      winterMenuWarnings(deal({ extras: ["Cookies"], eventDate: "2026-07-10", customMenuLine: null })),
+      winterMenuWarnings(deal({ extras: ["Cookies"], event_date: "2026-07-10", custom_menu_line: null })),
     ).toEqual([]);
   });
 });
@@ -158,7 +166,7 @@ describe("winterMenuWarnings", () => {
   });
 
   it("warns out of season and without a menu line, and still lets it quote", () => {
-    expect(winterMenuWarnings(deal({ eventDate: "2026-07-10", customMenuLine: " " }))).toEqual([
+    expect(winterMenuWarnings(deal({ event_date: "2026-07-10", custom_menu_line: " " }))).toEqual([
       "Belgian Waffle: winter menu (Nov 1 - Mar 31), but the event is on 2026-07-10. It can still be quoted.",
       "Belgian Waffle: winter deals fill the custom menu line, or the quote prints the package name.",
     ]);
@@ -167,13 +175,13 @@ describe("winterMenuWarnings", () => {
   it("says nothing about a summer deal with no winter item, in any month", () => {
     expect(
       winterMenuWarnings(
-        deal({ extras: ["Cookies"], toppings: ["Peanuts"], eventDate: "2026-07-10", customMenuLine: null }),
+        deal({ extras: ["Cookies"], toppings: ["Peanuts"], event_date: "2026-07-10", custom_menu_line: null }),
       ),
     ).toEqual([]);
   });
 
   it("does not call an undated deal out of season", () => {
-    expect(winterMenuWarnings(deal({ eventDate: null }))).toEqual([]);
+    expect(winterMenuWarnings(deal({ event_date: null }))).toEqual([]);
   });
 
   it("wants three picks from a toppings group the deal bills", () => {
@@ -199,11 +207,11 @@ describe("winterMenuWarnings", () => {
     expect(
       winterMenuWarnings(
         deal({
-          packageName: "Hot Chocolate Float Party",
+          package_name: "Hot Chocolate Float Party",
           extras: [],
           toppings: POURABLES,
-          customMenuLine: OLGA_LINE,
-          priceOverride: 21,
+          custom_menu_line: OLGA_LINE,
+          price_override: 21,
         }),
       ),
     ).toEqual([]);
@@ -220,7 +228,7 @@ describe("winterMenuWarnings", () => {
   it("does not read summer walnuts as a winter pick", () => {
     expect(
       winterMenuWarnings(
-        deal({ packageName: "Sundae Party", extras: [], toppings: ["Walnuts", "Peanuts"] }),
+        deal({ package_name: "Sundae Party", extras: [], toppings: ["Walnuts", "Peanuts"] }),
       ),
     ).toEqual([]);
   });

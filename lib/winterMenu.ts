@@ -19,7 +19,10 @@ import {
   WINTER_DRY_TOPPINGS,
   WINTER_POURABLE_TOPPINGS,
   WINTER_TOPPING_PICKS,
+  parseExtrasField,
+  parseToppingsField,
 } from "@/lib/menuOptions";
+import type { Deal } from "@/lib/types";
 
 // Each winter extra, with the topping group the customer picks from.
 const WINTER_EXTRAS: ReadonlyArray<{
@@ -55,28 +58,27 @@ function winterItems(
   return items;
 }
 
-export type WinterDealView = {
-  packageName: string | null | undefined;
-  extras: ReadonlyArray<string>;
-  toppings: ReadonlyArray<string>;
-  eventDate: string | null | undefined;
-  customMenuLine: string | null | undefined;
-  priceOverride: number | null | undefined;
-};
+/** The deal fields the warnings read, as the deals row stores them. */
+export type WinterDealFields = Pick<
+  Deal,
+  "package_name" | "extras" | "toppings" | "event_date" | "custom_menu_line" | "price_override"
+>;
 
 /** What the drawer warns about a deal's winter items. Same four rules as
  *  modules/winter_menu.py `warnings`. */
-export function winterMenuWarnings(deal: WinterDealView): string[] {
+export function winterMenuWarnings(deal: WinterDealFields): string[] {
   const out: string[] = [];
-  const items = winterItems(deal.packageName, deal.extras);
+  const extras = parseExtrasField(deal.extras);
+  const toppings = parseToppingsField(deal.toppings);
+  const items = winterItems(deal.package_name, extras);
   if (items.length > 0) {
     const named = items.join(", ");
-    if (inWinterSeason(deal.eventDate) === false) {
+    if (inWinterSeason(deal.event_date) === false) {
       out.push(
-        `${named}: winter menu (Nov 1 - Mar 31), but the event is on ${deal.eventDate}. It can still be quoted.`,
+        `${named}: winter menu (Nov 1 - Mar 31), but the event is on ${deal.event_date}. It can still be quoted.`,
       );
     }
-    if (!(deal.customMenuLine ?? "").trim()) {
+    if (!(deal.custom_menu_line ?? "").trim()) {
       out.push(
         `${named}: winter deals fill the custom menu line, or the quote prints the package name.`,
       );
@@ -84,8 +86,8 @@ export function winterMenuWarnings(deal: WinterDealView): string[] {
   }
   for (const { label, group } of WINTER_EXTRAS) {
     if (!group) continue;
-    const picks = deal.toppings.filter((t) => group.includes(t));
-    if (deal.extras.includes(label)) {
+    const picks = toppings.filter((t) => group.includes(t));
+    if (extras.includes(label)) {
       if (picks.length !== WINTER_TOPPING_PICKS) {
         out.push(
           `${label}: ${picks.length} picked from the group; the customer picks ${WINTER_TOPPING_PICKS}.`,
@@ -94,7 +96,7 @@ export function winterMenuWarnings(deal: WinterDealView): string[] {
       continue;
     }
     const winterOnly = picks.filter((t) => !TOPPING_NAMES.includes(t));
-    if (winterOnly.length > 0 && deal.priceOverride == null) {
+    if (winterOnly.length > 0 && deal.price_override == null) {
       out.push(
         `${winterOnly.join(", ")} picked but the ${label} extra is not on the deal, so nothing bills them.`,
       );

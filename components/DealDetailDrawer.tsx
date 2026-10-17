@@ -389,14 +389,7 @@ export default function DealDetailDrawer({
   // Multi-select binding helpers.
   const flavorsSelected = parseFlavorsField(current.flavors);
   const extrasSelected = parseExtrasField(current.extras);
-  const winterWarnings = winterMenuWarnings({
-    packageName: current.package_name,
-    extras: extrasSelected,
-    toppings: parseToppingsField(current.toppings),
-    eventDate: current.event_date,
-    customMenuLine: current.custom_menu_line,
-    priceOverride: current.price_override,
-  });
+  const winterWarnings = winterMenuWarnings(current);
   // Source of truth: mileage_charge_eligible (1 = we drove, charged mileage;
   // 0 = we ubered). transport_mode is the picklist-side derived cache.
   // Uber checked → mileage_charge_eligible = 0.
