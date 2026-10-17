@@ -8,8 +8,18 @@
 //
 // The fake speaks just enough PostgREST for the routes under test (eq / gte /
 // lte / is / in filters and not.<filter>, order, limit and offset, single, maybeSingle, a head
-// request's exact count, insert and update with return=representation, and
-// the database functions in RPC below) and answers /auth/v1/user from the session cookie.
+// request's exact count, insert and update with return=representation, and the
+// database functions in RPC below) and answers /auth/v1/user from the session cookie.
+// GoTrue's admin side is the `authUsers` list: invite (a new address only, as
+// GoTrue refuses a registered one), list, get and update by id (a ban is the
+// update's ban_duration), and generate_link (an invite token for a new address
+// only, a magic-link token for a registered one). An id not in that list falls
+// back to the `emails` map (emailForUser, lib/notify.ts); an id in neither
+// answers 404. Resend's send endpoint is faked too: each email lands in
+// `outbox`, and `resendStatus` lets a test make Resend refuse. A Postgres
+// function is whatever a test puts in `rpc`, else one of the RPC functions
+// below; one in neither answers PGRST202, as hosted PostgREST does before the
+// migration that creates it.
 // Row Level Security is emulated for time_entries only, with the policies
 // migrations 12 and 30 install (supabase/migration_30_verify.sql proves those
 // against a real Postgres): anyone signed in reads their own punches, only a
@@ -19,7 +29,10 @@
 // manager. shift_notices and shift_digests (migration 38) are the service
 // role's alone. metric_views and metric_preferences (migration 39) are a
 // manager's own rows only, and two live views of one person cannot share a
-// name (23505). Every other table is readable by any signed-in caller.
+// name (23505). control_settings and profile_salaries (migration 43): a
+// manager reads, only an owner adds a row, nobody changes or removes one, and
+// the row is stamped with the caller and the database clock. Every other
+// table is readable by any signed-in caller.
 //
 // Storage (migration 37's travel-reimbursements bucket) is faked too: signed
 // upload URLs, signed read URLs and downloads, under the bucket's policies
@@ -55,15 +68,27 @@ export type FakeSupabase = {
   // Tables a migration has not created yet: every request to one is refused
   // as hosted PostgREST does (PGRST205, "schema cache").
   missingTables: string[];
+  // Auth users (auth.users), for the admin API. Each has at least id and email.
+  authUsers: Row[];
+  // Postgres functions callable through rpc(), by name. A test injects one here
+  // to stand in for a migration's function; one absent here and from RPC below
+  // answers PGRST202.
+  rpc: Record<string, (args: Row) => unknown>;
+  // Emails sent through Resend (api.resend.com), oldest first.
+  outbox: { to: string; subject: string; text: string }[];
+  // The HTTP status Resend answers with; anything but 2xx is a refusal.
+  resendStatus: number;
   // Storage objects, keyed "<bucket>/<path>". A signed upload URL does not
   // create one; a test puts the bytes here as the browser's upload would.
   storage: Record<string, Uint8Array>;
   // Paths a signed upload URL was minted for, as "<bucket>/<path>".
   signedUploads: string[];
-  // Requests to any origin but Supabase's. Null: such a request fails the test.
+  // Requests to any origin but Supabase's and Resend's. Null: such a request
+  // fails the test.
   external: ((request: Request) => Response | Promise<Response>) | null;
-  // auth.users emails by user id, for emailForUser (lib/notify.ts). Nobody
-  // listed here has an email, so their notifications go by text or not at all.
+  // auth.users emails by user id, for emailForUser (lib/notify.ts), used when
+  // the id is not in authUsers. Nobody listed here has an email otherwise, so
+  // their notifications go by text or not at all.
   emails: Record<string, string>;
   signIn(userId: string): void;
   // The Cookie header a browser with this session sends (for middleware).
@@ -183,6 +208,15 @@ function isManager(caller: Caller): boolean {
   return fake.tables.profiles?.some((p) => p.id === caller.id && ["manager", "owner"].includes(p.role as string)) ?? false;
 }
 
+function isOwner(caller: Caller): boolean {
+  if (caller.kind !== "user") return false;
+  // public.is_owner(), migration 42.
+  return fake.tables.profiles?.some((p) => p.id === caller.id && p.role === "owner") ?? false;
+}
+
+// Migration 43: managers read, owners add, the API never changes or removes a row.
+const OWNER_ADDS = ["control_settings", "profile_salaries"];
+
 const OWN_ROWS: Record<string, string> = {
   time_entries: "employee_id",
   travel_reimbursements: "profile_id",
@@ -198,6 +232,7 @@ const MANAGER_OWN_ROWS: Record<string, string> = { metric_views: "owner_id", met
 function canRead(table: string, caller: Caller, row: Row): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
+  if (OWNER_ADDS.includes(table)) return isManager(caller);
   const managerOwner = MANAGER_OWN_ROWS[table];
   if (managerOwner) return row[managerOwner] === caller.id && isManager(caller);
   const owner = OWN_ROWS[table];
@@ -209,6 +244,7 @@ function canWrite(table: string, caller: Caller): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
   if (table === "time_entries") return isManager(caller);
+  if (OWNER_ADDS.includes(table)) return isOwner(caller);
   if (table in MANAGER_OWN_ROWS) return isManager(caller);
   return true;
 }
@@ -302,10 +338,16 @@ const DEFAULTS: Record<string, () => Row> = {
     submitted_at: DB_NOW, created_at: DB_NOW, updated_at: DB_NOW,
   }),
   travel_reimbursement_adjustments: () => ({ adjusted_at: DB_NOW }),
+  // Migration 43.
+  control_settings: () => ({ detail: {}, method: null }),
+  profile_salaries: () => ({ method: null }),
   lyft_ride_reports: () => ({ filed_at: DB_NOW, emailed_at: null, deal_id: null, event_label: null, event_date: null, reason_note: null }),
   // Migration 39: a saved view is live until archived.
   metric_views: () => ({ position: 0, widgets: [], archived_at: null, created_at: DB_NOW, updated_at: DB_NOW }),
   time_entries: () => ({ clock_in_at: DB_NOW, clock_out_at: null, status: "open", manual: false }),
+  // Migration 44's column defaults: a staffing record starts open, each of its steps pending.
+  staff_lifecycle: () => ({ status: "open", created_at: DB_NOW, updated_at: DB_NOW, completed_at: null }),
+  staff_lifecycle_steps: () => ({ status: "pending", claimed_at: null, attempts: 0, worker_log: null, result: null, completed_by: null, completed_at: null }),
   // Migration 36's column defaults: a new pay table row is a queued request.
   payroll_sheets: () => ({ status: "queued", requested_at: DB_NOW, started_at: null, built_at: null, built_by: null, source_fingerprint: null, open_items: null, error: null, sheet: null }),
 };
@@ -410,18 +452,64 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     if (caller.kind !== "user") return json(401, { code: 401, error_code: "bad_jwt", msg: "invalid JWT" });
     return json(200, { id: caller.id, aud: "authenticated", role: "authenticated", email: `${caller.id}@example.test` });
   }
-  // emailForUser's auth-admin lookup (lib/notify.ts): the address a test put
-  // in `emails`, or no such user.
-  if (url.pathname.startsWith("/auth/v1/admin/users/")) {
-    const id = decodeURIComponent(url.pathname.slice("/auth/v1/admin/users/".length));
+  // The auth admin API. Staffing uses `authUsers` (invite, list, get, ban via
+  // PUT); an id not seeded there falls back to the `emails` map, which is how
+  // emailForUser (lib/notify.ts) resolves a user's address. An id in neither
+  // answers 404.
+  const adminUser = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)$/);
+  if (adminUser) {
+    const id = decodeURIComponent(adminUser[1]);
+    const user = fake.authUsers.find((u) => u.id === id);
+    if (user) {
+      if (method === "PUT") Object.assign(user, JSON.parse(body ?? "{}") as Row);
+      else if (method !== "GET") throw new Error(`fake Supabase: unexpected ${method} ${url.pathname}`);
+      return json(200, user);
+    }
     const email = fake.emails[id];
-    if (!email) return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
-    return json(200, { id, aud: "authenticated", role: "authenticated", email });
+    if (email && method === "GET") return json(200, { id, aud: "authenticated", role: "authenticated", email });
+    return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+  }
+  if (url.pathname === "/auth/v1/admin/users" && method === "GET") {
+    return json(200, { users: fake.authUsers, aud: "authenticated" });
+  }
+  if (url.pathname === "/auth/v1/invite" && method === "POST") {
+    const { email, data } = JSON.parse(body ?? "{}") as { email: string; data?: Row };
+    if (fake.authUsers.some((u) => u.email === email)) {
+      return json(422, { code: 422, error_code: "email_exists", msg: "A user with this email address has already been registered" });
+    }
+    const user = { id: crypto.randomUUID(), email, user_metadata: data ?? {} };
+    fake.authUsers.push(user);
+    return json(200, user);
+  }
+  if (url.pathname === "/auth/v1/admin/generate_link" && method === "POST") {
+    const { type, email } = JSON.parse(body ?? "{}") as { type: string; email: string };
+    let user = fake.authUsers.find((u) => u.email === email);
+    if (type === "invite") {
+      if (user) return json(422, { code: 422, error_code: "email_exists", msg: "A user with this email address has already been registered" });
+      user = { id: crypto.randomUUID(), email };
+      fake.authUsers.push(user);
+    } else if (!user) {
+      return json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+    }
+    const hashed_token = `hashed-${type}-${String(user.id)}`;
+    return json(200, { ...user, action_link: `${SUPABASE_URL}/auth/v1/verify?token=${hashed_token}`, email_otp: "000000", hashed_token, redirect_to: "", verification_type: type });
   }
   const fn = url.pathname.match(/^\/rest\/v1\/rpc\/(\w+)$/)?.[1];
-  if (fn && method === "POST") {
+  if (fn) {
+    // A test's injected function stands in for a migration's RPC; otherwise one
+    // of the module-level RPC functions; otherwise PGRST202, as hosted
+    // PostgREST answers before the migration that creates the function.
+    const impl = fake.rpc[fn];
+    if (impl) return json(200, impl(JSON.parse(body ?? "{}") as Row));
     const rpc = RPC[fn];
-    if (!rpc) throw new Error(`fake Supabase: unexpected rpc ${fn}`);
+    if (!rpc) {
+      return json(404, {
+        code: "PGRST202",
+        details: null,
+        hint: null,
+        message: `Could not find the function public.${fn} in the schema cache`,
+      });
+    }
     fake.beforeWrite?.(`rpc/${fn}`);
     return rpc(JSON.parse(body ?? "{}") as Row, callerOf(headers));
   }
@@ -491,27 +579,26 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
         batch.push(candidate);
       }
     }
-    // supabase-js .upsert() POSTs with Prefer: resolution=merge-duplicates.
-    // Honour it on the primary key: a row whose id already exists is updated
-    // in place (how a re-invite overwrites a pre-migration_21 email-as-name),
-    // not duplicated. A plain .insert() has no such header and always inserts.
-    const mergeDuplicates = (headers.get("prefer") ?? "").includes("resolution=merge-duplicates");
+    // upsert(..., { onConflict }): a row matching on the conflict columns is
+    // merged into, as Prefer: resolution=merge-duplicates does.
+    const conflict = headers.get("prefer")?.includes("resolution=merge-duplicates")
+      ? (url.searchParams.get("on_conflict") ?? "id").split(",")
+      : null;
     const inserted = (Array.isArray(input) ? input : [input]).map((r) => {
-      if (mergeDuplicates && r.id != null) {
-        const hit = all.find((x) => x.id === r.id);
-        if (hit) {
-          Object.assign(hit, r);
-          return hit;
-        }
-        const row = { ...(DEFAULTS[table]?.() ?? {}), ...r };
-        all.push(row);
-        return row;
-      }
-      const row = { ...(DEFAULTS[table]?.() ?? {}), ...r, id: all.length + 1 };
+      const same = conflict && all.find((x) => conflict.every((c) => x[c] === r[c]));
+      if (same) return Object.assign(same, r);
+      const row = { ...(DEFAULTS[table]?.() ?? {}), id: all.length + 1, ...r };
+      // Migration 43's stamp_control_row(): who and when are the database's word.
+      if (OWNER_ADDS.includes(table)) Object.assign(row, { recorded_at: DB_NOW, recorded_by: caller.kind === "user" ? caller.id : (r.recorded_by ?? null) });
       all.push(row);
       return row;
     });
     return represent(inserted, headers, 201);
+  }
+
+  // Migration 43 grants no UPDATE or DELETE on these to an API role.
+  if ((method === "PATCH" || method === "DELETE") && OWNER_ADDS.includes(table) && caller.kind !== "service") {
+    return json(403, { code: "42501", details: null, hint: null, message: `permission denied for table ${table}` });
   }
 
   if (method === "PATCH") {
@@ -535,6 +622,17 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(input, init);
   const url = new URL(request.url);
+  if (url.href === "https://api.resend.com/emails" && request.method === "POST") {
+    // A test that sets `external` captures Resend itself (with attachments and
+    // the raw body); only when it does not do the built-in `outbox` capture and
+    // `resendStatus` stand in. Delegate before reading the body so `external`
+    // still receives an unconsumed request.
+    if (fake.external) return fake.external(request);
+    const { to, subject, text } = (await request.json()) as { to: string; subject: string; text: string };
+    if (fake.resendStatus >= 300) return json(fake.resendStatus, { name: "validation_error", message: "refused" });
+    fake.outbox.push({ to, subject, text });
+    return json(200, { id: `email-${fake.outbox.length}` });
+  }
   if (url.origin !== new URL(SUPABASE_URL).origin) {
     if (fake.external) return fake.external(request);
     throw new Error(`test tried to reach ${url.origin}`);
@@ -556,6 +654,10 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
     beforeWrite: null,
     missingColumns: {},
     missingTables: [],
+    authUsers: [],
+    rpc: {},
+    outbox: [],
+    resendStatus: 200,
     storage: {},
     signedUploads: [],
     external: null,

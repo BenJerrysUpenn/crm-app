@@ -30,6 +30,7 @@ export const METRIC_IDS = [
   "weekly_ler",
   "forward_cash",
   "labour",
+  "labor_vs_target",
   "closed_month",
   "leads",
   "outreach",
@@ -49,6 +50,8 @@ export type MetricDef = {
   defaultPeriod: Period;
   /** Whether the widget offers a stream filter. */
   streams: boolean;
+  /** Whether the widget is set to a chosen month (settings.month) instead of a period. */
+  month?: boolean;
   source: "crm" | "feed" | "mixed";
 };
 
@@ -114,6 +117,17 @@ export const METRICS: Record<MetricId, MetricDef> = {
     streams: false,
     source: "mixed",
   },
+  labor_vs_target: {
+    id: "labor_vs_target",
+    code: "W6",
+    title: "Labor vs target",
+    blurb: "Each week of the month, Sunday to Saturday: in-store sales, hourly labor all-in (less the catering crew clients paid for), and how far it sits from the all-in target.",
+    periods: ["mtd"],
+    defaultPeriod: "mtd",
+    streams: false,
+    month: true,
+    source: "crm",
+  },
   closed_month: {
     id: "closed_month",
     code: "Month",
@@ -160,5 +174,11 @@ export function blurbFor(def: MetricDef, period: Period): string {
   return def.blurbs?.[period] ?? def.blurb;
 }
 
-export type WidgetSettings = { period: Period; stream?: StreamFilter };
+/** A month setting: "YYYY-MM". */
+export function isMonthSetting(x: unknown): x is string {
+  return typeof x === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(x);
+}
+
+/** `month` is "YYYY-MM", for a metric with `month`; unset, it shows the last full month. */
+export type WidgetSettings = { period: Period; stream?: StreamFilter; month?: string };
 export type WidgetConfig = { id: string; metric: MetricId; settings: WidgetSettings };
