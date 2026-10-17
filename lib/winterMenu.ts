@@ -102,3 +102,14 @@ export function winterMenuWarnings(deal: WinterDealView): string[] {
   }
   return out;
 }
+
+/** What the Price override field stores. It is a per-guest price, so only a
+ *  positive number is one (deals_price_override_check, Catering-Manager
+ *  migration 026: NULL or > 0). Blank, "0", negatives and non-numbers clear
+ *  it back to the Price Book price, never a $0 event. */
+export function positiveOrNull(v: string): number | null {
+  const trimmed = v.trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}

@@ -19,7 +19,7 @@ import {
   parseToppingsField,
   serializeMultiselect,
 } from "@/lib/menuOptions";
-import { winterMenuWarnings, type WinterDealView } from "@/lib/winterMenu";
+import { positiveOrNull, winterMenuWarnings, type WinterDealView } from "@/lib/winterMenu";
 
 const POURABLES = ["Hot Fudge", "Hot Caramel", "Cherry Compote"];
 const OLGA_LINE = "Winter Menu: Hot Chocolate Float + Waffle Sundae (with pourable toppings)";
@@ -263,4 +263,18 @@ describe("migration crm/012", () => {
     expect(rows.map((r) => r.sort_order)).toEqual([13, 14, 15]);
     expect(MIGRATION).toMatch(/ON CONFLICT \(name\) DO NOTHING;/);
   });
+});
+
+describe("positiveOrNull (the Price override field)", () => {
+  it("stores a positive per-guest price", () => {
+    expect(positiveOrNull("21.50")).toBe(21.5);
+    expect(positiveOrNull(" 18 ")).toBe(18);
+  });
+
+  it.each(["", "   ", "0", "0.00", "-5", "abc"])(
+    "clears the override for %j, never storing a free event",
+    (typed) => {
+      expect(positiveOrNull(typed)).toBeNull();
+    },
+  );
 });

@@ -39,7 +39,7 @@ import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
 import { missingRequiredFields } from "@/lib/required";
-import { winterMenuWarnings } from "@/lib/winterMenu";
+import { positiveOrNull, winterMenuWarnings } from "@/lib/winterMenu";
 
 function ReadOnlyRow({
   label,
@@ -72,14 +72,6 @@ function numericInput(v: string): number | null {
   if (trimmed === "") return null;
   const n = Number(trimmed);
   return Number.isFinite(n) ? n : null;
-}
-
-// The price override is a per-guest price, so only a positive number is one
-// (deals_price_override_check, Catering-Manager migration 026). Blank, zero
-// or negative clears it back to the Price Book price.
-function positiveOrNull(v: string): number | null {
-  const n = numericInput(v);
-  return n !== null && n > 0 ? n : null;
 }
 
 export default function DealDetailDrawer({
