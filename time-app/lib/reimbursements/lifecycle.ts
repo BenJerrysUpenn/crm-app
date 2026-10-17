@@ -13,16 +13,19 @@
 // another such manager: only an owner decides it (28). An employee's is
 // decided by any Approver.
 //
-// Owners, today, are managers kept off the roster: role 'manager' with
-// active = false (lib/financeAccess.ts). This is the one place that says so
-// for reimbursements; migration 37's guard trigger holds the database to it.
+// An owner is an off-roster (active = false) holder of the owner role
+// (migration 42) or of the manager role (lib/financeAccess.ts).
+// isManagerRole() counts both 'owner' and 'manager', so an off-roster person
+// of either is an owner here. Migration 42 has migration 37's guard trigger
+// and payroll views read owners the same way.
 //
 // A Lyft ride report is not in here: it is Filed on upload and has no life.
 //
-// Pure (its one import, dayKey, is too), so `node --test` runs it and the
-// browser can use it.
+// Pure (its imports are too), so `node --test` runs it and the browser can
+// use it.
 
 import { dayKey } from "../format.ts";
+import { isManagerRole } from "../roles.ts";
 
 export type ReimbursementStatus = "submitted" | "approved" | "rejected" | "paid" | "paid_outside_payroll";
 
@@ -36,14 +39,14 @@ export const STATUS_LABEL: Record<ReimbursementStatus, string> = {
 
 export type Person = { id: string; role: string; active: boolean };
 
-/** An owner: a manager kept off the roster (lib/financeAccess.ts). */
+/** An owner: a manager or owner kept off the roster (active = false; lib/financeAccess.ts). */
 export function isOwner(p: Pick<Person, "role" | "active">): boolean {
-  return p.role === "manager" && p.active === false;
+  return isManagerRole(p.role) && p.active === false;
 }
 
 /** An Approver: a manager or an owner (the same gate as the finance site). */
 export function isApprover(p: Pick<Person, "role">): boolean {
-  return p.role === "manager";
+  return isManagerRole(p.role);
 }
 
 export const NOT_APPROVER = "Only an Approver (a manager or owner) can do that.";

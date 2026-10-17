@@ -1,4 +1,7 @@
-export type Role = "manager" | "employee";
+// The roles a profile can hold. An owner can do everything a manager can
+// (lib/roles.ts). Migration 42.
+export const ROLES = ["owner", "manager", "employee"] as const;
+export type Role = (typeof ROLES)[number];
 
 export type Profile = {
   id: string; // uuid, references auth.users
@@ -21,7 +24,20 @@ export type Profile = {
   // everywhere. Optional because the column arrives in migration 32;
   // undefined means the column is not there yet (lib/teamArchive.ts).
   archived_at?: string | null;
+  // Overhead: left out of the payroll target (fixed payroll on the control
+  // board, the Schedule page's hourly labor and its average rate), still
+  // scheduled. Set by a manager (bj-finance #692, ruled 2026-10-15). Optional
+  // because the column arrives in migration 45.
+  is_overhead?: boolean;
   notif_prefs: Record<string, boolean> | null;
+  // Staffing forms (lib/staffing/). Optional because the columns arrive in
+  // migration 44; undefined means the column is not there yet. qbo_employee_id
+  // is declared above; migrations 26 and 44 both add it with add column if
+  // not exists, so it is one column whichever runs first.
+  preferred_name?: string | null;
+  start_date?: string | null; // YYYY-MM-DD
+  last_day?: string | null; // YYYY-MM-DD
+  has_workforce?: boolean; // finished QuickBooks Workforce self-setup
   created_at: string;
 };
 
@@ -189,6 +205,59 @@ export type ClockinReminderAck = {
   body_snapshot: string;
   user_agent: string | null;
 };
+
+// One staffing form submission (onboarding, reinvite, offboarding) and its
+// ordered checklist. See lib/staffing/ and supabase/migration_44.sql.
+export type LifecycleKind = "onboarding" | "reinvite" | "offboarding";
+export type LifecycleStatus = "open" | "done" | "cancelled";
+// auto = the app does it in the request; worker = queued for the bj-finance
+// onboarding worker (browser automation as the manager); manual = checklist.
+export type StepMode = "auto" | "worker" | "manual";
+export type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
+// The systems the onboarding worker drives (a worker step's `system`).
+export type WorkerSystem = "square" | "slack" | "qbo" | "google";
+
+export type StepDetail = {
+  lines?: string[];
+  link?: string | null;
+  recipient?: string | null;
+  reason?: string | null;
+};
+
+export type LifecycleStep = {
+  id: number;
+  lifecycle_id: number;
+  key: string;
+  seq: number;
+  mode: StepMode;
+  status: StepStatus;
+  label: string;
+  detail: StepDetail;
+  // Worker contract (mode = "worker"); see supabase/migration_44.sql.
+  system: WorkerSystem | null;
+  action: string | null;
+  payload: Record<string, unknown>;
+  claimed_at: string | null;
+  attempts: number;
+  worker_log: string | null;
+  result: string | null;
+  completed_by: string | null;
+  completed_at: string | null;
+};
+
+export type Lifecycle = {
+  id: number;
+  kind: LifecycleKind;
+  employee_id: string | null;
+  status: LifecycleStatus;
+  form: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+export type LifecycleWithSteps = Lifecycle & { steps: LifecycleStep[] };
 
 // One append-only entry in the write log for `time_entries` and `shifts`
 // (migration 25). Written by the `audit_row_change` trigger, readable by

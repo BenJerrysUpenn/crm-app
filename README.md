@@ -19,7 +19,21 @@ Set both in Vercel (Project Settings, Environment Variables). Do not commit them
 
 A `.env.example` is included as a reference. For local dev, copy it to `.env.local`.
 
+### Who gets in
+`profiles.role` decides, through `lib/roles.ts`: `manager` and `owner` reach
+the CRM, `employee` does not. An owner passes every manager gate (in the
+database too: `is_manager()` is true for owners). `profiles.active` means "on
+the schedule" and is never an access check; access ends by banning the
+login. The owner role and its guard are time-app migration 42, applied by
+hand in the Supabase SQL editor after both apps deploy (its header has the
+order; `migration_42_verify.sql` checks it, `migration_42_down.sql` reverses it).
+
 ### Personal-finance pages (`/money`, `/dial`, `/safe`)
+**Owners only** (the `owner` role). Each page reads the feed only through
+`loadPfForOwner()` in `lib/pf/access.ts`, which answers anyone else signed in
+with a 404, so the pages do not admit they exist; signed out goes to `/login`.
+The middleware's role gate still sends an employee to `/no-access`, as it does
+on every CRM path.
 These pages sit behind the same Supabase auth as the rest of the app and read
 a single JSON feed **server-side only** (never from a public path). Feed
 source is resolved in this order:
@@ -28,7 +42,6 @@ source is resolved in this order:
 | --- | --- |
 | `PF_DATA_PATH` | Local file path to `pf_data.json` (dev; point it at `fixtures/pf_data.sample.json` for synthetic data) |
 | `PF_GITHUB_TOKEN` | Fine-grained GitHub PAT with contents:read on the private data repo only; used to fetch the feed from its `pf-data` branch via the GitHub contents API (prod on Vercel; server-only, cached ~5 min) |
-| `PF_ALLOWED_USER_IDS` | Supabase auth user IDs (comma or space separated) allowed to open `/safe`, `/money`, `/dial`. Server-only. Unset or empty fails closed: nobody gets in, and any other signed-in user gets a 404. Enforced in `lib/pf/guard.ts` |
 
 With neither set, the pages render a "feed not wired yet" state. No real
 financial data or secrets are ever committed to this repo.
@@ -142,6 +155,28 @@ allows 100 deployments a day across the account. To get a preview URL for a prot
 a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
+## Metrics page (Withers Time)
+`time-app/` serves `/metrics` on the finance host (bj-finance #671), managers and owners only: the page,
+the `/api/metrics/*` routes and RLS each check it. `lib/metrics/load.ts` reads the CRM and time
+clock tables as the signed-in manager; a section that fails to read is reported in `problems`,
+never drawn as zeros. Saved views live in `public.metric_views` and `metric_preferences`
+(migration 39); until it is applied the routes answer 503 `views_not_enabled` and the page keeps
+views in the browser's localStorage. Sales targets come only from `public.sales_targets`
+(migration 39): there is no copy in the page code, and when the read fails the sales widget
+draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
+bj-finance feed (migration 40). Labor vs target (bj-finance #696, `lib/metrics/laborTarget.ts`)
+reads `labor_daily_actuals` (migration 46), `sales_daily_in_store` (migration 41) and the control
+board's settings in force on each day, plus the booked catering deals, their Catering shifts and the
+team, read as the Schedule page reads them. Both sides are all-in (taxes and workers' comp): the target is
+the board's `hourlyAllInPct`, and the catering crew clients paid for comes off the actual through the
+Schedule page's own `cateringOffset`. Every board value is the one in force on the day, so a past week
+is judged by the board as it stood then: a pay rule before its first row paid nothing, and fixed payroll
+counts only the people salaried that day. A Sunday-to-Saturday week shows only once it is over with all
+seven days of payroll and sales on file, every booked catering deal priced (a deal billed zero crew hours,
+a pickup, takes nothing off), and hours and hourly labor
+still above zero after the catering crew comes off, otherwise "n/a" with the reason. Tests: `npm test` in `time-app/` includes
+`lib/metrics/*.test.ts`.
+
 ## Travel Reimbursements (Withers Time)
 Staff log mileage, tolls and parking in `time-app/` at `/reimbursements`; Approvers decide
 them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. Decisions:
@@ -160,6 +195,154 @@ Apply `time-app/supabase/migration_37.sql` by hand in the Supabase SQL editor, a
 migration 36. It creates the tables, the payroll views, and the `travel-reimbursements`
 bucket; `migration_37_verify.sql` checks it and `migration_37_down.sql` reverses it. Until
 it is applied the reimbursement routes answer 503.
+
+## Metrics page tables (Withers Time, bj-finance #671)
+Apply `time-app/supabase/migration_39.sql` (saved views, preferences, `sales_targets`), then
+`migration_40.sql` (`metrics_snapshots`, the finance feed), by hand in the Supabase SQL editor,
+after migration 38. Each has `_verify.sql` and `_down.sql` beside it. Sales targets are data:
+change them with an UPDATE in the SQL editor. Snapshots are published by bj-finance, never
+written through the API, and never updated or deleted.
+
+## Sales history tables (Withers Time, bj-finance #694)
+Apply `time-app/supabase/migration_41.sql` by hand in the Supabase SQL editor, after migration 40.
+It adds `sales_daily_in_store` (one row per day) and `sales_monthly` (one row per month and
+source, `qbo` or `seller`), the permanent sales history the labor targets read (lane bj-finance
+#692). Both are schema only: bj-finance writes every row from the Mac (its daily publisher and a
+one-time seed of the previous owner's books), never through the API, and managers read them.
+In-store excludes delivery and catering and includes online pickup orders, as the finance feed
+does. A missing day or month is unknown, not zero; weeks are grouped by the reader. Verify with
+`migration_41_verify.sql`; roll back with `migration_41_down.sql`.
+
+## Staffing forms (Withers Time, Team page)
+Apply `time-app/supabase/migration_44.sql` by hand in the Supabase SQL editor, after migration 42.
+It adds the `staff_lifecycle` records and steps behind the Team page's Add employee, Re-invite and
+Offboard forms, five `profiles` columns, and `revoke_user_sessions`. Until it is applied those
+actions fail. Never delete a Withers-time user: `time_entries` cascades from `profiles`. Steps,
+API and worker contract: `time-app/docs/staffing.md`.
+
+## Control board: the Targets tab (Withers Time, bj-finance #693)
+`/payroll/targets` on the finance host is the control board: the targets the business runs to
+(COGS, total payroll and prime cost as shares of sales), the 12-month sales estimate they are
+shares of, and the rates they are built from. It is the single source for those values; code
+reads them from here rather than keeping copies (bj-finance payroll will, lane #692). Managers and
+owners see it; only an owner changes a value, in the page, the routes behind it
+(`/api/payroll/targets`, `/api/payroll/targets/salary`) and the database. A salaried person's
+annual salary is set on the Team page (owners) and feeds the board's fixed payroll. Fixed payroll
+counts everyone set to Salaried who is not overhead, on the schedule or not, on each day they were
+employed: `profiles.active` means "on the schedule", `archived_at` (its New York day is the last day
+they count) is what marks someone gone, and someone whose first salary starts after a day was not
+employed yet (`inFixedPayroll` in `board.ts`). Someone with no salary row at all still counts, as a missing salary.
+
+Every value is dated. A change is a new row, never an edit: it carries an as-of date
+(`effective_from`), a review-by date (the green / yellow within a month / red chip; nothing is
+ever sent as a reminder), where it came from and how it was worked out. The value in force on a
+day is the row with the latest `effective_from` on or before it; a same-day correction wins (later
+`recorded_at`, then higher `id`). Categories and keys are data in `time-app/lib/controlBoard/`
+(`board.ts`, `settings.ts`): a new category is new keys, not a migration. The derived numbers
+(fixed payroll, hourly dollars, the hourly goal, the trend factor) are `lib/controlBoard/math.ts`;
+a missing input shows as missing, never as zero.
+
+| Key | `value` | `detail` |
+| --- | --- | --- |
+| `sales_estimate.in_store`, `sales_estimate.catering` | dollars, next 12 months | |
+| `target.cogs_pct`, `target.payroll_pct`, `target.prime_cost_pct` | fraction of sales (0.25 = 25%) | |
+| `tax.fica`, `tax.futa`, `tax.pa_uc` | fraction of wages | `wage_cap`: dollars a year, or null for all wages |
+| `tax.workers_comp` | dollars per $100 of wages | `class_code` |
+| `rule.catering_premium` | dollars added per catering hour | `cap_rate`: dollars an hour |
+| `rule.solo_close` | dollars a qualifying night | `min_alone_hours`, `out_at_or_after` (`HH:MM`) |
+
+Reading it from the Mac (bj-finance): `select * from public.control_settings_on(date)` gives one
+row per key in force on that day, and `public.profile_salaries_on(date)` one per person.
+
+Apply `time-app/supabase/migration_43.sql` by hand in the Supabase SQL editor, after migration 42.
+Schema only: no values are in this repo, and owners enter every one on the board after it is
+applied. Until then the tab says it needs migration 43 and the Team page shows no salaries.
+
+### The Schedule page's labor line (bj-finance #695)
+The manager Schedule page (not the staff view) reads the board. The week reads as an aligned
+block, label | hours | $ with the numbers right-aligned: `Target Hourly Labor`, `Scheduled Hourly
+Labor`, and `Remaining Hourly Labor` (target minus scheduled, with a real minus sign and in red
+when either value is negative; `missing` when the target is). A week with higher-paid people shows
+a higher $ against the same target; the day headers show only the day and date. Hourly labor $ is hourly staff (`pay_type =
+'hourly'`, read strictly) at their rate, plus the catering premium on Catering shifts and the
+solo-close bonus per qualifying night as the board had them on that date, plus open shifts at the
+average rate of active hourly staff; salaried and overhead staff are left out. A day's projected
+sales are IN-STORE ONLY: last year's in-store sales on the same weekday 52 weeks earlier
+(`sales_daily_in_store`) times the trend factor; catering bookings never feed them. The in-store
+target $ is that times the hourly goal in force that day; its hours divide it by the average
+active hourly rate. Catering crew labor is cancelled out by what the client paid for (Alina,
+2026-10-16): for each booked deal that day the target adds the crew hours billed on it in the CRM
+(`deals.labor_hours`, which is per crew member, times `deals.staff_count`), priced at crew cost
+plus the board's catering premium in force (zero before the rule's first row; capped at its `cap_rate` per person, as on the
+scheduled side). Crew cost is the rate of whoever is on that deal's Catering shifts (`shifts.deal_id`,
+hours-weighted, open shifts at the average rate), else the average active hourly rate. The
+Catering shifts stay on the scheduled side, so an event staffed as billed nets to zero and
+over-staffing shows as over target. The math is `lib/controlBoard/schedule.ts` (it calls `boardOn`
+in `board.ts`, which runs `computeBoard`), the reads `scheduleLoad.ts`. Anything missing (nothing
+on the board yet, no last-year day on file, a partial trend month, a person with no rate, a booked
+deal with no billed crew hours on file, named by deal number; zero billed hours is a pickup and offsets nothing) shows as missing with its reason, never
+zero, and the empty board points to the Targets tab.
+Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
+entered value; run it before `migration_42_down.sql`).
+
+### Overhead staff (bj-finance #692)
+`profiles.is_overhead` (migration 45, default false) marks a person whose pay is overhead, not
+part of the payroll target. An overhead person is left out of fixed payroll on the board (and so
+out of the hourly goal), out of the Schedule page's hourly labor hours and $, and out of the
+average active hourly rate behind open shifts and target hours, and out of a catering deal's crew
+cost. They stay on the schedule grid
+and in total hours. A manager sets it (an owner's row only an owner); the guard on profiles stops
+anyone else, the person included. The Team page has no control for it yet: set it in the SQL
+editor. Apply `time-app/supabase/migration_45.sql` BEFORE deploying the time app: the board's
+read of the salaried team filters on the column. Verify with `migration_45_verify.sql`; roll back
+with `migration_45_down.sql` (code first).
+
+### Hourly payroll actuals (bj-finance #721)
+Apply `time-app/supabase/migration_46.sql` by hand in the Supabase SQL editor, after migration 45.
+It adds `labor_paycheck_actuals`: one row per hourly paycheck as QBO Payroll paid it (pay period,
+pay date, the stub's name and year-to-date gross, Regular and Overtime hours and pay, catering
+premium and solo close kept apart), with `profile_id` when exactly one profile has the stub's
+name, read from the saved paystub PDFs. bj-finance writes every row of both tables from the Mac
+(`modules.labor_actuals`), never through the API; managers read them. Salaried paychecks, tips and
+reimbursements are not in it, and nor are employer taxes (a paystub does not carry them: readers
+apply the Targets tab's rates). It also adds `labor_daily_actuals`: one row per day of a pay period
+whose daily hours (When I Work timesheets before the time app, punches after) tie to the hours QBO
+paid, with the period's wages, catering premium and solo close spread over its days by hours.
+Hourly, non-overhead labor only; a period that does not tie has no days (unknown, not zero), and
+Sunday to Saturday weeks are the reader's grouping. Only the Labor vs target card (bj-finance #696) reads them; apply this
+migration before deploying that card, or it says it could not load. Verify with `migration_46_verify.sql`; roll back with
+`migration_46_down.sql`.
+
+## Schedule coverage reminder (droplet command)
+Every Thursday and Friday at noon ET, emails the owners and on-schedule
+managers every open store hour and every booked catering event in the next two
+Sun–Sat weeks that nobody is scheduled for (bj-finance #709). No gaps, no
+email. Store hours are judged by `checkWeekCoverage` in
+`time-app/lib/coverage.ts`, the function the schedule board's "Check week"
+button runs, so the two cannot disagree. Catering events are deals at Booked
+Paid, Booked Unpaid or Closed Marketing Event (`archived = 0`); one counts as
+covered when a published shift on it has a person. Recipients are read from
+the database (`profiles` joined to `auth.users`): every owner plus every active
+manager, leaving out anyone archived or banned. Logic: `lib/coverageReminder.ts`;
+command: `lib/coverageReminderCli.ts`; reads: `lib/coverageReminderPg.ts`;
+send: `lib/gmailSend.ts`.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project |
+| `COVERAGE_REMINDER_FROM` | The From address. Set in the droplet's systemd unit, never in this repository |
+| `OUTREACH_GMAIL_CLIENT_ID`, `OUTREACH_GMAIL_CLIENT_SECRET`, `OUTREACH_GMAIL_REFRESH_TOKEN` | Gmail API credentials (gmail.send). SMTP is blocked on the droplet |
+
+```
+npm run coverage-reminder -- --dry-run   # prints the recipients and the email, sends nothing
+npm run coverage-reminder                # sends, only when there are gaps
+```
+Exit 0 = checked (sent, or nothing to send), 1 = a failure, 2 = bad argument
+or `DATABASE_URL` missing. Every failure (database read, recipient lookup,
+Gmail send) is also emailed to the fixed failure address with the subject
+"Coverage reminder could not run"; a dry run only prints that it would. Reads
+run in a read-only transaction. Where it runs: bj-box, from
+`bj-coverage-reminder.timer` (Software-Factory `droplet/systemd/`).
 
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
@@ -185,7 +368,8 @@ Where it runs: on Alina's Mac, from a clean checkout of `main` at
 `~/systems/crm-app` (the same `~/systems/` convention as the catering
 automations), never from a dev clone or the Google Drive. This is the only
 thing that runs from that checkout. It is separate from Vercel, which serves
-the web app, and from the droplet's checkout of this repo, which runs nothing.
+the web app, and from the droplet's checkout of this repo, which runs only the
+schedule coverage reminder above.
 
 The web routes that create the same shifts, `POST /api/deals/:id/booked-shifts`
 (signed-in) and `GET /api/cron/catering-shifts`, insert through supabase-js with

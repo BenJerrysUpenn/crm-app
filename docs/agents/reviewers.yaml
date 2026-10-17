@@ -58,6 +58,59 @@ architecture_ground_truth:
 
 documentation_reference: README.md
 
+documentation_map:
+  - paths:
+      - lib/roles.ts
+      - lib/pf/access.ts
+      - middleware.ts
+      - lib/supabase/middleware.ts
+      - app/money/page.tsx
+      - app/dial/page.tsx
+      - app/safe/page.tsx
+      - app/no-access/page.tsx
+    docs:
+      - README.md
+  - paths:
+      - app/api/call-desk/**
+    docs:
+      - docs/call-desk.md
+  - paths:
+      - time-app/supabase/migration_*.sql
+      - time-app/lib/payroll/*.ts
+    docs:
+      - docs/payroll-verify.md
+  - paths:
+      - time-app/lib/financeAccess.ts
+    docs:
+      - time-app/SETUP-GUIDE.md
+  - paths:
+      - time-app/lib/reimbursements/*.ts
+    docs:
+      - README.md
+      - GLOSSARY.md
+  - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
+    docs: [README.md]
+  - paths: ["time-app/lib/hosts.ts", "time-app/middleware.ts"]
+    docs: [time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/app/metrics/**", "time-app/app/api/metrics/**", "time-app/components/metrics/**", "time-app/lib/metrics/**"]
+    docs: [README.md]
+  - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
+    docs: [README.md]
+  - paths: ["time-app/supabase/migration_41*.sql"]
+    docs: [README.md]
+  - paths: ["time-app/lib/staffing/**", "time-app/lib/team.ts", "time-app/app/api/staffing/**", "time-app/app/api/profiles/route.ts", "time-app/components/TeamAdmin.tsx", "time-app/components/StaffingRecords.tsx", "time-app/supabase/migration_44.sql"]
+    docs: [time-app/docs/staffing.md]
+  - paths: ["time-app/supabase/migration_44.sql"]
+    docs: [README.md]
+  - paths: ["time-app/supabase/migration_43*.sql", "time-app/lib/controlBoard/**", "time-app/app/payroll/targets/**", "time-app/app/api/payroll/targets/**", "time-app/components/finance/targets/**", "time-app/components/SalaryPanel.tsx"]
+    docs: [README.md]
+  - paths: ["time-app/components/ScheduleLaborLine.tsx", "time-app/components/ScheduleBoard.tsx"]
+    docs: [README.md]
+  - paths: ["time-app/supabase/migration_46*.sql"]
+    docs: [README.md, docs/payroll-verify.md]
+  - paths: ["lib/coverageReminder.ts", "lib/coverageReminderCli.ts", "lib/coverageReminderPg.ts", "lib/gmailSend.ts", "scripts/coverage-reminder.ts"]
+    docs: [README.md]
+
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
   previews are SSO-gated with no CLI path, and end-to-end checks on a preview are
@@ -85,10 +138,6 @@ language_notes: >-
   project wrap the helper as (select is_manager()), never bare is_manager() — but that
   sentence is written in bj-finance docs/agents/system-bom.md, not here, so it is NOT in
   this repo's ground truth and cannot be cited against a diff here.
-
-documentation_map:
-  - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
-    docs: [README.md]
 
 exclusions:
   - path: docs/unsubscribe.md

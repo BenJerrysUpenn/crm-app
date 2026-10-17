@@ -9,7 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "reconcile-shifts": "tsx scripts/reconcile-catering-shifts.ts"
+    "reconcile-shifts": "tsx scripts/reconcile-catering-shifts.ts",
+    "coverage-reminder": "tsx scripts/coverage-reminder.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
