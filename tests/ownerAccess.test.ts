@@ -16,7 +16,7 @@ import { join, relative } from "node:path";
 import { NextRequest } from "next/server";
 import React from "react";
 
-import { isManagerRole, isOwnerRole, isPfPath } from "@/lib/roles";
+import { isManagerRole, isOwnerRole, isPfPath, isPfRoute } from "@/lib/roles";
 
 // ---- a stand-in Supabase: one signed-in person with a role -----------------
 const who = vi.hoisted(() => ({
@@ -102,6 +102,22 @@ describe("the role rules", () => {
   it.each(["/", "/moneyx", "/call-desk", "/safely"])("%s is not", (p) => {
     expect(isPfPath(p)).toBe(false);
   });
+
+  // isPfRoute is the whole pf set — the pages plus the /api/pf API — named once
+  // here so the middleware does not repeat the prefix (CODING_STANDARDS.md:9).
+  it.each(["/money", "/safe/anything", "/api/pf", "/api/pf/overrides"])(
+    "%s is a personal-finance route",
+    (p) => {
+      expect(isPfRoute(p)).toBe(true);
+    },
+  );
+
+  it.each(["/", "/call-desk", "/api/pfx", "/api/deals"])(
+    "%s is not a personal-finance route",
+    (p) => {
+      expect(isPfRoute(p)).toBe(false);
+    },
+  );
 });
 
 describe("the middleware gate", () => {
