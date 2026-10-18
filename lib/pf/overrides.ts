@@ -9,7 +9,7 @@
 // corrections into the rules doc, so the page shows a saved correction at once
 // and the totals catch up at the next pass.
 
-import type { ExplorerRow } from "./types";
+import type { ExplorerRow, PfMeta } from "./types";
 
 export type OverrideScope = "transaction" | "merchant";
 
@@ -38,6 +38,13 @@ export interface OverrideInput {
  *  each pinned by its own tests (this side by tests/pfOverrides.test.ts): change
  *  one, change the other. */
 export const merchantKey = (m: string) => m.trim().slice(0, 38).toLowerCase();
+
+/** The categories a correction may name: the ones the feed publishes in
+ *  meta.categories, none when it has no list (a feed from before #223). /money
+ *  offers exactly these and POST /api/pf/overrides accepts exactly these. */
+export function correctableCategories(meta: PfMeta): string[] {
+  return meta.categories ?? [];
+}
 
 /** Validate a POST body. Returns the clean input or the reason it is refused. */
 export function parseOverrideInput(

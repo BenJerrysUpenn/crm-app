@@ -3,6 +3,7 @@ import MetaBanner from "@/components/pf/MetaBanner";
 import FeedMissing from "@/components/pf/FeedMissing";
 import MoneyExplorer from "@/components/pf/MoneyExplorer";
 import { loadMoneyForOwner } from "@/lib/pf/access";
+import { correctableCategories } from "@/lib/pf/overrides";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Money explorer" };
@@ -27,7 +28,7 @@ export default async function MoneyPage() {
             <MoneyExplorer
               data={feed.data.explorer}
               overrides={overrides}
-              categories={feed.data.meta.categories ?? []}
+              categories={correctableCategories(feed.data.meta)}
             />
           </>
         ) : (

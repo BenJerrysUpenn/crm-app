@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadPfApiForOwner, savePfOverride } from "@/lib/pf/access";
-import { parseOverrideInput } from "@/lib/pf/overrides";
+import { correctableCategories, parseOverrideInput } from "@/lib/pf/overrides";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,9 @@ export async function POST(request: Request) {
       { status: viewer.status },
     );
 
-  const categories = viewer.feed.ok ? viewer.feed.data.meta.categories ?? [] : [];
+  const categories = viewer.feed.ok
+    ? correctableCategories(viewer.feed.data.meta)
+    : [];
   if (categories.length === 0)
     return NextResponse.json(
       { error: "The feed has no category list yet" },
