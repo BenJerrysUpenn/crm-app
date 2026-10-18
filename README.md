@@ -30,8 +30,10 @@ order; `migration_42_verify.sql` checks it, `migration_42_down.sql` reverses it)
 
 ### Personal-finance pages (`/money`, `/dial`, `/safe`)
 **Owners only** (the `owner` role). Each page reads the feed only through
-`loadPfForOwner()` in `lib/pf/access.ts`, which answers anyone else signed in
-with a 404, so the pages do not admit they exist; signed out goes to `/login`.
+`lib/pf/access.ts` (`loadPfForOwner()`; `/money` uses `loadMoneyForOwner()`,
+which adds the saved corrections behind the same check), which answers anyone
+else signed in with a 404, so the pages do not admit they exist; signed out
+goes to `/login`.
 The middleware's role gate still sends an employee to `/no-access`, as it does
 on every CRM path.
 These pages sit behind the same Supabase auth as the rest of the app and read
@@ -54,9 +56,10 @@ through `POST /api/pf/overrides`: "every charge from this merchant" by default,
 or "just this one". The table admits only the service role (SELECT and INSERT,
 so corrections are append-only); the route checks the caller is an owner
 (`profiles.role`, time-app migration 42) through `loadPfApiForOwner()` in
-`lib/pf/access.ts` (401 signed out, 404 not an owner) and writes
-with `SUPABASE_SERVICE_ROLE_KEY`, so the one owner gate governs pages and table
-alike. The page shows a saved correction at once; the private repo's 08:00
+`lib/pf/access.ts` (401 signed out, 404 not an owner) and writes with
+`SUPABASE_SERVICE_ROLE_KEY` through `savePfOverride()` there, so the one owner
+gate governs pages and table alike; no page or route builds the admin client
+itself. The page shows a saved correction at once; the private repo's 08:00
 bookkeeping pass applies it to the feed and folds merchant corrections into
 its rules. The category list comes from the feed (`meta.categories`), so the
 button only appears once the feed publishes one. `/safe` shows
