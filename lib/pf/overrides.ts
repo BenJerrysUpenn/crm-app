@@ -94,7 +94,10 @@ interface OverridesTable {
       order(
         col: string,
         opts: { ascending: boolean },
-      ): PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
+      ): PromiseLike<{
+        data: unknown[] | null;
+        error: { message: string; code?: string } | null;
+      }>;
     };
     insert(row: Record<string, unknown>): {
       select(cols: string): {
@@ -109,15 +112,26 @@ interface OverridesTable {
 
 const COLS = "id, scope, txn_id, merchant, category, created_at";
 
-/** Every saved correction, oldest first. A read failure (including the table
- *  not existing before crm/011 is applied) yields none: the page still
- *  renders, without corrections laid over it. */
+/** Every saved correction, oldest first. The table not existing before crm/011
+ *  is applied is expected and silent. Any other read failure (a permission or
+ *  network error) is logged — it must not pass unnoticed (CODING_STANDARDS.md
+ *  fail-loudly) — and still degrades to no corrections, so the page renders
+ *  without corrections laid over it rather than breaking. */
 export async function loadOverrides(db: OverridesTable): Promise<PfOverride[]> {
   const { data, error } = await db
     .from("pf_category_overrides")
     .select(COLS)
     .order("created_at", { ascending: true });
-  if (error || !data) return [];
+  if (error) {
+    const missingTable = error.code === "42P01" || error.code === "PGRST205";
+    if (!missingTable)
+      console.error(
+        "loadOverrides: could not read pf_category_overrides",
+        error,
+      );
+    return [];
+  }
+  if (!data) return [];
   return data as PfOverride[];
 }
 

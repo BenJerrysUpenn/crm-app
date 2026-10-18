@@ -240,9 +240,30 @@ describe("the overrides table", () => {
     const one = [{ id: "a" }];
     expect(await loadOverrides(fakeDb(one) as never)).toEqual(one);
     expect(await loadOverrides(fakeDb(null) as never)).toEqual([]);
+  });
+
+  it("is silent when the table is not there yet, loud on any other error", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Before crm/011 is applied: expected, no log.
     expect(
-      await loadOverrides(fakeDb([], { message: "relation does not exist" }) as never),
+      await loadOverrides(
+        fakeDb([], { message: "does not exist", code: "42P01" }) as never,
+      ),
     ).toEqual([]);
+    expect(
+      await loadOverrides(
+        fakeDb([], { message: "schema cache", code: "PGRST205" }) as never,
+      ),
+    ).toEqual([]);
+    expect(err).not.toHaveBeenCalled();
+    // A permission or network error must not pass unnoticed.
+    expect(
+      await loadOverrides(
+        fakeDb([], { message: "permission denied", code: "42501" }) as never,
+      ),
+    ).toEqual([]);
+    expect(err).toHaveBeenCalledOnce();
+    err.mockRestore();
   });
 
   it("saves with the caller's id and names a missing table", async () => {
@@ -337,8 +358,8 @@ describe("the pages", () => {
     expect(await render(MoneyPage)).not.toContain("Categorized through");
   });
 
-  it("still renders /money when the corrections cannot be read", async () => {
-    state.readError = { message: "relation does not exist" };
+  it("still renders /money before crm/011 exists (no corrections table)", async () => {
+    state.readError = { message: "does not exist", code: "42P01" };
     expect(await render(MoneyPage)).toContain("Data as of");
   });
 });
