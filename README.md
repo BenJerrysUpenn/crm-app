@@ -47,12 +47,14 @@ With neither set, the pages render a "feed not wired yet" state. No real
 financial data or secrets are ever committed to this repo.
 
 **Change category on /money (bj-finance #223).** Each transaction under a
-merchant has a Change button. It saves a correction to
+merchant has a Change button (none on rows without a Monarch id, such as
+aggregated 401k contributions). It saves a correction to
 `public.pf_category_overrides` (migration `supabase/crm/011_pf_category_overrides.sql`)
 through `POST /api/pf/overrides`: "every charge from this merchant" by default,
 or "just this one". The table admits only the service role (SELECT and INSERT,
 so corrections are append-only); the route checks the caller is an owner
-(`profiles.role`, time-app migration 42) through `lib/pf/access.ts` and writes
+(`profiles.role`, time-app migration 42) through `loadPfApiForOwner()` in
+`lib/pf/access.ts` (401 signed out, 404 not an owner) and writes
 with `SUPABASE_SERVICE_ROLE_KEY`, so the one owner gate governs pages and table
 alike. The page shows a saved correction at once; the private repo's 08:00
 bookkeeping pass applies it to the feed and folds merchant corrections into
