@@ -94,11 +94,11 @@ function stackY(items: [string, number][], sc: number, y0: number): Stacked[] {
 
 export default function MoneyExplorer({
   data: feed,
-  categories = [],
+  categories,
 }: {
   data: ExplorerData;
   /** Monarch names the change-category button offers (meta.categories). */
-  categories?: string[];
+  categories: string[];
 }) {
   // Corrections saved in this visit, laid over the server-corrected rows.
   const [saved, setSaved] = useState<PfOverride[]>([]);
