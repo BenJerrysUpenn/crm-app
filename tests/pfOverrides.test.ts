@@ -349,7 +349,9 @@ describe("POST /api/pf/overrides", () => {
     // A real failure: 500, and the DB message is logged (fail-loudly), not
     // swallowed as the caller sees only the generic error.
     state.insertError = { message: "boom" };
-    expect((await post(good)).status).toBe(500);
+    const failed = await post(good);
+    expect(failed.status).toBe(500);
+    expect(JSON.stringify(await failed.json())).not.toContain("boom");
     expect(logged).toHaveBeenCalledWith(expect.stringContaining("could not save"), "boom");
     logged.mockRestore();
   });
@@ -425,9 +427,13 @@ describe("the pages", () => {
     ];
     const sent = explorerProps(await MoneyPage());
     expect(sent).not.toBeNull();
-    // The server no longer pre-applies: the serialised rows carry no correction.
+    // The server no longer pre-applies: the serialised row keeps the feed's own
+    // category, and the stored correction travels beside it unchanged.
+    expect(sent!.rows.find((r) => r.id === "fx-003")).toMatchObject({ c: "Interest" });
     expect((sent!.rows.find((r) => r.id === "fx-003") as CorrectedRow).corrected).toBeUndefined();
-    expect(sent!.overrides).toHaveLength(1);
+    expect(sent!.overrides).toEqual([
+      expect.objectContaining({ id: "o1", txn_id: "fx-003", category: "Dividends & Capital Gains" }),
+    ]);
     // The one pass the explorer runs (stored + in-visit) corrects fx-003 and
     // leaves fx-001 — the same result a reload gives.
     const corrected = applyOverrides(sent!.rows, sent!.overrides);
