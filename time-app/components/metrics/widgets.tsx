@@ -486,3 +486,128 @@ export function QuotesWidget({ data, settings }: { data: MetricsData; settings: 
     </div>
   );
 }
+
+// ---- Labor vs target ------------------------------------------------------------------------------
+
+/** "Sep 6–12", or "Sep 27–Oct 3" across a month end. */
+function sunSatLabel(start: string, end: string): string {
+  return start.slice(5, 7) === end.slice(5, 7) ? `${shortDay(start)}–${Number(end.slice(8, 10))}` : `${shortDay(start)}–${shortDay(end)}`;
+}
+
+/** A variance with its sign: "+$175", "−$40", "+8.8 h". A real minus sign, as the schedule's Remaining line uses. */
+function signed(v: number, format: "money" | "hours"): string {
+  const text = format === "money" ? money(Math.abs(v)) : formatValue(Math.abs(v), "hours");
+  if (text === "$0" || text === "0 h") return text;
+  return `${v > 0 ? "+" : "−"}${text}`;
+}
+
+const NA = <span className="text-slate-400 dark:text-slate-500">n/a</span>;
+
+/** The week column stays in view while a phone scrolls the table sideways. */
+const STICKY = "sticky left-0 bg-white dark:bg-slate-900";
+
+export function LaborTargetWidget({ data, settings }: { data: MetricsData; settings: WidgetSettings }) {
+  const lt = data.laborTarget;
+  if (!lt) return <CouldNotLoad what="hourly payroll, daily sales or the control board" />;
+  const chosen = lt.months.find((m) => m.month === settings.month) ?? lt.months.find((m) => m.month === lt.defaultMonth) ?? lt.months[0];
+  const weeks = chosen.weeks;
+  const goals = [...new Set(weeks.map((w) => w.allInGoalPct.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
+  const unavailable = weeks.filter((w) => !w.available);
+  const withCatering = weeks.filter((w) => w.cateringHours != null && w.cateringHours > 0 && w.cateringOffset != null);
+  const cell = "py-1.5 pl-3 text-right whitespace-nowrap";
+  return (
+    <div>
+      <div className="overflow-x-auto max-w-full">
+        <table className="w-full text-sm tabular-nums">
+          <caption className="sr-only">Labor vs target, each week of {monthLabel(chosen.month)}, Sunday to Saturday</caption>
+          <thead>
+            <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
+              <th scope="col" className={`${STICKY} py-1 pr-3 font-medium`}>Week</th>
+              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Sales</th>
+              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Hourly labor, all-in</th>
+              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Actual %</th>
+              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Target %, all-in</th>
+              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance $</th>
+              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance hours</th>
+            </tr>
+          </thead>
+          <tbody>
+            {weeks.map((w) => {
+              const over = w.varianceDollars != null && w.varianceDollars > 0;
+              const tone = over ? "text-red-700 dark:text-red-300 font-medium" : "text-slate-900 dark:text-slate-100";
+              return (
+                <tr key={w.start} className="border-t border-slate-100 dark:border-slate-800">
+                  <th scope="row" className={`${STICKY} py-1.5 pr-3 text-left font-normal text-slate-600 dark:text-slate-300 whitespace-nowrap`}>
+                    {sunSatLabel(w.start, w.end)}
+                  </th>
+                  <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.sales == null ? NA : money(w.sales)}</td>
+                  <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.actual == null ? NA : money(w.actual)}</td>
+                  <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.actualPct == null ? NA : formatValue(w.actualPct, "pct")}</td>
+                  <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.targetPct.value == null ? NA : formatValue(w.targetPct.value, "pct")}</td>
+                  <td className={`${cell} ${tone}`}>{w.varianceDollars == null ? NA : signed(w.varianceDollars, "money")}</td>
+                  <td className={`${cell} ${tone}`}>{w.varianceHours == null ? NA : signed(w.varianceHours, "hours")}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {withCatering.length > 0 && (
+        <ul className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
+          {withCatering.map((w) => (
+            <li key={w.start}>
+              {sunSatLabel(w.start, w.end)}: catering crew billed to clients, {formatValue(w.cateringHours!, "hours")} and {money(w.cateringOffset!)} all-in,
+              taken off hourly labor.
+            </li>
+          ))}
+        </ul>
+      )}
+      {unavailable.length > 0 && (
+        <div className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
+          <p>Not available (n/a), never counted as zero:</p>
+          <ul className="list-disc pl-5 mt-0.5">
+            {unavailable.map((w) => {
+              const reasons = [...w.why, ...(w.targetPct.value == null ? [`target needs ${w.targetPct.needs.join(", ")}`] : [])];
+              return (
+                <li key={w.start}>
+                  {sunSatLabel(w.start, w.end)}: {reasons.length ? reasons.join("; ") : "nothing to compare"}.
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      <Method>
+        <p>
+          Weeks run Sunday to Saturday; a week belongs to the month its Sunday is in. Sales are in-store sales for all seven days. A week
+          shows only once it is over and every one of its seven days has hourly payroll on file; a day missing from the payroll or the
+          sales makes that week not available. Nothing is estimated from punches or the schedule.
+        </p>
+        <p>
+          Both sides are all-in: payroll cost with employer taxes and workers&rsquo; comp, not just wages.
+        </p>
+        <p>
+          Hourly labor, all-in = wages, catering premium and solo-close bonuses as QBO Payroll paid them to hourly staff (salaried and
+          overhead staff are left out), each pay period spread over its days by hours worked, less the catering crew the client paid
+          for, plus employer taxes and workers&rsquo; comp on the rest at the Targets tab&rsquo;s rates in force on each day (FICA, FUTA,
+          PA UC and workers&rsquo; comp, full rates, no wage caps).
+        </p>
+        <p>
+          Catering crew the client paid for = each booked deal&rsquo;s billed crew hours (labor hours x staff count) at crew cost plus
+          the catering premium, worked out exactly as the Schedule page&rsquo;s labor line does, so the two agree. Sales are in-store
+          only, so catering comes out of both sides. A deal billed zero crew hours (a pickup) takes nothing off; a booked deal with
+          no billed crew hours on file makes its week not available. Before the catering premium was first set it was zero.
+        </p>
+        <p>
+          Target %, all-in = the Targets tab&rsquo;s all-in hourly goal in force on each day (the payroll target less fixed payroll,
+          as a share of sales{goals.length ? `: ${goals.join(", ")} of sales this month` : ""}). Each day&rsquo;s sales are held to
+          that day&rsquo;s target, and fixed payroll on a day counts the people who were salaried that day.
+        </p>
+        <p>
+          Variance $ = hourly labor less target % x sales; above zero (red) is over target. Variance hours = variance $ at the
+          week&rsquo;s own in-store cost per hour (hourly labor / hours paid less the catering crew&rsquo;s billed hours).
+        </p>
+      </Method>
+    </div>
+  );
+}
