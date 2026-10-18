@@ -94,6 +94,7 @@ documentation_map:
       - "app/api/pf/overrides/route.ts"
       - "components/pf/**"
       - "lib/pf/**"
+      - "fixtures/pf_data.sample.json"
       - "supabase/crm/011_pf_category_overrides*.sql"
     docs: [README.md]
   - paths: ["time-app/lib/hosts.ts", "time-app/middleware.ts"]
