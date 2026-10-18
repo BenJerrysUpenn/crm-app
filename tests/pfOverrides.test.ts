@@ -102,6 +102,7 @@ const { POST } = await import("@/app/api/pf/overrides/route");
 const { categorizedStamp } = await import("@/components/pf/MetaBanner");
 const SafePage = (await import("@/app/safe/page")).default;
 const MoneyPage = (await import("@/app/money/page")).default;
+const { loadMoneyForOwner } = await import("@/lib/pf/access");
 
 const row = (over: Partial<ExplorerRow> = {}): ExplorerRow => ({
   d: "2026-10-01",
@@ -442,6 +443,26 @@ describe("the pages", () => {
       corrected: "transaction",
     });
     expect(corrected.find((r) => r.id === "fx-001")?.c).toBe("Paychecks");
+  });
+
+  // lib/pf/access.ts: with no feed there are no rows to lay corrections over,
+  // so the door hands back none, even when some are stored.
+  it("hands /money no corrections when the feed is missing", async () => {
+    state.user = { id: ALLOWED, email: "a@example.test" };
+    state.saved = [
+      {
+        id: "o1",
+        scope: "transaction",
+        txn_id: "fx-003",
+        merchant: "Fixture Brokerage",
+        category: "Dividends & Capital Gains",
+        created_at: "2026-10-02T00:00:00Z",
+      },
+    ];
+    vi.stubEnv("PF_DATA_PATH", "");
+    const { feed, overrides } = await loadMoneyForOwner();
+    expect(feed.ok).toBe(false);
+    expect(overrides).toEqual([]);
   });
 
   it("still renders /money before crm/011 exists (no corrections table)", async () => {
