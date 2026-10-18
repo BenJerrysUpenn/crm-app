@@ -4,6 +4,7 @@ import { isISODate } from "@/lib/holidays";
 import { isMissingTable, parseSpan } from "@/lib/storeHours";
 import type { StoreHoursException } from "@/lib/types";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -17,7 +18,7 @@ export const fetchCache = "force-no-store";
 // -> { exception: StoreHoursException }
 export async function POST(request: Request) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await request.json().catch(() => null);

@@ -1,0 +1,83 @@
+// What the sales chart draws (bj-finance #671): cumulative month to date
+// against the pace line, and months against their targets.
+//
+//   npm test
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import { lastN, periodCount, salesByMonth, salesMonthToDate } from "./series.ts";
+import { TEST_TARGETS } from "./targets.fixture.ts";
+
+const catering = { "2026-10-02": 1000, "2026-10-09": 500, "2026-10-20": 700, "2026-09-12": 300, "2026-12-05": 900 };
+
+test("catering alone: cumulative to the as-of day, then nothing; pace to the catering target; progress", () => {
+  const m = salesMonthToDate({ catering }, TEST_TARGETS, "catering", "2026-10-10");
+  assert.equal(m.days.length, 31);
+  const c = m.cumulative[0].values;
+  assert.equal(c[0], 0);
+  assert.equal(c[1], 1000);
+  assert.equal(c[9], 1500);
+  assert.equal(c[10], null); // after today: booked events are not sales yet
+  assert.equal(m.pace?.[30], 5908);
+  assert.equal(m.progress?.paceToDate, 1905.81); // 5,908 x 10/31
+  assert.equal(m.progress?.vsPace, -405.81);
+  assert.deepEqual(m.waitingOn, []);
+});
+
+test("all streams with only catering in: no whole-business progress, and it says what it is waiting on", () => {
+  const m = salesMonthToDate({ catering }, TEST_TARGETS, "all", "2026-10-10");
+  assert.equal(m.progress, null);
+  assert.deepEqual(m.waitingOn, ["in_store", "concessions"]);
+  assert.equal(m.actualSoFar, 1500);
+  assert.equal(m.target?.amount, 38_049); // the tiles show the whole target
+  assert.equal(m.pace?.[30], 5_908); // the chart sets catering against catering's target
+  assert.equal(m.paceLabel, "Pace to catering target");
+});
+
+test("all streams once the feed is in: progress over the sum", () => {
+  const in_store = { "2026-10-01": 2000, "2026-10-10": 1000 };
+  const m = salesMonthToDate({ catering, in_store, concessions: {} }, TEST_TARGETS, "all", "2026-10-10");
+  assert.equal(m.progress?.actual, 4500);
+  assert.equal(m.progress?.paceToDate, 12273.87);
+});
+
+test("a feed stream stops at the day the feed runs to: no flat carry-forward to today", () => {
+  const in_store = { "2026-10-01": 2000, "2026-10-09": 1000 };
+  const m = salesMonthToDate({ catering, in_store, concessions: {} }, TEST_TARGETS, "all", "2026-10-10", { in_store: "2026-10-09", concessions: "2026-10-09" });
+  const store = m.cumulative.find((c) => c.stream === "in_store")!.values;
+  assert.equal(store[8], 3000);
+  assert.equal(store[9], null);
+  assert.equal(m.actualSoFar, 4500);
+});
+
+test("by month: twelve back, three ahead; only catering is shown ahead; target per month, provisional flagged", () => {
+  const m = salesByMonth({ catering, in_store: { "2026-10-01": 50 } }, TEST_TARGETS, "all", "2026-10-10");
+  assert.equal(m.months.length, 15);
+  assert.equal(m.months[0], "2025-11-01");
+  assert.equal(m.currentIndex, 11);
+  const cat = m.actual.find((a) => a.stream === "catering")!.values;
+  assert.equal(cat[10], 300); // September
+  assert.equal(cat[11], 2200); // October, booked to the 20th included
+  assert.equal(cat[13], 900); // December, booked
+  const store = m.actual.find((a) => a.stream === "in_store")!.values;
+  assert.equal(store[11], 50);
+  assert.equal(store[12], null);
+  // In-store and catering have data, concessions waits: the line is their targets.
+  assert.equal(m.target[13], 18_249 + 4_276);
+  assert.equal(m.targetLabel, "Target, in-store and catering");
+  assert.equal(m.provisional[13], true);
+  const all = salesByMonth({ catering, in_store: {}, concessions: {} }, TEST_TARGETS, "all", "2026-10-10");
+  assert.equal(all.target[13], 27_525);
+  assert.equal(all.targetLabel, "Target");
+  assert.equal(m.target[0], null); // no 2025 targets
+  assert.deepEqual(m.waitingOn, ["concessions"]);
+});
+
+test("a widget's period keeps that many of the latest weeks or months, or all there are", () => {
+  const weeks = ["w1", "w2", "w3", "w4", "w5", "w6", "w7", "w8", "w9", "w10"];
+  assert.deepEqual(lastN(weeks, periodCount("8w")), ["w3", "w4", "w5", "w6", "w7", "w8", "w9", "w10"]);
+  assert.deepEqual(lastN(["m1", "m2"], periodCount("12m")), ["m1", "m2"]);
+  assert.equal(periodCount("13w"), 13);
+  assert.equal(periodCount("mtd"), 0); // not a count
+});

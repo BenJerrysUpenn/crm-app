@@ -4,7 +4,7 @@
 // transaction Id) or "every charge from this merchant" (scope merchant, keyed
 // by the merchant name as the feed shows it, case-insensitively). They are
 // saved to public.pf_category_overrides (supabase/crm/011), which only the
-// service role can touch; every caller here has already passed lib/pf/guard.
+// service role can touch; every caller here has already passed lib/pf/access.
 // The 08:00 bookkeeping pass applies them to the ledger and folds merchant
 // corrections into the rules doc, so the page shows a saved correction at once
 // and the totals catch up at the next pass.

@@ -57,6 +57,12 @@ export type Deal = {
   picklist_notes: string | null;
   lead_source: string | null;
   how_did_you_hear: string | null;
+  // Channel + ad attribution, owned by Catering-Manager migration 024
+  // (bj-finance #715). Optional: absent from rows until 024 is applied.
+  source?: string | null;
+  ad_platform?: string | null;
+  ad_campaign_name?: string | null;
+  ad_name?: string | null;
   created_at: string;
   updated_at: string;
 };

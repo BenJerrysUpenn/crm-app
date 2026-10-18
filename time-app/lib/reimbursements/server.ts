@@ -6,6 +6,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { MANAGER_ROLES } from "@/lib/roles";
 import { notify, emailForUser } from "@/lib/notify";
 import { emailConfigured, sendEmail, type EmailAttachment } from "@/lib/email";
 import { isMissingTable } from "@/lib/storeHours";
@@ -165,7 +166,7 @@ export async function profileLite(id: string): Promise<ProfileLite | null> {
 
 /** On submit (and resubmit): every Approver who may decide it, but not its submitter. */
 export async function notifyApprovers(subject: ProfileLite, row: Pick<ReimbursementRow, "reason_kind" | "reason_note" | "event_label" | "trip_date">, totalCents: number | null) {
-  const { data } = await createAdminClient().from("profiles").select(PROFILE_LITE_COLUMNS).eq("role", "manager");
+  const { data } = await createAdminClient().from("profiles").select(PROFILE_LITE_COLUMNS).in("role", MANAGER_ROLES);
   const who = subject.full_name ?? "A staff member";
   for (const a of approversToNotify((data ?? []) as ProfileLite[], subject)) {
     const email = await emailForUser(a.id);

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { pfApiViewer } from "@/lib/pf/guard";
+import { loadPfApiForOwner } from "@/lib/pf/access";
 import { parseOverrideInput, saveOverride } from "@/lib/pf/overrides";
 
 export const dynamic = "force-dynamic";
 
 // POST /api/pf/overrides  { scope, txn_id, merchant, category }
 //
-// Saves one category correction from /money (bj-finance #223). Only the
-// household accounts in PF_ALLOWED_USER_IDS get past lib/pf/guard; everyone
+// Saves one category correction from /money (bj-finance #223). Only an owner
+// (profiles.role, time-app migration 42) gets past lib/pf/access; everyone
 // else gets the same 401/404 the pages give. The write goes through the
 // service role because the table admits only that role (SELECT, INSERT; crm/011).
 //
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 // meta.categories, byte for byte. Corrections are append-only: a later one
 // for the same transaction or merchant wins.
 export async function POST(request: Request) {
-  const viewer = await pfApiViewer();
+  const viewer = await loadPfApiForOwner();
   if (!viewer.ok)
     return NextResponse.json(
       { error: viewer.status === 401 ? "Not signed in" : "Not found" },

@@ -21,8 +21,8 @@ the person, with both options costed before they are shown.
 | Choices endpoint | `POST` / `DELETE /api/payroll/rulings` |
 | Submittal endpoint | `POST /api/payroll/submit` |
 | Event shift + punch, one save (from 2026-10-05) | `POST /api/payroll/event-punch`, shape in `time-app/lib/payroll/eventShift.ts` |
-| The page | `https://finance.withers-ventures.com/payroll` (`/payroll` on localhost and previews), manager-only |
-| Solo-close dropdowns | the **Schedule** view, manager-only (`components/SoloCloseNights.tsx`) |
+| The page | `https://finance.withers-ventures.com/payroll` (`/payroll` on localhost and previews), managers and owners only |
+| Solo-close dropdowns | the **Schedule** view, managers and owners only (`components/SoloCloseNights.tsx`) |
 | Tests | `time-app/lib/payroll/*.test.ts` — `npm test` |
 
 The rulebook is pure and dependency-free, like `lib/coverage.ts`: the route
@@ -164,7 +164,12 @@ built on the Mac, published to `payroll_sheets` (migration 36) by
 
 - one row per person, columns in QBO's Run Payroll order (Regular hours,
   Overtime hours, Paycheck tips, Solo close, Catering premium, Catering
-  premium OT, Travel reimbursement), then the rate and the wages
+  premium OT, Travel reimbursement). Three info columns sit among them,
+  never keyed into QBO and never in a pay total (2026-10-12): Catering
+  hours (everyone's catering hours, salaried and $20+/h included; the total
+  is the sheet's own `totals.catering_hours`) just before Catering premium,
+  and Marketing hours and Marketing cost (marketing labour booked toward the
+  2% marketing obligation) after Catering premium OT. Then the rate and the wages
   (rate × regular + 1.5 × rate × OT, from the sheet; "salary"; or "no rate");
   a totals row;
 - each row opens onto its punches (date, in, out, paid-to when cut back,
@@ -306,15 +311,18 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_25.sql` | `row_audit` + triggers — 1.15 reads it |
 | `time-app/supabase/migration_26.sql` | `profiles.qbo_employee_id`, `profiles.pay_type`, `held_tips` — spec 2.5, 3.6 |
 | `time-app/supabase/migration_27.sql` | `payroll_rulings` (per-case choices, locked once their run is submitted) and `payroll_run_submittals` (final; `status` is the §6 seam) |
-| `time-app/supabase/migration_28.sql` | extends migration 26's profile guard: an employee cannot change their own `hourly_rate` or `active` either (managers and the service role still can) |
+| `time-app/supabase/migration_28.sql` | extends migration 26's profile guard: an employee cannot change their own `hourly_rate` or `active` either (managers, owners and the service role still can) |
 | `time-app/supabase/migration_35.sql` | redefines `payroll_punch_blockers()`: 1.5 measures a punch only against its own shift (explicit or the person's that day), never a 1.10 cover; a person's latest punch is no longer skipped as a NULL runaway |
 | `time-app/supabase/migration_36.sql` | `payroll_sheets` (every pay table build and Rebuild request; service-role writes, manager reads, built rows frozen), `payroll_rulings` audited in `row_audit`, and the submittal guard's pay-table condition |
+| `time-app/supabase/migration_42.sql` | the `owner` role: `is_manager()` is now true for owners, so every manager policy here (rulings, submittals, sheets) admits them, and migration 37's travel-reimbursement guard and payroll views read the owner role; `is_owner()` and a profile guard keep the owner role and owners' rows to owners |
+| `time-app/supabase/migration_46.sql` | `labor_paycheck_actuals`: one row per hourly paycheck as QBO Payroll paid it, written from the saved paystub PDFs by bj-finance (`modules.labor_actuals`), and `labor_daily_actuals`: a tied pay period's labor placed on its days (When I Work timesheets before the time app, punches after). Both read by managers only. Nothing in the verify reads them; see README, "Hourly payroll actuals" |
 
-All four are applied by hand in the Supabase SQL editor, in order, and all are
-safe to re-run. Each has a `migration_2N_verify.sql` to run afterwards (in a
-transaction that rolls back) and a `migration_2N_down.sql` that reverses it;
+All of these are applied by hand in the Supabase SQL editor, in order, and all are
+safe to re-run. Each has a `migration_N_verify.sql` to run afterwards (in a
+transaction that rolls back) and a `migration_N_down.sql` that reverses it;
 the header of each down script says what data it loses. Roll back in reverse
-order: 28, then 27, then 26, then 25. Until 27
+order: 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
+not payroll; see README) rolls back before 42, whose `is_owner()` its policies call. Until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 
 ## Not built yet

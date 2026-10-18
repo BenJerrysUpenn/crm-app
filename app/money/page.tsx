@@ -2,7 +2,7 @@ import PfTopBar from "@/components/pf/PfTopBar";
 import MetaBanner from "@/components/pf/MetaBanner";
 import FeedMissing from "@/components/pf/FeedMissing";
 import MoneyExplorer from "@/components/pf/MoneyExplorer";
-import { loadPfForViewer } from "@/lib/pf/guard";
+import { loadPfForOwner } from "@/lib/pf/access";
 import { applyOverrides, loadOverrides } from "@/lib/pf/overrides";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Money explorer" };
 
 export default async function MoneyPage() {
-  const { email, feed } = await loadPfForViewer();
+  // Owners only; anyone else gets a 404 before the feed is read (lib/pf/access.ts).
+  const { email, feed } = await loadPfForOwner();
   // Saved corrections are laid over the rows' categories until the 08:00
   // bookkeeping pass folds them into the feed (bj-finance #223).
   const overrides = feed.ok

@@ -31,15 +31,28 @@ const FEED_WITHOUT_CATEGORIES = (() => {
 
 const state = vi.hoisted(() => ({
   user: null as null | { id: string; email: string },
+  role: "owner" as string | null,
   inserted: [] as Record<string, unknown>[],
   insertError: null as null | { message: string; code?: string },
   saved: [] as unknown[],
   readError: null as unknown,
 }));
 
+// The server client lib/pf/access reads: the signed-in user, then that user's
+// profiles.role (owner-only gate, time-app migration 42).
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({
     auth: { getUser: async () => ({ data: { user: state.user }, error: null }) },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: state.user ? { role: state.role } : null,
+            error: null,
+          }),
+        }),
+      }),
+    }),
   }),
 }));
 vi.mock("next/navigation", () => ({
@@ -120,11 +133,11 @@ function post(body: unknown) {
 
 beforeEach(() => {
   state.user = null;
+  state.role = "owner";
   state.inserted = [];
   state.insertError = null;
   state.saved = [];
   state.readError = null;
-  vi.stubEnv("PF_ALLOWED_USER_IDS", ALLOWED);
   vi.stubEnv("PF_DATA_PATH", SAMPLE_FEED);
   vi.stubEnv("PF_GITHUB_TOKEN", "");
 });
@@ -252,9 +265,10 @@ describe("the overrides table", () => {
 });
 
 describe("POST /api/pf/overrides", () => {
-  it("is 401 signed out and 404 for anyone not on the allowlist", async () => {
+  it("is 401 signed out and 404 for anyone who is not an owner", async () => {
     expect((await post(good)).status).toBe(401);
     state.user = { id: STAFF, email: "s@example.test" };
+    state.role = "manager";
     expect((await post(good)).status).toBe(404);
     expect(state.inserted).toEqual([]);
   });

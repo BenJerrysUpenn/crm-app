@@ -37,13 +37,12 @@
 -- admits NOBODY through the API roles, and the app decides who is household:
 --   * anon and authenticated: no privileges, and RLS on with no policy, so
 --     even a stray grant would show them nothing.
---   * service_role (crm-app server only, after lib/pf/guard.ts has checked
---     the caller is in PF_ALLOWED_USER_IDS): SELECT and INSERT. No UPDATE or
---     DELETE.
+--   * service_role (crm-app server only, after lib/pf/access.ts has checked
+--     the caller is an owner): SELECT and INSERT. No UPDATE or DELETE.
 --   * postgres (the 08:00 pass's direct DSN, read only in practice) owns the
 --     table and bypasses RLS.
--- One allowlist, PF_ALLOWED_USER_IDS, therefore governs both the pages and
--- this table.
+-- One owner gate (profiles.role, time-app migration 42) therefore governs both
+-- the pages and this table.
 -- ============================================================================
 
 BEGIN;
@@ -63,7 +62,7 @@ CREATE TABLE IF NOT EXISTS public.pf_category_overrides (
 COMMENT ON TABLE public.pf_category_overrides IS
   'Category corrections Alina makes on /money (crm/011, bj-finance #223). '
   'Append-only; newest per transaction or merchant wins. Written and read only '
-  'by the crm-app server (service role) after the PF_ALLOWED_USER_IDS guard; '
+  'by the crm-app server (service role) after the owner gate (lib/pf/access.ts); '
   'read by the 08:00 personal bookkeeping pass. anon/authenticated: nothing.';
 
 CREATE INDEX IF NOT EXISTS pf_category_overrides_created_at_idx

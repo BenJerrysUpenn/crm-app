@@ -1,13 +1,11 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { isPfPath, isGateExempt } from "@/lib/roles";
 import { handleShortLinkRequest, isShortLinkHost } from "@/lib/shortLinks";
 
 // Personal-finance pages live on their own subdomain (same Vercel project,
 // host-routed) — mirroring how crm./time. split off this repo.
 const PF_HOST = "personal.withers-ventures.com";
-// The pf pages, plus the API the /money change-category button posts to
-// (bj-finance #223): on the personal host it must not bounce to /safe.
-const PF_ROUTES = ["/money", "/dial", "/safe", "/api/pf"];
 
 const CRON_CATERING_SHIFTS = "/api/cron/catering-shifts";
 
@@ -46,17 +44,29 @@ export async function middleware(request: NextRequest, event?: NextFetchEvent) {
   if (pathname === CRON_CATERING_SHIFTS) {
     return NextResponse.next();
   }
-  const isPfRoute = PF_ROUTES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`)
-  );
+  // The pf pages (lib/roles.ts) plus the API the /money change-category button
+  // posts to (bj-finance #223): on the personal host these must not bounce to
+  // /safe, and on the CRM host they redirect to the personal host like the
+  // pages. "/api/pfx" and the like are not pf routes.
+  const isPfRoute =
+    isPfPath(pathname) ||
+    pathname === "/api/pf" ||
+    pathname.startsWith("/api/pf/");
 
   if (host === PF_HOST) {
     // Landing: the phone-frequent widget. Auth still applies below.
     if (pathname === "/") {
       return NextResponse.redirect(new URL("/safe", request.url));
     }
-    // Keep the CRM off this host (auth/login routes stay shared).
-    if (!isPfRoute && pathname !== "/login" && !pathname.startsWith("/auth")) {
+    // Keep the CRM off this host (auth/login routes stay shared, and so do
+    // sign-out and the "no access" page the role gate sends an employee to;
+    // bouncing those to /safe would loop them between /safe and /no-access).
+    if (
+      !isPfRoute &&
+      pathname !== "/login" &&
+      !pathname.startsWith("/auth") &&
+      !isGateExempt(pathname)
+    ) {
       return NextResponse.redirect(new URL("/safe", request.url));
     }
   } else if (isPfRoute && host.endsWith("withers-ventures.com")) {

@@ -2,13 +2,14 @@ import PfTopBar from "@/components/pf/PfTopBar";
 import MetaBanner from "@/components/pf/MetaBanner";
 import FeedMissing from "@/components/pf/FeedMissing";
 import SafeToSpend from "@/components/pf/SafeToSpend";
-import { loadPfForViewer } from "@/lib/pf/guard";
+import { loadPfForOwner } from "@/lib/pf/access";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Safe to spend" };
 
 export default async function SafePage() {
-  const { email, feed } = await loadPfForViewer();
+  // Owners only; anyone else gets a 404 before the feed is read (lib/pf/access.ts).
+  const { email, feed } = await loadPfForOwner();
 
   return (
     <div className="min-h-screen flex flex-col">
