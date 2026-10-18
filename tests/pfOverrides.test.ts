@@ -166,6 +166,13 @@ describe("parseOverrideInput", () => {
     });
   });
 
+  // crm/011 holds a merchant of up to 200 characters; the route refuses a
+  // 65-character id below, so 64 is the longest it takes.
+  it("accepts a 64-character id and a 200-character merchant, the longest it stores", () => {
+    const longest = { ...good, txn_id: "x".repeat(64), merchant: "m".repeat(200) };
+    expect(parseOverrideInput(longest, CATS)).toEqual({ ok: true, input: longest });
+  });
+
   it.each([
     [null, "Bad body"],
     [{ ...good, scope: "all" }, "scope"],
