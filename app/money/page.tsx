@@ -3,7 +3,7 @@ import MetaBanner from "@/components/pf/MetaBanner";
 import FeedMissing from "@/components/pf/FeedMissing";
 import MoneyExplorer from "@/components/pf/MoneyExplorer";
 import { loadPfForOwner } from "@/lib/pf/access";
-import { applyOverrides, loadOverrides } from "@/lib/pf/overrides";
+import { loadOverrides } from "@/lib/pf/overrides";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +12,9 @@ export const metadata = { title: "Money explorer" };
 export default async function MoneyPage() {
   // Owners only; anyone else gets a 404 before the feed is read (lib/pf/access.ts).
   const { email, feed } = await loadPfForOwner();
-  // Saved corrections are laid over the rows' categories until the 08:00
-  // bookkeeping pass folds them into the feed (bj-finance #223).
+  // Saved corrections are laid over the rows' categories by the explorer,
+  // together with any saved in the visit, in one precedence pass — until the
+  // 08:00 bookkeeping pass folds them into the feed (bj-finance #223).
   const overrides = feed.ok
     ? await loadOverrides(createAdminClient())
     : [];
@@ -28,10 +29,8 @@ export default async function MoneyPage() {
               <MetaBanner meta={feed.data.meta} />
             </div>
             <MoneyExplorer
-              data={{
-                ...feed.data.explorer,
-                rows: applyOverrides(feed.data.explorer.rows, overrides),
-              }}
+              data={feed.data.explorer}
+              overrides={overrides}
               categories={feed.data.meta.categories ?? []}
             />
           </>

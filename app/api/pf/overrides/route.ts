@@ -44,7 +44,12 @@ export async function POST(request: Request) {
     parsed.input,
     viewer.userId,
   );
-  if (!saved.ok)
+  if (!saved.ok) {
+    // The table not being there yet (503) is expected before crm/011; a real
+    // save failure (500) must not pass unnoticed (CODING_STANDARDS.md
+    // fail-loudly), so log the DB message the caller never sees.
+    if (saved.reason === "failed")
+      console.error("POST /api/pf/overrides: could not save correction", saved.message);
     return NextResponse.json(
       {
         error:
@@ -54,5 +59,6 @@ export async function POST(request: Request) {
       },
       { status: saved.reason === "missing_table" ? 503 : 500 },
     );
+  }
   return NextResponse.json({ override: saved.override }, { status: 201 });
 }

@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CorrectedRow } from "@/lib/pf/overrides";
+import type { CorrectedRow, PfOverride } from "@/lib/pf/overrides";
 import type { ExplorerRow, PfMeta } from "@/lib/pf/types";
 
 const ALLOWED = "00000000-0000-0000-0000-0000000000a1";
@@ -339,12 +339,19 @@ describe("POST /api/pf/overrides", () => {
 
   it("says when the table is not there yet, and when the write fails", async () => {
     state.user = { id: ALLOWED, email: "a@example.test" };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Not there yet: expected before crm/011, so 503 and nothing logged.
     state.insertError = { message: "missing", code: "42P01" };
     const pending = await post(good);
     expect(pending.status).toBe(503);
     expect((await pending.json()).error).toContain("not switched on yet");
+    expect(logged).not.toHaveBeenCalled();
+    // A real failure: 500, and the DB message is logged (fail-loudly), not
+    // swallowed as the caller sees only the generic error.
     state.insertError = { message: "boom" };
     expect((await post(good)).status).toBe(500);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("could not save"), "boom");
+    logged.mockRestore();
   });
 });
 
@@ -384,22 +391,27 @@ describe("the pages", () => {
 
   // The explorer only draws a row's category once a merchant is clicked, so a
   // static render cannot show it. What /money hands the explorer is the
-  // server-to-client boundary: the rows serialised to the browser.
-  const rowsSentToExplorer = (node: unknown): CorrectedRow[] | null => {
+  // server-to-client boundary: the untouched rows plus the stored corrections,
+  // which the explorer lays over them in one precedence pass (so an in-visit
+  // save and a reload agree).
+  const explorerProps = (
+    node: unknown,
+  ): { rows: CorrectedRow[]; overrides: PfOverride[] } | null => {
     if (!node || typeof node !== "object") return null;
     const props = (node as { props?: Record<string, unknown> }).props;
     if (!props) return null;
     const data = props.data as { rows?: CorrectedRow[] } | undefined;
-    if (Array.isArray(data?.rows)) return data.rows;
+    if (Array.isArray(data?.rows) && Array.isArray(props.overrides))
+      return { rows: data.rows, overrides: props.overrides as PfOverride[] };
     const kids = props.children;
     for (const kid of Array.isArray(kids) ? kids : [kids]) {
-      const found = rowsSentToExplorer(kid);
+      const found = explorerProps(kid);
       if (found) return found;
     }
     return null;
   };
 
-  it("lays a saved correction over the row's category on /money before the next pass", async () => {
+  it("hands the explorer untouched rows and the saved corrections to lay over them", async () => {
     state.user = { id: ALLOWED, email: "a@example.test" };
     state.saved = [
       {
@@ -411,12 +423,19 @@ describe("the pages", () => {
         created_at: "2026-10-02T00:00:00Z",
       },
     ];
-    const rows = rowsSentToExplorer(await MoneyPage());
-    expect(rows?.find((r) => r.id === "fx-003")).toMatchObject({
+    const sent = explorerProps(await MoneyPage());
+    expect(sent).not.toBeNull();
+    // The server no longer pre-applies: the serialised rows carry no correction.
+    expect((sent!.rows.find((r) => r.id === "fx-003") as CorrectedRow).corrected).toBeUndefined();
+    expect(sent!.overrides).toHaveLength(1);
+    // The one pass the explorer runs (stored + in-visit) corrects fx-003 and
+    // leaves fx-001 — the same result a reload gives.
+    const corrected = applyOverrides(sent!.rows, sent!.overrides);
+    expect(corrected.find((r) => r.id === "fx-003")).toMatchObject({
       c: "Dividends & Capital Gains",
       corrected: "transaction",
     });
-    expect(rows?.find((r) => r.id === "fx-001")?.c).toBe("Paychecks");
+    expect(corrected.find((r) => r.id === "fx-001")?.c).toBe("Paychecks");
   });
 
   it("still renders /money before crm/011 exists (no corrections table)", async () => {

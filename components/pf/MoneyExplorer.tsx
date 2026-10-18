@@ -94,13 +94,16 @@ function stackY(items: [string, number][], sc: number, y0: number): Stacked[] {
 
 export default function MoneyExplorer({
   data: feed,
+  overrides,
   categories,
 }: {
   data: ExplorerData;
+  /** Corrections already saved before this visit (loaded on the server). */
+  overrides: PfOverride[];
   /** Monarch names the change-category button offers (meta.categories). */
   categories: string[];
 }) {
-  // Corrections saved in this visit, laid over the server-corrected rows.
+  // Corrections saved in this visit, added to the server-loaded ones.
   const [saved, setSaved] = useState<PfOverride[]>([]);
   const [editing, setEditing] = useState<CorrectedRow | null>(null);
   const [announce, setAnnounce] = useState("");
@@ -113,7 +116,14 @@ export default function MoneyExplorer({
       returnFocus.current = null;
     }
   }, [editing]);
-  const data = { ...feed, rows: applyOverrides(feed.rows, saved) as CorrectedRow[] };
+  // One precedence pass over every correction — those saved before this visit
+  // and those saved in it — so the page shows the same category a reload will,
+  // and a transaction correction still beats a merchant one. applyOverrides
+  // sorts by created_at, so the two sources can be concatenated in any order.
+  const data = {
+    ...feed,
+    rows: applyOverrides(feed.rows, [...overrides, ...saved]) as CorrectedRow[],
+  };
   const months = data.months;
   const [lens, setLens] = useState<Lens>("cat");
   const [nav, setNav] = useState<Nav>({
