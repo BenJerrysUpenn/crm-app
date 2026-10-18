@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CorrectedRow } from "@/lib/pf/overrides";
 import type { ExplorerRow, PfMeta } from "@/lib/pf/types";
 
 const ALLOWED = "00000000-0000-0000-0000-0000000000a1";
@@ -372,6 +373,43 @@ describe("the pages", () => {
 
   it("does not show the stamp on /money", async () => {
     expect(await render(MoneyPage)).not.toContain("Categorized through");
+  });
+
+  // The explorer only draws a row's category once a merchant is clicked, so a
+  // static render cannot show it. What /money hands the explorer is the
+  // server-to-client boundary: the rows serialised to the browser.
+  const rowsSentToExplorer = (node: unknown): CorrectedRow[] | null => {
+    if (!node || typeof node !== "object") return null;
+    const props = (node as { props?: Record<string, unknown> }).props;
+    if (!props) return null;
+    const data = props.data as { rows?: CorrectedRow[] } | undefined;
+    if (Array.isArray(data?.rows)) return data.rows;
+    const kids = props.children;
+    for (const kid of Array.isArray(kids) ? kids : [kids]) {
+      const found = rowsSentToExplorer(kid);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  it("lays a saved correction over the row's category on /money before the next pass", async () => {
+    state.user = { id: ALLOWED, email: "a@example.test" };
+    state.saved = [
+      {
+        id: "o1",
+        scope: "transaction",
+        txn_id: "fx-003",
+        merchant: "Fixture Brokerage",
+        category: "Dividends & Capital Gains",
+        created_at: "2026-10-02T00:00:00Z",
+      },
+    ];
+    const rows = rowsSentToExplorer(await MoneyPage());
+    expect(rows?.find((r) => r.id === "fx-003")).toMatchObject({
+      c: "Dividends & Capital Gains",
+      corrected: "transaction",
+    });
+    expect(rows?.find((r) => r.id === "fx-001")?.c).toBe("Paychecks");
   });
 
   it("still renders /money before crm/011 exists (no corrections table)", async () => {
