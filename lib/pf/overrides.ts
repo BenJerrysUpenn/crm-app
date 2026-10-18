@@ -34,12 +34,9 @@ export interface OverrideInput {
  *
  *  The same rule lives in the Python bookkeeping pass
  *  (automation/pf_categories.merchant_key), which re-applies these corrections
- *  to the ledger. Kept duplicated on purpose (bj-finance #223 review): the two
- *  are in separate repos and languages, each is pinned by its own tests (the TS
- *  side by tests/pfOverrides.test.ts), and the 38-char shape is a fixed external
- *  fact, not a policy that churns. Publishing the key in the feed would still
- *  leave the saved override's raw merchant for the Python pass to re-key, and
- *  would couple the frozen crm/011 schema — a follow-up if that schema moves. */
+ *  to the ledger. The two are in separate repos and are kept in step by hand,
+ *  each pinned by its own tests (this side by tests/pfOverrides.test.ts): change
+ *  one, change the other. */
 export const merchantKey = (m: string) => m.trim().slice(0, 38).toLowerCase();
 
 /** Validate a POST body. Returns the clean input or the reason it is refused. */
