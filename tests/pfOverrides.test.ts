@@ -427,7 +427,7 @@ describe("the pages", () => {
     ];
     const sent = explorerProps(await MoneyPage());
     expect(sent).not.toBeNull();
-    // The server no longer pre-applies: the serialised row keeps the feed's own
+    // The server does not pre-apply: the serialised row keeps the feed's own
     // category, and the stored correction travels beside it unchanged.
     expect(sent!.rows.find((r) => r.id === "fx-003")).toMatchObject({ c: "Interest" });
     expect((sent!.rows.find((r) => r.id === "fx-003") as CorrectedRow).corrected).toBeUndefined();
