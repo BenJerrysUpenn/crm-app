@@ -112,6 +112,11 @@ interface OverridesTable {
 
 const COLS = "id, scope, txn_id, merchant, category, created_at";
 
+/** The table is not there yet (crm/011 not applied): Postgres's
+ *  undefined_table, or PostgREST's "not in the schema cache". */
+const isMissingTable = (error: { code?: string }) =>
+  error.code === "42P01" || error.code === "PGRST205";
+
 /** Every saved correction, oldest first. The table not existing before crm/011
  *  is applied is expected and silent. Any other read failure (a permission or
  *  network error) is logged — it must not pass unnoticed (CODING_STANDARDS.md
@@ -123,8 +128,7 @@ export async function loadOverrides(db: OverridesTable): Promise<PfOverride[]> {
     .select(COLS)
     .order("created_at", { ascending: true });
   if (error) {
-    const missingTable = error.code === "42P01" || error.code === "PGRST205";
-    if (!missingTable)
+    if (!isMissingTable(error))
       console.error(
         "loadOverrides: could not read pf_category_overrides",
         error,
@@ -150,10 +154,9 @@ export async function saveOverride(
     .select(COLS)
     .single();
   if (error) {
-    const missing = error.code === "42P01" || error.code === "PGRST205";
     return {
       ok: false,
-      reason: missing ? "missing_table" : "failed",
+      reason: isMissingTable(error) ? "missing_table" : "failed",
       message: error.message,
     };
   }
