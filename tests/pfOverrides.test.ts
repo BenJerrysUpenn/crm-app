@@ -149,6 +149,22 @@ describe("parseOverrideInput", () => {
     expect(r).toEqual({ ok: true, input: { ...good, scope: "merchant" } });
   });
 
+  it("accepts a just-this-one correction, trimming the id and merchant", () => {
+    const r = parseOverrideInput(
+      { ...good, scope: "transaction", txn_id: " t9 ", merchant: " Corner Store " },
+      CATS,
+    );
+    expect(r).toEqual({
+      ok: true,
+      input: {
+        scope: "transaction",
+        txn_id: "t9",
+        merchant: "Corner Store",
+        category: "Household Employees ",
+      },
+    });
+  });
+
   it.each([
     [null, "Bad body"],
     [{ ...good, scope: "all" }, "scope"],
@@ -236,7 +252,7 @@ describe("applyOverrides", () => {
 });
 
 describe("the overrides table", () => {
-  it("reads every correction, and none when the read fails", async () => {
+  it("reads every correction, and none when the table returns no rows", async () => {
     const one = [{ id: "a" }];
     expect(await loadOverrides(fakeDb(one) as never)).toEqual(one);
     expect(await loadOverrides(fakeDb(null) as never)).toEqual([]);
