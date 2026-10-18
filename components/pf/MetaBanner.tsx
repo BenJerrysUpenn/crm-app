@@ -1,4 +1,5 @@
 import type { PfMeta } from "@/lib/pf/types";
+import { fmtEasternDate } from "@/lib/dateFormat";
 
 function fmtWhen(iso: string): string {
   const d = new Date(iso);
@@ -18,23 +19,12 @@ const cents = (c: number) =>
   "$" +
   Math.abs(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2 });
 
-function fmtDay(ymd: string): string {
-  const d = new Date(`${ymd}T12:00:00Z`);
-  if (isNaN(d.getTime())) return ymd;
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
 // "Categorized through …" (bj-finance #223): the newest day up to which the
 // 08:00 bookkeeping pass has given every transaction a real category. Rows
 // after it still carry Monarch's own category until the next pass.
 export function categorizedStamp(meta: PfMeta): string {
   if (meta.categorized_through)
-    return `Categorized through ${fmtDay(meta.categorized_through)}`;
+    return `Categorized through ${fmtEasternDate(meta.categorized_through)}`;
   return "⚠ Not categorized by the bookkeeping pass yet";
 }
 
