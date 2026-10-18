@@ -20,30 +20,10 @@ import { loadPfData, type PfLoadResult } from "./data";
 // Every page that serves PF data calls loadPfForOwner(); API routes call
 // loadPfApiForOwner(). Nothing else imports ./data (tests/ownerAccess.test.ts
 // enforces that).
-export async function loadPfForOwner(): Promise<{ email: string; feed: PfLoadResult }> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (!isOwnerRole(profile?.role)) notFound();
-
-  return { email: user.email ?? "", feed: await loadPfData() };
-}
-
-// The same owner gate for API routes, which answer with a status instead of
-// redirecting or rendering a 404: 401 signed out, 404 signed in but not an
-// owner (bj-finance #223). Allowed callers get the feed too (the overrides
-// route checks the posted category against meta.categories). This mirrors
-// loadPfForOwner's rule; the two share the one owner test in lib/roles.ts.
-export async function loadPfApiForOwner(): Promise<
-  | { ok: true; userId: string; feed: PfLoadResult }
+// The owner test both entry points share: who is signed in, and whether
+// their profiles.role is owner (lib/roles.ts).
+async function checkOwner(): Promise<
+  | { ok: true; user: { id: string; email?: string } }
   | { ok: false; status: 401 | 404 }
 > {
   const supabase = createClient();
@@ -59,5 +39,29 @@ export async function loadPfApiForOwner(): Promise<
     .maybeSingle();
   if (!isOwnerRole(profile?.role)) return { ok: false, status: 404 };
 
-  return { ok: true, userId: user.id, feed: await loadPfData() };
+  return { ok: true, user };
+}
+
+export async function loadPfForOwner(): Promise<{ email: string; feed: PfLoadResult }> {
+  const owner = await checkOwner();
+  if (!owner.ok) {
+    if (owner.status === 401) redirect("/login");
+    notFound();
+  }
+
+  return { email: owner.user.email ?? "", feed: await loadPfData() };
+}
+
+// The same owner gate for API routes, which answer with a status instead of
+// redirecting or rendering a 404: 401 signed out, 404 signed in but not an
+// owner (bj-finance #223). Allowed callers get the feed too (the overrides
+// route checks the posted category against meta.categories).
+export async function loadPfApiForOwner(): Promise<
+  | { ok: true; userId: string; feed: PfLoadResult }
+  | { ok: false; status: 401 | 404 }
+> {
+  const owner = await checkOwner();
+  if (!owner.ok) return owner;
+
+  return { ok: true, userId: owner.user.id, feed: await loadPfData() };
 }
