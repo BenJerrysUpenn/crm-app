@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { loadPfApiForOwner } from "@/lib/pf/access";
-import { parseOverrideInput, saveOverride } from "@/lib/pf/overrides";
+import { loadPfApiForOwner, savePfOverride } from "@/lib/pf/access";
+import { parseOverrideInput } from "@/lib/pf/overrides";
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +38,7 @@ export async function POST(request: Request) {
   const parsed = parseOverrideInput(body, categories);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
-  const saved = await saveOverride(
-    createAdminClient(),
-    parsed.input,
-    viewer.userId,
-  );
+  const saved = await savePfOverride(parsed.input, viewer.userId);
   if (!saved.ok) {
     // The table not being there yet (503) is expected before crm/011; a real
     // save failure (500) must not pass unnoticed (CODING_STANDARDS.md

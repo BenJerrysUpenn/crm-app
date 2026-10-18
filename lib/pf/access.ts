@@ -1,7 +1,14 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isOwnerRole } from "@/lib/roles";
 import { loadPfData, type PfLoadResult } from "./data";
+import {
+  loadOverrides,
+  saveOverride,
+  type OverrideInput,
+  type PfOverride,
+} from "./overrides";
 
 // The one door to the personal-finance feed (/money, /dial, /safe).
 //
@@ -18,8 +25,12 @@ import { loadPfData, type PfLoadResult } from "./data";
 // runs on the page, which a middleware bypass (audit M5) cannot skip.
 //
 // Every page that serves PF data calls loadPfForOwner(); API routes call
-// loadPfApiForOwner(). Nothing else imports ./data (tests/ownerAccess.test.ts
-// enforces that).
+// loadPfApiForOwner(). /money's category corrections (crm/011) live in a
+// table only the service role may touch, so the admin client is built here
+// too — loadMoneyForOwner() reads them, savePfOverride() writes one — behind
+// the same owner check. No pf page or route imports ./data or
+// @/lib/supabase/admin itself, so none can reach the feed or the corrections
+// table around the gate (tests/ownerAccess.test.ts enforces both).
 // The owner test both entry points share: who is signed in, and whether
 // their profiles.role is owner (lib/roles.ts).
 async function checkOwner(): Promise<
@@ -52,6 +63,21 @@ export async function loadPfForOwner(): Promise<{ email: string; feed: PfLoadRes
   return { email: owner.user.email ?? "", feed: await loadPfData() };
 }
 
+// /money, which on top of the feed lays the owners' saved category corrections
+// over the rows (bj-finance #223). The corrections come from the service-role
+// table (crm/011), read here behind the owner check so the page never reaches
+// the admin client itself. None are read when the feed is missing (nothing to
+// lay them over), nor before crm/011 is applied (loadOverrides returns []).
+export async function loadMoneyForOwner(): Promise<{
+  email: string;
+  feed: PfLoadResult;
+  overrides: PfOverride[];
+}> {
+  const { email, feed } = await loadPfForOwner();
+  const overrides = feed.ok ? await loadOverrides(createAdminClient()) : [];
+  return { email, feed, overrides };
+}
+
 // The same owner gate for API routes, which answer with a status instead of
 // redirecting or rendering a 404: 401 signed out, 404 signed in but not an
 // owner (bj-finance #223). Allowed callers get the feed too (the overrides
@@ -64,4 +90,15 @@ export async function loadPfApiForOwner(): Promise<
   if (!owner.ok) return owner;
 
   return { ok: true, userId: owner.user.id, feed: await loadPfData() };
+}
+
+// The write half of /money's corrections: one save to the service-role table
+// (crm/011). The route calls this after loadPfApiForOwner has gated the owner
+// and checked the category, so the admin client is built here, never in the
+// route. `missing_table` means crm/011 is not applied yet (saveOverride).
+export function savePfOverride(
+  input: OverrideInput,
+  userId: string,
+): ReturnType<typeof saveOverride> {
+  return saveOverride(createAdminClient(), input, userId);
 }
