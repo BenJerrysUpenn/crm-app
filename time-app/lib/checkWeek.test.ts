@@ -225,3 +225,54 @@ test("the Check week button renders nothing for an employee", () => {
   const html = renderToStaticMarkup(createElement(CheckWeekButton as never, { isManager: false, weekStart: WEEK }));
   assert.equal(html, "");
 });
+
+// --- Store-hours seasons (migration 47, bj-finance #742) ----------------------
+// From its first day a season's hours replace the weekly pattern, so the check
+// asks for cover only within them. Before the migration the weekly pattern
+// stands; a failed seasons read is never reported as covered.
+
+/** The full week with Tuesday's 17:00–22:00 closer missing. */
+const noTuesdayCloser = () => fullyCoveredWeek().filter((s) => s.starts_at !== edt(TUE, "17:00"));
+
+/** A season from `from`: every day 12:00–17:00. */
+const earlySeason = (from: string) =>
+  [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ effective_from: from, weekday, name: "Test early", is_closed: false, opens: "12:00:00", closes: "17:00:00" }));
+
+test("a season in force shortens the hours the week must cover", async () => {
+  seed(noTuesdayCloser());
+  db.tables.store_hours_seasons = earlySeason(TUE);
+  const { status, body } = await run();
+  assert.equal(status, 200);
+  assert.deepEqual(body, { gaps: [], hoursNotSet: [] });
+});
+
+test("a season that starts after the day leaves that day on the weekly hours", async () => {
+  seed(noTuesdayCloser());
+  db.tables.store_hours_seasons = earlySeason("2026-10-07");
+  const { body } = await run();
+  assert.deepEqual(body.gaps, [{ date: TUE, from: "17:00", to: "22:00" }]);
+});
+
+test("before migration 47 the weekly hours stand", async () => {
+  seed(noTuesdayCloser());
+  db.missingTables.push("store_hours_seasons");
+  const { status, body } = await run();
+  assert.equal(status, 200);
+  assert.deepEqual(body.gaps, [{ date: TUE, from: "17:00", to: "22:00" }]);
+});
+
+test("a failed seasons read is never reported as covered", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(new Request(input, init).url);
+    if (url.pathname === "/rest/v1/store_hours_seasons") return new Response(JSON.stringify({ message: "timeout" }), { status: 500 });
+    return realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const { status, body } = await run();
+    assert.equal(status, 503);
+    assert.equal(body.error, "coverage_unavailable");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
