@@ -139,9 +139,11 @@ export const EXTRAS: ReadonlyArray<Extra> = [
   // supabase/crm/012_winter_menu_extras.sql. The Waffle Sundae is Cup or Cone
   // Party + Belgian Waffle; each toppings extra bills the 3 picks the
   // customer makes from its group (WINTER_DRY_TOPPINGS / _POURABLE_ below).
-  // $0 garnishes for a sundae built on Cup or Cone Party (the winter Warmed
-  // Cookie and Brownie Sundaes). The Price Book already has both rows at $0;
-  // every Sundae-family package already includes them.
+  // $0 garnishes. Every winter item includes whipped cream and chocolate
+  // sauce (Alina, 2026-10-18), so a winter item built on Cup or Cone Party
+  // (Warmed Cookie and Brownie Sundaes, Waffle Sundae) carries both. The
+  // Price Book already has both rows at $0; every Sundae-family package and
+  // the Hot Chocolate Float Party already include them.
   { key: "whipped_cream", label: "Whipped Cream", price: 0, unit: "per_guest", defaultQty: "one" },
   { key: "chocolate_sauce", label: "Chocolate Sauce", price: 0, unit: "per_guest", defaultQty: "one" },
   { key: "belgian_waffle", label: BELGIAN_WAFFLE, price: 3, unit: "per_guest", defaultQty: "per_guest" },
