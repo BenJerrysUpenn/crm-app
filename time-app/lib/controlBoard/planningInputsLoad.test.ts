@@ -1,0 +1,61 @@
+// What the Targets tab's planning inputs read (bj-finance #742):
+// loadPlanningInputs() drives the real supabase-js client against the
+// stand-in Supabase project (testing/fakeSupabase.ts), as the signed-in
+// manager. Before migration 47 it says so and closed days still read.
+// Invented figures only.
+//
+//   npm test        (node --test; Node runs TypeScript directly)
+
+import { beforeEach, test } from "node:test";
+import assert from "node:assert/strict";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadAppModule, startFakeSupabase, type FakeSupabase } from "../testing/fakeSupabase.ts";
+
+type LoadModule = typeof import("./planningInputsLoad.ts");
+const { loadPlanningInputs } = await loadAppModule<LoadModule>("lib/controlBoard/planningInputsLoad.ts");
+const { createClient } = await loadAppModule<{ createClient: () => SupabaseClient }>("lib/supabase/server.ts");
+
+const TODAY = "2030-10-14";
+const MANAGER = "00000000-0000-0000-0000-0000000000b1";
+const NOTE = { review_by: "2031-01-01", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z", cancelled: false };
+
+let db: FakeSupabase;
+
+beforeEach(() => {
+  db = startFakeSupabase({
+    profiles: [{ id: MANAGER, role: "manager", active: true, full_name: "Store Manager" }],
+    store_hours_seasons: [
+      { effective_from: "2030-11-01", weekday: 0, name: "Test winter", is_closed: false, opens: "13:00:00", closes: "21:00:00", review_by: null, source: null, method: null },
+    ],
+    // PostgREST returns numeric columns as strings.
+    concession_events: [
+      { id: 1, event_key: "test-expo-2030", name: "Test Expo", start_date: "2030-12-01", end_date: "2030-12-02", expected_net_sales: "300.50", provisional: true, effective_from: "2030-01-01", ...NOTE },
+    ],
+    crew_events: [{ id: 1, event_key: "test-cone-2031", name: "Test Cone", day: "2031-04-10", crew_hours: "12.50", effective_from: "2030-01-01", ...NOTE }],
+    store_hours_exceptions: [
+      { date: "2030-10-13", label: "Yesterday", is_closed: true, opens: null, closes: null, created_at: null },
+      { date: "2030-11-28", label: "Test holiday", is_closed: true, opens: null, closes: null, created_at: null },
+    ],
+  });
+  db.signIn(MANAGER);
+});
+
+test("the inputs read as numbers, and closed days from today on", async () => {
+  const d = await loadPlanningInputs(createClient(), TODAY);
+  assert.equal(d.unavailable, null);
+  assert.deepEqual(d.problems, []);
+  assert.equal(d.seasons.length, 1);
+  assert.equal(d.concession[0].expected_net_sales, 300.5);
+  assert.equal(d.crew[0].crew_hours, 12.5);
+  assert.deepEqual(d.exceptions.map((e) => e.date), ["2030-11-28"]);
+});
+
+test("before migration 47 the seasons and events say they need it; closed days still read", async () => {
+  db.missingTables.push("store_hours_seasons", "concession_events", "crew_events");
+  const d = await loadPlanningInputs(createClient(), TODAY);
+  assert.match(d.unavailable ?? "", /migration 47/);
+  assert.deepEqual([d.seasons, d.concession, d.crew], [[], [], []]);
+  assert.deepEqual(d.problems, []);
+  assert.deepEqual(d.exceptions.map((e) => e.date), ["2030-11-28"]);
+});

@@ -39,8 +39,10 @@
 -- other business figures are written here, and none may be.
 --
 -- WHO MAY WRITE
---   store_hours_seasons: managers, as they set store_hours (migration 24).
---     Everyone signed in reads it, as they read store_hours.
+--   store_hours_seasons: owners, from the Targets tab, like the other
+--     planning inputs (owner ruling 2026-10-19). Everyone signed in reads
+--     it, as they read store_hours. Managers keep the weekly hours and the
+--     closed days (store_hours, store_hours_exceptions, migration 24).
 --   concession_events, crew_events: owners add revisions (as they add
 --     control_settings, migration 43); managers read. Nobody changes or
 --     removes a revision through the API: a correction is a new revision.
@@ -111,8 +113,9 @@ create policy store_hours_seasons_select on public.store_hours_seasons for selec
   using (true);
 
 drop policy if exists store_hours_seasons_manager on public.store_hours_seasons;
-create policy store_hours_seasons_manager on public.store_hours_seasons for all to authenticated
-  using ((select public.is_manager())) with check ((select public.is_manager()));
+drop policy if exists store_hours_seasons_owner on public.store_hours_seasons;
+create policy store_hours_seasons_owner on public.store_hours_seasons for all to authenticated
+  using ((select public.is_owner())) with check ((select public.is_owner()));
 
 revoke all on public.store_hours_seasons from anon;
 

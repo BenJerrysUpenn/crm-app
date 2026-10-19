@@ -10,8 +10,10 @@ export const fetchCache = "force-no-store";
 // unless the dev server runs with LOCAL_PREVIEW=1 (`next dev` only: a
 // production build is NODE_ENV=production, so this is always a 404 there).
 // See lib/metrics/laborPlanningPreview.ts for where each number comes from.
-export default async function LaborHoursPlanningPreviewPage() {
+// Below the card, the Targets tab's planning inputs editor saves to the local
+// inputs file; ?as=manager shows it as a manager who is not an owner sees it.
+export default async function LaborHoursPlanningPreviewPage({ searchParams }: { searchParams: { as?: string } }) {
   if (!previewEnabled()) notFound();
   const preview = await loadPreviewData();
-  return <LaborPlanningPreview preview={preview} />;
+  return <LaborPlanningPreview preview={preview} asOwner={searchParams.as !== "manager"} />;
 }

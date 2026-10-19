@@ -8,10 +8,11 @@
 -- verified". Every name, date and figure below is invented.
 --
 -- WHAT IS CHECKED
---   1. store_hours_seasons: a manager sets a season's weekday and changes it
---      on its key, stamped with the manager and the database clock; an open
---      day needs both times in order, a weekday is 0-6; an employee reads
---      it and cannot write it; anon reads nothing.
+--   1. store_hours_seasons: an owner sets a season's weekday, changes it on
+--      its key and removes a season, stamped with the owner and the
+--      database clock; an open day needs both times in order, a weekday is
+--      0-6; a manager who is not an owner and an employee read it and
+--      cannot add, change or remove it; anon reads nothing.
 --   2. concession_events and crew_events: an owner adds a revision, stamped
 --      with the owner and the database clock; a manager who is not an owner
 --      reads and cannot add; an employee reads nothing; nobody signed in
@@ -44,12 +45,12 @@ begin
   end if;
 
   -- ---- 1. store_hours_seasons --------------------------------------------------------
-  perform set_config('request.jwt.claims', json_build_object('sub', mgr, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', own, 'role', 'authenticated')::text, true);
   set local role authenticated;
   insert into public.store_hours_seasons (effective_from, weekday, name, opens, closes, source, recorded_by, updated_at)
   values (date '2019-11-01', 2, 'Test winter', time '13:00', time '21:00', 'verify-47', emp, timestamptz '2001-01-01')
   returning recorded_by, updated_at into who, t;
-  if who is distinct from mgr then raise exception 'a season was not stamped with the manager who set it'; end if;
+  if who is distinct from own then raise exception 'a season was not stamped with the owner who set it'; end if;
   if t < now() - interval '1 minute' then raise exception 'a season''s updated_at was taken from the writer'; end if;
   insert into public.store_hours_seasons (effective_from, weekday, name, opens, closes, source)
   values (date '2019-11-01', 2, 'Test winter', time '15:00', time '21:00', 'verify-47')
@@ -79,6 +80,25 @@ begin
   exception when check_violation then refused := true;
   end;
   if not refused then raise exception 'weekday 7 was accepted'; end if;
+  insert into public.store_hours_seasons (effective_from, weekday, name, is_closed, source)
+  values (date '2019-12-01', 0, 'Test spare', true, 'verify-47');
+  delete from public.store_hours_seasons where effective_from = date '2019-12-01';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'an owner removed % of 1 season days', n; end if;
+  reset role;
+
+  -- A manager who is not an owner reads the seasons; a change or removal
+  -- touches nothing (row level security hides the rows from the write).
+  perform set_config('request.jwt.claims', json_build_object('sub', mgr, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into n from public.store_hours_seasons where effective_from = date '2019-11-01';
+  if n <> 2 then raise exception 'a manager reads % of 2 season days', n; end if;
+  update public.store_hours_seasons set opens = time '09:00' where effective_from = date '2019-11-01';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a manager who is not an owner changed % season days', n; end if;
+  delete from public.store_hours_seasons where effective_from = date '2019-11-01';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'a manager who is not an owner removed % season days', n; end if;
   reset role;
 
   perform set_config('request.jwt.claims', json_build_object('sub', emp, 'role', 'authenticated')::text, true);
@@ -90,14 +110,27 @@ end $$;
 
 rollback;
 
--- 1, continued: an employee's write is refused by row level security.
+-- 1, continued: a manager's or an employee's new season is refused by row
+-- level security.
 begin;
 do $$
 declare
+  mgr     uuid;
   emp     uuid;
   refused boolean;
 begin
+  select id into mgr from public.profiles where role = 'manager' order by created_at limit 1;
   select id into emp from public.profiles where role = 'employee' order by created_at limit 1;
+  perform set_config('request.jwt.claims', json_build_object('sub', mgr, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    insert into public.store_hours_seasons (effective_from, weekday, name, is_closed)
+    values (date '2019-12-01', 1, 'Manager season', true);
+    refused := false;
+  exception when insufficient_privilege then refused := true;
+  end;
+  if not refused then raise exception 'a manager who is not an owner set a season'; end if;
+  reset role;
   perform set_config('request.jwt.claims', json_build_object('sub', emp, 'role', 'authenticated')::text, true);
   set local role authenticated;
   begin

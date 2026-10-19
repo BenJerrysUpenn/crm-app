@@ -11,8 +11,12 @@
 //     built exactly as the Metrics page builds it.
 //   * what migration 47 will hold but production does not have yet, from
 //     local files outside every repo (crm-app is public):
-//       LABOR_PLANNING_SEED     seasons, concession events, crew events
-//                               (default ~/bj-finance-data/local/labor-planning-seed.json)
+//       LABOR_PLANNING_SEED     seasons, concession events, crew events, and
+//                               the preview's own closed days
+//                               (default ~/bj-finance-data/local/labor-planning-seed.json).
+//                               The planning inputs editor below the card
+//                               saves here (lib/metrics/laborPlanningSeed.ts),
+//                               never to the database.
 //       LABOR_PLANNING_HISTORY  last year's catering hours, bj-finance's
 //                               `modules.labor_planning history --dry-run`
 //                               (default ~/bj-finance-data/local/catering-history.json)
@@ -31,8 +35,11 @@ import { PROFILE_COLUMNS, bookingsFrom, type BookingDeal } from "@/lib/controlBo
 import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/coverage";
 import { addDays, nyDay } from "./dates";
 import { laborHoursPlanning, planningWindow } from "./laborPlanning";
-import { planningInputsFrom, type ConcessionEventRow, type CrewEventRow, type LaborPlanningRows } from "./laborPlanningLoad";
+import { planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
+import { seedClosedDays, seedRevisions, seedSeasonRows, type Seed } from "./laborPlanningSeed";
 import type { MetricsData } from "./load";
+import type { ConcessionEventRow, CrewEventRow } from "@/lib/controlBoard/planningInputs";
+import type { PlanningInputsData } from "@/lib/controlBoard/planningInputsLoad";
 
 export function previewEnabled(): boolean {
   return process.env.NODE_ENV === "development" && process.env.LOCAL_PREVIEW === "1";
@@ -81,11 +88,6 @@ async function select<T>(sql: string): Promise<T[]> {
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
 const nyMidnight = (day: string) => `${day}T04:00:00Z`;
 
-type Seed = {
-  seasons?: { name: string; effective_from: string; opens?: string; closes?: string; is_closed?: boolean; weekdays?: number[] }[];
-  concession_events?: (Omit<ConcessionEventRow, "id" | "recorded_at" | "cancelled"> & { cancelled?: boolean })[];
-  crew_events?: (Omit<CrewEventRow, "id" | "recorded_at" | "cancelled"> & { cancelled?: boolean })[];
-};
 type HistoryFile = { from: string; through: string; days: { day: string; hours: number }[] };
 
 async function readJson<T>(path: string): Promise<{ value: T | null; problem: string | null }> {
@@ -98,15 +100,24 @@ async function readJson<T>(path: string): Promise<{ value: T | null; problem: st
 
 export type PreviewData = {
   data: MetricsData;
+  /** The planning inputs editor's rows: the inputs file's, plus the live closed days. */
+  inputs: PlanningInputsData;
+  /** Live closed days: shown in the editor, never changed by the preview. */
+  liveClosedDays: string[];
   sources: { seed: string; history: string; historySpan: string | null; dbReadAt: string };
 };
+
+/** The inputs file the preview reads and its editor writes. */
+export function seedPath(): string {
+  return process.env.LABOR_PLANNING_SEED || join(homedir(), "bj-finance-data/local/labor-planning-seed.json");
+}
 
 export async function loadPreviewData(now: Date = new Date()): Promise<PreviewData> {
   if (!previewEnabled()) throw new Error("the local preview is off");
   const today = nyDay(now.toISOString());
   const w = planningWindow(today);
   const { last, lastYear } = trendMonths(today);
-  const seedPath = process.env.LABOR_PLANNING_SEED || join(homedir(), "bj-finance-data/local/labor-planning-seed.json");
+  const seedFile = seedPath();
   const historyPath = process.env.LABOR_PLANNING_HISTORY || join(homedir(), "bj-finance-data/local/catering-history.json");
   const problems: string[] = [];
 
@@ -139,7 +150,7 @@ export async function loadPreviewData(now: Date = new Date()): Promise<PreviewDa
       select<{ starts_at: string; ends_at: string }>(
         `select starts_at, ends_at from shifts where position = ${lit(CATERING_POSITION)} and starts_at >= ${lit(nyMidnight(addDays(w.lastYearFrom, -1)))} and starts_at <= ${lit(nyMidnight(addDays(today, 1)))} order by id`,
       ),
-      readJson<Seed>(seedPath),
+      readJson<Seed>(seedFile),
       readJson<HistoryFile>(historyPath),
     ]);
 
@@ -155,17 +166,15 @@ export async function loadPreviewData(now: Date = new Date()): Promise<PreviewDa
   if (seed.problem) problems.push(`seasons and events not read: ${seed.problem}`);
   if (history.problem) problems.push(`last year's catering hours not read: ${history.problem}`);
   const s = seed.value ?? {};
-  const seasonRows: StoreHoursRow[] = (s.seasons ?? []).flatMap((x) =>
-    (x.weekdays ?? [0, 1, 2, 3, 4, 5, 6]).map((weekday) => ({
-      weekday,
-      is_closed: !!x.is_closed,
-      opens: x.is_closed ? null : `${x.opens}:00`,
-      closes: x.is_closed ? null : `${x.closes}:00`,
-      effective_from: x.effective_from,
-    })),
-  );
-  const revision = <T extends { effective_from: string; cancelled?: boolean }>(rows: T[] | undefined) =>
-    (rows ?? []).map((r, i) => ({ ...r, id: i + 1, recorded_at: `${r.effective_from}T00:00:00Z`, cancelled: !!r.cancelled }));
+  const seasons = seedSeasonRows(s);
+  const seasonRows: StoreHoursRow[] = seasons.map(({ weekday, is_closed, opens, closes, effective_from }) => ({ weekday, is_closed, opens, closes, effective_from }));
+  const concessionEvents = seedRevisions(s.concession_events) as unknown as ConcessionEventRow[];
+  const crewEvents = seedRevisions(s.crew_events) as unknown as CrewEventRow[];
+  // The file's closed days stand in for store_hours_exceptions: on a date in
+  // both, the file's row is the one shown.
+  const fileClosed = seedClosedDays(s);
+  const liveKept = exceptions.filter((e) => !fileClosed.some((f) => f.date === e.date)).map((e) => ({ date: e.date, label: e.label ?? null, is_closed: e.is_closed, opens: e.opens ?? null, closes: e.closes ?? null, created_at: null }));
+  const allExceptions = [...liveKept, ...fileClosed].sort((a, b) => a.date.localeCompare(b.date));
 
   const rows: LaborPlanningRows = {
     today,
@@ -177,14 +186,14 @@ export async function loadPreviewData(now: Date = new Date()): Promise<PreviewDa
     profiles: profiles as LaborPlanningRows["profiles"],
     sales: daily.filter((r) => r.day >= w.salesFrom && r.day <= w.salesTo).map((r) => ({ day: r.day, in_store: r.in_store })),
     storeHours: [...storeHours, ...seasonRows],
-    exceptions,
+    exceptions: allExceptions,
     closedRanges: closed,
     bookings,
     cateringShifts,
     historyLoaded: history.value ? history.value.days.map((d) => ({ day: d.day, hours: Number(d.hours) })) : null,
     historyShifts,
-    concessionEvents: revision(s.concession_events) as ConcessionEventRow[],
-    crewEvents: revision(s.crew_events) as CrewEventRow[],
+    concessionEvents,
+    crewEvents,
     problems,
   };
 
@@ -205,8 +214,17 @@ export async function loadPreviewData(now: Date = new Date()): Promise<PreviewDa
   };
   return {
     data,
+    inputs: {
+      unavailable: null,
+      seasons,
+      concession: concessionEvents,
+      crew: crewEvents,
+      exceptions: allExceptions.filter((e) => e.date >= today),
+      problems: seed.problem ? [`The inputs file could not be read: ${seed.problem}`] : [],
+    },
+    liveClosedDays: liveKept.filter((e) => e.date >= today).map((e) => e.date),
     sources: {
-      seed: seedPath,
+      seed: seedFile,
       history: historyPath,
       historySpan: history.value ? `${history.value.from} to ${history.value.through}` : null,
       dbReadAt: now.toISOString(),

@@ -531,7 +531,8 @@ function AddDateForm({
   );
 }
 
-// The store-hours seasons (migration 47, bj-finance #742), read-only here:
+// The store-hours seasons (migration 47, bj-finance #742), read-only here
+// (owners change them on the Targets tab):
 // from each season's first day its hours replace the weekly hours above for
 // the coverage checks, the coverage reminder and payroll's checks.
 function SeasonsList({ seasons }: { seasons: StoreHoursSeason[] }) {
@@ -550,7 +551,7 @@ function SeasonsList({ seasons }: { seasons: StoreHoursSeason[] }) {
       <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Seasons</h3>
       <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 mb-3">
         From its first day, a season&rsquo;s hours replace the weekly hours above until the next season starts. Before the first
-        season the weekly hours apply.
+        season the weekly hours apply. Owners change the seasons on the finance site&rsquo;s Targets tab.
       </p>
       <ul className="divide-y divide-slate-200 dark:divide-slate-800 text-sm">
         {starts.map((from) => {

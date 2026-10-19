@@ -31,8 +31,10 @@
 // manager's own rows only, and two live views of one person cannot share a
 // name (23505). control_settings and profile_salaries (migration 43): a
 // manager reads, only an owner adds a row, nobody changes or removes one, and
-// the row is stamped with the caller and the database clock. Every other
-// table is readable by any signed-in caller.
+// the row is stamped with the caller and the database clock; concession_events
+// and crew_events (migration 47) the same. store_hours_seasons (migration 47):
+// anyone signed in reads, only an owner writes. Every other table is readable
+// by any signed-in caller.
 //
 // Storage (migration 37's travel-reimbursements bucket) is faked too: signed
 // upload URLs, signed read URLs and downloads, under the bucket's policies
@@ -214,8 +216,11 @@ function isOwner(caller: Caller): boolean {
   return fake.tables.profiles?.some((p) => p.id === caller.id && p.role === "owner") ?? false;
 }
 
-// Migration 43: managers read, owners add, the API never changes or removes a row.
-const OWNER_ADDS = ["control_settings", "profile_salaries"];
+// Migrations 43 and 47: managers read, owners add, the API never changes or removes a row.
+const OWNER_ADDS = ["control_settings", "profile_salaries", "concession_events", "crew_events"];
+
+// Migration 47: everyone signed in reads, only an owner writes.
+const OWNER_WRITES = ["store_hours_seasons"];
 
 const OWN_ROWS: Record<string, string> = {
   time_entries: "employee_id",
@@ -244,7 +249,7 @@ function canWrite(table: string, caller: Caller): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
   if (table === "time_entries") return isManager(caller);
-  if (OWNER_ADDS.includes(table)) return isOwner(caller);
+  if (OWNER_ADDS.includes(table) || OWNER_WRITES.includes(table)) return isOwner(caller);
   if (table in MANAGER_OWN_ROWS) return isManager(caller);
   return true;
 }
@@ -341,6 +346,9 @@ const DEFAULTS: Record<string, () => Row> = {
   // Migration 43.
   control_settings: () => ({ detail: {}, method: null }),
   profile_salaries: () => ({ method: null }),
+  // Migration 47.
+  concession_events: () => ({ provisional: false, cancelled: false, method: null }),
+  crew_events: () => ({ cancelled: false, method: null }),
   lyft_ride_reports: () => ({ filed_at: DB_NOW, emailed_at: null, deal_id: null, event_label: null, event_date: null, reason_note: null }),
   // Migration 39: a saved view is live until archived.
   metric_views: () => ({ position: 0, widgets: [], archived_at: null, created_at: DB_NOW, updated_at: DB_NOW }),
