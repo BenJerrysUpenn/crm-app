@@ -23,7 +23,7 @@ export const COVERAGE_TZ = "America/New_York";
  * store_hours_seasons, migration 47; bj-finance #742): from that date it is
  * the row for its weekday, until a later season's. A row with no date is the
  * standing pattern (public.store_hours) and applies before the first season,
- * so a reader that passes no season rows behaves exactly as before.
+ * so a reader that passes no season rows gets the standing pattern alone.
  */
 export type StoreHoursRow = {
   weekday: number;

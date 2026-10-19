@@ -2,8 +2,7 @@
 // hours as effective-dated periods (winter, summer). Every reader of
 // store_hours reads these too and hands both to lib/coverage.ts, whose
 // storeHoursFor picks the season in force on each date; before the first
-// season, or before migration 47, the normal weekly pattern applies as
-// it always has.
+// season, or before migration 47, the normal weekly pattern applies.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StoreHoursRow } from "@/lib/coverage";
