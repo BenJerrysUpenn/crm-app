@@ -7,7 +7,8 @@
 //
 //   Affordable hours   (projected in-store sales + concession event net
 //                      sales) x the hourly goal / the average active hourly
-//                      rate, day by day.
+//                      rate, day by day; drawn as two bands, in-store hours
+//                      and concession hours.
 //                        Projected in-store sales = in-store sales on the
 //                        same weekday 364 days earlier x the trend factor (the
 //                        single factor the schedule uses).
@@ -146,6 +147,10 @@ export type PlanningDay = {
   projectedInStore: number | null;
   concessionSales: number;
   hourlyGoal: number | null;
+  /** In-store share of affordable hours (projected in-store sales). */
+  inStoreHours: number | null;
+  /** Concession share of affordable hours (concession event sales). */
+  concessionHours: number | null;
   affordableHours: number | null;
   coverageHours: number | null;
 };
@@ -156,6 +161,9 @@ export type PlanningWeek = {
   /** Saturday. */
   end: string;
   days: PlanningDay[];
+  /** Affordable hours = in-store hours + concession hours; each is its own band on the chart. */
+  inStoreHours: Derived;
+  concessionHours: Derived;
   affordableHours: Derived;
   bookedHours: number;
   estimatedHours: Derived;
@@ -294,10 +302,10 @@ export function laborHoursPlanning(i: LaborPlanningInputs): LaborPlanning {
       const goal = boardOn(date, i.settings, i.salaries, i.salaried).hourlyGoalPct;
       if (goal.value == null) needs.push(...goal.needs.map((n) => (n === "sales above zero" ? "a sales estimate above zero" : n)));
       if (avgRate.value == null) needs.push(...avgRate.needs);
-      const affordableHours =
-        projectedInStore != null && goal.value != null && avgRate.value != null && avgRate.value > 0
-          ? ((projectedInStore + concessionSales) * goal.value) / avgRate.value
-          : null;
+      const rateOk = goal.value != null && avgRate.value != null && avgRate.value > 0;
+      const inStoreHours = projectedInStore != null && rateOk ? (projectedInStore * goal.value!) / avgRate.value! : null;
+      const concessionHours = rateOk ? (concessionSales * goal.value!) / avgRate.value! : null;
+      const affordableHours = inStoreHours != null && concessionHours != null ? inStoreHours + concessionHours : null;
       let coverageHours: number | null = null;
       if (open.state === "open") coverageHours = (open.closes - open.opens) / 60;
       else if (closed) coverageHours = 0;
@@ -311,6 +319,8 @@ export function laborHoursPlanning(i: LaborPlanningInputs): LaborPlanning {
         projectedInStore,
         concessionSales,
         hourlyGoal: goal.value,
+        inStoreHours,
+        concessionHours,
         affordableHours,
         coverageHours,
       };
@@ -318,6 +328,8 @@ export function laborHoursPlanning(i: LaborPlanningInputs): LaborPlanning {
 
     const sumOf = (pick: (d: PlanningDay) => number | null) => (days.every((d) => pick(d) != null) ? days.reduce((a, d) => a + pick(d)!, 0) : null);
     const affordable = sumOf((d) => d.affordableHours);
+    const inStore = sumOf((d) => d.inStoreHours);
+    const concession = sumOf((d) => d.concessionHours);
     const coverage = sumOf((d) => d.coverageHours);
     const goals = days.map((d) => d.hourlyGoal);
     const hourlyGoal: Derived = goals.some((g) => g == null)
@@ -358,6 +370,8 @@ export function laborHoursPlanning(i: LaborPlanningInputs): LaborPlanning {
       start,
       end,
       days,
+      inStoreHours: inStore != null ? known(inStore) : missing(...needs),
+      concessionHours: concession != null ? known(concession) : missing(...needs),
       affordableHours: affordable != null ? known(affordable) : missing(...needs),
       bookedHours,
       estimatedHours,

@@ -680,7 +680,8 @@ export function LaborPlanningTable({ weeks }: { weeks: PlanningWeek[] }) {
         <thead>
           <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
             <th scope="col" className={`${STICKY} py-1 pr-3 font-medium`}>Week</th>
-            <th scope="col" className={head}>Affordable</th>
+            <th scope="col" className={head}>In-store</th>
+            <th scope="col" className={head}>Concessions</th>
             <th scope="col" className={head}>Catering booked</th>
             <th scope="col" className={head}>Catering estimated</th>
             <th scope="col" className={head}>Target hours</th>
@@ -699,7 +700,8 @@ export function LaborPlanningTable({ weeks }: { weeks: PlanningWeek[] }) {
                 <th scope="row" className={`${STICKY} py-1.5 pr-3 text-left font-normal text-slate-600 dark:text-slate-300 whitespace-nowrap`}>
                   {sunSatLabel(w.start, w.end)}
                 </th>
-                <td className={cell}>{w.affordableHours.value == null ? NA : hrs(w.affordableHours.value)}</td>
+                <td className={cell}>{w.inStoreHours.value == null ? NA : hrs(w.inStoreHours.value)}</td>
+                <td className={cell}>{w.concessionHours.value ? hrs(w.concessionHours.value) : ""}</td>
                 <td className={cell}>{hrs(w.bookedHours)}</td>
                 <td className={cell}>{w.estimatedHours.value == null ? NA : hrs(w.estimatedHours.value)}</td>
                 <td className={`${cell} font-medium`}>{totalTarget(w) == null ? NA : hrs(totalTarget(w))}</td>
@@ -730,7 +732,8 @@ export function LaborPlanningWidget({ data, settings }: { data: MetricsData; set
         title={`Target labor hours for the next ${weeks.length} weeks by their Sunday: affordable from sales, catering booked and catering still estimated, against the hours the store is open`}
         labels={weeks.map((w) => shortDay(w.start))}
         series={[
-          { label: "Affordable (in-store and concession sales)", values: weeks.map((w) => w.affordableHours.value), color: "in_store", stack: "target" },
+          { label: "Affordable from in-store sales", values: weeks.map((w) => w.inStoreHours.value), color: "in_store", stack: "target" },
+          { label: "Affordable from concession sales", values: weeks.map((w) => w.concessionHours.value), color: "concessions", stack: "target" },
           { label: "Catering booked", values: weeks.map((w) => w.bookedHours), color: "catering", stack: "target" },
           { label: "Catering estimated, not yet booked", values: weeks.map((w) => w.estimatedHours.value), color: "orange", stack: "target" },
           { label: "Coverage (store hours, one person)", values: weeks.map((w) => w.coverageHours.value), color: "target", type: "line", dashed: true, stack: "coverage" },
@@ -758,7 +761,8 @@ export function LaborPlanningWidget({ data, settings }: { data: MetricsData; set
       <Method>
         <p>
           Weeks run Sunday to Saturday, named by their Sunday, from this week on; the slider shows 4 to 52 of them. Each bar is
-          the hours the week needs, in three parts.
+          the hours the week needs, in four parts: affordable from in-store sales, affordable from concession sales, catering
+          booked and catering still estimated.
         </p>
         <p>
           Affordable = (projected in-store sales + concession event sales) x the hourly goal / the average hourly rate of active

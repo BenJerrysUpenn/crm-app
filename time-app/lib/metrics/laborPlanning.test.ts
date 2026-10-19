@@ -158,6 +158,9 @@ test("concession event net sales are spread evenly over the event's days and add
   close(w.days[4].concessionSales, 0);
   close(w.concessionSales, 3_000);
   close(w.affordableHours.value, (7 * 220 + 3_000 * 0.2) / 15);
+  // Drawn as two bands: in-store hours and concession hours.
+  close(w.inStoreHours.value, (7 * 220) / 15);
+  close(w.concessionHours.value, (3_000 * 0.2) / 15);
   assert.deepEqual(w.events, ["Expo"]);
   // An event running into the next week puts only its own days' share in each week.
   const p = laborHoursPlanning(inputs({ concessionEvents: [{ name: "Expo", start_date: "2030-10-18", end_date: "2030-10-21", expected_net_sales: 4_000 }] }));

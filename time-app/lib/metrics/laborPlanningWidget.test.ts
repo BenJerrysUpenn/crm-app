@@ -35,7 +35,7 @@ function wk(i: number, over: Partial<PlanningWeek> = {}): PlanningWeek {
   const start = addDays("2030-10-13", 7 * i);
   return {
     start, end: addDays(start, 6), days: [],
-    affordableHours: known(40), bookedHours: 5, estimatedHours: known(10), coverageHours: known(77),
+    inStoreHours: known(40), concessionHours: known(0), affordableHours: known(40), bookedHours: 5, estimatedHours: known(10), coverageHours: known(77),
     projectedInStore: 3_000, concessionSales: 0, hourlyGoal: known(0.2), lastYearCatering: 15, crewEventHours: 0,
     filledDays: [], closedDays: [], events: [], notes: [], ...over,
   };
@@ -71,9 +71,9 @@ test("the slider shows 4 to 52 weeks ahead, 26 until one is saved, and the chart
   assert.match(render({ weeks: 13 }), /aria-label="Target labor hours for the next 13 weeks/);
 });
 
-test("the chart stacks affordable, catering booked and catering estimated, under the coverage line", () => {
+test("the chart stacks in-store and concession affordable hours, catering booked and catering estimated, under the coverage line", () => {
   const t = text(render({}));
-  assert.match(t, /Affordable \(in-store and concession sales\) Catering booked Catering estimated, not yet booked Coverage \(store hours, one person\)/);
+  assert.match(t, /Affordable from in-store sales Affordable from concession sales Catering booked Catering estimated, not yet booked Coverage \(store hours, one person\)/);
   assert.match(t, /Show numbers/);
   assert.doesNotMatch(t, /Catering last year Notes/, "the table waits for Show numbers");
 });
@@ -85,7 +85,7 @@ test("a week with a number not available says what it needs, never zero", () => 
 
 test("Show numbers: each week's bands, total, coverage and what to know about it", () => {
   const t = text(renderToStaticMarkup(React.createElement(LaborPlanningTable, { weeks: WEEKS.slice(0, 3) })));
-  assert.match(t, /Week Affordable Catering booked Catering estimated Target hours Coverage Projected in-store Concession sales Catering last year Notes/);
+  assert.match(t, /Week In-store Concessions Catering booked Catering estimated Target hours Coverage Projected in-store Concession sales Catering last year Notes/);
   assert.match(t, /Oct 13–19 40 h 5 h 10 h 55 h 77 h \$3,000 15 h/);
   assert.match(t, /Oct 20–26 .* \$1,000 15 h Expo; closed Oct 22; filled: no sales on file for Oct 24, 2029/);
   assert.match(t, /Oct 27–Nov 2 40 h 5 h n\/a n\/a 77 h/);
