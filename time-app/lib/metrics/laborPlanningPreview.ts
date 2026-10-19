@@ -1,0 +1,215 @@
+// LOCAL PREVIEW ONLY (bj-finance #742): the Labor Hours Planning card on real
+// data before anything goes live. Never reachable in a production build:
+// previewEnabled() is false unless NODE_ENV is "development" (Next sets
+// "production" for every `next build` / `next start`) AND LOCAL_PREVIEW=1.
+//
+// Where the numbers come from:
+//   * the production database, read with SELECT only: psql with
+//     default_transaction_read_only=on, so Postgres refuses any write. The
+//     DSN is DIRECT_DATABASE_URL from the environment (never a file here).
+//     The same tables and filters as loadLaborPlanningRows, so the card is
+//     built exactly as the Metrics page builds it.
+//   * what migration 47 will hold but production does not have yet, from
+//     local files outside every repo (crm-app is public):
+//       LABOR_PLANNING_SEED     seasons, concession events, crew events
+//                               (default ~/bj-finance-data/local/labor-planning-seed.json)
+//       LABOR_PLANNING_HISTORY  last year's catering hours, bj-finance's
+//                               `modules.labor_planning history --dry-run`
+//                               (default ~/bj-finance-data/local/catering-history.json)
+
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import type { SalariedProfile } from "@/lib/controlBoard/load";
+import { trendMonths, type DailySalesRow, type MonthlySalesRow } from "@/lib/controlBoard/math";
+import type { SalaryRow, SettingRow } from "@/lib/controlBoard/settings";
+import { CATERING_POSITION, type LaborShift } from "@/lib/controlBoard/schedule";
+import { BOOKED_STAGES } from "@/lib/metrics/catering";
+import { PROFILE_COLUMNS, bookingsFrom, type BookingDeal } from "@/lib/controlBoard/scheduleLoad";
+import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/coverage";
+import { addDays, nyDay } from "./dates";
+import { laborHoursPlanning, planningWindow } from "./laborPlanning";
+import { planningInputsFrom, type ConcessionEventRow, type CrewEventRow, type LaborPlanningRows } from "./laborPlanningLoad";
+import type { MetricsData } from "./load";
+
+export function previewEnabled(): boolean {
+  return process.env.NODE_ENV === "development" && process.env.LOCAL_PREVIEW === "1";
+}
+
+const run = promisify(execFile);
+
+/**
+ * libpq's environment for the DSN. Passed as environment, never on the
+ * command line, so a failed run's message (which quotes the command) can
+ * never show the password.
+ */
+function pgEnv(dsn: string): Record<string, string> {
+  const u = new URL(dsn);
+  return {
+    PGHOST: u.hostname,
+    PGPORT: u.port || "5432",
+    PGUSER: decodeURIComponent(u.username),
+    PGPASSWORD: decodeURIComponent(u.password),
+    PGDATABASE: decodeURIComponent(u.pathname.replace(/^\//, "")) || "postgres",
+    PGSSLMODE: u.searchParams.get("sslmode") ?? "require",
+    // Postgres refuses any write in this session.
+    PGOPTIONS: "-c default_transaction_read_only=on",
+    PGAPPNAME: "labor-planning-local-preview",
+  };
+}
+
+/** One SELECT, its rows as JSON, in a read-only session. */
+async function select<T>(sql: string): Promise<T[]> {
+  if (!previewEnabled()) throw new Error("the local preview is off");
+  const dsn = process.env.DIRECT_DATABASE_URL;
+  if (!dsn) throw new Error("DIRECT_DATABASE_URL is not set (the launch config reads it from ~/.config/bj-catering/env)");
+  if (!/^\s*(select|with)\b/i.test(sql)) throw new Error("the preview only selects");
+  try {
+    const { stdout } = await run("psql", ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", `select coalesce(json_agg(t), '[]'::json) from (${sql}) t`], {
+      env: { ...process.env, ...pgEnv(dsn) },
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return JSON.parse(stdout) as T[];
+  } catch (e) {
+    const stderr = String((e as { stderr?: unknown }).stderr ?? "").trim();
+    throw new Error(`a read-only query failed: ${stderr || (e as Error).name}`);
+  }
+}
+
+const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
+const nyMidnight = (day: string) => `${day}T04:00:00Z`;
+
+type Seed = {
+  seasons?: { name: string; effective_from: string; opens?: string; closes?: string; is_closed?: boolean; weekdays?: number[] }[];
+  concession_events?: (Omit<ConcessionEventRow, "id" | "recorded_at" | "cancelled"> & { cancelled?: boolean })[];
+  crew_events?: (Omit<CrewEventRow, "id" | "recorded_at" | "cancelled"> & { cancelled?: boolean })[];
+};
+type HistoryFile = { from: string; through: string; days: { day: string; hours: number }[] };
+
+async function readJson<T>(path: string): Promise<{ value: T | null; problem: string | null }> {
+  try {
+    return { value: JSON.parse(await readFile(path, "utf8")) as T, problem: null };
+  } catch (e) {
+    return { value: null, problem: `${path}: ${(e as Error).message}` };
+  }
+}
+
+export type PreviewData = {
+  data: MetricsData;
+  sources: { seed: string; history: string; historySpan: string | null; dbReadAt: string };
+};
+
+export async function loadPreviewData(now: Date = new Date()): Promise<PreviewData> {
+  if (!previewEnabled()) throw new Error("the local preview is off");
+  const today = nyDay(now.toISOString());
+  const w = planningWindow(today);
+  const { last, lastYear } = trendMonths(today);
+  const seedPath = process.env.LABOR_PLANNING_SEED || join(homedir(), "bj-finance-data/local/labor-planning-seed.json");
+  const historyPath = process.env.LABOR_PLANNING_HISTORY || join(homedir(), "bj-finance-data/local/catering-history.json");
+  const problems: string[] = [];
+
+  const dailyFrom = [w.salesFrom, lastYear].sort()[0];
+  const [settings, salaries, salaried, monthly, daily, profiles, storeHours, exceptions, closed, deals, cateringShifts, historyShifts, seed, history] =
+    await Promise.all([
+      select<SettingRow>(`select id, key, value::float8 as value, detail, effective_from::text, review_by::text, source, method, recorded_by, recorded_at from control_settings`),
+      select<SalaryRow>(`select id, profile_id, annual_salary::float8 as annual_salary, effective_from::text, review_by::text, source, method, recorded_by, recorded_at from profile_salaries`),
+      select<{ id: string; full_name: string | null; archived_at: string | null }>(
+        `select id, full_name, archived_at from profiles where pay_type = 'salaried' and is_overhead = false order by full_name`,
+      ),
+      select<MonthlySalesRow>(`select month::text, source, in_store::float8 as in_store from sales_monthly where month in (${lit(last)}, ${lit(lastYear)})`),
+      select<DailySalesRow>(
+        `select day::text, in_store::float8 as in_store, basis, source from sales_daily_in_store where day >= ${lit(dailyFrom)} and day <= ${lit(today)} order by day`,
+      ),
+      select<Record<string, unknown>>(`select ${PROFILE_COLUMNS} from profiles order by id`),
+      select<StoreHoursRow>(`select weekday, is_closed, opens::text, closes::text from store_hours`),
+      select<StoreHoursException>(
+        `select date::text, label, is_closed, opens::text, closes::text from store_hours_exceptions where date between ${lit(w.firstWeek)} and ${lit(w.lastDay)}`,
+      ),
+      select<ClosedDateRange>(
+        `select title, start_date::text, end_date::text from annotations where business_closed and start_date <= ${lit(w.lastDay)} and end_date >= ${lit(w.firstWeek)}`,
+      ),
+      select<BookingDeal>(
+        `select id, stage, payment_status, event_date, created_at, subtotal_pretax::float8 as subtotal_pretax, total_with_tax::float8 as total_with_tax, amount_paid::float8 as amount_paid, company, source, archived, labor_hours, staff_count from deals where event_date >= ${lit(w.firstWeek)} and event_date <= ${lit(`${w.lastDay}T23:59:59`)} order by id`,
+      ),
+      select<LaborShift>(
+        `select id, employee_id, starts_at, ends_at, position, deal_id from shifts where position = ${lit(CATERING_POSITION)} and deal_id is not null and starts_at >= ${lit(nyMidnight(addDays(w.firstWeek, -1)))} and starts_at <= ${lit(nyMidnight(addDays(w.lastDay, 2)))} order by id`,
+      ),
+      select<{ starts_at: string; ends_at: string }>(
+        `select starts_at, ends_at from shifts where position = ${lit(CATERING_POSITION)} and starts_at >= ${lit(nyMidnight(addDays(w.lastYearFrom, -1)))} and starts_at <= ${lit(nyMidnight(addDays(today, 1)))} order by id`,
+      ),
+      readJson<Seed>(seedPath),
+      readJson<HistoryFile>(historyPath),
+    ]);
+
+  // Booked: the same rule as loadCateringBookings, over the same rows.
+  const ids = deals.map((d) => d.id);
+  const booked = ids.length
+    ? await select<{ deal_id: number }>(
+        `select deal_id from deal_events where field = 'stage' and new_value in (${BOOKED_STAGES.map(lit).join(", ")}) and deal_id in (${ids.join(", ")})`,
+      )
+    : [];
+  const bookings = bookingsFrom(deals, new Set(booked.map((e) => e.deal_id)), w.firstWeek, w.lastDay, today);
+
+  if (seed.problem) problems.push(`seasons and events not read: ${seed.problem}`);
+  if (history.problem) problems.push(`last year's catering hours not read: ${history.problem}`);
+  const s = seed.value ?? {};
+  const seasonRows: StoreHoursRow[] = (s.seasons ?? []).flatMap((x) =>
+    (x.weekdays ?? [0, 1, 2, 3, 4, 5, 6]).map((weekday) => ({
+      weekday,
+      is_closed: !!x.is_closed,
+      opens: x.is_closed ? null : `${x.opens}:00`,
+      closes: x.is_closed ? null : `${x.closes}:00`,
+      effective_from: x.effective_from,
+    })),
+  );
+  const revision = <T extends { effective_from: string; cancelled?: boolean }>(rows: T[] | undefined) =>
+    (rows ?? []).map((r, i) => ({ ...r, id: i + 1, recorded_at: `${r.effective_from}T00:00:00Z`, cancelled: !!r.cancelled }));
+
+  const rows: LaborPlanningRows = {
+    today,
+    settings,
+    salaries,
+    salaried: salaried.map((p): SalariedProfile => ({ id: p.id, name: p.full_name ?? "Unnamed", archivedOn: p.archived_at ? nyDay(p.archived_at) : null })),
+    monthly,
+    daily: daily.filter((r) => r.day.startsWith(last.slice(0, 7)) || r.day.startsWith(lastYear.slice(0, 7))),
+    profiles: profiles as LaborPlanningRows["profiles"],
+    sales: daily.filter((r) => r.day >= w.salesFrom && r.day <= w.salesTo).map((r) => ({ day: r.day, in_store: r.in_store })),
+    storeHours: [...storeHours, ...seasonRows],
+    exceptions,
+    closedRanges: closed,
+    bookings,
+    cateringShifts,
+    historyLoaded: history.value ? history.value.days.map((d) => ({ day: d.day, hours: Number(d.hours) })) : null,
+    historyShifts,
+    concessionEvents: revision(s.concession_events) as ConcessionEventRow[],
+    crewEvents: revision(s.crew_events) as CrewEventRow[],
+    problems,
+  };
+
+  const data: MetricsData = {
+    today,
+    targets: null,
+    catering: null,
+    ar: null,
+    labour: null,
+    forward: null,
+    leads: null,
+    outreach: null,
+    quotes: null,
+    laborTarget: null,
+    laborPlanning: laborHoursPlanning(planningInputsFrom(rows)),
+    feed: { status: "not_enabled" },
+    problems,
+  };
+  return {
+    data,
+    sources: {
+      seed: seedPath,
+      history: historyPath,
+      historySpan: history.value ? `${history.value.from} to ${history.value.through}` : null,
+      dbReadAt: now.toISOString(),
+    },
+  };
+}

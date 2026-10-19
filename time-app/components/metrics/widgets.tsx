@@ -19,6 +19,8 @@ import { addDays } from "@/lib/metrics/dates";
 import { laborTargetChart } from "@/lib/metrics/laborTargetChart";
 import type { LaborTargetWeek } from "@/lib/metrics/laborTarget";
 import { rangeLabel, shownRange, type WeekRange } from "@/lib/metrics/weekRange";
+import type { PlanningWeek } from "@/lib/metrics/laborPlanning";
+import { planningWeekCount } from "@/lib/metrics/planningWeeks";
 
 /** Headline money: whole dollars (tables and tooltips carry the cents). */
 const money = (v: number | null | undefined) => (v == null ? "–" : formatValue(Math.round(v), "money").replace(/\.00$/, ""));
@@ -646,6 +648,138 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
           On the chart each bar is a week&rsquo;s actual % (hourly labor, all-in / sales), red when the week is over target, and the
           dashed line is its target %. A week marked n/a has no bar. The figures above the chart add up the complete weeks only: actual
           % and target % are their summed dollars over their summed sales.
+        </p>
+      </Method>
+    </div>
+  );
+}
+
+// ---- Labor Hours Planning (bj-finance #742) ------------------------------------------
+
+const hrs = (v: number | null | undefined) => (v == null ? "–" : formatValue(v, "hours"));
+const totalTarget = (w: PlanningWeek) =>
+  w.affordableHours.value == null || w.estimatedHours.value == null ? null : w.affordableHours.value + w.bookedHours + w.estimatedHours.value;
+
+/** What to know about a week, in words: filled last-year days, closed days, events, deals without hours. */
+function planningNotes(w: PlanningWeek): string[] {
+  const out: string[] = [];
+  if (w.events.length) out.push(w.events.join(", "));
+  if (w.closedDays.length) out.push(`closed ${w.closedDays.map(shortDay).join(", ")}`);
+  if (w.filledDays.length) out.push(`filled: no sales on file for ${w.filledDays.map((d) => `${shortDay(d)}, ${d.slice(0, 4)}`).join("; ")}`);
+  return [...out, ...w.notes];
+}
+
+/** The card's numbers, one row per week: behind "Show numbers" under the chart. */
+export function LaborPlanningTable({ weeks }: { weeks: PlanningWeek[] }) {
+  const cell = "py-1.5 pl-3 text-right whitespace-nowrap text-slate-900 dark:text-slate-100";
+  const head = "py-1 pl-3 font-medium text-right whitespace-nowrap";
+  return (
+    <div className="overflow-x-auto max-w-full">
+      <table className="w-full text-sm tabular-nums">
+        <caption className="sr-only">Labor Hours Planning, weeks ahead, Sunday to Saturday</caption>
+        <thead>
+          <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
+            <th scope="col" className={`${STICKY} py-1 pr-3 font-medium`}>Week</th>
+            <th scope="col" className={head}>Affordable</th>
+            <th scope="col" className={head}>Catering booked</th>
+            <th scope="col" className={head}>Catering estimated</th>
+            <th scope="col" className={head}>Target hours</th>
+            <th scope="col" className={head}>Coverage</th>
+            <th scope="col" className={head}>Projected in-store</th>
+            <th scope="col" className={head}>Concession sales</th>
+            <th scope="col" className={head}>Catering last year</th>
+            <th scope="col" className="py-1 pl-3 font-medium">Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {weeks.map((w) => {
+            const notes = planningNotes(w);
+            return (
+              <tr key={w.start} className="border-t border-slate-100 dark:border-slate-800 align-top">
+                <th scope="row" className={`${STICKY} py-1.5 pr-3 text-left font-normal text-slate-600 dark:text-slate-300 whitespace-nowrap`}>
+                  {sunSatLabel(w.start, w.end)}
+                </th>
+                <td className={cell}>{w.affordableHours.value == null ? NA : hrs(w.affordableHours.value)}</td>
+                <td className={cell}>{hrs(w.bookedHours)}</td>
+                <td className={cell}>{w.estimatedHours.value == null ? NA : hrs(w.estimatedHours.value)}</td>
+                <td className={`${cell} font-medium`}>{totalTarget(w) == null ? NA : hrs(totalTarget(w))}</td>
+                <td className={cell}>{w.coverageHours.value == null ? NA : hrs(w.coverageHours.value)}</td>
+                <td className={cell}>{w.projectedInStore == null ? NA : money(w.projectedInStore)}</td>
+                <td className={cell}>{w.concessionSales ? money(w.concessionSales) : ""}</td>
+                <td className={cell}>{w.lastYearCatering == null ? NA : hrs(w.lastYearCatering)}</td>
+                <td className="py-1.5 pl-3 text-xs text-slate-600 dark:text-slate-400 min-w-[14rem]">{notes.join("; ")}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function LaborPlanningWidget({ data, settings }: { data: MetricsData; settings: WidgetSettings }) {
+  const lp = data.laborPlanning;
+  if (!lp) return <CouldNotLoad what="the sales history, the control board, store hours or catering bookings" />;
+  const weeks = lp.weeks.slice(0, planningWeekCount(settings.weeks));
+  const goals = [...new Set(weeks.map((w) => w.hourlyGoal.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
+  const unavailable = weeks.filter((w) => w.affordableHours.value == null || w.estimatedHours.value == null || w.coverageHours.value == null);
+  const trend = lp.trend.factor.value;
+  return (
+    <div>
+      <Chart
+        title={`Target labor hours for the next ${weeks.length} weeks by their Sunday: affordable from sales, catering booked and catering still estimated, against the hours the store is open`}
+        labels={weeks.map((w) => shortDay(w.start))}
+        series={[
+          { label: "Affordable (in-store and concession sales)", values: weeks.map((w) => w.affordableHours.value), color: "in_store", stack: "target" },
+          { label: "Catering booked", values: weeks.map((w) => w.bookedHours), color: "catering", stack: "target" },
+          { label: "Catering estimated, not yet booked", values: weeks.map((w) => w.estimatedHours.value), color: "orange", stack: "target" },
+          { label: "Coverage (store hours, one person)", values: weeks.map((w) => w.coverageHours.value), color: "target", type: "line", dashed: true, stack: "coverage" },
+        ]}
+        format="hours"
+        stacked
+        height={280}
+        gaps={weeks.flatMap((w, i) => (w.affordableHours.value == null ? [i] : []))}
+        tableLabel="Week of"
+        emptyText="No week ahead has its numbers yet."
+        table={<LaborPlanningTable weeks={weeks} />}
+      />
+      {unavailable.length > 0 && (
+        <ul aria-label="Weeks with a number not available (n/a), never counted as zero" className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
+          {unavailable.map((w) => {
+            const needs = [...new Set([...w.affordableHours.needs, ...w.estimatedHours.needs, ...w.coverageHours.needs])];
+            return (
+              <li key={w.start}>
+                {shortDay(w.start)}: needs {needs.join("; ")}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <Method>
+        <p>
+          Weeks run Sunday to Saturday, named by their Sunday, from this week on; the slider shows 4 to 52 of them. Each bar is
+          the hours the week needs, in three parts.
+        </p>
+        <p>
+          Affordable = (projected in-store sales + concession event sales) x the hourly goal / the average hourly rate of active
+          hourly staff ({lp.avgRate.value == null ? "not available" : `${money(lp.avgRate.value)} an hour over ${plural(lp.avgRateOver, "person", "people")}`}).
+          Projected in-store sales for a day are the in-store sales on the same weekday 52 weeks earlier x the trend factor
+          ({trend == null ? "not available" : trend.toFixed(3)}), the one the schedule uses. A concession event&rsquo;s expected net
+          sales are spread evenly over its days. The hourly goal is the Targets tab&rsquo;s in force on each day
+          {goals.length ? ` (${goals.join(", ")} in these weeks)` : ""}, so a value set to start on a later date takes over from it.
+        </p>
+        <p>
+          Catering booked = the Catering shifts on each booked deal of the week; a booked deal with no shifts yet counts its billed
+          crew hours (labor hours x staff count). Catering estimated = last year&rsquo;s Catering shift hours in the same week, less
+          what is booked, never below zero, plus the crew hours of a dated crew event such as Free Cone Day. Booking catering moves
+          hours from the estimate into booked; the bar only grows once booked passes last year&rsquo;s. Concession show days and Free
+          Cone Day are left out of last year&rsquo;s catering hours.
+        </p>
+        <p>
+          Coverage (the dashed line) = the store&rsquo;s hours in force each day, from its season, for one person, summed over the
+          week. A closed date (a closed special day, or a &ldquo;Business closed&rdquo; note on the schedule) projects no sales and
+          needs no cover. A day last year with no sales on file is the average of the same weekday in the nearest weeks either
+          side that have sales; &ldquo;Show numbers&rdquo; names those days.
         </p>
       </Method>
     </div>

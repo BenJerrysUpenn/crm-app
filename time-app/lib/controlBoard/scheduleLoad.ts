@@ -25,9 +25,9 @@ type ProfileLike = {
 };
 type ShiftTypeLike = { name: string; in_store?: boolean | null };
 
-const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived, labor_hours, staff_count";
+export const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived, labor_hours, staff_count";
 
-type BookingDeal = DealRow & { labor_hours: number | string | null; staff_count: number | string | null };
+export type BookingDeal = DealRow & { labor_hours: number | string | null; staff_count: number | string | null };
 
 /** A profiles row as the labor math reads it. */
 export const PROFILE_COLUMNS = "id, full_name, hourly_rate, pay_type, active, is_overhead";
@@ -136,11 +136,22 @@ export async function loadCateringBookings(
     if (ev.error) return fail(ev.error.message);
     for (const e of (ev.data as { deal_id: number }[] | null) ?? []) bookedBefore.add(e.deal_id);
   }
+  return { catering: bookingsFrom(deals, bookedBefore, from, to, today), problems: [] };
+}
+
+/**
+ * The booked deals among `deals` with an event day from `from` to `to`, each
+ * with its billed crew hours: the rule loadCateringBookings applies, apart
+ * from its reads, so another reader of the same rows (the Labor Hours
+ * Planning local preview, bj-finance #742) books them identically.
+ * `bookedBefore` holds the ids whose stage history shows a booked stage.
+ */
+export function bookingsFrom(deals: BookingDeal[], bookedBefore: Set<number>, from: string, to: string, today: string): CateringBooking[] {
   const catering: CateringBooking[] = [];
   for (const d of deals) {
     const day = eventDay(d);
     if (d.archived || !day || day < from || day > to || !isBooked(d, today, bookedBefore)) continue;
     catering.push({ id: d.id, day, billedHours: billedCrewHours(d) });
   }
-  return { catering, problems: [] };
+  return catering;
 }

@@ -2,7 +2,22 @@ import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { routeForHost } from "@/lib/hosts";
 
+/**
+ * The Labor Hours Planning local preview (bj-finance #742) has no sign-in:
+ * it runs only on a developer's machine. Both conditions are needed, and a
+ * production build is always NODE_ENV=production, so there it never applies.
+ */
+function isLocalPreview(pathname: string): boolean {
+  return (
+    process.env.NODE_ENV === "development" &&
+    process.env.LOCAL_PREVIEW === "1" &&
+    pathname === "/dev/labor-hours-planning"
+  );
+}
+
 export async function middleware(request: NextRequest) {
+  if (isLocalPreview(request.nextUrl.pathname)) return NextResponse.next();
+
   // Which site is this? finance.withers-ventures.com serves only the finance
   // pages, sign-in and the APIs they call; time.withers-ventures.com sends the
   // finance pages there. Decided before auth so a redirect costs no session

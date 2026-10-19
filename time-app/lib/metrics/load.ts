@@ -28,6 +28,8 @@ import { defaultLaborRange, laborWeekStarts, type WeekRange } from "./weekRange.
 import { loadBoard } from "@/lib/controlBoard/load";
 import { PROFILE_COLUMNS, laborPerson, loadCateringBookings } from "@/lib/controlBoard/scheduleLoad";
 import type { LaborShift } from "@/lib/controlBoard/schedule";
+import { laborHoursPlanning, type LaborPlanning } from "./laborPlanning";
+import { loadLaborPlanningRows, planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
 
 /** What the page's data spans on `today`: the weeks and months behind it, and the days from the first of those months to the end of the last month ahead. */
 function metricsWindow(today: string): { weeks: string[]; months: string[]; from: string; to: string } {
@@ -49,6 +51,8 @@ export type MetricsInputs = {
   targets: SalesTargetRow[] | null;
   /** Labor vs target's reads: the paid hourly actuals, the daily in-store sales and the control board. */
   laborTarget: Omit<LaborTargetInputs, "today"> | null;
+  /** Labor Hours Planning's reads (bj-finance #742); null when they failed (named in problems). */
+  laborPlanning: LaborPlanningRows | null;
   feed: FeedInputs;
   problems: string[];
 };
@@ -100,6 +104,8 @@ export type MetricsData = {
   quotes: QuoteCohort[] | null;
   /** Labor vs target for each week on offer, oldest first, and the range a card shows until one is chosen. */
   laborTarget: null | { weeks: LaborTargetWeek[]; defaultRange: WeekRange };
+  /** Labor Hours Planning: 52 weeks ahead from this one; a card shows its first `weeks`. */
+  laborPlanning: LaborPlanning | null;
   feed: FeedData;
   problems: string[];
 };
@@ -143,7 +149,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     }
   }
 
-  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, feed] = await Promise.all([
+  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed] = await Promise.all([
     attempt("catering deals", () =>
       paged<DealRow>(() =>
         supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", firstMonth).lte("event_date", `${lastDay}T23:59:59`).order("id"),
@@ -194,6 +200,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
       return ((data ?? []) as SalesTargetRow[]).map((r) => ({ ...r, amount: Number(r.amount) }));
     }),
     attempt("labor vs target", () => loadLaborTarget(supabase, today, problems)),
+    attempt("labor hours planning", () => loadLaborPlanningRows(supabase, today)),
     loadFeed(supabase, addDays(today, -95), addMonths(today, -13)),
   ]);
 
@@ -204,7 +211,9 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     deals = [...merged.values()];
   }
 
-  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, laborTarget, feed, problems };
+  if (laborPlanning) problems.push(...laborPlanning.problems);
+
+  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed, problems };
 }
 
 /**
@@ -377,6 +386,7 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
           defaultRange: defaultLaborRange(today),
         }
       : null,
+    laborPlanning: inputs.laborPlanning ? laborHoursPlanning(planningInputsFrom(inputs.laborPlanning)) : null,
     feed: buildFeed(inputs.feed),
     problems: inputs.problems,
   };

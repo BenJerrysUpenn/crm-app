@@ -20,8 +20,9 @@ import type { ViewsState } from "@/lib/metrics/viewsServer";
 import { serialSaves } from "@/lib/metrics/saveQueue";
 import { NotEnabled, applyPatch, localStore, readLocal, serverStore, writeLocal, type ViewPatch, type ViewStore } from "./viewStore";
 import {
-  ArWidget, ForwardWidget, LaborTargetWidget, LabourWidget, LeadsWidget, OutreachWidget, QuotesWidget, SalesWidget,
+  ArWidget, ForwardWidget, LaborPlanningWidget, LaborTargetWidget, LabourWidget, LeadsWidget, OutreachWidget, QuotesWidget, SalesWidget,
 } from "./widgets";
+import { PLANNING_WEEKS, planningWeekCount } from "@/lib/metrics/planningWeeks";
 import { CashWidget, ClosedMonthWidget, LerWidget } from "./feedWidgets";
 
 const BTN =
@@ -517,7 +518,55 @@ function settingsNote(w: WidgetConfig, s: Partial<WidgetSettings>, data: Metrics
     const name = monthChoices(lt).find((m) => m.range && m.value === month)?.label;
     return `${name ? `${name}, ` : ""}weeks of ${rangeLabel(shown)}`;
   }
+  if (METRICS[w.metric].weeksAhead && "weeks" in s) return `${planningWeekCount(s.weeks)} weeks ahead`;
   return PERIOD_LABEL[s.period ?? w.settings.period];
+}
+
+/**
+ * How many weeks ahead a card shows, 4 to 52 (bj-finance #742). The number
+ * beside the slider follows it as it moves; once it stops, the count is saved
+ * with the view and the chart redrawn, so a drag is one save, not fifty.
+ */
+function WeeksSlider({
+  widget, title, onSettings,
+}: {
+  widget: WidgetConfig;
+  title: string;
+  onSettings: (s: Partial<WidgetSettings>) => void;
+}) {
+  const saved = planningWeekCount(widget.settings.weeks);
+  const [weeks, setWeeks] = useState(saved);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => setWeeks(saved), [saved]);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  const change = (n: number) => {
+    setWeeks(n);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => onSettings({ weeks: n }), 400);
+  };
+  return (
+    <span className="flex items-center gap-2 min-h-[44px]">
+      <label htmlFor={`weeks-${widget.id}`} className="text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">
+        Weeks ahead
+        <span className="sr-only"> for {title}</span>
+      </label>
+      <input
+        id={`weeks-${widget.id}`}
+        type="range"
+        min={PLANNING_WEEKS.min}
+        max={PLANNING_WEEKS.max}
+        step={1}
+        value={weeks}
+        onChange={(e) => change(Number(e.target.value))}
+        className="w-36 accent-emerald-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
+      />
+      <output htmlFor={`weeks-${widget.id}`} className="text-sm tabular-nums text-slate-800 dark:text-slate-100 w-8 text-right">
+        {weeks}
+      </output>
+    </span>
+  );
 }
 
 /**
@@ -588,7 +637,7 @@ function WeekRangePicker({
   );
 }
 
-function WidgetCard({
+export function WidgetCard({
   widget, data, editing, first, last, onSettings, onMove, onRemove,
 }: {
   widget: WidgetConfig;
@@ -627,6 +676,7 @@ function WidgetCard({
             </>
           )}
           {def.weekRange && data.laborTarget && <WeekRangePicker widget={widget} title={def.title} data={data.laborTarget} onSettings={onSettings} />}
+          {def.weeksAhead && <WeeksSlider widget={widget} title={def.title} onSettings={onSettings} />}
           {def.streams && (
             <>
               <label className="sr-only" htmlFor={`stream-${widget.id}`}>
@@ -678,6 +728,8 @@ function WidgetBody({ widget, data }: { widget: WidgetConfig; data: MetricsData 
       return <LabourWidget data={data} settings={s} />;
     case "labor_vs_target":
       return <LaborTargetWidget data={data} settings={s} />;
+    case "labor_hours_planning":
+      return <LaborPlanningWidget data={data} settings={s} />;
     case "closed_month":
       return <ClosedMonthWidget data={data} settings={s} />;
     case "leads":

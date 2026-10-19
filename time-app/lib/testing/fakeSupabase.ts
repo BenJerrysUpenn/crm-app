@@ -524,7 +524,10 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     });
   }
   const caller = callerOf(headers);
-  const all = (fake.tables[table] ??= []);
+  // A read of a table no test seeded sees it empty without creating it, so a
+  // read-only check leaves fake.tables exactly as it found them.
+  const reading = method === "GET" || method === "HEAD";
+  const all = fake.tables[table] ?? (reading ? [] : (fake.tables[table] = []));
 
   if (method === "GET" || method === "HEAD") {
     let rows = all.filter((r) => canRead(table, caller, r) && matches(r, url.searchParams));

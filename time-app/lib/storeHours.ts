@@ -1,7 +1,7 @@
 // Shared validation and shaping for store hours. Pure — no Supabase, no
 // next/headers — so both the API routes and the Team page UI can import it.
 
-import type { StoreHours, StoreHoursException } from "@/lib/types";
+import type { StoreHours, StoreHoursException, StoreHoursSeason } from "@/lib/types";
 
 // Sunday-first, matching Date#getDay and the schedule board's week.
 export const WEEKDAY_NAMES = [
@@ -156,16 +156,33 @@ export function weekdaysWithoutHours(hours: StoreHours[]): number[] {
   return [0, 1, 2, 3, 4, 5, 6].filter((d) => !have.has(d));
 }
 
+// The season row in force on `date` for its weekday: the latest effective_from
+// on or before the date (migration 47). None before the first season.
+export function seasonFor(date: string, seasons: StoreHoursSeason[]): StoreHoursSeason | undefined {
+  const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+  let best: StoreHoursSeason | undefined;
+  for (const s of seasons) {
+    if (s.weekday !== weekday || s.effective_from > date) continue;
+    if (!best || s.effective_from > best.effective_from) best = s;
+  }
+  return best;
+}
+
 // A plain-English description of what one date looks like, given the weekly
-// pattern and any exception on it.
+// pattern, the season in force on it (if any) and any exception on it.
 export function describeDay(
   hours: StoreHours[],
   exception: StoreHoursException | undefined,
   weekday: number,
+  season?: StoreHoursSeason,
 ): string {
   if (exception) {
     if (exception.is_closed) return "Closed";
     return `${fmtStoreTime(exception.opens)} – ${fmtStoreTime(exception.closes)}`;
+  }
+  if (season) {
+    if (season.is_closed) return `Closed (${season.name} season)`;
+    return `Open, ${season.name} hours (${fmtStoreTime(season.opens)} – ${fmtStoreTime(season.closes)})`;
   }
   const normal = hours.find((h) => h.weekday === weekday);
   if (!normal) return "Open, normal hours (not set yet)";
