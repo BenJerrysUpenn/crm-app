@@ -16,6 +16,8 @@ import { conversion, LEAD_SOURCES } from "@/lib/metrics/funnel";
 import { feedInStoreByWeek, feedSales } from "@/lib/metrics/feed";
 import { labourPct, salesPerHour } from "@/lib/metrics/labour";
 import { addDays } from "@/lib/metrics/dates";
+import { laborTargetChart } from "@/lib/metrics/laborTargetChart";
+import type { LaborTargetWeek } from "@/lib/metrics/laborTarget";
 
 /** Headline money: whole dollars (tables and tooltips carry the cents). */
 const money = (v: number | null | undefined) => (v == null ? "–" : formatValue(Math.round(v), "money").replace(/\.00$/, ""));
@@ -506,6 +508,48 @@ const NA = <span className="text-slate-400 dark:text-slate-500">n/a</span>;
 /** The week column stays in view while a phone scrolls the table sideways. */
 const STICKY = "sticky left-0 bg-white dark:bg-slate-900";
 
+/** The card's numbers, one row per week: behind "Show numbers" under the chart. */
+export function LaborTargetTable({ weeks, month }: { weeks: LaborTargetWeek[]; month: string }) {
+  const cell = "py-1.5 pl-3 text-right whitespace-nowrap";
+  return (
+    <div className="overflow-x-auto max-w-full">
+      <table className="w-full text-sm tabular-nums">
+        <caption className="sr-only">Labor vs target, each week of {monthLabel(month)}, Sunday to Saturday</caption>
+        <thead>
+          <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
+            <th scope="col" className={`${STICKY} py-1 pr-3 font-medium`}>Week</th>
+            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Sales</th>
+            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Hourly labor, all-in</th>
+            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Actual %</th>
+            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Target %, all-in</th>
+            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance $</th>
+            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance hours</th>
+          </tr>
+        </thead>
+        <tbody>
+          {weeks.map((w) => {
+            const over = w.varianceDollars != null && w.varianceDollars > 0;
+            const tone = over ? "text-red-700 dark:text-red-300 font-medium" : "text-slate-900 dark:text-slate-100";
+            return (
+              <tr key={w.start} className="border-t border-slate-100 dark:border-slate-800">
+                <th scope="row" className={`${STICKY} py-1.5 pr-3 text-left font-normal text-slate-600 dark:text-slate-300 whitespace-nowrap`}>
+                  {sunSatLabel(w.start, w.end)}
+                </th>
+                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.sales == null ? NA : money(w.sales)}</td>
+                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.actual == null ? NA : money(w.actual)}</td>
+                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.actualPct == null ? NA : formatValue(w.actualPct, "pct")}</td>
+                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.targetPct.value == null ? NA : formatValue(w.targetPct.value, "pct")}</td>
+                <td className={`${cell} ${tone}`}>{w.varianceDollars == null ? NA : signed(w.varianceDollars, "money")}</td>
+                <td className={`${cell} ${tone}`}>{w.varianceHours == null ? NA : signed(w.varianceHours, "hours")}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function LaborTargetWidget({ data, settings }: { data: MetricsData; settings: WidgetSettings }) {
   const lt = data.laborTarget;
   if (!lt) return <CouldNotLoad what="hourly payroll, daily sales or the control board" />;
@@ -514,44 +558,37 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
   const goals = [...new Set(weeks.map((w) => w.allInGoalPct.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
   const unavailable = weeks.filter((w) => !w.available);
   const withCatering = weeks.filter((w) => w.cateringHours != null && w.cateringHours > 0 && w.cateringOffset != null);
-  const cell = "py-1.5 pl-3 text-right whitespace-nowrap";
+  const c = laborTargetChart(weeks);
+  const t = c.totals;
+  const counted = `${t.complete} of ${plural(t.weeks, "week")} complete`;
+  const month = monthLabel(chosen.month);
   return (
     <div>
-      <div className="overflow-x-auto max-w-full">
-        <table className="w-full text-sm tabular-nums">
-          <caption className="sr-only">Labor vs target, each week of {monthLabel(chosen.month)}, Sunday to Saturday</caption>
-          <thead>
-            <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
-              <th scope="col" className={`${STICKY} py-1 pr-3 font-medium`}>Week</th>
-              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Sales</th>
-              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Hourly labor, all-in</th>
-              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Actual %</th>
-              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Target %, all-in</th>
-              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance $</th>
-              <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance hours</th>
-            </tr>
-          </thead>
-          <tbody>
-            {weeks.map((w) => {
-              const over = w.varianceDollars != null && w.varianceDollars > 0;
-              const tone = over ? "text-red-700 dark:text-red-300 font-medium" : "text-slate-900 dark:text-slate-100";
-              return (
-                <tr key={w.start} className="border-t border-slate-100 dark:border-slate-800">
-                  <th scope="row" className={`${STICKY} py-1.5 pr-3 text-left font-normal text-slate-600 dark:text-slate-300 whitespace-nowrap`}>
-                    {sunSatLabel(w.start, w.end)}
-                  </th>
-                  <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.sales == null ? NA : money(w.sales)}</td>
-                  <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.actual == null ? NA : money(w.actual)}</td>
-                  <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.actualPct == null ? NA : formatValue(w.actualPct, "pct")}</td>
-                  <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.targetPct.value == null ? NA : formatValue(w.targetPct.value, "pct")}</td>
-                  <td className={`${cell} ${tone}`}>{w.varianceDollars == null ? NA : signed(w.varianceDollars, "money")}</td>
-                  <td className={`${cell} ${tone}`}>{w.varianceHours == null ? NA : signed(w.varianceHours, "hours")}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {t.complete > 0 && (
+        <Tiles>
+          <Tile label="Actual %, complete weeks" value={formatValue(t.actualPct, "pct")} sub={counted} />
+          <Tile label="Target %, all-in" value={formatValue(t.targetPct, "pct")} sub="same weeks, by sales" />
+          <Tile
+            label={t.varianceDollars! > 0 ? "Over target" : t.varianceDollars! < 0 ? "Under target" : "Variance $"}
+            value={signed(t.varianceDollars!, "money")}
+            sub="hourly labor vs target $"
+          />
+          <Tile label="Variance hours" value={t.varianceHours == null ? "–" : signed(t.varianceHours, "hours")} sub="at each week's cost per hour" />
+        </Tiles>
+      )}
+      <Chart
+        title={`Hourly labor all-in as a share of in-store sales, each week of ${month} by its Sunday, against the all-in target`}
+        labels={c.labels}
+        series={[
+          { label: "Actual %", values: c.actualPct, color: "in_store", highlight: { indexes: c.over, color: "serious", label: "Over target" } },
+          { label: "Target %, all-in", values: c.targetPct, color: "target", type: "line", dashed: true },
+        ]}
+        format="pct"
+        gaps={c.gaps}
+        tableLabel="Week of"
+        emptyText={`No week of ${month} has its numbers yet (${counted}).`}
+        table={<LaborTargetTable weeks={weeks} month={chosen.month} />}
+      />
       {withCatering.length > 0 && (
         <ul className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
           {withCatering.map((w) => (
@@ -606,6 +643,11 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
         <p>
           Variance $ = hourly labor less target % x sales; above zero (red) is over target. Variance hours = variance $ at the
           week&rsquo;s own in-store cost per hour (hourly labor / hours paid less the catering crew&rsquo;s billed hours).
+        </p>
+        <p>
+          On the chart each bar is a week&rsquo;s actual % (hourly labor, all-in / sales), red when the week is over target, and the
+          dashed line is its target %. A week marked n/a has no bar. The figures above the chart add up the complete weeks only: actual
+          % and target % are their summed dollars over their summed sales.
         </p>
       </Method>
     </div>
