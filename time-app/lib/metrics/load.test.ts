@@ -147,7 +147,7 @@ test("when the deals cannot load, every deal-based widget is null rather than em
   assert.equal(data.quotes, null);
   assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["catering deals", "labor vs target", "new enquiries"]);
   // The card still draws, with no labor for a week whose catering offset cannot be known.
-  assert.ok(data.laborTarget?.months.find((m) => m.month === "2026-09")?.weeks[0].why.includes("catering bookings could not be read"));
+  assert.ok(data.laborTarget?.weeks.find((w) => w.start === "2026-09-06")?.why.includes("catering bookings could not be read"));
   assert.equal(data.outreach?.at(-1)?.sent, 1);
 });
 
@@ -196,15 +196,18 @@ function seedLaborTarget() {
   db.tables.sales_daily_in_store = SEPT_WEEK.map((day) => ({ day, in_store: "700.00", basis: "booked", source: "square" }));
 }
 
-test("labor vs target: each week of the last full month by default, from the paid actuals, the daily sales and the board", async () => {
+test("labor vs target: every week on offer, the last 8 over by default, from the paid actuals, the daily sales and the board", async () => {
   seedLaborTarget();
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
   assert.deepEqual(data.problems, []);
-  assert.equal(data.laborTarget?.defaultMonth, "2026-09");
-  assert.equal(data.laborTarget?.months[0].month, "2026-10");
-  const sept = data.laborTarget?.months.find((m) => m.month === "2026-09");
-  assert.deepEqual(sept?.weeks.map((w) => w.start), ["2026-09-06", "2026-09-13", "2026-09-20", "2026-09-27"]);
-  const [first, second] = sept!.weeks;
+  // NOW is Saturday Oct 10: the week of Oct 4 is not over, so the default ends with Sep 27.
+  assert.deepEqual(data.laborTarget?.defaultRange, { from: "2026-08-09", to: "2026-09-27" });
+  const starts = data.laborTarget!.weeks.map((w) => w.start);
+  assert.equal(starts[0], "2026-05-03");
+  assert.equal(starts.at(-1), "2026-10-04");
+  assert.equal(starts.length, 23);
+  const i = starts.indexOf("2026-09-06");
+  const [first, second] = data.laborTarget!.weeks.slice(i, i + 2);
   assert.equal(first.available, true);
   assert.equal(first.sales, 4_900);
   assert.equal(first.actual, 1_400);
@@ -226,7 +229,7 @@ test("labor vs target: a booked deal's billed crew hours come off the week's lab
   db.tables.deals.push(deal({ id: 3, event_date: "2026-09-08", labor_hours: "5", staff_count: 2 }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
   assert.deepEqual(data.problems, []);
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true);
   assert.equal(first.cateringHours, 10);
   assert.equal(first.cateringOffset, 250);
@@ -247,7 +250,7 @@ test("labor vs target: whoever is on the deal's Catering shift sets the crew rat
   // 5 hours x 2 crew = 10 billed hours at 25 + 5 = 300 of crew cost, 375 with taxes and comp.
   db.tables.deals.push(deal({ id: 3, event_date: "2026-09-08", labor_hours: "5", staff_count: 2 }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true);
   assert.equal(first.cateringOffset, 375);
   assert.equal(first.actual, 1_025);
@@ -260,7 +263,7 @@ test("labor vs target: a booked deal with no billed crew hours reads n/a for its
   });
   db.tables.deals.push(deal({ id: 4, event_date: "2026-09-09", labor_hours: null, staff_count: null }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, false);
   assert.equal(first.actual, null);
   assert.ok(first.why.includes("no billed crew hours on catering deal #4"), first.why.join("; "));
@@ -276,7 +279,7 @@ test("labor vs target: a week before the catering premium was first set prices t
   // 5 hours x 2 crew = 10 billed hours at the active average of 15, no premium: 150, 187.50 with taxes and comp.
   db.tables.deals.push(deal({ id: 3, event_date: "2026-09-08", labor_hours: "5", staff_count: 2 }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true, first.why.join("; "));
   assert.equal(first.cateringOffset, 187.5);
   assert.equal(first.actual, 1_212.5);
@@ -294,7 +297,7 @@ test("labor vs target: a week's fixed payroll is the people salaried that week, 
     { id: 2, profile_id: "p-gone", annual_salary: "10000.00", effective_from: "2026-01-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-01-01T00:00:00Z" },
   ];
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true, first.why.join("; "));
   // 25,000 of payroll target less 10,000 x 1.25 of fixed payroll = 12,500 of 100,000.
   assert.equal(first.targetPct.value, 0.125);
@@ -305,7 +308,7 @@ test("labor vs target: a deal billed zero crew hours (a pickup) takes nothing of
   // PostgREST sends the numeric labor_hours as a string; no staff count on file.
   db.tables.deals.push(deal({ id: 5, event_date: "2026-09-08", labor_hours: "0", staff_count: null }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true, first.why.join("; "));
   assert.equal(first.cateringHours, 0);
   assert.equal(first.actual, 1_400);

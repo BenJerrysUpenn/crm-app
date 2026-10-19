@@ -285,8 +285,13 @@ export default function Chart({
                   ctx.font = "12px 'Helvetica Neue', Helvetica, Arial, sans-serif";
                   ctx.textAlign = horizontal ? "left" : "center";
                   ctx.textBaseline = horizontal ? "middle" : "bottom";
+                  // Many narrow weeks in a row: thin the marks so they never overlap (every gap is still in the table and the reasons).
+                  const room = ctx.measureText("n/a").width + 4;
+                  let lastAlong = -Infinity;
                   for (const i of gaps) {
                     const along = cat.getPixelForValue(i);
+                    if (!horizontal && along - lastAlong < room) continue;
+                    lastAlong = along;
                     const zero = val.getPixelForValue(0);
                     if (horizontal) ctx.fillText("n/a", zero + 4, along);
                     else ctx.fillText("n/a", along, zero - 4);

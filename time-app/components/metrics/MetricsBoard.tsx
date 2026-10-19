@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MetricsData } from "@/lib/metrics/load";
 import { METRICS, METRIC_IDS, PERIOD_LABEL, blurbFor, type MetricId, type WidgetConfig, type WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, STREAMS, type StreamFilter } from "@/lib/metrics/targets";
-import { monthLabel } from "@/lib/metrics/dates";
+import { pickRange, rangeLabel, shownRange, weekOptionLabel } from "@/lib/metrics/weekRange";
 import {
   MAX_NAME, MAX_VIEWS, MAX_WIDGETS, addWidget, checkName, freeName, moveView, moveWidget, ordered, removeWidget,
   updateWidgetSettings, type View,
@@ -225,7 +225,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
           onSettings={(s) =>
             changeWidgets(
               updateWidgetSettings(active, w.id, s),
-              `${METRICS[w.metric].title}: ${s.month ? monthLabel(s.month) : PERIOD_LABEL[s.period ?? w.settings.period]}.`,
+              `${METRICS[w.metric].title}: ${settingsNote(w, s, data)}.`,
             )
           }
           onMove={(d) => {
@@ -488,6 +488,53 @@ function ViewEditor({
   );
 }
 
+/** What a settings change says in the status line: the new range, or the new period. */
+function settingsNote(w: WidgetConfig, s: Partial<WidgetSettings>, data: MetricsData): string {
+  if (METRICS[w.metric].weekRange && data.laborTarget && ("from" in s || "to" in s)) {
+    const lt = data.laborTarget;
+    return `weeks of ${rangeLabel(shownRange(s, lt.weeks.map((x) => x.start), lt.defaultRange))}`;
+  }
+  return PERIOD_LABEL[s.period ?? w.settings.period];
+}
+
+/** A first and a last week, each named by its Sunday: the card covers every week from one to the other. */
+function WeekRangePicker({
+  widget, title, data, onSettings,
+}: {
+  widget: WidgetConfig;
+  title: string;
+  data: NonNullable<MetricsData["laborTarget"]>;
+  onSettings: (s: Partial<WidgetSettings>) => void;
+}) {
+  const starts = data.weeks.map((w) => w.start);
+  const range = shownRange(widget.settings, starts, data.defaultRange);
+  const pick = (end: "from" | "to", week: string) => onSettings(pickRange(range, end, week, data.defaultRange));
+  const options = starts.map((d) => (
+    <option key={d} value={d}>
+      {weekOptionLabel(d, starts)}
+    </option>
+  ));
+  return (
+    <span className="flex items-center gap-2" role="group" aria-label={`Weeks for ${title}`}>
+      <label className="sr-only" htmlFor={`from-${widget.id}`}>
+        First week (by its Sunday) for {title}
+      </label>
+      <select id={`from-${widget.id}`} className={SELECT} value={range.from} onChange={(e) => pick("from", e.target.value)}>
+        {options}
+      </select>
+      <span aria-hidden="true" className="text-sm text-slate-600 dark:text-slate-400">
+        to
+      </span>
+      <label className="sr-only" htmlFor={`to-${widget.id}`}>
+        Last week (by its Sunday) for {title}
+      </label>
+      <select id={`to-${widget.id}`} className={SELECT} value={range.to} onChange={(e) => pick("to", e.target.value)}>
+        {options}
+      </select>
+    </span>
+  );
+}
+
 function WidgetCard({
   widget, data, editing, first, last, onSettings, onMove, onRemove,
 }: {
@@ -526,25 +573,7 @@ function WidgetCard({
               </select>
             </>
           )}
-          {def.month && data.laborTarget && (
-            <>
-              <label className="sr-only" htmlFor={`month-${widget.id}`}>
-                Month for {def.title}
-              </label>
-              <select
-                id={`month-${widget.id}`}
-                className={SELECT}
-                value={data.laborTarget.months.some((m) => m.month === widget.settings.month) ? widget.settings.month : data.laborTarget.defaultMonth}
-                onChange={(e) => onSettings({ month: e.target.value })}
-              >
-                {data.laborTarget.months.map((m) => (
-                  <option key={m.month} value={m.month}>
-                    {monthLabel(m.month)}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
+          {def.weekRange && data.laborTarget && <WeekRangePicker widget={widget} title={def.title} data={data.laborTarget} onSettings={onSettings} />}
           {def.streams && (
             <>
               <label className="sr-only" htmlFor={`stream-${widget.id}`}>

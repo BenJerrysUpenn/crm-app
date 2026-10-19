@@ -1,6 +1,6 @@
 // Labor vs target (bj-finance #696, spec by Alina 2026-10-13, rulings
-// 2026-10-16): for a chosen month, each Sunday-to-Saturday week that starts
-// in it, with what was sold, what in-store hourly labor actually cost all-in
+// 2026-10-16): for each Sunday-to-Saturday week on offer (weekRange.ts: from
+// the first week under Withers to this one), what was sold, what in-store hourly labor actually cost all-in
 // and how far that sits from the all-in target.
 //
 //   Actual sales          in-store sales, public.sales_daily_in_store
@@ -55,7 +55,8 @@ import type { Derived } from "../controlBoard/math.ts";
 import type { SalaryRow, SettingRow } from "../controlBoard/settings.ts";
 import type { SalariedProfile } from "../controlBoard/load.ts";
 import { cateringOffset, type CateringBooking, type CateringOffsetInput, type LaborPerson, type LaborShift } from "../controlBoard/schedule.ts";
-import { addDays, addMonths, eachDay, monthEnd } from "./dates.ts";
+import { addDays, eachDay } from "./dates.ts";
+import { laborWeekStarts } from "./weekRange.ts";
 
 /** A row of public.labor_daily_actuals, as the card reads it. */
 export type LaborDayRow = { day: string; hours: number; wages: number; catering_premium: number; solo_close: number };
@@ -111,35 +112,10 @@ export type LaborTargetWeek = {
   varianceHours: number | null;
 };
 
-export type LaborTargetMonth = { month: string; weeks: LaborTargetWeek[] };
-
-/** How many months the card offers: this one and the 11 before it. */
-export const LABOR_MONTHS = 12;
-
-/** The months on offer on `today`, newest first, as "YYYY-MM". */
-export function laborMonths(today: string): string[] {
-  return Array.from({ length: LABOR_MONTHS }, (_, i) => addMonths(today, -i).slice(0, 7));
-}
-
-/** The month a new card shows: the last full month. */
-export function defaultLaborMonth(today: string): string {
-  return addMonths(today, -1).slice(0, 7);
-}
-
-/** The Sundays of `month` ("YYYY-MM"): each starts one of its weeks. */
-export function monthWeeks(month: string): string[] {
-  const first = `${month}-01`;
-  const dow = new Date(`${first}T12:00:00Z`).getUTCDay(); // 0 = Sunday
-  const out: string[] = [];
-  for (let d = addDays(first, (7 - dow) % 7); d <= monthEnd(first); d = addDays(d, 7)) out.push(d);
-  return out;
-}
-
-/** The days the card can need on `today`: from the first Sunday of the oldest month on offer to the last Saturday of this one. */
+/** The days the card can need on `today`: from the first week on offer to the Saturday of this one. */
 export function laborWindow(today: string): { from: string; to: string } {
-  const months = laborMonths(today);
-  const last = monthWeeks(months[0]);
-  return { from: monthWeeks(months[months.length - 1])[0], to: addDays(last[last.length - 1], 6) };
+  const starts = laborWeekStarts(today);
+  return { from: starts[0], to: addDays(starts[starts.length - 1], 6) };
 }
 
 const missing = (...needs: string[]): Derived => ({ value: null, needs: [...new Set(needs)] });
@@ -264,8 +240,8 @@ function week(
   };
 }
 
-/** The card's rows for `month` ("YYYY-MM"). */
-export function laborVsTarget(month: string, i: LaborTargetInputs): LaborTargetMonth {
+/** The card's rows for the weeks starting on `starts` (Sundays). */
+export function laborVsTarget(starts: string[], i: LaborTargetInputs): LaborTargetWeek[] {
   const labor = new Map(i.labor.map((r) => [r.day, r]));
   const sales = new Map(i.sales.map((r) => [r.day, r.in_store]));
   const people = new Map(i.catering.people.map((p) => [p.id, p]));
@@ -275,5 +251,5 @@ export function laborVsTarget(month: string, i: LaborTargetInputs): LaborTargetM
     people,
     settings: i.settings,
   };
-  return { month, weeks: monthWeeks(month).map((start) => week(start, i, labor, sales, offsetInput)) };
+  return starts.map((start) => week(start, i, labor, sales, offsetInput));
 }
