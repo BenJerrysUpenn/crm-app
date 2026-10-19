@@ -169,7 +169,8 @@ still above zero after the catering crew comes off, otherwise "n/a" with the rea
 (`lib/metrics/weekRange.ts`), saved in the widget's settings as `from` and `to`, the Sundays of its first and last
 week, chosen from 2026-05-03 (`FIRST_LABOR_WEEK`) to the week holding today. Unset, it shows the last 8 weeks ending
 with the most recent one that is over. A view saved under the old month picker keeps its `month`, read as the weeks
-that start in it. Tests: `npm test` in `time-app/` includes
+that start in it. A button per month on offer sets the range to that month's weeks by the same rule, and shows
+pressed while the range is that month. Tests: `npm test` in `time-app/` includes
 `lib/metrics/*.test.ts`.
 
 ## Travel Reimbursements (Withers Time)
