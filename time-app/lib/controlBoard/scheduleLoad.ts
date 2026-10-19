@@ -25,7 +25,7 @@ type ProfileLike = {
 };
 type ShiftTypeLike = { name: string; in_store?: boolean | null };
 
-export const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived, labor_hours, staff_count";
+const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived, labor_hours, staff_count";
 
 export type BookingDeal = DealRow & { labor_hours: number | string | null; staff_count: number | string | null };
 
