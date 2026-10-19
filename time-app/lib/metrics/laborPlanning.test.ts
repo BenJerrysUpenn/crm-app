@@ -311,7 +311,7 @@ test("a marketing deal is one whose event type starts with Marketing, counted at
   ]);
 });
 
-test("marketing booked hours: a marketing deal's shifts of any position, or its labor hours x staff count; plus Marketing shifts with no deal", () => {
+test("marketing booked hours: a marketing deal's shifts of any position, or its labor hours x staff count; plus every other Marketing shift", () => {
   const w = first({
     marketingDeals: [mDeal(1, "2030-10-15", 6), mDeal(2, "2030-10-17", 10), mDeal(3, "2030-10-18", 4, false)],
     shifts: [
@@ -323,8 +323,9 @@ test("marketing booked hours: a marketing deal's shifts of any position, or its 
     ],
   });
   // Deal 1: no shifts, billed 6. Deal 2: shifts of 3 and 2 hours. A Marketing
-  // shift with no deal: 5. Deal 3 is Closed Lost; deal 50 is not a marketing deal.
-  close(w.marketingBookedHours, 6 + 5 + 5);
+  // shift with no deal: 5. A Marketing shift on deal 50, not a marketing deal:
+  // 10. Deal 3 is Closed Lost, so its shift counts nowhere.
+  close(w.marketingBookedHours, 6 + 5 + 5 + 10);
   close(w.bookedHours, 0, "none of it is catering");
 });
 
@@ -393,7 +394,7 @@ test("last year's hours: the loaded days, then the CRM's shifts, with concession
     s(21, "Marketing", "2030-07-02", "10:00", "12:00"),
     s(null, "Marketing", "2030-07-02", "15:00", "16:00"),
     s(22, "Catering", "2030-07-02", "09:00", "10:00"), // a Closed Lost marketing deal: in neither
-    s(8, "Marketing", "2030-07-02", "09:00", "19:00"), // a Marketing shift on a catering deal: in neither
+    s(8, "Marketing", "2030-07-02", "09:00", "19:00"), // a Marketing shift on a catering deal: marketing (its position says so)
     s(null, "PENN Opener", "2030-07-02", "09:00", "19:00"),
     s(null, "Catering", "2030-07-03", "09:00", "17:00"),
     s(null, "Catering", "2030-06-30", "09:00", "19:00"), // a loaded day: the loaded row stands
@@ -424,7 +425,7 @@ test("last year's hours: the loaded days, then the CRM's shifts, with concession
     { day: "2030-06-29", hours: 0 },
     { day: "2030-06-30", hours: 0 },
     { day: "2030-07-01", hours: 0 },
-    { day: "2030-07-02", hours: 6 },
+    { day: "2030-07-02", hours: 16 },
     { day: "2030-07-03", hours: 0 },
     { day: "2030-07-04", hours: 0 },
   ]);

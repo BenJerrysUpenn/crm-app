@@ -793,7 +793,7 @@ export function LaborPlanningWidget({ data, settings }: { data: MetricsData; set
         <p>
           A marketing deal is a deal whose event type starts with Marketing, at any stage but Closed Lost (Free Cone Day, comp
           tabling). Its hours are never catering. Marketing booked = the shifts on each marketing deal of the week, any position, plus
-          Marketing shifts with no deal; a marketing deal with no shifts yet counts its labor hours x staff count. Marketing
+          every other Marketing shift; a marketing deal with no shifts yet counts its labor hours x staff count. Marketing
           estimated = last year&rsquo;s marketing hours in the same week, less what is booked, never below zero. Last year&rsquo;s
           marketing hours are the When I Work days marked marketing (such as Free Cone Day), then the shifts on marketing deals and
           Marketing shifts once the time app took over.

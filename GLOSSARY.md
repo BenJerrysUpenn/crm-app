@@ -89,7 +89,7 @@ A deal in the catering CRM for an event the business staffs to promote itself, w
 _Avoid_: Marketing event, crew event, comp event
 
 **Marketing booked hours**:
-For a week ahead, the hours of the shifts on its marketing deals (any stage but Closed Lost) and of Marketing shifts with no deal; a marketing deal with no shifts yet counts its labor hours times staff count.
+For a week ahead, the hours of the shifts on its marketing deals (any stage but Closed Lost) and of every other Marketing shift; a marketing deal with no shifts yet counts its labor hours times staff count.
 _Avoid_: Marketing labor (ambiguous between booked and estimated)
 
 **Marketing estimated hours**:

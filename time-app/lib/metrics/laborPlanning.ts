@@ -29,8 +29,9 @@
 //                      is counted in hours, never as a share of catering
 //                      sales.
 //   Marketing booked   the shifts (any position) on each marketing deal of
-//   hours              the week, else its labor_hours x staff_count, plus the
-//                      Marketing shifts with no deal.
+//   hours              the week, else its labor_hours x staff_count, plus
+//                      every other Marketing shift (no deal, or a deal that
+//                      is not marketing).
 //   Marketing          max(last year's marketing hours in the same week -
 //   estimated hours    marketing booked, 0), the same shape as catering.
 //
@@ -300,7 +301,7 @@ function marketingIds(deals: MarketingDeal[] | null): { typed: Set<number>; coun
  *     Catering and are counted through the event's sales);
  *   - a loaded day marked marketing is marketing, not catering;
  *   - from the CRM, marketing is the shifts on marketing deals (any position)
- *     plus Marketing shifts with no deal; catering is the Catering shifts on
+ *     plus every other Marketing shift; catering is the Catering shifts on
  *     no deal or on a deal that is not marketing.
  */
 export function lastYearHours(input: {
@@ -336,8 +337,9 @@ export function lastYearHours(input: {
     const onDeal = s.deal_id != null;
     let into: Map<string, number> | null = null;
     if (onDeal && counted.has(s.deal_id!)) into = mByDay;
-    else if (!onDeal && isMarketingShift(s)) into = mByDay;
-    else if (isCatering(s) && !(onDeal && typed.has(s.deal_id!))) into = cByDay;
+    else if (onDeal && typed.has(s.deal_id!)) into = null;
+    else if (isMarketingShift(s)) into = mByDay;
+    else if (isCatering(s)) into = cByDay;
     if (into) into.set(day, (into.get(day) ?? 0) + spanHours(s.starts_at, s.ends_at));
   }
   for (const day of eachDay(from, input.through)) push(day, cByDay.get(day) ?? 0, mByDay.get(day) ?? 0);
@@ -366,16 +368,16 @@ export function laborHoursPlanning(i: LaborPlanningInputs): LaborPlanning {
   }
 
   // Booked hours per deal: its Catering shifts (a marketing deal's shifts of
-  // any position), else its billed crew hours; and Marketing shifts with no deal by day.
+  // any position), else its billed crew hours; and by day every other
+  // Marketing shift (no deal, or a deal that is not marketing).
   const shiftHours = new Map<number, number>();
-  const marketingNoDeal = new Map<string, number>();
+  const marketingLoose = new Map<string, number>();
   for (const s of i.shifts) {
     const hours = spanHours(s.starts_at, s.ends_at);
-    if (s.deal_id == null) {
-      if (isMarketingShift(s)) marketingNoDeal.set(nyDay(s.starts_at), (marketingNoDeal.get(nyDay(s.starts_at)) ?? 0) + hours);
-    } else if (counted.has(s.deal_id) || (isCatering(s) && !typed.has(s.deal_id))) {
-      shiftHours.set(s.deal_id, (shiftHours.get(s.deal_id) ?? 0) + hours);
-    }
+    if (s.deal_id != null && counted.has(s.deal_id)) shiftHours.set(s.deal_id, (shiftHours.get(s.deal_id) ?? 0) + hours);
+    else if (s.deal_id != null && typed.has(s.deal_id)) continue;
+    else if (isMarketingShift(s)) marketingLoose.set(nyDay(s.starts_at), (marketingLoose.get(nyDay(s.starts_at)) ?? 0) + hours);
+    else if (s.deal_id != null && isCatering(s)) shiftHours.set(s.deal_id, (shiftHours.get(s.deal_id) ?? 0) + hours);
   }
   /** A deal's booked hours: its shifts, else its billed hours; null when it has neither. */
   const dealHours = (id: number, billed: number | null) => {
@@ -451,14 +453,14 @@ export function laborHoursPlanning(i: LaborPlanningInputs): LaborPlanning {
 
     // Booked marketing.
     let marketingBookedHours = 0;
-    if (i.marketingDeals == null) notes.push("marketing deals could not be read: marketing booked hours count only Marketing shifts with no deal");
+    if (i.marketingDeals == null) notes.push("marketing deals could not be read: marketing booked hours count only Marketing shifts off marketing deals");
     for (const m of i.marketingDeals ?? []) {
       if (!m.counts || !m.day || m.day < start || m.day > end) continue;
       const h = dealHours(m.id, m.billedHours);
       if (h != null) marketingBookedHours += h;
       else notes.push(`marketing deal #${m.id} has no shifts and no labor hours: counted as none`);
     }
-    for (const d of dates) marketingBookedHours += marketingNoDeal.get(d) ?? 0;
+    for (const d of dates) marketingBookedHours += marketingLoose.get(d) ?? 0;
 
     // Last year's hours, and what is left of them once bookings are in.
     const lyDays = dates.map((d) => addDays(d, -364));
