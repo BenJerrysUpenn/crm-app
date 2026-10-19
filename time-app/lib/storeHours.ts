@@ -156,18 +156,6 @@ export function weekdaysWithoutHours(hours: StoreHours[]): number[] {
   return [0, 1, 2, 3, 4, 5, 6].filter((d) => !have.has(d));
 }
 
-// The season row in force on `date` for its weekday: the latest effective_from
-// on or before the date (migration 47). None before the first season.
-export function seasonFor(date: string, seasons: StoreHoursSeason[]): StoreHoursSeason | undefined {
-  const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
-  let best: StoreHoursSeason | undefined;
-  for (const s of seasons) {
-    if (s.weekday !== weekday || s.effective_from > date) continue;
-    if (!best || s.effective_from > best.effective_from) best = s;
-  }
-  return best;
-}
-
 // A plain-English description of what one date looks like, given the weekly
 // pattern, the season in force on it (if any) and any exception on it.
 export function describeDay(

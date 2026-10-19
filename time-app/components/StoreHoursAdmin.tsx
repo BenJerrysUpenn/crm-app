@@ -8,10 +8,10 @@ import {
   WEEKDAY_NAMES,
   describeDay,
   fmtStoreTime,
-  seasonFor,
   toTimeInput,
   weekdaysWithoutHours,
 } from "@/lib/storeHours";
+import { storeHoursFor } from "@/lib/coverage";
 
 // A calendar date rendered in the store's timezone. Noon UTC keeps the date
 // from sliding backwards in Eastern time, and the explicit timeZone keeps the
@@ -183,7 +183,7 @@ export default function StoreHoursAdmin({
                   date={h.date}
                   name={h.name}
                   exception={byDate.get(h.date)}
-                  status={describeDay(hours, byDate.get(h.date), new Date(`${h.date}T12:00:00Z`).getUTCDay(), seasonFor(h.date, seasons))}
+                  status={describeDay(hours, byDate.get(h.date), new Date(`${h.date}T12:00:00Z`).getUTCDay(), storeHoursFor(h.date, seasons))}
                   busy={busy}
                   onClose={() => closeDate(h.date, h.name)}
                   onSpecial={(o, c) => specialHours(h.date, h.name, o, c)}
@@ -209,7 +209,7 @@ export default function StoreHoursAdmin({
                       date={e.date}
                       name={e.label || "One-off"}
                       exception={e}
-                      status={describeDay(hours, e, new Date(`${e.date}T12:00:00Z`).getUTCDay(), seasonFor(e.date, seasons))}
+                      status={describeDay(hours, e, new Date(`${e.date}T12:00:00Z`).getUTCDay(), storeHoursFor(e.date, seasons))}
                       busy={busy}
                       onClose={() => closeDate(e.date, e.label)}
                       onSpecial={(o, c) => specialHours(e.date, e.label, o, c)}

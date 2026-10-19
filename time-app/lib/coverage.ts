@@ -37,9 +37,9 @@ export type StoreHoursRow = {
  * The row in force for `date`'s weekday: the season row with the latest
  * effective_from on or before the date, else the standing row, else none.
  */
-export function storeHoursFor(date: string, storeHours: StoreHoursRow[]): StoreHoursRow | undefined {
+export function storeHoursFor<R extends StoreHoursRow>(date: string, storeHours: R[]): R | undefined {
   const weekday = weekdayOf(date);
-  let best: StoreHoursRow | undefined;
+  let best: R | undefined;
   for (const r of storeHours) {
     if (r.weekday !== weekday) continue;
     const from = r.effective_from ?? null;
