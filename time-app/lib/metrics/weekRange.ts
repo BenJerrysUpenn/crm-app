@@ -10,10 +10,13 @@
 // view saved while the card had a month picker keeps that month: its
 // `month` is read as that month's weeks (each week that starts in it).
 //
+// Month shortcuts (Alina, 2026-10-18: "with options for highlighting
+// particular months") set the range to one month's weeks by the same rule.
+//
 // Pure: no React, no Supabase. The saved views, the page loader and the card
 // all use it.
 
-import { addDays, monthEnd, shortDay } from "./dates.ts";
+import { addDays, monthEnd, monthLabel, shortDay } from "./dates.ts";
 
 /** The first week on offer: the first Sunday-to-Saturday week under Withers. */
 export const FIRST_LABOR_WEEK = "2026-05-03";
@@ -114,4 +117,35 @@ export function weekOptionLabel(sunday: string, starts: string[]): string {
 /** "Aug 23 to Oct 11", or "Aug 23" for a single week. */
 export function rangeLabel(r: WeekRange): string {
   return r.from === r.to ? shortDay(r.from) : `${shortDay(r.from)} to ${shortDay(r.to)}`;
+}
+
+export type MonthShortcut = {
+  /** "YYYY-MM" */
+  month: string;
+  /** "May", or "May 2026" once the months on offer span two years. */
+  label: string;
+  /** "May 2026" */
+  name: string;
+  /** The month's weeks: each week whose Sunday falls in it. */
+  range: WeekRange;
+};
+
+/** A shortcut for each month holding a week on offer, oldest first. */
+export function monthShortcuts(offer: WeeksOnOffer): MonthShortcut[] {
+  const months = [...new Set(offer.weeks.map((w) => w.start.slice(0, 7)))];
+  const years = months.length > 0 && months[0].slice(0, 4) !== months[months.length - 1].slice(0, 4);
+  return months.map((month) => {
+    const weeks = monthWeeks(month);
+    const name = monthLabel(`${month}-01`);
+    return { month, label: years ? name : name.slice(0, 3), name, range: { from: weeks[0], to: weeks[weeks.length - 1] } };
+  });
+}
+
+/** The shortcut the range shown equals, if any: a month whose weeks, cut to those on offer, are exactly the range. */
+export function activeShortcut(shown: WeekRange, shortcuts: MonthShortcut[], offer: WeeksOnOffer): string | null {
+  const hit = shortcuts.find((m) => {
+    const r = shownRange(m.range, offer);
+    return r.from === shown.from && r.to === shown.to;
+  });
+  return hit?.month ?? null;
 }

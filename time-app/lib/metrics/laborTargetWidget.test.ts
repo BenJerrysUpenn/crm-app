@@ -152,6 +152,24 @@ test("a chosen range is shown; one past the weeks on file is cut to them; one wh
   assert.match(render({ from: "2029-01-07", to: "2029-02-04" }), /weeks of Oct 6 to Oct 27/);
 });
 
+test("a shortcut per month on file sets the range to its weeks, and shows pressed while the range is that month", () => {
+  const chips = (html: string) => [...html.matchAll(/<button type="button" aria-pressed="(true|false)" aria-label="([^"]+)"[^>]*>([^<]+)<\/button>/g)].map((m) => [m[3], m[1]]);
+  const unset = render({});
+  assert.match(unset, /role="group" aria-label="Months for Labor vs target"/);
+  // The fixture's default range happens to be Oct's weeks, so Oct shows pressed.
+  assert.deepEqual(chips(unset), [["Sep", "false"], ["Oct", "true"], ["Nov", "false"]]);
+  assert.deepEqual(chips(render({}, { weeks: WEEKS, defaultRange: { from: "2030-10-13", to: "2030-11-03" } })), [["Sep", "false"], ["Oct", "false"], ["Nov", "false"]]);
+  assert.match(unset, /aria-label="Sep 2030: the weeks whose Sunday is in Sep 2030"/);
+  // Oct 2030's weeks: Oct 6 to Oct 27.
+  const oct = render({ from: "2030-10-06", to: "2030-10-27" });
+  assert.deepEqual(chips(oct), [["Sep", "false"], ["Oct", "true"], ["Nov", "false"]]);
+  assert.match(oct, /weeks of Oct 6 to Oct 27/);
+  // Sep 2030's weeks run to Sep 29; Nov's are cut to the one on file.
+  assert.deepEqual(chips(render({ from: "2030-09-01", to: "2030-09-29" }))[0], ["Sep", "true"]);
+  assert.deepEqual(chips(render({ from: "2030-11-03", to: "2030-11-24" }))[2], ["Nov", "true"]);
+  assert.deepEqual(chips(render({ from: "2030-09-29", to: "2030-10-27" })).filter(([, on]) => on === "true"), []);
+});
+
 test("a view saved under the old month picker shows that month's weeks", () => {
   // Views are cleaned as they load (cleanWidgets): Sep 2030 is Sep 1 to Sep 29.
   const html = render({ month: "2030-09" });

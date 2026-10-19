@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  DEFAULT_WEEKS, FIRST_LABOR_WEEK, defaultLaborRange, isSunday, laborWeekStarts, monthWeeks, pickRange, rangeLabel, savedRange,
+  DEFAULT_WEEKS, FIRST_LABOR_WEEK, activeShortcut, defaultLaborRange, monthShortcuts, isSunday, laborWeekStarts, monthWeeks, pickRange, rangeLabel, savedRange,
   shownRange, sundayOf, weekOptionLabel,
 } from "./weekRange.ts";
 
@@ -89,4 +89,30 @@ test("weeks are labelled by their Sunday, with the year once the weeks on offer 
   assert.equal(weekOptionLabel("2026-05-03", []), "May 3");
   assert.equal(rangeLabel({ from: "2026-05-03", to: "2026-10-04" }), "May 3 to Oct 4");
   assert.equal(rangeLabel({ from: "2026-08-23", to: "2026-08-23" }), "Aug 23");
+});
+
+/** The weeks on offer on `today` with their default, as the page loads them. */
+const OFFER = (today: string) => ({ weeks: laborWeekStarts(today).map((start) => ({ start })), defaultRange: defaultLaborRange(today) });
+
+test("a month shortcut for each month holding a week on offer, each its weeks by Sunday", () => {
+  const offer = OFFER("2026-10-18");
+  const months = monthShortcuts(offer);
+  assert.deepEqual(months.map((m) => m.label), ["May", "Jun", "Jul", "Aug", "Sep", "Oct"]);
+  assert.deepEqual(months[0], { month: "2026-05", label: "May", name: "May 2026", range: { from: "2026-05-03", to: "2026-05-31" } });
+  assert.deepEqual(months[3].range, { from: "2026-08-02", to: "2026-08-30" });
+  assert.deepEqual(months[5].range, { from: "2026-10-04", to: "2026-10-25" }); // the weeks to come show as they arrive
+  // A month's last day on a Saturday: the next month starts with its own first Sunday.
+  assert.equal(monthShortcuts(OFFER("2026-10-31")).at(-1)?.month, "2026-10");
+  assert.equal(monthShortcuts(OFFER("2026-11-01")).at(-1)?.month, "2026-11");
+  // Across a year end, the year is on each label.
+  assert.deepEqual(monthShortcuts({ weeks: [{ start: "2026-12-27" }, { start: "2027-01-03" }], defaultRange: { from: "2026-12-27", to: "2026-12-27" } }).map((m) => m.label), ["Dec 2026", "Jan 2027"]);
+});
+
+test("a month shows as chosen while the range is its weeks, cut to those on offer", () => {
+  const offer = OFFER("2026-10-18");
+  const months = monthShortcuts(offer);
+  assert.equal(activeShortcut({ from: "2026-08-02", to: "2026-08-30" }, months, offer), "2026-08");
+  assert.equal(activeShortcut({ from: "2026-10-04", to: "2026-10-18" }, months, offer), "2026-10");
+  assert.equal(activeShortcut({ from: "2026-08-02", to: "2026-08-23" }, months, offer), null);
+  assert.equal(activeShortcut(offer.defaultRange, months, offer), null);
 });

@@ -618,7 +618,8 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
       <Method>
         <p>
           Weeks run Sunday to Saturday and are named by their Sunday; the card covers every week from the first chosen to the last
-          (until a range is chosen, the last 8 weeks that are over). Sales are in-store sales for all seven days. A week
+          (until a range is chosen, the last 8 weeks that are over). A month button sets the range to the weeks whose Sunday is in
+          that month. Sales are in-store sales for all seven days. A week
           shows only once it is over and every one of its seven days has hourly payroll on file; a day missing from the payroll or the
           sales makes that week not available. Nothing is estimated from punches or the schedule.
         </p>
