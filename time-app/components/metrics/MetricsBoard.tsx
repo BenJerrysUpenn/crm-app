@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MetricsData } from "@/lib/metrics/load";
 import { METRICS, METRIC_IDS, PERIOD_LABEL, blurbFor, type MetricId, type WidgetConfig, type WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, STREAMS, type StreamFilter } from "@/lib/metrics/targets";
-import { activeShortcut, monthShortcuts, pickRange, rangeLabel, shownRange, weekOptionLabel } from "@/lib/metrics/weekRange";
+import { monthChoiceFor, monthChoices, pickRange, rangeLabel, shownRange, weekOptionLabel } from "@/lib/metrics/weekRange";
 import {
   MAX_NAME, MAX_VIEWS, MAX_WIDGETS, addWidget, checkName, freeName, moveView, moveWidget, ordered, removeWidget,
   updateWidgetSettings, type View,
@@ -513,9 +513,8 @@ function settingsNote(w: WidgetConfig, s: Partial<WidgetSettings>, data: Metrics
   if (METRICS[w.metric].weekRange && data.laborTarget && ("from" in s || "to" in s)) {
     const lt = data.laborTarget;
     const shown = shownRange(s, lt);
-    const shortcuts = monthShortcuts(lt);
-    const month = activeShortcut(shown, shortcuts, lt);
-    const name = shortcuts.find((m) => m.month === month)?.name;
+    const month = monthChoiceFor(shown, lt);
+    const name = monthChoices(lt).find((m) => m.range && m.value === month)?.label;
     return `${name ? `${name}, ` : ""}weeks of ${rangeLabel(shown)}`;
   }
   return PERIOD_LABEL[s.period ?? w.settings.period];
@@ -523,8 +522,10 @@ function settingsNote(w: WidgetConfig, s: Partial<WidgetSettings>, data: Metrics
 
 /**
  * A first and a last week, each named by its Sunday: the card covers every
- * week from one to the other. Beside them, a shortcut per month sets the
- * range to that month's weeks and shows as pressed while the range is it.
+ * week from one to the other. Beside them, one month menu: choosing a month
+ * sets the range to that month's weeks, and it shows the month while the
+ * range is one ("Custom" otherwise). On one line at desktop width; on a phone
+ * the month menu wraps under the weeks.
  */
 function WeekRangePicker({
   widget, title, data, onSettings,
@@ -537,8 +538,12 @@ function WeekRangePicker({
   const starts = data.weeks.map((w) => w.start);
   const range = shownRange(widget.settings, data);
   const pick = (end: "from" | "to", week: string) => onSettings(pickRange(range, end, week, data.defaultRange));
-  const shortcuts = monthShortcuts(data);
-  const active = activeShortcut(range, shortcuts, data);
+  const months = monthChoices(data);
+  const month = monthChoiceFor(range, data);
+  const pickMonth = (value: string) => {
+    const chosen = months.find((m) => m.value === value)?.range;
+    if (chosen) onSettings(chosen);
+  };
   const options = starts.map((d) => (
     <option key={d} value={d}>
       {weekOptionLabel(d, starts)}
@@ -563,26 +568,20 @@ function WeekRangePicker({
           {options}
         </select>
       </span>
-      <span className="flex flex-wrap gap-1.5" role="group" aria-label={`Months for ${title}`}>
-        {shortcuts.map((m) => {
-          const on = m.month === active;
-          return (
-            <button
-              key={m.month}
-              type="button"
-              aria-pressed={on}
-              aria-label={`${m.name}: the weeks whose Sunday is in ${m.name}`}
-              onClick={() => onSettings(m.range)}
-              className={`min-h-[44px] min-w-[44px] px-3 rounded-full text-sm border whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-                on
-                  ? "bg-emerald-600 border-emerald-600 text-white font-medium"
-                  : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-              }`}
-            >
+      <span className="flex items-center gap-2">
+        <span aria-hidden="true" className="text-sm text-slate-400 dark:text-slate-500">
+          ·
+        </span>
+        <label className="sr-only" htmlFor={`month-${widget.id}`}>
+          Month for {title}: sets the weeks whose Sunday is in it
+        </label>
+        <select id={`month-${widget.id}`} className={SELECT} value={month} onChange={(e) => pickMonth(e.target.value)}>
+          {months.map((m) => (
+            <option key={m.value} value={m.value}>
               {m.label}
-            </button>
-          );
-        })}
+            </option>
+          ))}
+        </select>
       </span>
     </>
   );

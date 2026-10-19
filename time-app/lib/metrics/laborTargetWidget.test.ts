@@ -112,34 +112,55 @@ test("a range with no complete week says so instead of a chart, and keeps its re
   assert.match(t, /No week of Nov 3 has its numbers yet \(0 of 1 week complete\)\./);
   assert.doesNotMatch(html, /<canvas/);
   assert.doesNotMatch(t, /Actual %, complete weeks/);
-  assert.match(t, /Nov 3–9: the week is not over yet\./);
+  assert.match(t, /Nov 3: the week is not over yet/);
   assert.match(t, /Show numbers/);
 });
 
-test("a range across months covers every week in it: tiles, reasons and catering notes", () => {
+test("a range across months covers every week in it: tiles and one muted n/a line per n/a week", () => {
   const html = render({ from: "2030-09-01", to: "2030-11-03" });
   const t = text(html);
   assert.match(html, /weeks of Sep 1 to Nov 3 by their Sunday/);
   // Four complete weeks: (1,400 + 1,500 + 1,400 + 1,400) / (9,999 + 6,000 + 4,800 + 4,800).
   assert.match(t, /Actual %, complete weeks 22\.3% 4 of 7 weeks complete/);
   assert.match(t, /Over target \+\$360/);
-  assert.match(t, /Oct 20–26: in-store sales on file for 6 of 7 days\./);
-  assert.match(t, /Oct 27–Nov 2: hourly payroll on file for 5 of 7 days\./);
-  assert.match(t, /Nov 3–9: the week is not over yet\./);
-  assert.match(t, /Oct 13–19: catering crew billed to clients/);
+  assert.match(t, /Oct 20: in-store sales on file for 6 of 7 days/);
+  assert.match(t, /Oct 27: hourly payroll on file for 5 of 7 days/);
+  assert.match(t, /Nov 3: the week is not over yet/);
+  // Catering is in the table now, not under the chart.
+  assert.doesNotMatch(t, /catering crew billed to clients/);
 });
 
-test("the table behind Show numbers is the week-by-week table, unchanged", () => {
+test("the table behind Show numbers is the week-by-week table, with the catering crew taken off as a column", () => {
   const t = table(DEFAULT);
-  assert.match(t, /Week Sales Hourly labor, all-in Actual % Target %, all-in Variance \$ Variance hours/);
-  assert.match(t, /Oct 6–12 \$4,800 \$1,400 29\.2% 25\.0% \+\$200 \+10 h/);
-  assert.match(t, /Oct 13–19 \$4,800 \$1,400 29\.2% 25\.0% −\$40 −2 h/);
+  assert.match(t, /Week Sales Hourly labor, all-in Actual % Target %, all-in Variance \$ Variance hours Catering crew taken off/);
+  // No catering: the column is blank.
+  assert.match(t, /Oct 6–12 \$4,800 \$1,400 29\.2% 25\.0% \+\$200 \+10 h Oct 13/);
+  assert.match(t, /Oct 13–19 \$4,800 \$1,400 29\.2% 25\.0% −\$40 −2 h 10 h, \$313 all-in/);
+});
+
+test("the catering column stays blank for a week whose catering hours or $ are not on file", () => {
+  const weeks = [
+    wk("2030-10-06", "2030-10-12", { cateringHours: 10, cateringOffset: null }),
+    wk("2030-10-13", "2030-10-19", { cateringHours: null, cateringOffset: 312.5 }),
+  ];
+  const t = text(renderToStaticMarkup(React.createElement(LaborTargetTable, { weeks, range: { from: "2030-10-06", to: "2030-10-13" } })));
+  assert.match(t, /Oct 6–12 \$4,800 \$1,400 29\.2% 25\.0% \+\$200 \+10 h Oct 13–19/);
+  assert.doesNotMatch(t, /h, \$|all-in \$|NaN|null/);
+});
+
+test("with every week in range complete, nothing sits under the chart but Show numbers and the method", () => {
+  const html = render({ from: "2030-09-29", to: "2030-10-13" });
+  const t = text(html);
+  assert.match(t, /3 of 3 weeks complete/);
+  assert.doesNotMatch(html, /Weeks not available/);
+  assert.doesNotMatch(t, /catering crew billed/);
+  assert.doesNotMatch(t, /not over yet|on file for/);
 });
 
 test("a week without its payroll reads n/a with the reason, never $0", () => {
   assert.match(table(DEFAULT), /Oct 27–Nov 2 \$4,800 n\/a n\/a 25\.0% n\/a n\/a/);
   const t = text(render({}));
-  assert.match(t, /Oct 27–Nov 2: hourly payroll on file for 5 of 7 days\./);
+  assert.match(t, /Oct 27: hourly payroll on file for 5 of 7 days/);
   assert.doesNotMatch(t, /\$0\b/);
 });
 
@@ -152,22 +173,24 @@ test("a chosen range is shown; one past the weeks on file is cut to them; one wh
   assert.match(render({ from: "2029-01-07", to: "2029-02-04" }), /weeks of Oct 6 to Oct 27/);
 });
 
-test("a shortcut per month on file sets the range to its weeks, and shows pressed while the range is that month", () => {
-  const chips = (html: string) => [...html.matchAll(/<button type="button" aria-pressed="(true|false)" aria-label="([^"]+)"[^>]*>([^<]+)<\/button>/g)].map((m) => [m[3], m[1]]);
+test("one month menu: Custom, then each month on file; it shows the month while the range is that month's weeks", () => {
   const unset = render({});
-  assert.match(unset, /role="group" aria-label="Months for Labor vs target"/);
-  // The fixture's default range happens to be Oct's weeks, so Oct shows pressed.
-  assert.deepEqual(chips(unset), [["Sep", "false"], ["Oct", "true"], ["Nov", "false"]]);
-  assert.deepEqual(chips(render({}, { weeks: WEEKS, defaultRange: { from: "2030-10-13", to: "2030-11-03" } })), [["Sep", "false"], ["Oct", "false"], ["Nov", "false"]]);
-  assert.match(unset, /aria-label="Sep 2030: the weeks whose Sunday is in Sep 2030"/);
+  assert.doesNotMatch(unset, /aria-label="[^"]*: the weeks whose Sunday is in/); // no month buttons
+  assert.match(unset, /<label class="sr-only" for="month-w1">Month for Labor vs target/);
+  assert.deepEqual(options(unset, "month-w1"), ["custom", "2030-09", "2030-10", "2030-11"]);
+  assert.match(unset, /<option value="2030-09">Sep 2030<\/option>/);
+  assert.match(unset, /<option value="custom"[^>]*>Custom<\/option>/);
+  // The fixture's default range happens to be Oct's weeks, so Oct shows.
+  assert.equal(selected(unset, "month-w1"), "2030-10");
+  assert.equal(selected(render({}, { weeks: WEEKS, defaultRange: { from: "2030-10-13", to: "2030-11-03" } }), "month-w1"), "custom");
   // Oct 2030's weeks: Oct 6 to Oct 27.
   const oct = render({ from: "2030-10-06", to: "2030-10-27" });
-  assert.deepEqual(chips(oct), [["Sep", "false"], ["Oct", "true"], ["Nov", "false"]]);
+  assert.equal(selected(oct, "month-w1"), "2030-10");
   assert.match(oct, /weeks of Oct 6 to Oct 27/);
   // Sep 2030's weeks run to Sep 29; Nov's are cut to the one on file.
-  assert.deepEqual(chips(render({ from: "2030-09-01", to: "2030-09-29" }))[0], ["Sep", "true"]);
-  assert.deepEqual(chips(render({ from: "2030-11-03", to: "2030-11-24" }))[2], ["Nov", "true"]);
-  assert.deepEqual(chips(render({ from: "2030-09-29", to: "2030-10-27" })).filter(([, on]) => on === "true"), []);
+  assert.equal(selected(render({ from: "2030-09-01", to: "2030-09-29" }), "month-w1"), "2030-09");
+  assert.equal(selected(render({ from: "2030-11-03", to: "2030-11-24" }), "month-w1"), "2030-11");
+  assert.equal(selected(render({ from: "2030-09-29", to: "2030-10-27" }), "month-w1"), "custom");
 });
 
 test("a view saved under the old month picker shows that month's weeks", () => {
@@ -184,10 +207,10 @@ test("when its reads fail the card says it could not load, with no picker", () =
   assert.doesNotMatch(html, /id="from-w1"/);
 });
 
-test("both sides read all-in, and a week with catering names the crew hours and $ taken off", () => {
+test("both sides read all-in; the catering crew taken off is in the table, not a note under the chart", () => {
   const t = text(render({}));
-  assert.match(t, /Oct 13–19: catering crew billed to clients, 10 h and \$313 all-in, taken off hourly labor\./);
-  assert.doesNotMatch(t, /Oct 6–12: catering crew/);
+  assert.doesNotMatch(t, /catering crew billed to clients/);
+  assert.match(t, /Show numbers. lists each week.s catering crew taken off, hours and all-in \$/);
   assert.match(t, /all-in hourly goal/);
   assert.match(t, /25\.0% of sales in these weeks/);
 });

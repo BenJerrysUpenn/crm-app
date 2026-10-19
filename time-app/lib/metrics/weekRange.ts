@@ -122,8 +122,6 @@ export function rangeLabel(r: WeekRange): string {
 export type MonthShortcut = {
   /** "YYYY-MM" */
   month: string;
-  /** "May", or "May 2026" once the months on offer span two years. */
-  label: string;
   /** "May 2026" */
   name: string;
   /** The month's weeks: each week whose Sunday falls in it. */
@@ -133,19 +131,37 @@ export type MonthShortcut = {
 /** A shortcut for each month holding a week on offer, oldest first. */
 export function monthShortcuts(offer: WeeksOnOffer): MonthShortcut[] {
   const months = [...new Set(offer.weeks.map((w) => w.start.slice(0, 7)))];
-  const years = months.length > 0 && months[0].slice(0, 4) !== months[months.length - 1].slice(0, 4);
   return months.map((month) => {
     const weeks = monthWeeks(month);
-    const name = monthLabel(`${month}-01`);
-    return { month, label: years ? name : name.slice(0, 3), name, range: { from: weeks[0], to: weeks[weeks.length - 1] } };
+    return { month, name: monthLabel(`${month}-01`), range: { from: weeks[0], to: weeks[weeks.length - 1] } };
   });
 }
 
-/** The shortcut the range shown equals, if any: a month whose weeks, cut to those on offer, are exactly the range. */
-export function activeShortcut(shown: WeekRange, shortcuts: MonthShortcut[], offer: WeeksOnOffer): string | null {
-  const hit = shortcuts.find((m) => {
+/** The month menu's "no single month" choice: the range is not one month's weeks. */
+export const CUSTOM_RANGE = "custom";
+
+export type MonthChoice = { value: string; label: string; range: WeekRange | null };
+
+/**
+ * The Labor vs target card's month menu: "Custom", then each month holding a
+ * week on offer, oldest first, by its full name ("May 2026"). Choosing a month
+ * sets the range to its weeks; "Custom" leaves the range as it is.
+ */
+export function monthChoices(offer: WeeksOnOffer): MonthChoice[] {
+  return [
+    { value: CUSTOM_RANGE, label: "Custom", range: null },
+    ...monthShortcuts(offer).map((m) => ({ value: m.month, label: m.name, range: m.range })),
+  ];
+}
+
+/**
+ * What the month menu shows for the range shown: its month while the range is
+ * one (the month's weeks, cut to those on offer, are exactly the range), else "Custom".
+ */
+export function monthChoiceFor(shown: WeekRange, offer: WeeksOnOffer): string {
+  const hit = monthShortcuts(offer).find((m) => {
     const r = shownRange(m.range, offer);
     return r.from === shown.from && r.to === shown.to;
   });
-  return hit?.month ?? null;
+  return hit?.month ?? CUSTOM_RANGE;
 }

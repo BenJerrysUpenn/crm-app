@@ -509,6 +509,12 @@ const NA = <span className="text-slate-400 dark:text-slate-500">n/a</span>;
 /** The week column stays in view while a phone scrolls the table sideways. */
 const STICKY = "sticky left-0 bg-white dark:bg-slate-900";
 
+/** The catering crew billed to clients and taken off a week's labor: "10 h, $313 all-in"; blank when none. */
+function cateringTakenOff(w: LaborTargetWeek): string {
+  if (w.cateringHours == null || w.cateringHours <= 0 || w.cateringOffset == null) return "";
+  return `${formatValue(w.cateringHours, "hours")}, ${money(w.cateringOffset)} all-in`;
+}
+
 /** The card's numbers, one row per week: behind "Show numbers" under the chart. */
 export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; range: WeekRange }) {
   const cell = "py-1.5 pl-3 text-right whitespace-nowrap";
@@ -525,6 +531,7 @@ export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; r
             <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Target %, all-in</th>
             <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance $</th>
             <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance hours</th>
+            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Catering crew taken off</th>
           </tr>
         </thead>
         <tbody>
@@ -542,6 +549,7 @@ export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; r
                 <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.targetPct.value == null ? NA : formatValue(w.targetPct.value, "pct")}</td>
                 <td className={`${cell} ${tone}`}>{w.varianceDollars == null ? NA : signed(w.varianceDollars, "money")}</td>
                 <td className={`${cell} ${tone}`}>{w.varianceHours == null ? NA : signed(w.varianceHours, "hours")}</td>
+                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{cateringTakenOff(w)}</td>
               </tr>
             );
           })}
@@ -558,7 +566,6 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
   const weeks = lt.weeks.filter((w) => w.start >= range.from && w.start <= range.to);
   const goals = [...new Set(weeks.map((w) => w.allInGoalPct.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
   const unavailable = weeks.filter((w) => !w.available);
-  const withCatering = weeks.filter((w) => w.cateringHours != null && w.cateringHours > 0 && w.cateringOffset != null);
   const c = laborTargetChart(weeks);
   const t = c.totals;
   const counted = `${t.complete} of ${plural(t.weeks, "week")} complete`;
@@ -590,35 +597,22 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
         emptyText={`No week of ${span} has its numbers yet (${counted}).`}
         table={<LaborTargetTable weeks={weeks} range={range} />}
       />
-      {withCatering.length > 0 && (
-        <ul className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
-          {withCatering.map((w) => (
-            <li key={w.start}>
-              {sunSatLabel(w.start, w.end)}: catering crew billed to clients, {formatValue(w.cateringHours!, "hours")} and {money(w.cateringOffset!)} all-in,
-              taken off hourly labor.
-            </li>
-          ))}
-        </ul>
-      )}
       {unavailable.length > 0 && (
-        <div className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
-          <p>Not available (n/a), never counted as zero:</p>
-          <ul className="list-disc pl-5 mt-0.5">
-            {unavailable.map((w) => {
-              const reasons = [...w.why, ...(w.targetPct.value == null ? [`target needs ${w.targetPct.needs.join(", ")}`] : [])];
-              return (
-                <li key={w.start}>
-                  {sunSatLabel(w.start, w.end)}: {reasons.length ? reasons.join("; ") : "nothing to compare"}.
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+        <ul aria-label="Weeks not available (n/a), never counted as zero" className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
+          {unavailable.map((w) => {
+            const reasons = [...w.why, ...(w.targetPct.value == null ? [`target needs ${w.targetPct.needs.join(", ")}`] : [])];
+            return (
+              <li key={w.start}>
+                {shortDay(w.start)}: {reasons.length ? reasons.join("; ") : "nothing to compare"}
+              </li>
+            );
+          })}
+        </ul>
       )}
       <Method>
         <p>
           Weeks run Sunday to Saturday and are named by their Sunday; the card covers every week from the first chosen to the last
-          (until a range is chosen, the last 8 weeks that are over). A month button sets the range to the weeks whose Sunday is in
+          (until a range is chosen, the last 8 weeks that are over). Choosing a month sets the range to the weeks whose Sunday is in
           that month. Sales are in-store sales for all seven days. A week
           shows only once it is over and every one of its seven days has hourly payroll on file; a day missing from the payroll or the
           sales makes that week not available. Nothing is estimated from punches or the schedule.
@@ -637,6 +631,7 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
           the catering premium, worked out exactly as the Schedule page&rsquo;s labor line does, so the two agree. Sales are in-store
           only, so catering comes out of both sides. A deal billed zero crew hours (a pickup) takes nothing off; a booked deal with
           no billed crew hours on file makes its week not available. Before the catering premium was first set it was zero.
+          &ldquo;Show numbers&rdquo; lists each week&rsquo;s catering crew taken off, hours and all-in $.
         </p>
         <p>
           Target %, all-in = the Targets tab&rsquo;s all-in hourly goal in force on each day (the payroll target less fixed payroll,
