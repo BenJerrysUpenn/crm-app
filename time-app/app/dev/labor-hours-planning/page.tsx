@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import LaborPlanningPreview from "@/components/metrics/LaborPlanningPreview";
-import { loadPreviewData, previewEnabled } from "@/lib/metrics/laborPlanningPreview";
+import { previewEnabled } from "@/lib/localPreview";
+import { loadPreviewData } from "@/lib/metrics/laborPlanningPreview";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";

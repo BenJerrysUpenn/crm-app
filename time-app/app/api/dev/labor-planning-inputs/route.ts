@@ -1,7 +1,8 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { applySeedAction, type Seed } from "@/lib/metrics/laborPlanningSeed";
-import { previewEnabled, seedPath } from "@/lib/metrics/laborPlanningPreview";
+import { previewEnabled } from "@/lib/localPreview";
+import { seedPath } from "@/lib/metrics/laborPlanningPreview";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";

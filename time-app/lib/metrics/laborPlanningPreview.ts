@@ -27,6 +27,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { previewEnabled } from "@/lib/localPreview";
 import type { SalariedProfile } from "@/lib/controlBoard/load";
 import { trendMonths, type DailySalesRow, type MonthlySalesRow } from "@/lib/controlBoard/math";
 import type { SalaryRow, SettingRow } from "@/lib/controlBoard/settings";
@@ -43,10 +44,6 @@ import { seedClosedDays, seedRevisions, seedSeasonRows, type Seed } from "./labo
 import type { MetricsData } from "./load";
 import type { ConcessionEventRow } from "@/lib/controlBoard/planningInputs";
 import type { PlanningInputsData } from "@/lib/controlBoard/planningInputsLoad";
-
-export function previewEnabled(): boolean {
-  return process.env.NODE_ENV === "development" && process.env.LOCAL_PREVIEW === "1";
-}
 
 const run = promisify(execFile);
 
