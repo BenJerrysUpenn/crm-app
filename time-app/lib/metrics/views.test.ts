@@ -49,24 +49,34 @@ test("cleanWidgets drops unknown metrics, fixes settings, keeps ids unique, caps
   assert.equal(cleanWidgets(many).length, MAX_WIDGETS);
 });
 
-test("a month-set metric keeps a chosen month as YYYY-MM; other metrics never carry one", () => {
+test("a week-range metric keeps a chosen range of Sundays; an old month reads as its weeks; other metrics never carry one", () => {
   const out = cleanWidgets([
-    { id: "a", metric: "labor_vs_target", settings: { month: "2030-10" } },
-    { id: "b", metric: "labor_vs_target", settings: { month: "2030-13" } },
-    { id: "c", metric: "labor_vs_target", settings: { month: "October" } },
-    { id: "d", metric: "labor_vs_target", settings: {} },
-    { id: "e", metric: "labour", settings: { period: "4w", month: "2030-10" } },
+    { id: "a", metric: "labor_vs_target", settings: { from: "2030-08-04", to: "2030-10-06" } },
+    { id: "b", metric: "labor_vs_target", settings: { from: "2030-10-06", to: "2030-08-04" } }, // backwards
+    { id: "c", metric: "labor_vs_target", settings: { from: "2030-08-05", to: "2030-10-06" } }, // a Monday
+    { id: "d", metric: "labor_vs_target", settings: { month: "2030-10" } }, // saved under the month picker
+    { id: "e", metric: "labor_vs_target", settings: { month: "2030-13" } },
+    { id: "f", metric: "labor_vs_target", settings: { from: "2030-09-01", to: "2030-09-15", month: "2030-10" } },
+    { id: "g", metric: "labor_vs_target", settings: {} },
+    { id: "h", metric: "labour", settings: { period: "4w", month: "2030-10", from: "2030-08-04", to: "2030-10-06" } },
   ]);
   assert.deepEqual(out.map((w) => w.settings), [
-    { period: "mtd", month: "2030-10" },
-    { period: "mtd" }, // not a month: back to the default, the last full month
+    { period: "mtd", from: "2030-08-04", to: "2030-10-06" },
+    { period: "mtd" }, // not a range: the default
     { period: "mtd" },
+    { period: "mtd", from: "2030-10-06", to: "2030-10-27" }, // Oct 2030's weeks, Oct 6 to Oct 27
+    { period: "mtd" },
+    { period: "mtd", from: "2030-09-01", to: "2030-09-15" }, // a range beats an old month
     { period: "mtd" },
     { period: "4w" },
   ]);
   let v = addWidget(view(), "labor_vs_target");
-  v = updateWidgetSettings(v, v.widgets[0].id, { month: "2030-09" });
-  assert.deepEqual(v.widgets[0].settings, { period: "mtd", month: "2030-09" });
+  v = updateWidgetSettings(v, v.widgets[0].id, { from: "2030-09-01", to: "2030-09-29" });
+  assert.deepEqual(v.widgets[0].settings, { period: "mtd", from: "2030-09-01", to: "2030-09-29" });
+  // Back to the default: the range is dropped.
+  v = updateWidgetSettings(v, v.widgets[0].id, { from: undefined, to: undefined });
+  assert.deepEqual(v.widgets[0].settings, { period: "mtd" });
+  assert.deepEqual(JSON.parse(JSON.stringify(v.widgets[0].settings)), { period: "mtd" });
 });
 
 test("the default views are a finance page and a catering page, already clean", () => {

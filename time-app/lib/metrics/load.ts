@@ -23,7 +23,8 @@ import { leadsByWeek, outreachByWeek, quoteToBooking, type LeadWeek, type Outrea
 import { MONTHS, MONTHS_AHEAD, WEEKS } from "./series.ts";
 import type { SalesTargetRow } from "./targets.ts";
 import { parseCash, parseClosedMonth, parseDaily, type ClosedMonth, type DailySnapshot } from "./feed.ts";
-import { defaultLaborMonth, laborMonths, laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs, type LaborTargetMonth, type SalesDayRow } from "./laborTarget.ts";
+import { laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs, type LaborTargetWeek, type SalesDayRow } from "./laborTarget.ts";
+import { defaultLaborRange, laborWeekStarts, type WeekRange } from "./weekRange.ts";
 import { loadBoard } from "@/lib/controlBoard/load";
 import { PROFILE_COLUMNS, laborPerson, loadCateringBookings } from "@/lib/controlBoard/scheduleLoad";
 import type { LaborShift } from "@/lib/controlBoard/schedule";
@@ -97,8 +98,8 @@ export type MetricsData = {
   leads: LeadWeek[] | null;
   outreach: OutreachWeek[] | null;
   quotes: QuoteCohort[] | null;
-  /** Labor vs target for each month on offer, newest first, and the month a card shows until one is chosen. */
-  laborTarget: null | { months: LaborTargetMonth[]; defaultMonth: string };
+  /** Labor vs target for each week on offer, oldest first, and the range a card shows until one is chosen. */
+  laborTarget: null | { weeks: LaborTargetWeek[]; defaultRange: WeekRange };
   feed: FeedData;
   problems: string[];
 };
@@ -208,7 +209,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
 
 /**
  * Labor vs target (bj-finance #696): public.labor_daily_actuals (migration
- * 46) and public.sales_daily_in_store (migration 41) over the months on
+ * 46) and public.sales_daily_in_store (migration 41) over the weeks on
  * offer, the control board's settings, salaries and fixed-payroll people
  * (loadBoard, the same reads the Targets tab makes), and for the catering
  * offset the booked deals (loadCateringBookings, the Schedule page's read),
@@ -372,8 +373,8 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
     quotes,
     laborTarget: inputs.laborTarget
       ? {
-          months: laborMonths(today).map((m) => laborVsTarget(m, { today, ...inputs.laborTarget! })),
-          defaultMonth: defaultLaborMonth(today),
+          weeks: laborVsTarget(laborWeekStarts(today), { today, ...inputs.laborTarget! }),
+          defaultRange: defaultLaborRange(today),
         }
       : null,
     feed: buildFeed(inputs.feed),

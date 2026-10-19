@@ -18,6 +18,7 @@ import { labourPct, salesPerHour } from "@/lib/metrics/labour";
 import { addDays } from "@/lib/metrics/dates";
 import { laborTargetChart } from "@/lib/metrics/laborTargetChart";
 import type { LaborTargetWeek } from "@/lib/metrics/laborTarget";
+import { rangeLabel, shownRange, type WeekRange } from "@/lib/metrics/weekRange";
 
 /** Headline money: whole dollars (tables and tooltips carry the cents). */
 const money = (v: number | null | undefined) => (v == null ? "–" : formatValue(Math.round(v), "money").replace(/\.00$/, ""));
@@ -509,12 +510,12 @@ const NA = <span className="text-slate-400 dark:text-slate-500">n/a</span>;
 const STICKY = "sticky left-0 bg-white dark:bg-slate-900";
 
 /** The card's numbers, one row per week: behind "Show numbers" under the chart. */
-export function LaborTargetTable({ weeks, month }: { weeks: LaborTargetWeek[]; month: string }) {
+export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; range: WeekRange }) {
   const cell = "py-1.5 pl-3 text-right whitespace-nowrap";
   return (
     <div className="overflow-x-auto max-w-full">
       <table className="w-full text-sm tabular-nums">
-        <caption className="sr-only">Labor vs target, each week of {monthLabel(month)}, Sunday to Saturday</caption>
+        <caption className="sr-only">Labor vs target, weeks of {rangeLabel(range)}, Sunday to Saturday</caption>
         <thead>
           <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
             <th scope="col" className={`${STICKY} py-1 pr-3 font-medium`}>Week</th>
@@ -553,15 +554,15 @@ export function LaborTargetTable({ weeks, month }: { weeks: LaborTargetWeek[]; m
 export function LaborTargetWidget({ data, settings }: { data: MetricsData; settings: WidgetSettings }) {
   const lt = data.laborTarget;
   if (!lt) return <CouldNotLoad what="hourly payroll, daily sales or the control board" />;
-  const chosen = lt.months.find((m) => m.month === settings.month) ?? lt.months.find((m) => m.month === lt.defaultMonth) ?? lt.months[0];
-  const weeks = chosen.weeks;
+  const range = shownRange(settings, lt);
+  const weeks = lt.weeks.filter((w) => w.start >= range.from && w.start <= range.to);
   const goals = [...new Set(weeks.map((w) => w.allInGoalPct.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
   const unavailable = weeks.filter((w) => !w.available);
   const withCatering = weeks.filter((w) => w.cateringHours != null && w.cateringHours > 0 && w.cateringOffset != null);
   const c = laborTargetChart(weeks);
   const t = c.totals;
   const counted = `${t.complete} of ${plural(t.weeks, "week")} complete`;
-  const month = monthLabel(chosen.month);
+  const span = rangeLabel(range);
   return (
     <div>
       {t.complete > 0 && (
@@ -577,7 +578,7 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
         </Tiles>
       )}
       <Chart
-        title={`Hourly labor all-in as a share of in-store sales, each week of ${month} by its Sunday, against the all-in target`}
+        title={`Hourly labor all-in as a share of in-store sales, weeks of ${span} by their Sunday, against the all-in target`}
         labels={c.labels}
         series={[
           { label: "Actual %", values: c.actualPct, color: "in_store", highlight: { indexes: c.over, color: "serious", label: "Over target" } },
@@ -586,8 +587,8 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
         format="pct"
         gaps={c.gaps}
         tableLabel="Week of"
-        emptyText={`No week of ${month} has its numbers yet (${counted}).`}
-        table={<LaborTargetTable weeks={weeks} month={chosen.month} />}
+        emptyText={`No week of ${span} has its numbers yet (${counted}).`}
+        table={<LaborTargetTable weeks={weeks} range={range} />}
       />
       {withCatering.length > 0 && (
         <ul className="mt-2 text-xs text-slate-600 dark:text-slate-400 max-w-prose">
@@ -616,7 +617,9 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
       )}
       <Method>
         <p>
-          Weeks run Sunday to Saturday; a week belongs to the month its Sunday is in. Sales are in-store sales for all seven days. A week
+          Weeks run Sunday to Saturday and are named by their Sunday; the card covers every week from the first chosen to the last
+          (until a range is chosen, the last 8 weeks that are over). A month button sets the range to the weeks whose Sunday is in
+          that month. Sales are in-store sales for all seven days. A week
           shows only once it is over and every one of its seven days has hourly payroll on file; a day missing from the payroll or the
           sales makes that week not available. Nothing is estimated from punches or the schedule.
         </p>
@@ -637,7 +640,7 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
         </p>
         <p>
           Target %, all-in = the Targets tab&rsquo;s all-in hourly goal in force on each day (the payroll target less fixed payroll,
-          as a share of sales{goals.length ? `: ${goals.join(", ")} of sales this month` : ""}). Each day&rsquo;s sales are held to
+          as a share of sales{goals.length ? `: ${goals.join(", ")} of sales in these weeks` : ""}). Each day&rsquo;s sales are held to
           that day&rsquo;s target, and fixed payroll on a day counts the people who were salaried that day.
         </p>
         <p>

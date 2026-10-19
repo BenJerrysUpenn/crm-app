@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MetricsData } from "@/lib/metrics/load";
 import { METRICS, METRIC_IDS, PERIOD_LABEL, blurbFor, type MetricId, type WidgetConfig, type WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, STREAMS, type StreamFilter } from "@/lib/metrics/targets";
-import { monthLabel } from "@/lib/metrics/dates";
+import { activeShortcut, monthShortcuts, pickRange, rangeLabel, shownRange, weekOptionLabel } from "@/lib/metrics/weekRange";
 import {
   MAX_NAME, MAX_VIEWS, MAX_WIDGETS, addWidget, checkName, freeName, moveView, moveWidget, ordered, removeWidget,
   updateWidgetSettings, type View,
@@ -225,7 +225,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
           onSettings={(s) =>
             changeWidgets(
               updateWidgetSettings(active, w.id, s),
-              `${METRICS[w.metric].title}: ${s.month ? monthLabel(s.month) : PERIOD_LABEL[s.period ?? w.settings.period]}.`,
+              `${METRICS[w.metric].title}: ${settingsNote(w, s, data)}.`,
             )
           }
           onMove={(d) => {
@@ -488,6 +488,86 @@ function ViewEditor({
   );
 }
 
+/** What a settings change says in the status line: the new range, or the new period. */
+function settingsNote(w: WidgetConfig, s: Partial<WidgetSettings>, data: MetricsData): string {
+  if (METRICS[w.metric].weekRange && data.laborTarget && ("from" in s || "to" in s)) {
+    const lt = data.laborTarget;
+    const shown = shownRange(s, lt);
+    const shortcuts = monthShortcuts(lt);
+    const month = activeShortcut(shown, shortcuts, lt);
+    const name = shortcuts.find((m) => m.month === month)?.name;
+    return `${name ? `${name}, ` : ""}weeks of ${rangeLabel(shown)}`;
+  }
+  return PERIOD_LABEL[s.period ?? w.settings.period];
+}
+
+/**
+ * A first and a last week, each named by its Sunday: the card covers every
+ * week from one to the other. Beside them, a shortcut per month sets the
+ * range to that month's weeks and shows as pressed while the range is it.
+ */
+function WeekRangePicker({
+  widget, title, data, onSettings,
+}: {
+  widget: WidgetConfig;
+  title: string;
+  data: NonNullable<MetricsData["laborTarget"]>;
+  onSettings: (s: Partial<WidgetSettings>) => void;
+}) {
+  const starts = data.weeks.map((w) => w.start);
+  const range = shownRange(widget.settings, data);
+  const pick = (end: "from" | "to", week: string) => onSettings(pickRange(range, end, week, data.defaultRange));
+  const shortcuts = monthShortcuts(data);
+  const active = activeShortcut(range, shortcuts, data);
+  const options = starts.map((d) => (
+    <option key={d} value={d}>
+      {weekOptionLabel(d, starts)}
+    </option>
+  ));
+  return (
+    <>
+      <span className="flex items-center gap-2" role="group" aria-label={`Weeks for ${title}`}>
+        <label className="sr-only" htmlFor={`from-${widget.id}`}>
+          First week (by its Sunday) for {title}
+        </label>
+        <select id={`from-${widget.id}`} className={SELECT} value={range.from} onChange={(e) => pick("from", e.target.value)}>
+          {options}
+        </select>
+        <span aria-hidden="true" className="text-sm text-slate-600 dark:text-slate-400">
+          to
+        </span>
+        <label className="sr-only" htmlFor={`to-${widget.id}`}>
+          Last week (by its Sunday) for {title}
+        </label>
+        <select id={`to-${widget.id}`} className={SELECT} value={range.to} onChange={(e) => pick("to", e.target.value)}>
+          {options}
+        </select>
+      </span>
+      <span className="flex flex-wrap gap-1.5" role="group" aria-label={`Months for ${title}`}>
+        {shortcuts.map((m) => {
+          const on = m.month === active;
+          return (
+            <button
+              key={m.month}
+              type="button"
+              aria-pressed={on}
+              aria-label={`${m.name}: the weeks whose Sunday is in ${m.name}`}
+              onClick={() => onSettings(m.range)}
+              className={`min-h-[44px] min-w-[44px] px-3 rounded-full text-sm border whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+                on
+                  ? "bg-emerald-600 border-emerald-600 text-white font-medium"
+                  : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+              }`}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </span>
+    </>
+  );
+}
+
 function WidgetCard({
   widget, data, editing, first, last, onSettings, onMove, onRemove,
 }: {
@@ -526,25 +606,7 @@ function WidgetCard({
               </select>
             </>
           )}
-          {def.month && data.laborTarget && (
-            <>
-              <label className="sr-only" htmlFor={`month-${widget.id}`}>
-                Month for {def.title}
-              </label>
-              <select
-                id={`month-${widget.id}`}
-                className={SELECT}
-                value={data.laborTarget.months.some((m) => m.month === widget.settings.month) ? widget.settings.month : data.laborTarget.defaultMonth}
-                onChange={(e) => onSettings({ month: e.target.value })}
-              >
-                {data.laborTarget.months.map((m) => (
-                  <option key={m.month} value={m.month}>
-                    {monthLabel(m.month)}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
+          {def.weekRange && data.laborTarget && <WeekRangePicker widget={widget} title={def.title} data={data.laborTarget} onSettings={onSettings} />}
           {def.streams && (
             <>
               <label className="sr-only" htmlFor={`stream-${widget.id}`}>
