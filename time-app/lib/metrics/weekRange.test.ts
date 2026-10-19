@@ -68,6 +68,8 @@ test("the range shown is the saved one cut to the weeks on offer, else the defau
   // Nothing of it on offer: the default.
   assert.deepEqual(shownRange({ from: "2025-11-02", to: "2025-11-30" }, starts, fallback), fallback);
   assert.deepEqual(shownRange({ from: "2026-05-04", to: "2026-06-01" }, starts, fallback), fallback);
+  // No weeks on offer at all: the default, never the saved range uncut.
+  assert.deepEqual(shownRange({ from: "2026-05-03", to: "2026-10-04" }, [], fallback), fallback);
 });
 
 test("the picker moves the other end when the two would cross, and saves the default as unset", () => {
@@ -83,6 +85,8 @@ test("the picker moves the other end when the two would cross, and saves the def
 test("weeks are labelled by their Sunday, with the year once the weeks on offer span two", () => {
   assert.equal(weekOptionLabel("2026-05-03", ["2026-05-03", "2026-10-18"]), "May 3");
   assert.equal(weekOptionLabel("2027-01-03", ["2026-05-03", "2027-01-03"]), "Jan 3, 2027");
+  // No weeks on offer to span two years: no year.
+  assert.equal(weekOptionLabel("2026-05-03", []), "May 3");
   assert.equal(rangeLabel({ from: "2026-05-03", to: "2026-10-04" }), "May 3 to Oct 4");
   assert.equal(rangeLabel({ from: "2026-08-23", to: "2026-08-23" }), "Aug 23");
 });
