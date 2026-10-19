@@ -138,6 +138,16 @@ test("the table behind Show numbers is the week-by-week table, with the catering
   assert.match(t, /Oct 13–19 \$4,800 \$1,400 29\.2% 25\.0% −\$40 −2 h 10 h, \$313 all-in/);
 });
 
+test("the catering column stays blank for a week whose catering hours or $ are not on file", () => {
+  const weeks = [
+    wk("2030-10-06", "2030-10-12", { cateringHours: 10, cateringOffset: null }),
+    wk("2030-10-13", "2030-10-19", { cateringHours: null, cateringOffset: 312.5 }),
+  ];
+  const t = text(renderToStaticMarkup(React.createElement(LaborTargetTable, { weeks, range: { from: "2030-10-06", to: "2030-10-13" } })));
+  assert.match(t, /Oct 6–12 \$4,800 \$1,400 29\.2% 25\.0% \+\$200 \+10 h Oct 13–19/);
+  assert.doesNotMatch(t, /h, \$|all-in \$|NaN|null/);
+});
+
 test("with every week in range complete, nothing sits under the chart but Show numbers and the method", () => {
   const html = render({ from: "2030-09-29", to: "2030-10-13" });
   const t = text(html);
