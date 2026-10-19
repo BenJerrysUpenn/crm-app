@@ -1,5 +1,5 @@
 // The winter catering menu in the deal drawer (bj-finance #717, Alina
-// 2026-10-15, revised 2026-10-18). No new packages: a winter item is an
+// 2026-10-15). No new packages: a winter item is an
 // existing package plus extras, and the quote prints the deal's custom menu
 // line. Every winter item includes whipped cream and chocolate sauce (the $0
 // extras on a Cup or Cone Party); a combo is a typed per-guest price.
