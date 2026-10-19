@@ -122,8 +122,6 @@ export function rangeLabel(r: WeekRange): string {
 export type MonthShortcut = {
   /** "YYYY-MM" */
   month: string;
-  /** "May", or "May 2026" once the months on offer span two years. */
-  label: string;
   /** "May 2026" */
   name: string;
   /** The month's weeks: each week whose Sunday falls in it. */
@@ -133,11 +131,9 @@ export type MonthShortcut = {
 /** A shortcut for each month holding a week on offer, oldest first. */
 export function monthShortcuts(offer: WeeksOnOffer): MonthShortcut[] {
   const months = [...new Set(offer.weeks.map((w) => w.start.slice(0, 7)))];
-  const years = months.length > 0 && months[0].slice(0, 4) !== months[months.length - 1].slice(0, 4);
   return months.map((month) => {
     const weeks = monthWeeks(month);
-    const name = monthLabel(`${month}-01`);
-    return { month, label: years ? name : name.slice(0, 3), name, range: { from: weeks[0], to: weeks[weeks.length - 1] } };
+    return { month, name: monthLabel(`${month}-01`), range: { from: weeks[0], to: weeks[weeks.length - 1] } };
   });
 }
 
