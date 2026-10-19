@@ -63,6 +63,7 @@ import { resolveOpenWindow, type ClosedDateRange, type StoreHoursException, type
 import { billedCrewHours, eventDay } from "./catering.ts";
 import { addDays, eachDay, nyDay, spanHours } from "./dates.ts";
 import { PLANNING_WEEKS } from "./planningWeeks.ts";
+import { sundayOf } from "./weekRange.ts";
 
 export { PLANNING_WEEKS, planningWeekCount } from "./planningWeeks.ts";
 
@@ -251,12 +252,6 @@ export type LaborPlanning = {
 
 const known = (value: number): Derived => ({ value, needs: [] });
 const missing = (...needs: string[]): Derived => ({ value: null, needs: [...new Set(needs)] });
-
-/** The Sunday of the week holding `day`. */
-export function sundayOf(day: string): string {
-  const dow = new Date(`${day}T12:00:00Z`).getUTCDay();
-  return addDays(day, -dow);
-}
 
 /** How many weeks either way a missing last-year day looks for the same weekday with sales. */
 const FILL_REACH = 8;
