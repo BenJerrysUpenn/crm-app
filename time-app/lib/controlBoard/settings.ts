@@ -13,8 +13,10 @@
 // never a migration. Nothing here holds a business figure: crm-app is public,
 // and the owners enter every value on the board.
 //
-// Pure and dependency-free, so `node --test` runs it and the route and the
-// page validate identically.
+// Pure, importing only the dependency-free lib/coverage.ts, so `node --test`
+// runs it and the route and the page validate identically.
+
+import { CLOSE_DOWN_KEY, OPEN_UP_KEY } from "../coverage.ts";
 
 /** How a number is entered and shown. Shares are stored as fractions (0.25 is 25%). Minutes are whole minutes. */
 export type FieldKind = "pct" | "money" | "per100" | "hours" | "minutes" | "time" | "text";
@@ -81,13 +83,13 @@ export const SETTINGS: SettingSpec[] = [
   },
   // Staffed hours (bj-finance #742 follow-up, ruled 2026-10-19): the open hours
   // widened by these minutes are what coverage is measured against
-  // (staffedWindow in lib/coverage.ts, which names the same two keys).
+  // (staffedWindow in lib/coverage.ts, which defines the two keys).
   {
-    key: "staffing.open_up_minutes", label: "Open-up time", unit: "minutes before opening that someone must be in the store",
+    key: OPEN_UP_KEY, label: "Open-up time", unit: "minutes before opening that someone must be in the store",
     fields: [{ name: "value", kind: "minutes", digits: 0, label: "Open-up time", after: "minutes before opening", inline: true }],
   },
   {
-    key: "staffing.close_down_minutes", label: "Close-down time", unit: "minutes after closing that someone must be in the store",
+    key: CLOSE_DOWN_KEY, label: "Close-down time", unit: "minutes after closing that someone must be in the store",
     fields: [{ name: "value", kind: "minutes", digits: 0, label: "Close-down time", after: "minutes after closing", inline: true }],
   },
 ];

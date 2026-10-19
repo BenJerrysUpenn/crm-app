@@ -13,6 +13,7 @@ import { computeBoard, type BoardInputs, type BoardResults, type Derived, type T
 import { capWords, money, monthName, pct, pctFixed, per100 } from "./format.ts";
 import { groupBy, inForce, settingsInForce, type SalaryRow, type SettingRow } from "./settings.ts";
 import type { SalariedProfile } from "./load.ts";
+import { CLOSE_DOWN_KEY, OPEN_UP_KEY } from "../coverage.ts";
 
 /** What a stored line's value is, as the board has it now (saved, or an owner's unsaved change). */
 export type Current = { value: number; detail: Record<string, number | string | null> };
@@ -232,11 +233,11 @@ export const CATEGORIES: Category[] = [
     title: "Staffed hours",
     intro: "Open hours are when customers can buy: the store hours on the Team page and the seasons below. Staffed hours add the time it takes to open up before opening and close down after closing. The Check week button, the coverage reminder and the coverage line on Labor Hours Planning measure cover against staffed hours.",
     lines: ({ d }) => [
-      stored(d, "staffing.open_up_minutes", "Open-up time", (c) => `${minutesWords(c.value)} before opening`, {
-        note: d.values.has("staffing.open_up_minutes") ? undefined : "Not set: coverage starts at opening time.",
+      stored(d, OPEN_UP_KEY, "Open-up time", (c) => `${minutesWords(c.value)} before opening`, {
+        note: d.values.has(OPEN_UP_KEY) ? undefined : "Not set: coverage starts at opening time.",
       }),
-      stored(d, "staffing.close_down_minutes", "Close-down time", (c) => `${minutesWords(c.value)} after closing`, {
-        note: d.values.has("staffing.close_down_minutes") ? undefined : "Not set: coverage ends at closing time.",
+      stored(d, CLOSE_DOWN_KEY, "Close-down time", (c) => `${minutesWords(c.value)} after closing`, {
+        note: d.values.has(CLOSE_DOWN_KEY) ? undefined : "Not set: coverage ends at closing time.",
       }),
     ],
   },
