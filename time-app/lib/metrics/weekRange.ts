@@ -149,3 +149,25 @@ export function activeShortcut(shown: WeekRange, shortcuts: MonthShortcut[], off
   });
   return hit?.month ?? null;
 }
+
+/** The month menu's "no single month" choice: the range is not one month's weeks. */
+export const CUSTOM_RANGE = "custom";
+
+export type MonthChoice = { value: string; label: string; range: WeekRange | null };
+
+/**
+ * The Labor vs target card's month menu: "Custom", then each month holding a
+ * week on offer, oldest first, by its full name ("May 2026"). Choosing a month
+ * sets the range to its weeks; "Custom" leaves the range as it is.
+ */
+export function monthChoices(offer: WeeksOnOffer): MonthChoice[] {
+  return [
+    { value: CUSTOM_RANGE, label: "Custom", range: null },
+    ...monthShortcuts(offer).map((m) => ({ value: m.month, label: m.name, range: m.range })),
+  ];
+}
+
+/** What the month menu shows for the range shown: its month while the range is one, else "Custom". */
+export function monthChoiceFor(shown: WeekRange, offer: WeeksOnOffer): string {
+  return activeShortcut(shown, monthShortcuts(offer), offer) ?? CUSTOM_RANGE;
+}
