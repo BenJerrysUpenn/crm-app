@@ -13,14 +13,21 @@ import {
   checkWeekCoverage,
   describeGap,
   describeHoursNotSet,
+  describeStaffingNotSet,
   nyWallClock,
+  CLOSE_DOWN_KEY,
+  OPEN_UP_KEY,
   resolveOpenWindow,
   shiftSegments,
+  staffedWindow,
+  staffingMarginsOn,
   type ClosedDateRange,
   type CoverageShift,
   type StoreHoursException,
+  type StaffingSettingRow,
   type StoreHoursRow,
 } from "./coverage.ts";
+import { SETTING_KEYS, inForce, type SettingRow } from "./controlBoard/settings.ts";
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -73,6 +80,7 @@ function check(over: {
   exceptions?: StoreHoursException[];
   shifts?: CoverageShift[];
   closedRanges?: ClosedDateRange[];
+  staffing?: StaffingSettingRow[];
 }) {
   return checkWeekCoverage({
     weekStart: over.weekStart ?? WEEK,
@@ -81,6 +89,7 @@ function check(over: {
     shiftTypes: SHIFT_TYPES,
     shifts: over.shifts ?? [],
     closedRanges: over.closedRanges ?? [],
+    staffing: over.staffing,
   });
 }
 
@@ -584,4 +593,112 @@ test("resolveOpenWindow: a season closes a weekday; exceptions and closures stil
     resolveOpenWindow(TUE, open, [{ date: TUE, label: "Snow", is_closed: true, opens: null, closes: null }]),
     { state: "closed", source: "exception", label: "Snow" },
   );
+});
+
+// --- Staffed hours (bj-finance #742 follow-up, ruled 2026-10-19) ------------
+// Open hours are when customers can buy. Staffed hours are the open hours
+// widened by the open-up minutes before and the close-down minutes after,
+// the values in force on the date (control_settings). Coverage is measured
+// against staffed hours. The minutes below are invented.
+
+let staffingId = 1;
+const margin = (key: string, value: number, effective_from = "2026-01-01", recorded_at = `${effective_from}T00:00:00Z`): StaffingSettingRow => ({
+  id: staffingId++, key, value, effective_from, recorded_at,
+});
+const openUp = (value: number, from?: string, at?: string) => margin(OPEN_UP_KEY, value, from, at);
+const closeDown = (value: number, from?: string, at?: string) => margin(CLOSE_DOWN_KEY, value, from, at);
+const OPEN_9_TO_5 = resolveOpenWindow(TUE, everyDay(), []);
+
+test("the staffing keys are board settings owners can set", () => {
+  assert.ok(SETTING_KEYS.includes(OPEN_UP_KEY) && SETTING_KEYS.includes(CLOSE_DOWN_KEY));
+});
+
+test("staffedWindow: the open window widened by open-up before and close-down after", () => {
+  assert.deepEqual(staffedWindow(TUE, OPEN_9_TO_5, [openUp(20), closeDown(40)]), {
+    state: "open", opens: 520, closes: 1060, open: { opens: 540, closes: 1020 }, source: "weekday", label: null, missing: [],
+  });
+});
+
+test("staffedWindow: a closed day stays closed and an unset day stays unset, whatever the minutes", () => {
+  const staffing = [openUp(20), closeDown(40)];
+  const closed = resolveOpenWindow(TUE, everyDay(), [{ date: TUE, label: "Snow", is_closed: true, opens: null, closes: null }]);
+  assert.deepEqual(staffedWindow(TUE, closed, staffing), { state: "closed", source: "exception", label: "Snow" });
+  assert.deepEqual(staffedWindow(TUE, { state: "unset" }, staffing), { state: "unset" });
+});
+
+test("staffedWindow: special hours on an exception are widened too", () => {
+  const short = resolveOpenWindow(TUE, everyDay(), [{ date: TUE, label: "Short day", is_closed: false, opens: "12:00", closes: "15:00" }]);
+  const w = staffedWindow(TUE, short, [openUp(15), closeDown(15)]);
+  assert.equal(w.state, "open");
+  if (w.state !== "open") return;
+  assert.deepEqual([w.opens, w.closes, w.source, w.label], [705, 915, "exception", "Short day"]);
+});
+
+test("staffedWindow: the values in force on the date are used, a later one taking over from its date", () => {
+  const staffing = [openUp(10, "2026-09-01"), closeDown(10, "2026-09-01"), openUp(45, "2026-09-23"), closeDown(5, "2026-09-23")];
+  const at = (d: string) => {
+    const w = staffedWindow(d, resolveOpenWindow(d, everyDay(), []), staffing);
+    return w.state === "open" ? [w.opens, w.closes] : null;
+  };
+  assert.deepEqual(at(TUE), [530, 1030], "the day before: the first values");
+  assert.deepEqual(at(WED), [495, 1025], "from the date: the later values");
+});
+
+test("staffedWindow: a same-day correction wins by recorded time, then by id, as the board reads it", () => {
+  const first = openUp(10, "2026-09-01", "2026-09-01T10:00:00Z");
+  const later = openUp(25, "2026-09-01", "2026-09-01T11:00:00Z");
+  const w = staffedWindow(TUE, OPEN_9_TO_5, [later, first, closeDown(0)]);
+  assert.equal(w.state === "open" ? w.opens : null, 515);
+  // The board's own inForce agrees on every key.
+  const rows = [first, later].map((r) => ({ ...r, detail: {}, review_by: "2027-01-01", source: "invented", method: null, recorded_by: null }) as SettingRow);
+  assert.equal(inForce(rows, TUE)?.value, staffingMarginsOn(TUE, [first, later]).openUp);
+});
+
+test("staffedWindow: missing values fall back to open hours and say which are missing", () => {
+  assert.deepEqual(staffedWindow(TUE, OPEN_9_TO_5, []), {
+    state: "open", opens: 540, closes: 1020, open: { opens: 540, closes: 1020 }, source: "weekday", label: null,
+    missing: ["open-up minutes", "close-down minutes"],
+  });
+  const onlyOpen = staffedWindow(TUE, OPEN_9_TO_5, [openUp(45)]);
+  assert.deepEqual(onlyOpen.state === "open" ? [onlyOpen.opens, onlyOpen.closes, onlyOpen.missing] : null, [495, 1020, ["close-down minutes"]]);
+  // A value that starts after the date is not in force yet: missing on the date.
+  const notYet = staffedWindow(TUE, OPEN_9_TO_5, [openUp(45, "2026-10-01"), closeDown(45, "2026-10-01")]);
+  assert.deepEqual(notYet.state === "open" ? [notYet.opens, notYet.closes, notYet.missing.length] : null, [540, 1020, 2]);
+  // Rows for other board keys are ignored.
+  const other = staffedWindow(TUE, OPEN_9_TO_5, [margin("rule.solo_close", 45)]);
+  assert.deepEqual(other.state === "open" ? other.missing.length : null, 2);
+});
+
+test("staffedWindow: zero minutes is a value, not a missing one; the window never runs past midnight", () => {
+  const zero = staffedWindow(TUE, OPEN_9_TO_5, [openUp(0), closeDown(0)]);
+  assert.deepEqual(zero.state === "open" ? [zero.opens, zero.closes, zero.missing] : null, [540, 1020, []]);
+  const late = resolveOpenWindow(TUE, everyDay("00:10:00", "23:50:00"), []);
+  const wide = staffedWindow(TUE, late, [openUp(45), closeDown(45)]);
+  assert.deepEqual(wide.state === "open" ? [wide.opens, wide.closes] : null, [0, 1440]);
+});
+
+test("checkWeekCoverage: gaps are measured against staffed hours when the minutes are set", () => {
+  // Covered 09:00 to 17:00 every day: the open hours, but not the 45 minutes either side.
+  const result = check({ shifts: fullWeekShifts(), staffing: [openUp(45), closeDown(45)] });
+  assert.equal(result.gaps.length, 14);
+  assert.deepEqual(result.gaps.slice(0, 2), [
+    { date: SUN, from: "08:15", to: "09:00" },
+    { date: SUN, from: "17:00", to: "17:45" },
+  ]);
+  assert.deepEqual(result.staffingNotSet, []);
+  const covered = check({ shifts: [SUN, MON, TUE, WED, THU, FRI, SAT].map((d) => shift(d, "08:15", "17:45")), staffing: [openUp(45), closeDown(45)] });
+  assert.deepEqual(covered.gaps, []);
+});
+
+test("checkWeekCoverage: with no minutes set it checks open hours and names the days it did so", () => {
+  const result = check({ shifts: fullWeekShifts() });
+  assert.deepEqual(result.gaps, []);
+  assert.deepEqual(result.staffingNotSet, [SUN, MON, TUE, WED, THU, FRI, SAT]);
+  // A closed day needs no cover, so it is not among them.
+  const closed = check({ shifts: fullWeekShifts(), exceptions: [{ date: TUE, is_closed: true }] });
+  assert.ok(!closed.staffingNotSet.includes(TUE));
+});
+
+test("the days checked against open hours read as plain dates", () => {
+  assert.equal(describeStaffingNotSet([TUE, WED]), "Tue Sep 22, Wed Sep 23");
 });

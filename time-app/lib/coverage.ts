@@ -1,5 +1,13 @@
 // Store-hours coverage: does the published schedule put somebody in the store
-// for every hour the door is open?
+// for every staffed hour?
+//
+// Two windows (ruled by the owner 2026-10-19, bj-finance #742):
+//   Open hours     when customers can buy: store_hours, its seasons and
+//                  store_hours_exceptions (resolveOpenWindow).
+//   Staffed hours  the open hours widened by the open-up minutes before and
+//                  the close-down minutes after, the control-board values in
+//                  force on the date (staffedWindow). Coverage is measured
+//                  against these.
 //
 // This module is deliberately pure and dependency-free (no supabase, no React,
 // no next) so it can be unit tested directly with `node --test`. Callers hand
@@ -80,7 +88,7 @@ export type CoverageShift = {
   position?: string | null;
 };
 
-/** An uncovered stretch inside a day's opening hours. Times are NY "HH:MM". */
+/** An uncovered stretch inside a day's staffed hours. Times are NY "HH:MM". */
 export type CoverageGap = { date: string; from: string; to: string };
 
 /** A day in the week whose store hours nobody has set yet. */
@@ -89,6 +97,11 @@ export type HoursNotSetDay = { date: string; weekday: number };
 export type CoverageResult = {
   gaps: CoverageGap[];
   hoursNotSet: HoursNotSetDay[];
+  /**
+   * Open days checked against open hours only, because the open-up or
+   * close-down minutes in force that day are not set on the Targets tab.
+   */
+  staffingNotSet: string[];
 };
 
 /**
@@ -231,6 +244,94 @@ export function resolveOpenWindow(
 }
 
 // ---------------------------------------------------------------------------
+// Staffed hours
+// ---------------------------------------------------------------------------
+
+/** The control-board keys (public.control_settings) holding the minutes, set by owners on the Targets tab. */
+export const OPEN_UP_KEY = "staffing.open_up_minutes";
+export const CLOSE_DOWN_KEY = "staffing.close_down_minutes";
+export const STAFFING_KEYS: readonly string[] = [OPEN_UP_KEY, CLOSE_DOWN_KEY];
+
+/** What a missing value is called in a note. */
+export const OPEN_UP_WORDS = "open-up minutes";
+export const CLOSE_DOWN_WORDS = "close-down minutes";
+
+/**
+ * Just enough of a control_settings row to say which minutes are in force.
+ * A SettingRow (lib/controlBoard/settings.ts) is one; rows for other keys are
+ * ignored, so a caller may hand in every board row.
+ */
+export type StaffingSettingRow = { id: number; key: string; value: number; effective_from: string; recorded_at: string };
+
+export type StaffingMargins = { openUp: number | null; closeDown: number | null };
+
+/**
+ * The open-up and close-down minutes in force on `date`, null when unset.
+ * In force means what the board means (inForce in lib/controlBoard/settings.ts,
+ * repeated here so this file keeps importing nothing): the latest
+ * effective_from on or before the date, then the later recorded_at, then the
+ * higher id. A value that is not a number of minutes at or above zero is unset.
+ */
+export function staffingMarginsOn(date: string, rows: StaffingSettingRow[]): StaffingMargins {
+  const on = (key: string): number | null => {
+    let best: StaffingSettingRow | null = null;
+    for (const r of rows) {
+      if (r.key !== key || r.effective_from > date) continue;
+      if (
+        !best ||
+        r.effective_from > best.effective_from ||
+        (r.effective_from === best.effective_from &&
+          (r.recorded_at > best.recorded_at || (r.recorded_at === best.recorded_at && r.id > best.id)))
+      )
+        best = r;
+    }
+    const v = best == null ? null : Number(best.value);
+    return v != null && Number.isFinite(v) && v >= 0 ? v : null;
+  };
+  return { openUp: on(OPEN_UP_KEY), closeDown: on(CLOSE_DOWN_KEY) };
+}
+
+/**
+ * What the store needs cover for on a date. An open day carries its staffed
+ * window (`opens`, `closes`), the open hours it was widened from (`open`), and
+ * which values were missing (`missing`); a missing value widens nothing, so
+ * with both missing the staffed window is the open window.
+ */
+export type StaffedWindow =
+  | {
+      state: "open";
+      opens: number;
+      closes: number;
+      open: { opens: number; closes: number };
+      source: "weekday" | "exception";
+      label: string | null;
+      missing: string[];
+    }
+  | Extract<OpenWindow, { state: "closed" } | { state: "unset" }>;
+
+/**
+ * Staffed hours on `date`: the open window widened by the open-up minutes
+ * before and the close-down minutes after, the values in force on the date.
+ * A closed day stays closed and an unset day stays unset. The window stays
+ * inside the day (00:00 to 24:00): coverage is judged one date at a time.
+ * Sales projections and affordable hours keep using open hours.
+ */
+export function staffedWindow(date: string, open: OpenWindow, staffing: StaffingSettingRow[]): StaffedWindow {
+  if (open.state !== "open") return open;
+  const { openUp, closeDown } = staffingMarginsOn(date, staffing);
+  const missing = [...(openUp == null ? [OPEN_UP_WORDS] : []), ...(closeDown == null ? [CLOSE_DOWN_WORDS] : [])];
+  return {
+    state: "open",
+    opens: Math.max(0, open.opens - (openUp ?? 0)),
+    closes: Math.min(1440, open.closes + (closeDown ?? 0)),
+    open: { opens: open.opens, closes: open.closes },
+    source: open.source,
+    label: open.label ?? null,
+    missing,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Shifts
 // ---------------------------------------------------------------------------
 
@@ -345,8 +446,9 @@ export function shiftsTouchingWeek<T extends { starts_at: string; ends_at: strin
 // ---------------------------------------------------------------------------
 
 /**
- * Check one week. Returns every uncovered stretch inside opening hours, plus
- * the days whose hours nobody has set (reported, never blocking).
+ * Check one week. Returns every uncovered stretch inside staffed hours, plus
+ * the days whose hours nobody has set (reported, never blocking) and the open
+ * days checked against open hours because the minutes were not set.
  *
  * `shifts` may contain anything — the caller usually passes a padded query
  * window. Only the seven dates of the week are examined, and only shifts that
@@ -360,6 +462,8 @@ export function checkWeekCoverage(input: {
   shifts: CoverageShift[];
   /** "Business closed" annotations overlapping the week. Optional. */
   closedRanges?: ClosedDateRange[];
+  /** The open-up and close-down rows (any dates). None: every open day is checked against open hours. */
+  staffing?: StaffingSettingRow[];
 }): CoverageResult {
   const { weekStart, storeHours, exceptions, shiftTypes, shifts } = input;
   const closedRanges = input.closedRanges ?? [];
@@ -377,21 +481,23 @@ export function checkWeekCoverage(input: {
 
   const gaps: CoverageGap[] = [];
   const hoursNotSet: HoursNotSetDay[] = [];
+  const staffingNotSet: string[] = [];
 
   for (const date of weekDates(weekStart)) {
-    const window = resolveOpenWindow(date, storeHours, exceptions, closedRanges);
+    const window = staffedWindow(date, resolveOpenWindow(date, storeHours, exceptions, closedRanges), input.staffing ?? []);
     if (window.state === "unset") {
       hoursNotSet.push({ date, weekday: weekdayOf(date) });
       continue;
     }
     if (window.state === "closed") continue;
+    if (window.missing.length) staffingNotSet.push(date);
     const merged = mergeIntervals(byDate.get(date) ?? []);
     for (const gap of uncovered(window.opens, window.closes, merged)) {
       gaps.push({ date, from: formatMinutes(gap.from), to: formatMinutes(gap.to) });
     }
   }
 
-  return { gaps, hoursNotSet };
+  return { gaps, hoursNotSet, staffingNotSet };
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +525,11 @@ export function formatDayLabel(date: string): string {
 /** "Tue Sep 22: nobody in store 2:00 PM to 4:00 PM". */
 export function describeGap(gap: CoverageGap): string {
   return `${formatDayLabel(gap.date)}: nobody in store ${formatClock(gap.from)} to ${formatClock(gap.to)}`;
+}
+
+/** "Tue Sep 22, Wed Sep 23": the open days checked against open hours because the minutes were not set. */
+export function describeStaffingNotSet(dates: string[]): string {
+  return dates.map(formatDayLabel).join(", ");
 }
 
 /** "Mon, Tue" — the short weekday names of the days whose hours are unset. */
