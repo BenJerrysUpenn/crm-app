@@ -67,6 +67,23 @@ test("before migration 43 there are no minutes, and nothing is wrong", async () 
   assert.deepEqual(d.problems, []);
 });
 
+test("a failed read of the minutes is named as a problem, and the seasons still read", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(new Request(input, init).url);
+    if (url.pathname === "/rest/v1/control_settings") return new Response(JSON.stringify({ message: "timeout" }), { status: 500 });
+    return realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const d = await loadPlanningInputs(createClient(), TODAY);
+    assert.deepEqual(d.staffing, []);
+    assert.deepEqual(d.problems, ["Open-up and close-down minutes could not be read: timeout"]);
+    assert.equal(d.seasons.length, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("before migration 47 the seasons and events say they need it; closed days still read", async () => {
   db.missingTables.push("store_hours_seasons", "concession_events");
   const d = await loadPlanningInputs(createClient(), TODAY);

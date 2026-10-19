@@ -142,6 +142,7 @@ test("open-up and close-down are whole minutes: zero is a value, a negative, a f
     assert.equal(parseSettingInput({ key, value: 0, ...note }).ok, true, `${key}: no time is still a value`);
     assert.equal(parseSettingInput({ key, value: -5, ...note }).ok, false);
     assert.equal(parseSettingInput({ key, value: 12.5, ...note }).ok, false);
+    assert.equal(parseSettingInput({ key, value: 240, ...note }).ok, true, `${key}: four hours is the most, and allowed`);
     assert.equal(parseSettingInput({ key, value: 241, ...note }).ok, false);
     assert.equal(parseSettingInput({ key, ...note }).ok, false, "required");
   }

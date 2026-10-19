@@ -392,10 +392,10 @@ test("coverage hours are staffed hours: the open hours plus open-up and close-do
 
 test("staffed hours change coverage only: projected sales and affordable hours stay on open hours", () => {
   const staffing = [row("staffing.open_up_minutes", 45), row("staffing.close_down_minutes", 15)];
-  const plain = first();
   const staffed = first({ settings: [...BOARD, ...staffing] });
-  assert.equal(staffed.affordableHours.value, plain.affordableHours.value);
-  assert.equal(staffed.projectedInStore, plain.projectedInStore);
+  // The open-hours figures from "affordable hours = ...": 1,100 a day projected, 220 / 15 hours a day afforded.
+  close(staffed.projectedInStore, 7 * 1_100);
+  close(staffed.affordableHours.value, (7 * 220) / 15);
 });
 
 test("with the minutes not set, coverage falls back to open hours and the week's notes say so", () => {
@@ -407,6 +407,9 @@ test("with the minutes not set, coverage falls back to open hours and the week's
   );
   const half = first({ settings: [...BOARD, row("staffing.close_down_minutes", 15)] });
   close(half.coverageHours.value, 7 * 11.25);
+  const otherHalf = first({ settings: [...BOARD, row("staffing.open_up_minutes", 45)] });
+  close(otherHalf.coverageHours.value, 7 * 11.75);
+  assert.ok(otherHalf.notes.includes("close-down minutes not set on the Targets tab: coverage counts to closing time"), otherHalf.notes.join(" | "));
   assert.ok(half.notes.includes("open-up minutes not set on the Targets tab: coverage counts from opening time"), half.notes.join(" | "));
 });
 
