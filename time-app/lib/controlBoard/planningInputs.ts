@@ -18,7 +18,7 @@
 
 import { holidaysForYear } from "../holidays.ts";
 import { fmtStoreTime, parseSpan, WEEKDAY_NAMES } from "../storeHours.ts";
-import type { StoreHoursException } from "../types.ts";
+import type { StoreHoursException, StoreHoursSeason } from "../types.ts";
 import type { ConcessionEvent, EventRevision } from "../metrics/laborPlanning.ts";
 import { addMonthsTo, groupBy, historyOf, inForce, isDay, parseField, parseNote, type Parsed } from "./settings.ts";
 
@@ -67,14 +67,8 @@ export function quickHolidays(today: string, exceptions: StoreHoursException[]):
 // Store-hours seasons
 // ---------------------------------------------------------------------------
 
-/** A row of public.store_hours_seasons as the Targets tab reads it. */
-export type SeasonRow = {
-  effective_from: string;
-  weekday: number;
-  name: string;
-  is_closed: boolean;
-  opens: string | null;
-  closes: string | null;
+/** A row of public.store_hours_seasons as the Targets tab reads it: the season's hours with their notes. */
+export type SeasonRow = StoreHoursSeason & {
   review_by: string | null;
   source: string | null;
   method: string | null;
