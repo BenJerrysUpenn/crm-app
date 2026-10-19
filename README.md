@@ -126,6 +126,24 @@ submits to The Hartford; the human sends. Its only write is `coi_sent_at` plus
 required, unsent and the event is 0 to 14 days out (`COI_URGENT_WINDOW_DAYS`), the
 same window as Catering-Manager `revive.coi_required_unsent`.
 
+## Winter menu (deal drawer)
+No winter package exists: a winter item is an existing package plus extras (bj-finance
+#717). `supabase/crm/012_winter_menu_extras.sql` adds the three Price Book extras (Belgian
+Waffle, Winter Dry Toppings, Winter Pourable Toppings); `lib/menuOptions.ts` lists them
+and the two topping groups, and the drawer's toppings picker offers both groups. The drawer
+also edits `deals.custom_menu_line` (printed on the quote in place of the package name) and
+`deals.price_override` (a per-guest price replacing the package's on every quote of the
+deal; blank, 0 or negative clears it). Both columns belong to Catering-Manager migration
+`026`. `winterMenuWarnings` (`lib/winterMenu.ts`) shows amber notes, and never blocks a
+save. When the deal has a winter item (Hot Chocolate Float Party, or a winter extra) it
+notes an event outside Nov 1 - Mar 31 and an empty custom menu line. For each winter
+toppings extra on the deal it notes a pick count from that group other than 3; for winter
+toppings picked without their extra it notes that nothing bills them, unless a price
+override is set. Every winter item includes whipped cream and chocolate sauce: the Hot
+Chocolate Float Party has them in the package; on a Cup or Cone Party (the Cookie and
+Brownie Sundaes, the Waffle Sundae) they are the $0 Whipped Cream and Chocolate Sauce
+extras, added by hand, and `winterMenuWarnings` does not check for them. It mirrors Catering-Manager `modules/winter_menu.py`.
+
 ## Local dev (optional)
 ```
 npm install

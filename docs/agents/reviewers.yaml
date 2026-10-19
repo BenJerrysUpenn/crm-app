@@ -110,6 +110,8 @@ documentation_map:
     docs: [README.md, docs/payroll-verify.md]
   - paths: ["lib/coverageReminder.ts", "lib/coverageReminderCli.ts", "lib/coverageReminderPg.ts", "lib/gmailSend.ts", "scripts/coverage-reminder.ts"]
     docs: [README.md]
+  - paths: ["components/DealDetailDrawer.tsx", "lib/winterMenu.ts", "lib/menuOptions.ts", "lib/types.ts", "supabase/crm/012_winter_menu_extras*.sql"]
+    docs: [README.md]
 
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
