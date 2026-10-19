@@ -129,7 +129,8 @@ test("52 Sunday-to-Saturday weeks from the one holding today; the slider shows 4
   assert.equal(p.weeks.length, PLANNING_WEEKS.max);
   assert.equal(p.weeks[0].start, WEEK);
   assert.equal(p.weeks[0].end, "2030-10-19");
-  assert.equal(p.weeks[51].start, addDays(WEEK, 51 * 7));
+  assert.equal(p.weeks[51].start, "2031-10-05");
+  assert.equal(p.weeks[51].end, "2031-10-11");
   assert.deepEqual([PLANNING_WEEKS.min, PLANNING_WEEKS.default, PLANNING_WEEKS.max], [4, 26, 52]);
   assert.equal(planningWeekCount(undefined), 26);
   assert.equal(planningWeekCount(2), 4);
@@ -458,8 +459,10 @@ test("events: the revision in force today per event, cancelled ones dropped", ()
 test("the days the card reads: last year's from a year before this week, with room either side to fill gaps", () => {
   const w = planningWindow(TODAY);
   assert.equal(w.firstWeek, WEEK);
-  assert.equal(w.lastDay, addDays(WEEK, 52 * 7 - 1));
-  assert.equal(w.lastYearFrom, addDays(WEEK, -364));
-  assert.equal(w.lastYearTo, addDays(WEEK, -1));
+  // 52 weeks: Sunday 2030-10-13 to Saturday 2031-10-11. Last year's days are
+  // the same weekdays 52 weeks earlier: Sunday 2029-10-14 to Saturday 2030-10-12.
+  assert.equal(w.lastDay, "2031-10-11");
+  assert.equal(w.lastYearFrom, "2029-10-14");
+  assert.equal(w.lastYearTo, "2030-10-12");
   assert.ok(w.salesFrom < w.lastYearFrom && w.salesTo >= w.lastYearTo);
 });
