@@ -19,6 +19,7 @@ import { trendFactor, type DailySalesRow, type MonthlySalesRow } from "@/lib/con
 import type { SalaryRow, SettingRow } from "@/lib/controlBoard/settings";
 import { CATERING_POSITION, type CateringBooking, type LaborShift } from "@/lib/controlBoard/schedule";
 import { PROFILE_COLUMNS, laborPerson, loadCateringBookings } from "@/lib/controlBoard/scheduleLoad";
+import type { ConcessionEventRow } from "@/lib/controlBoard/planningInputs";
 import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/coverage";
 import { isMissingTable } from "@/lib/storeHours";
 import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons";
@@ -30,15 +31,11 @@ import {
   lastYearHours,
   marketingDealsFrom,
   planningWindow,
-  type ConcessionEvent,
-  type EventRevision,
   type HistoryRow,
   type HistoryShift,
   type LaborPlanningInputs,
   type MarketingDealRow,
 } from "./laborPlanning";
-
-export type ConcessionEventRow = ConcessionEvent & EventRevision;
 
 /** The deal columns a marketing deal is read with. */
 export const MARKETING_DEAL_COLUMNS = "id, event_type, stage, archived, event_date, labor_hours, staff_count";
