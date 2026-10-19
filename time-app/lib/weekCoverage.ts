@@ -4,8 +4,8 @@
 // measures cover against staffed hours. Read-only: it selects and never writes.
 //
 // The "Check week" button on the schedule board runs this (via
-// GET /api/schedule/check-week). It used to run inside "Publish week", which
-// went away with drafts (PR #58).
+// GET /api/schedule/check-week). Shifts are written live, so the check is
+// something a manager asks for, not a gate on publishing.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
