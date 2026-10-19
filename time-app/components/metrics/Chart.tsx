@@ -14,7 +14,7 @@
 // set for light and one for dark, validated for colour-blind separation; the
 // chart re-reads them when the theme changes.
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Chart as ChartType, ChartConfiguration } from "chart.js";
 
 export type SeriesColor = "in_store" | "catering" | "concessions" | "orange" | "target" | "serious" | "other";
@@ -30,6 +30,8 @@ export type Series = {
   area?: boolean;
   /** Bars (or areas) with the same stack id stack. */
   stack?: string;
+  /** Bars at these indexes drawn in another colour, with their own legend entry: weeks over target. */
+  highlight?: { indexes: number[]; color: SeriesColor; label: string };
 };
 
 /** "#rrggbb" at an opacity, for area fills (canvas has no color-mix everywhere). */
@@ -49,6 +51,11 @@ const VAR: Record<SeriesColor, string> = {
   serious: "--m-serious",
   other: "--m-other",
 };
+
+/** ", over target" after a highlighted bar's value, so the tooltip says it in words as well as colour. */
+function highlightNote(s: Series | undefined, index: number): string {
+  return s?.highlight?.indexes.includes(index) ? `, ${s.highlight.label.toLowerCase()}` : "";
+}
 
 export function formatValue(v: number | null | undefined, format: ValueFormat, compact = false): string {
   if (v == null || Number.isNaN(v)) return "–";
@@ -98,6 +105,8 @@ export default function Chart({
   horizontal = false,
   dim,
   tickChars = 24,
+  gaps,
+  table,
 }: {
   labels: string[];
   series: Series[];
@@ -118,6 +127,10 @@ export default function Chart({
   dim?: number[];
   /** Longest category label drawn on the axis; the table always has the full text. */
   tickChars?: number;
+  /** Indexes with no value, marked "n/a" on the axis (a missing week, never a zero bar). */
+  gaps?: number[];
+  /** A table of the card's own to show behind "Show numbers" instead of the generated one. */
+  table?: ReactNode;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<ChartType | null>(null);
@@ -128,8 +141,8 @@ export default function Chart({
 
   const [theme, setTheme] = useState(0);
   const signature = useMemo(
-    () => JSON.stringify({ labels, series, format, stacked, beginAtZero, horizontal, dim, tickChars }),
-    [labels, series, format, stacked, beginAtZero, horizontal, dim, tickChars],
+    () => JSON.stringify({ labels, series, format, stacked, beginAtZero, horizontal, dim, tickChars, gaps }),
+    [labels, series, format, stacked, beginAtZero, horizontal, dim, tickChars, gaps],
   );
   const empty = series.every((s) => s.type === "line" || s.values.every((v) => v == null || v === 0));
 
@@ -156,7 +169,14 @@ export default function Chart({
       });
       const c = colours();
       const dimmed = new Set(dim ?? []);
-      const fillFor = (colour: string) => (ctx: { dataIndex: number }) => (dimmed.has(ctx.dataIndex) ? alpha(colour, 0.45) : colour);
+      const fillFor = (colour: string, s: Series) => {
+        const lit = new Set(s.highlight?.indexes ?? []);
+        const other = s.highlight ? readVar(root, VAR[s.highlight.color]) : colour;
+        return (ctx: { dataIndex: number }) => {
+          const base = lit.has(ctx.dataIndex) ? other : colour;
+          return dimmed.has(ctx.dataIndex) ? alpha(base, 0.45) : base;
+        };
+      };
       const valueAxis = horizontal ? "x" : "y";
       const categoryAxis = horizontal ? "y" : "x";
       // Narrow screens get shorter axis labels, so the bars keep their room.
@@ -176,7 +196,7 @@ export default function Chart({
               type: line ? "line" : "bar",
               label: s.label,
               data: s.values,
-              backgroundColor: s.area ? alpha(c.series[i], 0.35) : line ? "transparent" : fillFor(c.series[i]),
+              backgroundColor: s.area ? alpha(c.series[i], 0.35) : line ? "transparent" : fillFor(c.series[i], s),
               fill: s.area ? (firstArea ? "origin" : "-1") : false,
               borderColor: line ? c.series[i] : c.surface,
               borderWidth: line ? 2 : stacked ? (horizontal ? { right: 2 } : { top: 2 }) : 0,
@@ -213,7 +233,8 @@ export default function Chart({
               bodyFont: { size: 13 },
               boxPadding: 4,
               callbacks: {
-                label: (ctx) => ` ${ctx.dataset.label}: ${formatValue(horizontal ? ctx.parsed.x : ctx.parsed.y, format)}`,
+                label: (ctx) =>
+                  ` ${ctx.dataset.label}: ${formatValue(horizontal ? ctx.parsed.x : ctx.parsed.y, format)}${highlightNote(series[ctx.datasetIndex], ctx.dataIndex)}`,
               },
             },
           },
@@ -249,6 +270,32 @@ export default function Chart({
             },
           },
         },
+        // An "n/a" on the axis where a value is missing, so a gap never reads as zero.
+        plugins: gaps?.length
+          ? [
+              {
+                id: "gaps",
+                afterDatasetsDraw(chart) {
+                  const cat = chart.scales[categoryAxis];
+                  const val = chart.scales[valueAxis];
+                  if (!cat || !val) return;
+                  const ctx = chart.ctx;
+                  ctx.save();
+                  ctx.fillStyle = c.muted;
+                  ctx.font = "12px 'Helvetica Neue', Helvetica, Arial, sans-serif";
+                  ctx.textAlign = horizontal ? "left" : "center";
+                  ctx.textBaseline = horizontal ? "middle" : "bottom";
+                  for (const i of gaps) {
+                    const along = cat.getPixelForValue(i);
+                    const zero = val.getPixelForValue(0);
+                    if (horizontal) ctx.fillText("n/a", zero + 4, along);
+                    else ctx.fillText("n/a", along, zero - 4);
+                  }
+                  ctx.restore();
+                },
+              },
+            ]
+          : [],
       };
       chartRef.current?.destroy();
       chartRef.current = new m.Chart(canvas, config);
@@ -296,13 +343,31 @@ export default function Chart({
   }
 
   const activeText =
-    active == null ? "" : `${labels[active]}: ${series.map((s) => `${s.label} ${formatValue(s.values[active], format)}`).join(", ")}`;
+    active == null ? "" : `${labels[active]}: ${series.map((s) => `${s.label} ${formatValue(s.values[active], format)}${highlightNote(s, active)}`).join(", ")}`;
+
+  const numbersToggle = (
+    <div className="mt-1 flex justify-end">
+      <button
+        type="button"
+        onClick={() => setShowTable((v) => !v)}
+        aria-expanded={showTable}
+        aria-controls={tableId}
+        aria-label={`${showTable ? "Hide" : "Show"} numbers: ${heading ?? title}`}
+        className="min-h-[44px] px-3 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white underline underline-offset-2"
+      >
+        {showTable ? "Hide numbers" : "Show numbers"}
+      </button>
+    </div>
+  );
 
   if (empty && emptyText)
     return (
       <div>
         {heading && <h3 className="text-sm font-medium text-slate-800 dark:text-slate-100 mb-1">{heading}</h3>}
         <p className="text-sm text-slate-600 dark:text-slate-400 py-6 text-center">{emptyText}</p>
+        {/* A card's own table still has its reasons and exact figures with no chart to draw. */}
+        {table && numbersToggle}
+        {table && showTable && <div id={tableId}>{table}</div>}
       </div>
     );
 
@@ -325,6 +390,14 @@ export default function Chart({
               {s.label}
             </li>
           ))}
+          {series
+            .filter((s) => s.highlight)
+            .map((s) => (
+              <li key={`${s.label}-highlight`} className="flex items-center gap-1.5">
+                <span aria-hidden="true" className="inline-block" style={{ width: 10, height: 10, borderRadius: 2, background: `var(${VAR[s.highlight!.color]})` }} />
+                {s.highlight!.label}
+              </li>
+            ))}
         </ul>
       )}
       <div style={{ height }} className="relative">
@@ -342,19 +415,9 @@ export default function Chart({
       <p id={hintId} className="sr-only" aria-live="polite">
         {activeText}
       </p>
-      <div className="mt-1 flex justify-end">
-        <button
-          type="button"
-          onClick={() => setShowTable((v) => !v)}
-          aria-expanded={showTable}
-          aria-controls={tableId}
-          aria-label={`${showTable ? "Hide" : "Show"} numbers: ${heading ?? title}`}
-          className="min-h-[44px] px-3 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white underline underline-offset-2"
-        >
-          {showTable ? "Hide numbers" : "Show numbers"}
-        </button>
-      </div>
-      {showTable && (
+      {numbersToggle}
+      {showTable && table && <div id={tableId}>{table}</div>}
+      {showTable && !table && (
         <div id={tableId} className="overflow-x-auto max-w-full">
           <table className="w-full text-sm tabular-nums mb-2">
             <caption className="sr-only">{title}</caption>
