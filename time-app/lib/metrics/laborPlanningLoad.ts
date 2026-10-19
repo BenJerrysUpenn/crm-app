@@ -23,6 +23,7 @@ import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/
 import { isMissingTable } from "@/lib/storeHours";
 import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons";
 import { addDays } from "./dates";
+import { nyMidnight, paged } from "./supabaseReads";
 import {
   MARKETING_POSITION,
   eventsInForce,
@@ -105,24 +106,6 @@ export function planningInputsFrom(rows: LaborPlanningRows): LaborPlanningInputs
     concessionEvents,
   };
 }
-
-const PAGE = 1000;
-type Query = { range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string; code?: string } | null }> };
-
-async function paged<T>(make: () => Query): Promise<T[]> {
-  const out: T[] = [];
-  for (let page = 0; page < 50; page++) {
-    const { data, error } = await make().range(page * PAGE, (page + 1) * PAGE - 1);
-    if (error) throw error;
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < PAGE) break;
-  }
-  return out;
-}
-
-/** New York midnight starting `day`, the earlier offset so nothing is missed. */
-const nyMidnight = (day: string) => `${day}T04:00:00Z`;
 
 /** A table of migration 47's: its rows, or null before the migration. */
 async function optional<T>(read: () => PromiseLike<{ data: unknown[] | null; error: { message: string; code?: string } | null }>): Promise<T[] | null> {

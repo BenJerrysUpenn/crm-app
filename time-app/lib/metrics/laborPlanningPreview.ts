@@ -36,6 +36,7 @@ import { PROFILE_COLUMNS, bookingsFrom, type BookingDeal } from "@/lib/controlBo
 import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/coverage";
 import { seasonHoursRows } from "@/lib/storeHoursSeasons";
 import { addDays, nyDay } from "./dates";
+import { nyMidnight } from "./supabaseReads";
 import { MARKETING_POSITION, laborHoursPlanning, planningWindow, type HistoryRow, type HistoryShift, type MarketingDealRow } from "./laborPlanning";
 import { MARKETING_DEAL_COLUMNS, planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
 import { seedClosedDays, seedRevisions, seedSeasonRows, type Seed } from "./laborPlanningSeed";
@@ -112,7 +113,6 @@ async function selectNow<T>(sql: string): Promise<T[]> {
 }
 
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
-const nyMidnight = (day: string) => `${day}T04:00:00Z`;
 /** The shifts the card reads besides store shifts, as PLANNING_SHIFTS_FILTER: Catering and Marketing ones, and any on a deal. */
 const PLANNING_SHIFTS = `(position in (${lit(CATERING_POSITION)}, ${lit(MARKETING_POSITION)}) or deal_id is not null)`;
 

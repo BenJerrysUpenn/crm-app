@@ -29,6 +29,7 @@ import { loadBoard } from "@/lib/controlBoard/load";
 import { PROFILE_COLUMNS, laborPerson, loadCateringBookings } from "@/lib/controlBoard/scheduleLoad";
 import type { LaborShift } from "@/lib/controlBoard/schedule";
 import { laborHoursPlanning, type LaborPlanning } from "./laborPlanning";
+import { nyMidnight, paged } from "./supabaseReads";
 import { loadLaborPlanningRows, planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
 
 /** What the page's data spans on `today`: the weeks and months behind it, and the days from the first of those months to the end of the last month ahead. */
@@ -110,29 +111,7 @@ export type MetricsData = {
   problems: string[];
 };
 
-const PAGE = 1000; // PostgREST's row cap per request
-const MAX_PAGES = 50;
-
-type Query = { range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string; code?: string } | null }> };
-
-async function paged<T>(make: () => Query): Promise<T[]> {
-  const out: T[] = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const { data, error } = await make().range(page * PAGE, (page + 1) * PAGE - 1);
-    if (error) throw error;
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < PAGE) break;
-  }
-  return out;
-}
-
 const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived";
-
-/** An ISO instant at New York midnight starting `day` (EDT or EST: the earlier, so nothing is missed). */
-function nyMidnight(day: string): string {
-  return `${day}T04:00:00Z`;
-}
 
 export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = new Date()): Promise<MetricsInputs> {
   const today = nyToday(now);
