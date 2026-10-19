@@ -1,6 +1,6 @@
 // The Labor Hours Planning inputs an owner keeps on the Targets tab
-// (bj-finance #742, owner ruling 2026-10-19): store-hours seasons, concession
-// events and crew events (Free Cone Day), beside the control board's settings.
+// (bj-finance #742, owner rulings 2026-10-19): store-hours seasons and
+// concession events, beside the control board's settings.
 // Closed days are store_hours_exceptions, which managers set; the three
 // holidays the store closes for have quick-add buttons, their dates worked
 // out from the calendar here.
@@ -19,8 +19,8 @@
 import { holidaysForYear } from "../holidays.ts";
 import { fmtStoreTime, parseSpan, WEEKDAY_NAMES } from "../storeHours.ts";
 import type { StoreHoursException } from "../types.ts";
-import type { ConcessionEvent, CrewEvent, EventRevision } from "../metrics/laborPlanning.ts";
-import { groupBy, historyOf, inForce, isDay, parseField, parseNote, type Parsed } from "./settings.ts";
+import type { ConcessionEvent, EventRevision } from "../metrics/laborPlanning.ts";
+import { addMonthsTo, groupBy, historyOf, inForce, isDay, parseField, parseNote, type Parsed } from "./settings.ts";
 
 /**
  * One change the editor sends: to its route on the Targets tab, or, on the
@@ -30,8 +30,8 @@ export type InputAction =
   | { kind: "season"; body: object }
   | { kind: "season_remove"; from: string }
   | { kind: "concession"; body: object }
-  | { kind: "crew"; body: object }
-  | { kind: "closed_day"; body: { date: string; label: string } }
+  /** A closed day; with opens and closes ("HH:MM"), short hours instead. */
+  | { kind: "closed_day"; body: { date: string; label: string; opens?: string; closes?: string } }
   | { kind: "closed_day_remove"; date: string };
 
 /** The notes every dated input carries, as the board's settings do. */
@@ -153,6 +153,25 @@ export function seasonRowsFrom(s: Season): SeasonRow[] {
   });
 }
 
+/**
+ * "Repeat next year": the season again from the same date a year on, as the
+ * season form saves it, its review-by a year on too (a year after the new
+ * first day when it had none).
+ */
+export function repeatNextYear(s: Season) {
+  const from = addMonthsTo(s.effective_from, 12);
+  return {
+    name: s.name,
+    effective_from: from,
+    opens: (s.opens ?? "").slice(0, 5),
+    closes: (s.closes ?? "").slice(0, 5),
+    closed_weekdays: s.closedWeekdays,
+    review_by: s.review_by ? addMonthsTo(s.review_by, 12) : addMonthsTo(from, 12),
+    source: s.source || `Repeated from the ${s.name} season of ${s.effective_from}.`,
+    method: s.method,
+  };
+}
+
 /** A season as POST /api/payroll/targets/seasons receives it: its seven rows to write. */
 export function parseSeasonInput(body: unknown): Parsed<SeasonRow[]> {
   if (!body || typeof body !== "object") return { ok: false, error: "Expected a JSON body." };
@@ -187,11 +206,10 @@ export function parseSeasonInput(body: unknown): Parsed<SeasonRow[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Concession events and crew events: dated revisions
+// Concession events: dated revisions
 // ---------------------------------------------------------------------------
 
 export type ConcessionEventRow = ConcessionEvent & EventRevision & InputNotes & { provisional: boolean };
-export type CrewEventRow = CrewEvent & EventRevision & InputNotes;
 
 export type EventEntry<T> = {
   key: string;
@@ -202,7 +220,7 @@ export type EventEntry<T> = {
   history: T[];
 };
 
-const firstDay = (r: object) => ("start_date" in r ? String(r.start_date) : "day" in r ? String(r.day) : "");
+const firstDay = (r: object) => ("start_date" in r ? String(r.start_date) : "");
 
 /** Each event as it stands today, with its history, by its first day. Cancelled events are kept: they show as taken off. */
 export function eventList<T extends EventRevision>(rows: T[], today: string): EventEntry<T>[] {
@@ -253,7 +271,6 @@ function parseCommon(b: Record<string, unknown>, first: string, taken: Set<strin
 }
 
 export type ConcessionInsert = Common & ConcessionEvent & { provisional: boolean };
-export type CrewInsert = Common & CrewEvent;
 
 /**
  * A concession event revision, as POST /api/payroll/targets/concession-events
@@ -273,16 +290,4 @@ export function parseConcessionInput(body: unknown, taken: Set<string>): Parsed<
     ok: true,
     value: { ...common.value, start_date: b.start_date, end_date: b.end_date, expected_net_sales: sales.value, provisional: b.provisional === true },
   };
-}
-
-/** A crew event revision, as POST /api/payroll/targets/crew-events receives it. */
-export function parseCrewInput(body: unknown, taken: Set<string>): Parsed<CrewInsert> {
-  if (!body || typeof body !== "object") return { ok: false, error: "Expected a JSON body." };
-  const b = body as Record<string, unknown>;
-  if (!isDay(b.day)) return { ok: false, error: "The day must be a date (YYYY-MM-DD)." };
-  const hours = amount(b.crew_hours, "Crew hours", 1e6);
-  if (!hours.ok) return hours;
-  const common = parseCommon(b, b.day, taken);
-  if (!common.ok) return common;
-  return { ok: true, value: { ...common.value, day: b.day, crew_hours: hours.value } };
 }

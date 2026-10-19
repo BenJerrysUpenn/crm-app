@@ -14,12 +14,15 @@ import type { StoreHoursRow } from "../coverage.ts";
 import { addDays, eachDay } from "./dates.ts";
 import {
   PLANNING_WEEKS,
-  cateringHistory,
   eventsInForce,
+  isMarketingEventType,
+  lastYearHours,
   laborHoursPlanning,
+  marketingDealsFrom,
   planningWindow,
   planningWeekCount,
   type LaborPlanningInputs,
+  type MarketingDeal,
 } from "./laborPlanning.ts";
 
 const close = (a: number | null | undefined, b: number, msg?: string) => {
@@ -79,15 +82,19 @@ function sales(skip: string[] = [], override: Record<string, number> = {}) {
     .map((day) => ({ day, in_store: override[day] ?? 1_000 }));
 }
 
-/** Last year's catering hours: zero on every day of the year before today, plus `hours`. */
+/** Last year's catering (or marketing) hours: zero on every day of the year before today, plus `hours`. */
 function history(hours: Record<string, number> = {}) {
   return eachDay(addDays(TODAY, -400), addDays(TODAY, -1)).map((day) => ({ day, hours: hours[day] ?? 0 }));
 }
 
 let shiftId = 1;
-const cateringShift = (deal_id: number, day: string, from: string, to: string): LaborShift => ({
-  id: shiftId++, employee_id: "ten", starts_at: ny(day, from), ends_at: ny(day, to), position: "Catering", deal_id,
+const cateringShift = (deal_id: number | null, day: string, from: string, to: string, position = "Catering"): LaborShift => ({
+  id: shiftId++, employee_id: "ten", starts_at: ny(day, from), ends_at: ny(day, to), position, deal_id,
 });
+const marketingShift = (deal_id: number | null, day: string, from: string, to: string) => cateringShift(deal_id, day, from, to, "Marketing");
+
+/** A marketing deal: counted (any stage but Closed Lost, not archived) unless `counts` is false. */
+const mDeal = (id: number, day: string, billedHours: number | null, counts = true): MarketingDeal => ({ id, day, billedHours, counts });
 
 function inputs(over: Partial<LaborPlanningInputs> = {}): LaborPlanningInputs {
   return {
@@ -102,10 +109,11 @@ function inputs(over: Partial<LaborPlanningInputs> = {}): LaborPlanningInputs {
     exceptions: [],
     closedRanges: [],
     bookings: [],
-    cateringShifts: [],
+    marketingDeals: [],
+    shifts: [],
     cateringHistory: history(),
+    marketingHistory: history(),
     concessionEvents: [],
-    crewEvents: [],
     ...over,
   };
 }
@@ -162,6 +170,9 @@ test("concession event net sales are spread evenly over the event's days and add
   close(w.inStoreHours.value, (7 * 220) / 15);
   close(w.concessionHours.value, (3_000 * 0.2) / 15);
   assert.deepEqual(w.events, ["Expo"]);
+  // A placeholder event says so in the week's notes.
+  const placeholder = first({ concessionEvents: [{ name: "Expo", start_date: "2030-10-14", end_date: "2030-10-14", expected_net_sales: 1, provisional: true }] });
+  assert.deepEqual(placeholder.events, ["Expo (placeholder)"]);
   // An event running into the next week puts only its own days' share in each week.
   const p = laborHoursPlanning(inputs({ concessionEvents: [{ name: "Expo", start_date: "2030-10-18", end_date: "2030-10-21", expected_net_sales: 4_000 }] }));
   close(p.weeks[0].concessionSales, 2_000);
@@ -233,7 +244,7 @@ test("booked hours: a booked deal's Catering shifts, or its labor_hours x staff_
       { id: 1, day: "2030-10-15", billedHours: 6 },
       { id: 2, day: "2030-10-17", billedHours: 10 },
     ],
-    cateringShifts: [cateringShift(2, "2030-10-17", "10:00", "13:00"), cateringShift(2, "2030-10-17", "10:00", "14:00"), cateringShift(9, "2030-10-17", "10:00", "20:00")],
+    shifts: [cateringShift(2, "2030-10-17", "10:00", "13:00"), cateringShift(2, "2030-10-17", "10:00", "14:00"), cateringShift(9, "2030-10-17", "10:00", "20:00")],
   });
   // Deal 1: no shifts, billed 6. Deal 2: shifts of 3 and 4 hours. Deal 9 is not booked.
   close(w.bookedHours, 6 + 7);
@@ -272,15 +283,79 @@ test("the estimate is not available when last year's catering hours are not on f
   assert.ok(gap.estimatedHours.needs.some((n) => n.includes("catering")), gap.estimatedHours.needs.join("; "));
 });
 
-test("Free Cone Day: its crew hours are added to the estimated band, booked or not", () => {
-  const hist = history({ "2029-10-16": 20 });
-  const crewEvents = [{ name: "Test Cone Day", day: "2030-10-16", crew_hours: 90 }];
-  const w = first({ cateringHistory: hist, crewEvents, bookings: [{ id: 1, day: "2030-10-15", billedHours: 13 }] });
-  close(w.crewEventHours, 90);
-  close(w.estimatedHours.value, 7 + 90);
-  const booked = first({ cateringHistory: hist, crewEvents, bookings: [{ id: 1, day: "2030-10-15", billedHours: 40 }] });
-  close(booked.estimatedHours.value, 90, "booked catering past last year's does not eat into the event's crew");
-  assert.deepEqual(w.events, ["Test Cone Day"]);
+// ---------------------------------------------------------------------------
+// Marketing: booked, and the estimate still to come
+// ---------------------------------------------------------------------------
+
+test("a marketing deal is one whose event type starts with Marketing, counted at any stage but Closed Lost, never archived", () => {
+  assert.equal(isMarketingEventType("Marketing Event"), true);
+  assert.equal(isMarketingEventType("Marketing / Tabling"), true);
+  assert.equal(isMarketingEventType(" Marketing Event - Tabletop Comp"), true);
+  assert.equal(isMarketingEventType("Birthday Party"), false);
+  assert.equal(isMarketingEventType(null), false);
+  const row = (id: number, event_type: string | null, stage: string, archived = 0, more: Record<string, unknown> = {}) => ({
+    id, event_type, stage, archived, event_date: "2030-10-15", labor_hours: 3, staff_count: 2, ...more,
+  });
+  const deals = marketingDealsFrom([
+    row(1, "Marketing Event", "Closed Marketing Event"),
+    row(2, "Marketing Event", "Closed Lost"),
+    row(3, "Marketing Event", "Booked Paid", 1),
+    row(4, "Corporate", "Booked Paid"),
+    row(5, "Marketing / Tabling", "Event Complete", 0, { labor_hours: null }),
+  ]);
+  assert.deepEqual(deals, [
+    { id: 1, day: "2030-10-15", billedHours: 6, counts: true },
+    { id: 2, day: "2030-10-15", billedHours: 6, counts: false },
+    { id: 3, day: "2030-10-15", billedHours: 6, counts: false },
+    { id: 5, day: "2030-10-15", billedHours: null, counts: true },
+  ]);
+});
+
+test("marketing booked hours: a marketing deal's shifts of any position, or its labor hours x staff count; plus Marketing shifts with no deal", () => {
+  const w = first({
+    marketingDeals: [mDeal(1, "2030-10-15", 6), mDeal(2, "2030-10-17", 10), mDeal(3, "2030-10-18", 4, false)],
+    shifts: [
+      cateringShift(2, "2030-10-17", "10:00", "13:00"),
+      marketingShift(2, "2030-10-17", "10:00", "12:00"),
+      marketingShift(null, "2030-10-18", "09:00", "14:00"),
+      marketingShift(3, "2030-10-18", "09:00", "10:00"),
+      marketingShift(50, "2030-10-18", "09:00", "19:00"),
+    ],
+  });
+  // Deal 1: no shifts, billed 6. Deal 2: shifts of 3 and 2 hours. A Marketing
+  // shift with no deal: 5. Deal 3 is Closed Lost; deal 50 is not a marketing deal.
+  close(w.marketingBookedHours, 6 + 5 + 5);
+  close(w.bookedHours, 0, "none of it is catering");
+});
+
+test("marketing deals and their shifts leave catering booked, even when the deal reads as booked", () => {
+  const w = first({
+    bookings: [{ id: 1, day: "2030-10-15", billedHours: 6 }, { id: 2, day: "2030-10-16", billedHours: 8 }],
+    marketingDeals: [mDeal(2, "2030-10-16", 8)],
+    shifts: [cateringShift(2, "2030-10-16", "10:00", "14:00")],
+  });
+  close(w.bookedHours, 6);
+  close(w.marketingBookedHours, 4);
+});
+
+test("a marketing deal with neither shifts nor labor hours counts nothing and is named", () => {
+  const w = first({ marketingDeals: [mDeal(7, "2030-10-15", null)] });
+  close(w.marketingBookedHours, 0);
+  assert.ok(w.notes.some((n) => n.includes("#7")), w.notes.join("; "));
+});
+
+test("marketing estimated = max(last year's marketing hours that week - marketing booked, 0)", () => {
+  const hist = history({ "2029-10-16": 30 });
+  const some = first({ marketingHistory: hist, marketingDeals: [mDeal(1, "2030-10-16", 12)] });
+  close(some.lastYearMarketing, 30);
+  close(some.marketingBookedHours, 12);
+  close(some.marketingEstimatedHours.value, 18);
+  const more = first({ marketingHistory: hist, marketingDeals: [mDeal(1, "2030-10-16", 40)] });
+  close(more.marketingEstimatedHours.value, 0, "never below zero");
+  const none = first({ marketingHistory: hist });
+  close(none.marketingEstimatedHours.value, 30);
+  close(none.estimatedHours.value, 0, "last year's marketing is not catering");
+  assert.equal(first({ marketingHistory: null }).marketingEstimatedHours.value, null);
 });
 
 // ---------------------------------------------------------------------------
@@ -301,34 +376,62 @@ test("coverage hours = the store hours of the season in force, one person, summe
 // Last year's catering hours: the loaded history, then the CRM's shifts
 // ---------------------------------------------------------------------------
 
-test("catering history: the loaded days, then Catering shifts after them, less concession show days and crew event days", () => {
+test("last year's hours: the loaded days, then the CRM's shifts, with concession event days and marketing taken out of catering as they are read", () => {
+  // Loaded from When I Work: raw Catering hours, one day marked marketing (the
+  // archive has no other marker), one day a concession event's.
   const loaded = [
-    { day: "2030-06-29", hours: 4 },
+    { day: "2030-06-27", hours: 4 },
+    { day: "2030-06-28", hours: 50, kind: "marketing" as const },
+    { day: "2030-06-29", hours: 9 },
     { day: "2030-06-30", hours: 0 },
   ];
+  const s = (deal_id: number | null, position: string, day: string, from: string, to: string) => ({ starts_at: ny(day, from), ends_at: ny(day, to), position, deal_id });
   const shifts = [
-    { starts_at: ny("2030-07-01", "10:00"), ends_at: ny("2030-07-01", "15:00") },
-    { starts_at: ny("2030-07-01", "12:00"), ends_at: ny("2030-07-01", "14:00") },
-    { starts_at: ny("2030-07-03", "09:00"), ends_at: ny("2030-07-03", "17:00") },
-    { starts_at: ny("2030-07-04", "09:00"), ends_at: ny("2030-07-04", "19:00") },
-    { starts_at: ny("2030-06-30", "09:00"), ends_at: ny("2030-06-30", "19:00") },
+    s(null, "Catering", "2030-07-01", "10:00", "15:00"),
+    s(8, "Catering", "2030-07-01", "12:00", "14:00"),
+    s(20, "Catering", "2030-07-02", "10:00", "13:00"), // a marketing deal crewed under Catering
+    s(21, "Marketing", "2030-07-02", "10:00", "12:00"),
+    s(null, "Marketing", "2030-07-02", "15:00", "16:00"),
+    s(22, "Catering", "2030-07-02", "09:00", "10:00"), // a Closed Lost marketing deal: in neither
+    s(8, "Marketing", "2030-07-02", "09:00", "19:00"), // a Marketing shift on a catering deal: in neither
+    s(null, "PENN Opener", "2030-07-02", "09:00", "19:00"),
+    s(null, "Catering", "2030-07-03", "09:00", "17:00"),
+    s(null, "Catering", "2030-06-30", "09:00", "19:00"), // a loaded day: the loaded row stands
   ];
-  const h = cateringHistory({
+  const h = lastYearHours({
     loaded,
     shifts,
-    concessionEvents: [{ name: "Expo", start_date: "2030-07-03", end_date: "2030-07-03", expected_net_sales: 1 }],
-    crewEvents: [{ name: "Test Cone Day", day: "2030-07-04", crew_hours: 9 }],
-    through: "2030-07-05",
+    marketingDeals: [mDeal(20, "2030-07-02", null), mDeal(21, "2030-07-02", null), mDeal(22, "2030-07-02", null, false)],
+    concessionEvents: [
+      { name: "Expo", start_date: "2030-07-03", end_date: "2030-07-03", expected_net_sales: 1 },
+      { name: "Fair", start_date: "2030-06-29", end_date: "2030-06-29", expected_net_sales: 1 },
+    ],
+    through: "2030-07-04",
   });
-  assert.deepEqual(h, [
-    { day: "2030-06-29", hours: 4 },
+  assert.deepEqual(h.catering, [
+    { day: "2030-06-27", hours: 4 },
+    { day: "2030-06-28", hours: 0 },
+    { day: "2030-06-29", hours: 0 },
     { day: "2030-06-30", hours: 0 },
     { day: "2030-07-01", hours: 7 },
     { day: "2030-07-02", hours: 0 },
     { day: "2030-07-03", hours: 0 },
     { day: "2030-07-04", hours: 0 },
-    { day: "2030-07-05", hours: 0 },
   ]);
+  assert.deepEqual(h.marketing, [
+    { day: "2030-06-27", hours: 0 },
+    { day: "2030-06-28", hours: 50 },
+    { day: "2030-06-29", hours: 0 },
+    { day: "2030-06-30", hours: 0 },
+    { day: "2030-07-01", hours: 0 },
+    { day: "2030-07-02", hours: 6 },
+    { day: "2030-07-03", hours: 0 },
+    { day: "2030-07-04", hours: 0 },
+  ]);
+  // An event added later takes its days out at once: nothing is reloaded.
+  const later = lastYearHours({ loaded, shifts, marketingDeals: [], concessionEvents: [{ name: "Show", start_date: "2030-06-27", end_date: "2030-07-01", expected_net_sales: 1 }], through: "2030-07-01" });
+  assert.deepEqual(later.catering.map((r) => r.hours), [0, 0, 0, 0, 0]);
+  assert.deepEqual(later.marketing.map((r) => r.hours), [0, 50, 0, 0, 0], "a concession event does not touch marketing");
 });
 
 // ---------------------------------------------------------------------------

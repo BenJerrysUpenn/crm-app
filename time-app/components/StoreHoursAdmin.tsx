@@ -118,7 +118,7 @@ export default function StoreHoursAdmin({
     await call(
       "/api/store-hours/exceptions",
       json({ date, label, is_closed: false, opens, closes }),
-      `Special hours set for ${dateLabel(date)}. Nothing else changed.`,
+      `Short hours set for ${dateLabel(date)}. Nothing else changed.`,
     );
   }
 
@@ -168,7 +168,7 @@ export default function StoreHoursAdmin({
 
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Holidays &amp; special days
+              Holidays &amp; closed days
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 mb-3">
               The store stays open on holidays with its normal hours unless you close one here.
@@ -380,7 +380,7 @@ function StoreDateRow({
             disabled={busy}
             className="text-xs text-slate-500 hover:text-sky-500 disabled:opacity-50"
           >
-            {editing ? "Cancel" : exception && !exception.is_closed ? "Change hours" : "Set special hours"}
+            {editing ? "Cancel" : exception && !exception.is_closed ? "Change hours" : "Set short hours"}
           </button>
           {exception && (
             <button
@@ -495,7 +495,7 @@ function AddDateForm({
                 checked={mode === "special"}
                 onChange={() => setMode("special")}
               />
-              Special hours
+              Short hours
             </label>
             {mode === "special" && (
               <>

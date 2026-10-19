@@ -4,8 +4,9 @@
 //
 //   loadLaborPlanningRows  the Supabase reads: the control board, the team,
 //                          daily in-store sales, store hours with their
-//                          seasons, closures, booked catering and its crew,
-//                          last year's catering hours, the events.
+//                          seasons, closures, booked catering, marketing
+//                          deals, the shifts on deals and Marketing shifts,
+//                          last year's catering hours, the concession events.
 //   planningInputsFrom     rows -> the pure function's inputs.
 //
 // Before migration 47 the seasons, events and catering history are not
@@ -23,18 +24,26 @@ import { isMissingTable } from "@/lib/storeHours";
 import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons";
 import { addDays } from "./dates";
 import {
-  cateringHistory,
+  MARKETING_POSITION,
   eventsInForce,
+  lastYearHours,
+  marketingDealsFrom,
   planningWindow,
-  type CateringHistoryRow,
   type ConcessionEvent,
-  type CrewEvent,
   type EventRevision,
+  type HistoryRow,
+  type HistoryShift,
   type LaborPlanningInputs,
+  type MarketingDealRow,
 } from "./laborPlanning";
 
 export type ConcessionEventRow = ConcessionEvent & EventRevision;
-export type CrewEventRow = CrewEvent & EventRevision;
+
+/** The deal columns a marketing deal is read with. */
+export const MARKETING_DEAL_COLUMNS = "id, event_type, stage, archived, event_date, labor_hours, staff_count";
+
+/** The shifts the card reads besides store shifts: Catering and Marketing ones, and any on a deal (PostgREST `or`). */
+export const PLANNING_SHIFTS_FILTER = `position.in.(${CATERING_POSITION},${MARKETING_POSITION}),deal_id.not.is.null`;
 type ProfileRow = Parameters<typeof laborPerson>[0];
 
 export type LaborPlanningRows = {
@@ -52,14 +61,15 @@ export type LaborPlanningRows = {
   exceptions: StoreHoursException[];
   closedRanges: ClosedDateRange[];
   bookings: CateringBooking[] | null;
-  /** Catering shifts on deals in the weeks ahead. */
-  cateringShifts: LaborShift[];
+  /** Every deal whose event type starts with Marketing, or null when they could not be read. */
+  marketingDeals: MarketingDealRow[] | null;
+  /** Shifts in the weeks ahead (PLANNING_SHIFTS_FILTER). */
+  shifts: LaborShift[];
   /** catering_hours_history, or null before migration 47. */
-  historyLoaded: CateringHistoryRow[] | null;
-  /** Catering shifts over last year's days (the history after the loaded days). */
-  historyShifts: { starts_at: string; ends_at: string }[];
+  historyLoaded: HistoryRow[] | null;
+  /** Shifts over last year's days (PLANNING_SHIFTS_FILTER; the history after the loaded days). */
+  historyShifts: HistoryShift[];
   concessionEvents: ConcessionEventRow[];
-  crewEvents: CrewEventRow[];
   problems: string[];
 };
 
@@ -72,7 +82,10 @@ export function planningInputsFrom(rows: LaborPlanningRows): LaborPlanningInputs
     expected_net_sales: Number(e.expected_net_sales),
     provisional: e.provisional,
   }));
-  const crewEvents = eventsInForce(rows.crewEvents, rows.today).map((e) => ({ name: e.name, day: e.day, crew_hours: Number(e.crew_hours) }));
+  const marketingDeals = rows.marketingDeals ? marketingDealsFrom(rows.marketingDeals) : null;
+  const lastYear = rows.historyLoaded
+    ? lastYearHours({ loaded: rows.historyLoaded, shifts: rows.historyShifts, marketingDeals: marketingDeals ?? [], concessionEvents, through: addDays(rows.today, -1) })
+    : null;
   return {
     today: rows.today,
     settings: rows.settings,
@@ -85,12 +98,11 @@ export function planningInputsFrom(rows: LaborPlanningRows): LaborPlanningInputs
     exceptions: rows.exceptions,
     closedRanges: rows.closedRanges,
     bookings: rows.bookings,
-    cateringShifts: rows.cateringShifts,
-    cateringHistory: rows.historyLoaded
-      ? cateringHistory({ loaded: rows.historyLoaded, shifts: rows.historyShifts, concessionEvents, crewEvents, through: addDays(rows.today, -1) })
-      : null,
+    marketingDeals,
+    shifts: rows.shifts,
+    cateringHistory: lastYear?.catering ?? null,
+    marketingHistory: lastYear?.marketing ?? null,
     concessionEvents,
-    crewEvents,
   };
 }
 
@@ -123,7 +135,7 @@ async function optional<T>(read: () => PromiseLike<{ data: unknown[] | null; err
 export async function loadLaborPlanningRows(supabase: SupabaseClient, today: string): Promise<LaborPlanningRows> {
   const w = planningWindow(today);
   const problems: string[] = [];
-  const [board, profiles, sales, hours, seasons, exceptions, closed, bookings, cateringShifts, historyLoaded, historyShifts, concession, crew] =
+  const [board, profiles, sales, hours, seasons, exceptions, closed, bookings, marketing, shifts, historyLoaded, historyShifts, concession] =
     await Promise.all([
       loadBoard(supabase, today),
       paged<ProfileRow>(() => supabase.from("profiles").select(PROFILE_COLUMNS).order("id")),
@@ -135,28 +147,27 @@ export async function loadLaborPlanningRows(supabase: SupabaseClient, today: str
       supabase.from("store_hours_exceptions").select("date, label, is_closed, opens, closes").gte("date", w.firstWeek).lte("date", w.lastDay),
       supabase.from("annotations").select("title, start_date, end_date").eq("business_closed", true).lte("start_date", w.lastDay).gte("end_date", w.firstWeek),
       loadCateringBookings(supabase, w.firstWeek, w.lastDay, today),
+      supabase.from("deals").select(MARKETING_DEAL_COLUMNS).ilike("event_type", "marketing%").order("id"),
       paged<LaborShift>(() =>
         supabase
           .from("shifts")
           .select("id, employee_id, starts_at, ends_at, position, deal_id")
-          .eq("position", CATERING_POSITION)
-          .not("deal_id", "is", null)
+          .or(PLANNING_SHIFTS_FILTER)
           .gte("starts_at", nyMidnight(addDays(w.firstWeek, -1)))
           .lte("starts_at", nyMidnight(addDays(w.lastDay, 2)))
           .order("id"),
       ),
-      optional<CateringHistoryRow>(() => supabase.from("catering_hours_history").select("day, hours").gte("day", w.lastYearFrom).order("day")),
-      paged<{ starts_at: string; ends_at: string }>(() =>
+      optional<HistoryRow>(() => supabase.from("catering_hours_history").select("day, hours, kind").gte("day", w.lastYearFrom).order("day")),
+      paged<HistoryShift>(() =>
         supabase
           .from("shifts")
-          .select("starts_at, ends_at")
-          .eq("position", CATERING_POSITION)
+          .select("starts_at, ends_at, position, deal_id")
+          .or(PLANNING_SHIFTS_FILTER)
           .gte("starts_at", nyMidnight(addDays(w.lastYearFrom, -1)))
           .lte("starts_at", nyMidnight(addDays(today, 1)))
           .order("id"),
       ),
       optional<ConcessionEventRow>(() => supabase.from("concession_events").select("*")),
-      optional<CrewEventRow>(() => supabase.from("crew_events").select("*")),
     ]);
   if (!board.ready) throw new Error(board.reason);
   if (hours.error) throw new Error(`store hours: ${hours.error.message}`);
@@ -164,6 +175,7 @@ export async function loadLaborPlanningRows(supabase: SupabaseClient, today: str
   if (exceptions.error) throw new Error(`store-hours exceptions: ${exceptions.error.message}`);
   problems.push(...board.problems.map((p) => `labor hours planning: ${p}`));
   problems.push(...bookings.problems.map((p) => `labor hours planning: ${p}`));
+  if (marketing.error) problems.push(`labor hours planning: marketing deals could not be read: ${marketing.error.message}`);
   if (closed.error) problems.push(`labor hours planning: "Business closed" notes could not be read: ${closed.error.message}`);
   if (historyLoaded == null) problems.push("labor hours planning: last year's catering hours are not loaded yet (migration 47)");
   return {
@@ -179,11 +191,11 @@ export async function loadLaborPlanningRows(supabase: SupabaseClient, today: str
     exceptions: (exceptions.data ?? []) as StoreHoursException[],
     closedRanges: closed.error ? [] : ((closed.data ?? []) as ClosedDateRange[]),
     bookings: bookings.catering,
-    cateringShifts,
-    historyLoaded: historyLoaded?.map((r) => ({ day: String(r.day), hours: Number(r.hours) })) ?? null,
+    marketingDeals: marketing.error ? null : ((marketing.data ?? []) as MarketingDealRow[]),
+    shifts,
+    historyLoaded: historyLoaded?.map((r) => ({ day: String(r.day), hours: Number(r.hours), kind: r.kind })) ?? null,
     historyShifts,
     concessionEvents: concession ?? [],
-    crewEvents: crew ?? [],
     problems,
   };
 }

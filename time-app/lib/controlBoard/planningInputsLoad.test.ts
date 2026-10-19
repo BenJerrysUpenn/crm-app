@@ -32,7 +32,6 @@ beforeEach(() => {
     concession_events: [
       { id: 1, event_key: "test-expo-2030", name: "Test Expo", start_date: "2030-12-01", end_date: "2030-12-02", expected_net_sales: "300.50", provisional: true, effective_from: "2030-01-01", ...NOTE },
     ],
-    crew_events: [{ id: 1, event_key: "test-cone-2031", name: "Test Cone", day: "2031-04-10", crew_hours: "12.50", effective_from: "2030-01-01", ...NOTE }],
     store_hours_exceptions: [
       { date: "2030-10-13", label: "Yesterday", is_closed: true, opens: null, closes: null, created_at: null },
       { date: "2030-11-28", label: "Test holiday", is_closed: true, opens: null, closes: null, created_at: null },
@@ -47,15 +46,14 @@ test("the inputs read as numbers, and closed days from today on", async () => {
   assert.deepEqual(d.problems, []);
   assert.equal(d.seasons.length, 1);
   assert.equal(d.concession[0].expected_net_sales, 300.5);
-  assert.equal(d.crew[0].crew_hours, 12.5);
   assert.deepEqual(d.exceptions.map((e) => e.date), ["2030-11-28"]);
 });
 
 test("before migration 47 the seasons and events say they need it; closed days still read", async () => {
-  db.missingTables.push("store_hours_seasons", "concession_events", "crew_events");
+  db.missingTables.push("store_hours_seasons", "concession_events");
   const d = await loadPlanningInputs(createClient(), TODAY);
   assert.match(d.unavailable ?? "", /migration 47/);
-  assert.deepEqual([d.seasons, d.concession, d.crew], [[], [], []]);
+  assert.deepEqual([d.seasons, d.concession], [[], []]);
   assert.deepEqual(d.problems, []);
   assert.deepEqual(d.exceptions.map((e) => e.date), ["2030-11-28"]);
 });

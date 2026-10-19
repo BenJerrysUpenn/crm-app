@@ -32,7 +32,7 @@
 // name (23505). control_settings and profile_salaries (migration 43): a
 // manager reads, only an owner adds a row, nobody changes or removes one, and
 // the row is stamped with the caller and the database clock; concession_events
-// and crew_events (migration 47) the same. store_hours_seasons (migration 47):
+// (migration 47) the same. store_hours_seasons (migration 47):
 // anyone signed in reads, only an owner writes. Every other table is readable
 // by any signed-in caller.
 //
@@ -217,7 +217,7 @@ function isOwner(caller: Caller): boolean {
 }
 
 // Migrations 43 and 47: managers read, owners add, the API never changes or removes a row.
-const OWNER_ADDS = ["control_settings", "profile_salaries", "concession_events", "crew_events"];
+const OWNER_ADDS = ["control_settings", "profile_salaries", "concession_events"];
 
 // Migration 47: everyone signed in reads, only an owner writes.
 const OWNER_WRITES = ["store_hours_seasons"];
@@ -277,6 +277,10 @@ function matchesOne(cell: unknown, col: string, cond: string): boolean {
     const list = val.replace(/^\(|\)$/g, "").split(",").map((v) => v.replace(/^"|"$/g, ""));
     return cell !== null && cell !== undefined && list.includes(String(cell));
   }
+  if (op === "ilike" || op === "like") {
+    const re = new RegExp(`^${val.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*")}$`, op === "ilike" ? "i" : "");
+    return cell != null && re.test(String(cell));
+  }
   return (
       op === "eq" ? cell !== null && cell !== undefined && String(cell) === val
       : op === "neq" ? String(cell) !== val
@@ -289,9 +293,36 @@ function matchesOne(cell: unknown, col: string, cond: string): boolean {
   );
 }
 
+/** The top-level parts of an `or=(a.eq.1,b.in.(x,y))` filter. */
+function orParts(cond: string): string[] {
+  const inner = cond.replace(/^\(|\)$/g, "");
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of inner) {
+    if (ch === "," && depth === 0) {
+      parts.push(cur);
+      cur = "";
+      continue;
+    }
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    cur += ch;
+  }
+  return [...parts, cur];
+}
+
 function matches(row: Row, params: URLSearchParams): boolean {
   for (const [col, cond] of params) {
     if (["select", "order", "limit", "offset", "on_conflict", "columns"].includes(col)) continue;
+    if (col === "or") {
+      const any = orParts(cond).some((part) => {
+        const dot = part.indexOf(".");
+        return matchesOne(row[part.slice(0, dot)], part.slice(0, dot), part.slice(dot + 1));
+      });
+      if (!any) return false;
+      continue;
+    }
     if (!matchesOne(row[col], col, cond)) return false;
   }
   return true;
@@ -348,7 +379,6 @@ const DEFAULTS: Record<string, () => Row> = {
   profile_salaries: () => ({ method: null }),
   // Migration 47.
   concession_events: () => ({ provisional: false, cancelled: false, method: null }),
-  crew_events: () => ({ cancelled: false, method: null }),
   lyft_ride_reports: () => ({ filed_at: DB_NOW, emailed_at: null, deal_id: null, event_label: null, event_date: null, reason_note: null }),
   // Migration 39: a saved view is live until archived.
   metric_views: () => ({ position: 0, widgets: [], archived_at: null, created_at: DB_NOW, updated_at: DB_NOW }),

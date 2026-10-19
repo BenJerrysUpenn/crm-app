@@ -1,5 +1,5 @@
 // The Labor Hours Planning inputs on the Targets tab (bj-finance #742):
-// store-hours seasons, concession events, crew events, and the quick-add
+// store-hours seasons, concession events, and the quick-add
 // holidays for closed days. Every name, date and figure here is invented:
 // crm-app is public.
 //
@@ -14,9 +14,9 @@ import {
   eventList,
   nextHoliday,
   parseConcessionInput,
-  parseCrewInput,
   parseSeasonInput,
   quickHolidays,
+  repeatNextYear,
   seasonInForce,
   seasonRowsFrom,
   seasonsFrom,
@@ -124,6 +124,23 @@ test("a season is saved as seven weekday rows, the closed weekdays with no times
   assert.deepEqual(seasonRowsFrom(back), p.value);
 });
 
+test("repeat next year: the same season a year later, its review-by a year later too, ready to save", () => {
+  const p = parseSeasonInput({ name: "Test winter", effective_from: "2030-11-01", opens: "13:00", closes: "21:00", ...NOTE });
+  assert.ok(p.ok);
+  const body = repeatNextYear(seasonsFrom(p.value)[0]);
+  assert.deepEqual(body, {
+    name: "Test winter", effective_from: "2031-11-01", opens: "13:00", closes: "21:00", closed_weekdays: [],
+    review_by: "2032-01-01", source: "invented", method: "by hand",
+  });
+  const next = parseSeasonInput(body);
+  assert.ok(next.ok, next.ok ? "" : next.error);
+  assert.ok(next.value.every((r) => r.effective_from === "2031-11-01" && r.opens === "13:00:00"));
+  // A season with no review-by or source still saves: review a year after its new first day.
+  const bare = repeatNextYear({ ...seasonsFrom(p.value)[0], review_by: null, source: null, method: null });
+  assert.equal(bare.review_by, "2032-11-01");
+  assert.ok(parseSeasonInput(bare).ok);
+});
+
 test("a season closed every day needs no times", () => {
   const p = parseSeasonInput({ name: "Test closed", effective_from: "2030-11-01", closed_weekdays: [0, 1, 2, 3, 4, 5, 6], ...NOTE });
   assert.ok(p.ok);
@@ -222,28 +239,6 @@ test("a concession event that does not make sense is refused with the reason", (
   ];
   for (const [body, why] of cases) {
     const p = parseConcessionInput(body, new Set(["test-expo-2030"]));
-    assert.equal(p.ok, false, JSON.stringify(body));
-    if (!p.ok) assert.match(p.error, why, JSON.stringify(body));
-  }
-});
-
-test("a crew event revision keeps whole and part hours; hours over a day are fine for a crew", () => {
-  const p = parseCrewInput({ name: "Test Cone Day", day: "2031-04-10", crew_hours: "96.5", effective_from: "2030-10-01", ...NOTE }, new Set());
-  assert.ok(p.ok, p.ok ? "" : p.error);
-  assert.deepEqual([p.value.event_key, p.value.day, p.value.crew_hours, p.value.cancelled], ["test-cone-day-2031", "2031-04-10", 96.5, false]);
-});
-
-test("a crew event that does not make sense is refused with the reason", () => {
-  const ok = { name: "Test Cone Day", day: "2031-04-10", crew_hours: 10, effective_from: "2030-10-01", ...NOTE };
-  const cases: [unknown, RegExp][] = [
-    [{ ...ok, day: "" }, /day must be a date/],
-    [{ ...ok, crew_hours: -2 }, /cannot be negative/],
-    [{ ...ok, crew_hours: null }, /Crew hours is required/],
-    [{ ...ok, crew_hours: 1e7 }, /too large/],
-    [{ ...ok, effective_from: "x" }, /as-of date/],
-  ];
-  for (const [body, why] of cases) {
-    const p = parseCrewInput(body, new Set());
     assert.equal(p.ok, false, JSON.stringify(body));
     if (!p.ok) assert.match(p.error, why, JSON.stringify(body));
   }

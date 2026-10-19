@@ -1,6 +1,6 @@
 // Adding one dated row for the control board (bj-finance #693): a board
 // setting from the Targets tab, a salary from the Team page, or a concession
-// or crew event revision (migration 47, bj-finance #742). A change is a new
+// event revision (migration 47, bj-finance #742). A change is a new
 // row, never an edit (migration 43), and every route answers the same way
 // once its own checks have passed: the stored row, or why it was not stored.
 
@@ -19,7 +19,6 @@ export const DATED_TABLES = {
   control_settings: { answerAs: "setting", ownersOnly: "Only an owner can change the control board.", needs: NEEDS_MIGRATION },
   profile_salaries: { answerAs: "salary", ownersOnly: "Only an owner can set a salary.", needs: NEEDS_MIGRATION },
   concession_events: { answerAs: "event", ownersOnly: "Only an owner can change the planning inputs.", needs: NEEDS_MIGRATION_47 },
-  crew_events: { answerAs: "event", ownersOnly: "Only an owner can change the planning inputs.", needs: NEEDS_MIGRATION_47 },
 } as const;
 
 export type DatedTable = keyof typeof DATED_TABLES;
@@ -35,13 +34,13 @@ export async function addDatedRow(supabase: SupabaseClient, table: DatedTable, r
 }
 
 /**
- * Add a revision of a concession or crew event (migration 47). `parse` checks
+ * Add a revision of a concession event (migration 47). `parse` checks
  * the body against every event key on file: no key is a new event, a key not
  * on file is refused.
  */
 export async function addEventRevision(
   supabase: SupabaseClient,
-  table: "concession_events" | "crew_events",
+  table: "concession_events",
   body: unknown,
   parse: (body: unknown, taken: Set<string>) => Parsed<object>,
 ): Promise<NextResponse> {

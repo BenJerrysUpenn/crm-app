@@ -59,8 +59,6 @@ test("an event change is appended as a revision with when it was recorded; the o
   // Read back, the later of two same-day revisions is the one in force.
   const rows = seedRevisions(seed.concession_events);
   assert.deepEqual(rows.map((r) => r.id), [1, 2]);
-  seed = apply(seed, { kind: "crew", body: { name: "Test Cone Day", day: "2031-04-10", crew_hours: 12, effective_from: "2030-10-01", ...NOTE } });
-  assert.deepEqual(seed.crew_events?.map((e) => [e.event_key, e.crew_hours]), [["test-cone-day-2031", 12]]);
 });
 
 test("revisions from a file written by hand, with no recorded time, still sort by their as-of date", () => {
@@ -76,6 +74,14 @@ test("closed days are added once per date and removed by date", () => {
   assert.deepEqual(seedClosedDays(seed).map((e) => [e.date, e.is_closed]), [["2030-11-28", true], ["2030-12-25", true]]);
   seed = apply(seed, { kind: "closed_day_remove", date: "2030-11-28" });
   assert.deepEqual(seed.closed_days?.map((d) => d.date), ["2030-12-25"]);
+});
+
+test("a closed day may instead have short hours", () => {
+  const seed = apply({}, { kind: "closed_day", body: { date: "2030-12-24", label: "Early close", opens: "12:00", closes: "16:00" } });
+  assert.deepEqual(seed.closed_days, [{ date: "2030-12-24", label: "Early close", opens: "12:00", closes: "16:00" }]);
+  assert.deepEqual(seedClosedDays(seed).map((e) => [e.date, e.is_closed, e.opens, e.closes]), [["2030-12-24", false, "12:00:00", "16:00:00"]]);
+  const r = applySeedAction({}, { kind: "closed_day", body: { date: "2030-12-24", label: "", opens: "16:00", closes: "12:00" } }, NOW);
+  assert.equal(r.ok, false);
 });
 
 test("the file is checked as the routes check the database", () => {

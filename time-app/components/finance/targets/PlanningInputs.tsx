@@ -1,18 +1,20 @@
 "use client";
 
-// The Labor Hours Planning inputs on the Targets tab (bj-finance #742, owner
-// ruling 2026-10-19), below the control board and in its idioms: rows with a
+// The Labor Planning category on the Targets tab (bj-finance #742, owner
+// rulings 2026-10-19), below the control board and in its idioms: rows with a
 // review-by chip, clicked open to see where a value came from and its
 // history, and changed with an as-of date and notes.
 //
-//   Store-hours seasons   the store's hours from a first day on. Owners.
+//   Store-hours seasons   the store's hours from a first day on, one set of
+//                         hours for every day; "Repeat next year" copies a
+//                         season a year forward. Owners.
 //   Concession events     events at outside venues, with expected net sales.
-//                         A change is a new dated revision. Owners.
-//   Crew events           dated events with crew hours (Free Cone Day). The
-//                         same. Owners.
+//                         A change is a new dated revision. Past events sit
+//                         in a collapsed list. Owners.
 //   Closed days           store_hours_exceptions, which the Team page edits
-//                         too. Managers. Thanksgiving, Christmas Day and New
-//                         Year's Day have quick-add buttons.
+//                         too: a closed day, or short hours. Managers.
+//                         Thanksgiving, Christmas Day and New Year's Day have
+//                         quick-add buttons.
 //
 // The rules are lib/controlBoard/planningInputs.ts. On the local preview
 // (bj-finance #742) the same editor saves to a local file instead.
@@ -24,17 +26,17 @@ import { addMonthsTo } from "@/lib/controlBoard/settings";
 import {
   eventList,
   quickHolidays,
+  repeatNextYear,
   seasonInForce,
   seasonsFrom,
   seasonWords,
   type ConcessionEventRow,
-  type CrewEventRow,
   type EventEntry,
   type InputAction,
   type Season,
 } from "@/lib/controlBoard/planningInputs";
 import type { PlanningInputsData } from "@/lib/controlBoard/planningInputsLoad";
-import { WEEKDAY_NAMES, fmtStoreTime, toTimeInput } from "@/lib/storeHours";
+import { fmtStoreTime, toTimeInput } from "@/lib/storeHours";
 import ReviewChip from "./ReviewChip";
 
 const LIVE = "/api/payroll/targets";
@@ -48,8 +50,7 @@ function request(a: InputAction, preview: boolean): [string, RequestInit] {
     case "season": return [`${LIVE}/seasons`, json("POST", a.body)];
     case "season_remove": return [`${LIVE}/seasons?from=${a.from}`, { method: "DELETE" }];
     case "concession": return [`${LIVE}/concession-events`, json("POST", a.body)];
-    case "crew": return [`${LIVE}/crew-events`, json("POST", a.body)];
-    case "closed_day": return [`${LIVE}/closed-days`, json("POST", { ...a.body, is_closed: true })];
+    case "closed_day": return [`${LIVE}/closed-days`, json("POST", { ...a.body, is_closed: !(a.body.opens || a.body.closes) })];
     case "closed_day_remove": return [`${LIVE}/closed-days/${a.date}`, { method: "DELETE" }];
   }
 }
@@ -80,9 +81,9 @@ export default function PlanningInputs({ data, today, viewerIsOwner, preview }: 
 
   return (
     <section className="mt-8" aria-labelledby="planning-inputs">
-      <h2 id="planning-inputs" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Labor planning inputs</h2>
+      <h2 id="planning-inputs" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Labor Planning</h2>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400 max-w-3xl">
-        What the Labor Hours Planning card reads besides the board: the store&rsquo;s hours by season, events at outside venues, crew events and closed days. Click a line to see where it came from and its history.
+        What the Labor Hours Planning card reads besides the board: the store&rsquo;s hours by season, events at outside venues and closed days. Click a line to see where it came from and its history.
       </p>
       <p className="mt-1 text-xs text-slate-500">
         {viewerIsOwner
@@ -107,7 +108,6 @@ export default function PlanningInputs({ data, today, viewerIsOwner, preview }: 
           <>
             <Seasons rows={data.seasons} today={today} owner={viewerIsOwner} send={send} />
             <Concessions rows={data.concession} today={today} owner={viewerIsOwner} send={send} />
-            <Crew rows={data.crew} today={today} owner={viewerIsOwner} send={send} />
           </>
         )}
         <ClosedDays data={data} today={today} send={send} liveOnly={preview?.liveClosedDays ?? null} />
@@ -263,7 +263,7 @@ function Seasons({ rows, today, owner, send }: { rows: Parameters<typeof seasons
       action={owner && <button type="button" onClick={() => toggle("new")} className={smallBtn}>Add a season</button>}
     >
       {open === "new" && (
-        <Panel><SeasonForm season={null} today={today} send={send} onDone={() => setOpen(null)} /></Panel>
+        <Panel><SeasonForm season={null} taken={seasons} today={today} send={send} onDone={() => setOpen(null)} /></Panel>
       )}
       {seasons.length === 0 && <div className="px-3 py-3 text-sm text-slate-500">No seasons yet.</div>}
       {seasons.map((s) => (
@@ -279,7 +279,7 @@ function Seasons({ rows, today, owner, send }: { rows: Parameters<typeof seasons
           />
           {open === s.effective_from && (
             <Panel>
-              {owner ? <SeasonForm season={s} today={today} send={send} onDone={() => setOpen(null)} /> : <Notes row={s} />}
+              {owner ? <SeasonForm season={s} taken={seasons} today={today} send={send} onDone={() => setOpen(null)} /> : <Notes row={s} />}
             </Panel>
           )}
         </div>
@@ -288,38 +288,27 @@ function Seasons({ rows, today, owner, send }: { rows: Parameters<typeof seasons
   );
 }
 
-function SeasonForm({ season, today, send, onDone }: { season: Season | null; today: string; send: Send; onDone: () => void }) {
+function SeasonForm({ season, taken, today, send, onDone }: { season: Season | null; taken: Season[]; today: string; send: Send; onDone: () => void }) {
   const [name, setName] = useState(season?.name ?? "");
   const [from, setFrom] = useState(season?.effective_from ?? today);
   const [opens, setOpens] = useState(toTimeInput(season?.opens));
   const [closes, setCloses] = useState(toTimeInput(season?.closes));
-  const [closed, setClosed] = useState<number[]>(season?.closedWeekdays ?? []);
   const [note, setNote] = useState(noteDraft(season, today));
   const { busy, err, run } = useSave(send, onDone);
-  const allClosed = closed.length === 7;
+  const repeat = season ? repeatNextYear(season) : null;
+  const repeated = repeat != null && taken.some((t) => t.effective_from === repeat.effective_from);
   return (
     <div>
-      {season?.mixed && (
-        <p className="mb-2 text-amber-700 dark:text-amber-400">This season&rsquo;s open days do not all keep the same hours. Saving here gives every open day the hours below.</p>
+      {season && (season.mixed || season.closedWeekdays.length > 0) && (
+        <p className="mb-2 text-amber-700 dark:text-amber-400">This season does not keep the same hours every day. Saving here gives every day the hours below.</p>
       )}
       <div className="grid gap-2 sm:grid-cols-2">
         <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Winter" className={inputCls} /></Field>
         <Field label="Starts on">
           <input type="date" value={from} disabled={!!season} onChange={(e) => setFrom(e.target.value)} className={`${inputCls} disabled:opacity-60`} />
         </Field>
-        <Field label="Opens"><input type="time" value={opens} disabled={allClosed} onChange={(e) => setOpens(e.target.value)} className={inputCls} /></Field>
-        <Field label="Closes"><input type="time" value={closes} disabled={allClosed} onChange={(e) => setCloses(e.target.value)} className={inputCls} /></Field>
-        <fieldset className="sm:col-span-2">
-          <legend className="text-slate-500">Closed all day on</legend>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-            {WEEKDAY_NAMES.map((d, i) => (
-              <label key={d} className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300">
-                <input type="checkbox" checked={closed.includes(i)} onChange={(e) => setClosed((c) => (e.target.checked ? [...c, i].sort() : c.filter((x) => x !== i)))} />
-                {d.slice(0, 3)}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <Field label="Opens (every day)"><input type="time" value={opens} onChange={(e) => setOpens(e.target.value)} className={inputCls} /></Field>
+        <Field label="Closes (every day)"><input type="time" value={closes} onChange={(e) => setCloses(e.target.value)} className={inputCls} /></Field>
         <NoteFields v={note} set={setNote} />
       </div>
       {season && <p className="mt-2 text-slate-500">To move a season to another date, add a season on the new date and remove this one.</p>}
@@ -327,16 +316,27 @@ function SeasonForm({ season, today, send, onDone }: { season: Season | null; to
         busy={busy}
         err={err}
         onCancel={onDone}
-        onSave={() => run({ kind: "season", body: { name, effective_from: from, opens, closes, closed_weekdays: closed, ...note } })}
-        extra={season && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => window.confirm(`Remove the ${season.name} season from ${shortDate(season.effective_from)}?`) && run({ kind: "season_remove", from: season.effective_from })}
-            className={`${smallBtn} ml-auto text-rose-700 dark:text-rose-400`}
-          >
-            Remove season
-          </button>
+        onSave={() => run({ kind: "season", body: { name, effective_from: from, opens, closes, closed_weekdays: [], ...note } })}
+        extra={season && repeat && (
+          <>
+            <button
+              type="button"
+              disabled={busy || repeated}
+              title={repeated ? `A season already starts on ${shortDate(repeat.effective_from)}.` : `Adds the same season from ${shortDate(repeat.effective_from)}.`}
+              onClick={() => run({ kind: "season", body: repeat })}
+              className={smallBtn}
+            >
+              {repeated ? "Repeated next year" : "Repeat next year"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => window.confirm(`Remove the ${season.name} season from ${shortDate(season.effective_from)}?`) && run({ kind: "season_remove", from: season.effective_from })}
+              className={`${smallBtn} ml-auto text-rose-700 dark:text-rose-400`}
+            >
+              Remove season
+            </button>
+          </>
         )}
       />
     </div>
@@ -344,7 +344,7 @@ function SeasonForm({ season, today, send, onDone }: { season: Season | null; to
 }
 
 // ---------------------------------------------------------------------------
-// Concession events and crew events
+// Concession events
 // ---------------------------------------------------------------------------
 
 type Revision = { id: number; effective_from: string; source: string; cancelled: boolean };
@@ -389,40 +389,50 @@ function span(start: string, end: string): string {
   return start === end ? shortDate(start) : `${shortDate(start)} to ${shortDate(end)}`;
 }
 const concessionWords = (e: ConcessionEventRow) =>
-  `${span(e.start_date, e.end_date)}, ${money(Number(e.expected_net_sales))} expected net sales${e.provisional ? ", provisional" : ""}`;
-const crewWords = (e: CrewEventRow) => `${shortDate(e.day)}, ${Number(e.crew_hours).toLocaleString("en-US")} crew hours`;
+  `${span(e.start_date, e.end_date)}, ${money(Number(e.expected_net_sales))} expected net sales${e.provisional ? ", placeholder" : ""}`;
 
 function Concessions({ rows, today, owner, send }: { rows: ConcessionEventRow[]; today: string; owner: boolean; send: Send }) {
   const list = useMemo(() => eventList(rows, today), [rows, today]);
   const [open, setOpen] = useState<string | null>(null);
   const toggle = (id: string) => setOpen((o) => (o === id ? null : id));
+  const past = list.filter((e) => e.current.end_date < today);
+  const coming = list.filter((e) => e.current.end_date >= today);
+  const item = (e: EventEntry<ConcessionEventRow>) => (
+    <div key={e.key}>
+      <Line
+        label={e.current.name}
+        value={concessionWords(e.current)}
+        tags={eventTags(e, e.current.provisional && !e.current.cancelled ? <Tag tone="amber">placeholder</Tag> : null)}
+        reviewBy={e.current.review_by}
+        today={today}
+        open={open === e.key}
+        onToggle={() => toggle(e.key)}
+      />
+      {open === e.key && (
+        <Panel>
+          {owner ? <ConcessionForm entry={e} today={today} send={send} onDone={() => setOpen(null)} /> : <Notes row={e.current} />}
+          <History entry={e} today={today} words={concessionWords} />
+        </Panel>
+      )}
+    </div>
+  );
   return (
     <Block
       title="Concession events"
-      intro="Events at outside venues. Their expected net sales are spread evenly over the event's days and add affordable hours. A change adds a dated revision; the old one stays in the history."
+      intro="Events at outside venues. Their expected net sales are spread evenly over the event's days and add affordable hours; last year's catering hours leave out their days. A change adds a dated revision; the old one stays in the history."
       action={owner && <button type="button" onClick={() => toggle("new")} className={smallBtn}>Add an event</button>}
     >
       {open === "new" && <Panel><ConcessionForm entry={null} today={today} send={send} onDone={() => setOpen(null)} /></Panel>}
-      {list.length === 0 && <div className="px-3 py-3 text-sm text-slate-500">No concession events yet.</div>}
-      {list.map((e) => (
-        <div key={e.key}>
-          <Line
-            label={e.current.name}
-            value={concessionWords(e.current)}
-            tags={eventTags(e, e.current.provisional && !e.current.cancelled ? <Tag tone="amber">provisional</Tag> : null)}
-            reviewBy={e.current.review_by}
-            today={today}
-            open={open === e.key}
-            onToggle={() => toggle(e.key)}
-          />
-          {open === e.key && (
-            <Panel>
-              {owner ? <ConcessionForm entry={e} today={today} send={send} onDone={() => setOpen(null)} /> : <Notes row={e.current} />}
-              <History entry={e} today={today} words={concessionWords} />
-            </Panel>
-          )}
-        </div>
-      ))}
+      {coming.length === 0 && <div className="px-3 py-3 text-sm text-slate-500">No concession events coming up.</div>}
+      {coming.map(item)}
+      {past.length > 0 && (
+        <details className="group border-b border-slate-100 dark:border-slate-800/70">
+          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+            Past ({past.length})
+          </summary>
+          <div className="border-t border-slate-100 dark:border-slate-800/70">{past.map(item)}</div>
+        </details>
+      )}
     </Block>
   );
 }
@@ -464,7 +474,7 @@ function ConcessionForm({ entry, today, send, onDone }: { entry: EventEntry<Conc
         <Field label="Expected net sales ($)"><input inputMode="decimal" value={sales} onChange={(e) => setSales(e.target.value)} className={`${inputCls} font-mono`} /></Field>
         <label className="flex items-center gap-1.5 self-end text-slate-700 dark:text-slate-300">
           <input type="checkbox" checked={provisional} onChange={(e) => setProvisional(e.target.checked)} />
-          Provisional (still to confirm)
+          Placeholder (still to confirm)
         </label>
         <RevisionFields asOf={asOf} setAsOf={setAsOf} cancelled={cancelled} setCancelled={setCancelled} existing={!!entry} />
         <NoteFields v={note} set={setNote} />
@@ -482,70 +492,6 @@ function ConcessionForm({ entry, today, send, onDone }: { entry: EventEntry<Conc
   );
 }
 
-function Crew({ rows, today, owner, send }: { rows: CrewEventRow[]; today: string; owner: boolean; send: Send }) {
-  const list = useMemo(() => eventList(rows, today), [rows, today]);
-  const [open, setOpen] = useState<string | null>(null);
-  const toggle = (id: string) => setOpen((o) => (o === id ? null : id));
-  return (
-    <Block
-      title="Crew events"
-      intro="Dated events with crew hours, like Free Cone Day. Their hours count in the estimated catering band. A change adds a dated revision."
-      action={owner && <button type="button" onClick={() => toggle("new")} className={smallBtn}>Add an event</button>}
-    >
-      {open === "new" && <Panel><CrewForm entry={null} today={today} send={send} onDone={() => setOpen(null)} /></Panel>}
-      {list.length === 0 && <div className="px-3 py-3 text-sm text-slate-500">No crew events yet.</div>}
-      {list.map((e) => (
-        <div key={e.key}>
-          <Line
-            label={e.current.name}
-            value={crewWords(e.current)}
-            tags={eventTags(e)}
-            reviewBy={e.current.review_by}
-            today={today}
-            open={open === e.key}
-            onToggle={() => toggle(e.key)}
-          />
-          {open === e.key && (
-            <Panel>
-              {owner ? <CrewForm entry={e} today={today} send={send} onDone={() => setOpen(null)} /> : <Notes row={e.current} />}
-              <History entry={e} today={today} words={crewWords} />
-            </Panel>
-          )}
-        </div>
-      ))}
-    </Block>
-  );
-}
-
-function CrewForm({ entry, today, send, onDone }: { entry: EventEntry<CrewEventRow> | null; today: string; send: Send; onDone: () => void }) {
-  const c = entry?.current;
-  const [name, setName] = useState(c?.name ?? "");
-  const [day, setDay] = useState(c?.day ?? "");
-  const [hours, setHours] = useState(c ? String(c.crew_hours) : "");
-  const [cancelled, setCancelled] = useState(c?.cancelled ?? false);
-  const [asOf, setAsOf] = useState(today);
-  const [note, setNote] = useState(noteDraft(c ?? null, today));
-  const { busy, err, run } = useSave(send, onDone);
-  return (
-    <div>
-      <div className="mb-2 text-slate-500">{entry ? "Change it (adds a revision)" : "New event"}</div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Field label="Name" wide><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Free Cone Day" className={inputCls} /></Field>
-        <Field label="Day"><input type="date" value={day} onChange={(e) => setDay(e.target.value)} className={inputCls} /></Field>
-        <Field label="Crew hours"><input inputMode="decimal" value={hours} onChange={(e) => setHours(e.target.value)} className={`${inputCls} font-mono`} /></Field>
-        <RevisionFields asOf={asOf} setAsOf={setAsOf} cancelled={cancelled} setCancelled={setCancelled} existing={!!entry} />
-        <NoteFields v={note} set={setNote} />
-      </div>
-      <FormButtons
-        busy={busy}
-        err={err}
-        onCancel={onDone}
-        onSave={() => run({ kind: "crew", body: { event_key: entry?.key, name, day, crew_hours: hours, cancelled, effective_from: asOf, ...note } })}
-      />
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Closed days
 // ---------------------------------------------------------------------------
@@ -558,6 +504,9 @@ function ClosedDays({ data, today, send, liveOnly }: { data: PlanningInputsData;
   const holidays = quickHolidays(today, data.exceptions);
   const [date, setDate] = useState("");
   const [label, setLabel] = useState("");
+  const [short, setShort] = useState(false);
+  const [opens, setOpens] = useState("");
+  const [closes, setCloses] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   async function go(key: string, a: InputAction) {
@@ -566,12 +515,12 @@ function ClosedDays({ data, today, send, liveOnly }: { data: PlanningInputsData;
     const why = await send(a);
     setBusy(null);
     if (why) setErr(why);
-    else if (key === "add") { setDate(""); setLabel(""); }
+    else if (key === "add") { setDate(""); setLabel(""); setShort(false); setOpens(""); setCloses(""); }
   }
   return (
     <Block
       title="Closed days"
-      intro="Days the store is closed: the card projects no sales and no coverage on them. The same list as Holidays and special days on the Team page, where special hours are set too."
+      intro="Days the store is closed, or opens on short hours. A closed day projects no sales and needs no cover. The same list as Holidays and closed days on the Team page."
     >
       <div className="px-3 py-3 border-b border-slate-100 dark:border-slate-800/70 flex flex-wrap gap-2">
         {holidays.map((h) =>
@@ -592,7 +541,7 @@ function ClosedDays({ data, today, send, liveOnly }: { data: PlanningInputsData;
           ),
         )}
       </div>
-      {data.exceptions.length === 0 && <div className="px-3 py-3 text-sm text-slate-500">No closed days or special hours from today on.</div>}
+      {data.exceptions.length === 0 && <div className="px-3 py-3 text-sm text-slate-500">No closed days or short hours from today on.</div>}
       <ul>
         {data.exceptions.map((e) => {
           const live = liveOnly?.includes(e.date) ?? false;
@@ -602,7 +551,7 @@ function ClosedDays({ data, today, send, liveOnly }: { data: PlanningInputsData;
               <span className="min-w-0 flex-1 text-slate-600 dark:text-slate-400">
                 {e.label || "No label"}
                 {" · "}
-                {e.is_closed ? "Closed" : `Special hours ${fmtStoreTime(e.opens)} to ${fmtStoreTime(e.closes)}`}
+                {e.is_closed ? "Closed" : `Short hours ${fmtStoreTime(e.opens)} to ${fmtStoreTime(e.closes)}`}
               </span>
               {live ? (
                 <Tag tone="slate">live, not changed in the preview</Tag>
@@ -623,12 +572,26 @@ function ClosedDays({ data, today, send, liveOnly }: { data: PlanningInputsData;
       <div className="px-3 py-3 flex flex-wrap items-end gap-2 text-xs">
         <Field label="Date"><input type="date" value={date} min={today} onChange={(e) => setDate(e.target.value)} className={inputCls} /></Field>
         <Field label="Label"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Snow day" className={inputCls} /></Field>
-        <button type="button" disabled={!date || busy != null} onClick={() => go("add", { kind: "closed_day", body: { date, label } })} className={saveBtn}>
-          {busy === "add" ? "Adding…" : "Close this day"}
+        <label className="flex items-center gap-1.5 pb-1.5 text-slate-700 dark:text-slate-300">
+          <input type="checkbox" checked={short} onChange={(e) => setShort(e.target.checked)} />
+          Short hours
+        </label>
+        {short && (
+          <>
+            <Field label="Opens"><input type="time" value={opens} onChange={(e) => setOpens(e.target.value)} className={inputCls} /></Field>
+            <Field label="Closes"><input type="time" value={closes} onChange={(e) => setCloses(e.target.value)} className={inputCls} /></Field>
+          </>
+        )}
+        <button
+          type="button"
+          disabled={!date || busy != null}
+          onClick={() => go("add", { kind: "closed_day", body: short ? { date, label, opens, closes } : { date, label } })}
+          className={saveBtn}
+        >
+          {busy === "add" ? "Adding…" : short ? "Add short hours" : "Add closed day"}
         </button>
       </div>
       {err && <p className="px-3 pb-3 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
     </Block>
   );
 }
-

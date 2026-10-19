@@ -1,5 +1,5 @@
 // The Labor Hours Planning inputs' doors on the Targets tab (bj-finance #742):
-// store-hours seasons, concession events and crew events, which owners
+// store-hours seasons and concession events, which owners
 // change and managers view, and closed days, which managers set, as on the
 // Team page. An event change is a new revision and never rewrites the old
 // one; a season is saved as its seven weekday rows.
@@ -19,7 +19,6 @@ type Handler = (request: Request, ctx: { params: { date: string } }) => Promise<
 
 const seasons = await loadAppModule<{ POST: Handler; DELETE: Handler }>("app/api/payroll/targets/seasons/route.ts");
 const concession = await loadAppModule<{ POST: Handler }>("app/api/payroll/targets/concession-events/route.ts");
-const crew = await loadAppModule<{ POST: Handler }>("app/api/payroll/targets/crew-events/route.ts");
 const closedDays = await loadAppModule<{ POST: Handler }>("app/api/payroll/targets/closed-days/route.ts");
 const closedDay = await loadAppModule<{ DELETE: Handler }>("app/api/payroll/targets/closed-days/[date]/route.ts");
 const teamExceptions = await loadAppModule<{ POST: Handler }>("app/api/store-hours/exceptions/route.ts");
@@ -33,7 +32,6 @@ const NO_PARAMS = { params: { date: "" } };
 const NOTE = { effective_from: "2030-01-01", review_by: "2031-01-01", source: "invented for the test", method: "by hand" };
 const SEASON = { name: "Test winter", effective_from: "2030-11-01", opens: "13:00", closes: "21:00", closed_weekdays: [1], review_by: "2031-03-01", source: "invented" };
 const EXPO = { name: "Test Expo", start_date: "2030-12-01", end_date: "2030-12-03", expected_net_sales: 300, ...NOTE };
-const CONE = { name: "Test Cone Day", day: "2031-04-10", crew_hours: 12, ...NOTE };
 
 function call(method: string, path: string, body?: unknown): Request {
   return new Request(`http://finance.test/api/payroll/targets/${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -50,7 +48,6 @@ beforeEach(() => {
     ],
     store_hours_seasons: [],
     concession_events: [],
-    crew_events: [],
     store_hours_exceptions: [],
   });
 });
@@ -139,27 +136,19 @@ test("changing an event adds a revision under its key; the old one stays as hist
 
 test("a revision of an event that is not on file is refused", async () => {
   db.signIn(OWNER);
-  const res = await crew.POST(call("POST", "crew-events", { ...CONE, event_key: "no-such-event" }), NO_PARAMS);
+  const res = await concession.POST(call("POST", "concession-events", { ...EXPO, event_key: "no-such-event" }), NO_PARAMS);
   assert.equal(res.status, 400);
   assert.match((await res.json()).error, /No such event/);
-  assert.equal(db.rows("crew_events").length, 0);
+  assert.equal(db.rows("concession_events").length, 0);
 });
 
-test("an owner adds a crew event; a manager who is not an owner cannot add either kind", async () => {
-  db.signIn(OWNER);
-  const res = await crew.POST(call("POST", "crew-events", CONE), NO_PARAMS);
-  assert.equal(res.status, 200);
-  assert.deepEqual(db.rows("crew_events").map((r) => [r.event_key, r.day, r.crew_hours, r.recorded_by]), [["test-cone-day-2031", "2031-04-10", 12, OWNER]]);
-
-  db.signIn(MANAGER);
-  for (const [route, body] of [[crew, CONE], [concession, EXPO]] as const) {
-    const refused = await route.POST(call("POST", "x", body), NO_PARAMS);
+test("a manager who is not an owner, or an employee, cannot add an event", async () => {
+  for (const who of [MANAGER, EMPLOYEE]) {
+    db.signIn(who);
+    const refused = await concession.POST(call("POST", "concession-events", EXPO), NO_PARAMS);
     assert.equal(refused.status, 403);
-    assert.match((await refused.json()).error, /Only an owner/);
+    if (who === MANAGER) assert.match((await refused.json()).error, /Only an owner/);
   }
-  db.signIn(EMPLOYEE);
-  assert.equal((await crew.POST(call("POST", "crew-events", CONE), NO_PARAMS)).status, 403);
-  assert.equal(db.rows("crew_events").length, 1);
   assert.equal(db.rows("concession_events").length, 0);
 });
 

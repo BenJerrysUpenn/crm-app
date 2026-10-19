@@ -4,19 +4,21 @@
 // what bj-finance's `modules.labor_planning inputs` loader reads (seasons as
 // groups of weekdays, events as revisions), so the file stays loadable as it
 // stands. `closed_days` is the preview's own: the loader ignores it, and the
-// preview counts those days closed instead of writing store_hours_exceptions.
+// preview counts those days closed (or on short hours) instead of writing
+// store_hours_exceptions. Keys the editor does not know (`_about`, the
+// loader's `marketing_days`) are kept as they are.
 //
 // Every change is checked by the same rules as the routes
 // (lib/controlBoard/planningInputs.ts). Pure, so `node --test` runs it.
 
 import {
   parseConcessionInput,
-  parseCrewInput,
   parseSeasonInput,
   type InputAction,
   type SeasonRow,
 } from "../controlBoard/planningInputs.ts";
 import { isDay, type Parsed } from "../controlBoard/settings.ts";
+import { parseSpan } from "../storeHours.ts";
 import type { StoreHoursException } from "../types.ts";
 
 /** A season group: one set of hours (or closed) on some weekdays (every day when none are listed). */
@@ -37,8 +39,8 @@ type SeedRevision = { event_key: string; effective_from: string; cancelled?: boo
 export type Seed = {
   seasons?: SeedSeason[];
   concession_events?: (SeedRevision & Record<string, unknown>)[];
-  crew_events?: (SeedRevision & Record<string, unknown>)[];
-  closed_days?: { date: string; label: string | null }[];
+  /** A closed day, or short hours when it has opens and closes. */
+  closed_days?: { date: string; label: string | null; opens?: string; closes?: string }[];
   [other: string]: unknown;
 };
 
@@ -71,9 +73,12 @@ export function seedRevisions<T extends SeedRevision>(rows: T[] | undefined): (T
   return (rows ?? []).map((r, i) => ({ ...r, id: i + 1, recorded_at: r.recorded_at ?? `${r.effective_from}T00:00:00Z`, cancelled: !!r.cancelled }));
 }
 
-/** The file's closed days as store-hours exceptions. */
+/** The file's closed days (and short hours) as store-hours exceptions. */
 export function seedClosedDays(seed: Seed): StoreHoursException[] {
-  return (seed.closed_days ?? []).map((d) => ({ date: d.date, label: d.label, is_closed: true, opens: null, closes: null, created_at: null }));
+  return (seed.closed_days ?? []).map((d) => {
+    const short = !!(d.opens && d.closes);
+    return { date: d.date, label: d.label, is_closed: !short, opens: short ? `${d.opens}:00` : null, closes: short ? `${d.closes}:00` : null, created_at: null };
+  });
 }
 
 /** A season's seven rows as the loader's groups: the open weekdays, then the closed ones. */
@@ -113,17 +118,16 @@ export function applySeedAction(seed: Seed, a: InputAction, now: string): Parsed
       if (!p.ok) return p;
       return { ok: true, value: { ...seed, concession_events: [...(seed.concession_events ?? []), { ...p.value, recorded_at: now }] } };
     }
-    case "crew": {
-      const p = parseCrewInput(a.body, keysOf(seed.crew_events));
-      if (!p.ok) return p;
-      return { ok: true, value: { ...seed, crew_events: [...(seed.crew_events ?? []), { ...p.value, recorded_at: now }] } };
-    }
     case "closed_day": {
       const { date } = a.body ?? {};
       if (!isDay(date)) return { ok: false, error: "Pick a real date, like 2026-11-26." };
       const label = typeof a.body.label === "string" ? a.body.label.trim() : "";
       if (label.length > 120) return { ok: false, error: "Label is too long (120 characters max)." };
-      const days = [...(seed.closed_days ?? []).filter((d) => d.date !== date), { date, label: label || null }];
+      const short = !!(a.body.opens || a.body.closes);
+      const span = parseSpan({ is_closed: !short, opens: a.body.opens, closes: a.body.closes }, date);
+      if (!span.ok) return span;
+      const hours = short ? { opens: hhmm(span.value.opens), closes: hhmm(span.value.closes) } : {};
+      const days = [...(seed.closed_days ?? []).filter((d) => d.date !== date), { date, label: label || null, ...hours }];
       return { ok: true, value: { ...seed, closed_days: days.sort((x, y) => x.date.localeCompare(y.date)) } };
     }
     case "closed_day_remove":

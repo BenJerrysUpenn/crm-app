@@ -23,11 +23,11 @@ export default function LaborPlanningPreview({ preview, asOwner }: { preview: Pr
         <div role="note" className="rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
           <p className="font-semibold">Local preview, not live. Nothing here is saved to the app.</p>
           <p className="mt-1">
-            Sales, the control board, the team, store hours, closures and catering bookings are read from the live database
+            Sales, the control board, the team, store hours, closures, catering bookings and marketing deals are read from the live database
             (read-only) at {new Date(sources.dbReadAt).toLocaleString("en-US", { timeZone: "America/New_York" })}. Store-hours
-            seasons, concession events and Free Cone Day come from <code className="font-mono text-xs">{sources.seed}</code>; last
-            year&rsquo;s catering hours from <code className="font-mono text-xs">{sources.history}</code>
-            {sources.historySpan ? ` (When I Work, ${sources.historySpan}; the time app's Catering shifts after that)` : ""}.
+            seasons and concession events come from <code className="font-mono text-xs">{sources.seed}</code>; last year&rsquo;s
+            catering and marketing hours from <code className="font-mono text-xs">{sources.history}</code>
+            {sources.historySpan ? ` (When I Work, ${sources.historySpan}; the time app's shifts after that)` : ""}.
           </p>
         </div>
         {data.problems.length > 0 && (

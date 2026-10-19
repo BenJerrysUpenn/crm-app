@@ -7,10 +7,10 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
 // POST /api/payroll/targets/closed-days
-// Body: { date: "YYYY-MM-DD", label?: string, is_closed?: boolean }
+// Body: { date: "YYYY-MM-DD", label?: string, is_closed?: boolean, opens?: "HH:MM", closes?: "HH:MM" }
 //
-// A closed day from the Targets tab (bj-finance #742): a row in
-// store_hours_exceptions, the same as the Team page's holidays and special
+// A closed day, or short hours, from the Targets tab (bj-finance #742): a row
+// in store_hours_exceptions, the same as the Team page's holidays and closed
 // days, under /api/payroll so the finance site serves it. Managers only.
 // -> { exception: StoreHoursException }
 export async function POST(request: Request) {

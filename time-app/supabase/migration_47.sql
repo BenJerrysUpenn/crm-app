@@ -6,7 +6,7 @@
 --
 -- WHY (bj-finance #742, lane #692 Labor targets). The Labor Hours Planning
 -- card plots target labor hours for each week ahead from last year's sales.
--- It needs four things the database does not hold yet:
+-- It needs three things the database does not hold yet:
 --
 --   store_hours_seasons     the store's opening hours as effective-dated
 --                           seasons (winter, summer). Every reader of
@@ -19,14 +19,16 @@
 --   concession_events       events at outside venues (convention shows): name,
 --                           first and last day, expected net sales. The card
 --                           spreads the sales evenly over the event's days.
---   crew_events             dated events with crew hours (Free Cone Day),
---                           counted in the card's estimated catering band.
---   catering_hours_history  last year's catering shift hours by day, from the
---                           When I Work archive (scheduled hours, Position
---                           "Catering"), with concession show days and Free
---                           Cone Day left out. Written once by bj-finance's
---                           loader on the Mac; after the archive's last day
---                           the card reads the time app's own Catering shifts.
+--   catering_hours_history  last year's RAW catering shift hours by day, from
+--                           the When I Work archive (scheduled hours,
+--                           Position "Catering"). kind = 'marketing' marks a
+--                           day whose Catering shifts were a marketing event
+--                           (the archive has no other marker). Written once by
+--                           bj-finance's loader on the Mac; after the
+--                           archive's last day the card reads the time app's
+--                           own shifts. The card takes concession event days
+--                           and marketing days out as it reads, so an edited
+--                           event counts at once.
 --
 -- Events are board values: each row is a dated revision with an as-of date
 -- (effective_from), a review-by date, where it came from and how it was
@@ -43,7 +45,7 @@
 --     planning inputs (owner ruling 2026-10-19). Everyone signed in reads
 --     it, as they read store_hours. Managers keep the weekly hours and the
 --     closed days (store_hours, store_hours_exceptions, migration 24).
---   concession_events, crew_events: owners add revisions (as they add
+--   concession_events: owners add revisions (as they add
 --     control_settings, migration 43); managers read. Nobody changes or
 --     removes a revision through the API: a correction is a new revision.
 --   catering_hours_history: the Mac writes over its own database
@@ -165,50 +167,9 @@ drop trigger if exists concession_events_stamp on public.concession_events;
 create trigger concession_events_stamp before insert on public.concession_events
   for each row execute function public.stamp_control_row();
 
--- ---- crew_events --------------------------------------------------------------------------
-
-create table if not exists public.crew_events (
-  id             bigint       generated always as identity primary key,
-  event_key      text         not null,
-  name           text         not null,
-  day            date         not null,
-  crew_hours     numeric(8,2) not null,
-  cancelled      boolean      not null default false,
-  effective_from date         not null,
-  review_by      date         not null,
-  source         text         not null,
-  method         text,
-  recorded_by    uuid         references public.profiles (id) on delete set null,
-  recorded_at    timestamptz  not null default now()
-);
-
-alter table public.crew_events drop constraint if exists crew_events_key_ck;
-alter table public.crew_events add constraint crew_events_key_ck
-  check (event_key ~ '^[a-z0-9][a-z0-9_-]*$' and char_length(event_key) <= 80);
-
-alter table public.crew_events drop constraint if exists crew_events_name_ck;
-alter table public.crew_events add constraint crew_events_name_ck
-  check (char_length(btrim(name)) between 1 and 120);
-
-alter table public.crew_events drop constraint if exists crew_events_hours_ck;
-alter table public.crew_events add constraint crew_events_hours_ck
-  check (crew_hours >= 0 and effective_from <= review_by);
-
-alter table public.crew_events drop constraint if exists crew_events_notes_ck;
-alter table public.crew_events add constraint crew_events_notes_ck
-  check (char_length(btrim(source)) between 1 and 2000 and (method is null or char_length(method) <= 2000));
-
-create index if not exists crew_events_key_idx
-  on public.crew_events (event_key, effective_from desc, recorded_at desc, id desc);
-
-drop trigger if exists crew_events_stamp on public.crew_events;
-create trigger crew_events_stamp before insert on public.crew_events
-  for each row execute function public.stamp_control_row();
-
 -- ---- who reads and adds events ----------------------------------------------------------
 
 alter table public.concession_events enable row level security;
-alter table public.crew_events enable row level security;
 
 drop policy if exists concession_events_manager_select on public.concession_events;
 create policy concession_events_manager_select on public.concession_events for select to authenticated
@@ -218,20 +179,9 @@ drop policy if exists concession_events_owner_insert on public.concession_events
 create policy concession_events_owner_insert on public.concession_events for insert to authenticated
   with check ((select public.is_owner()));
 
-drop policy if exists crew_events_manager_select on public.crew_events;
-create policy crew_events_manager_select on public.crew_events for select to authenticated
-  using ((select public.is_manager()));
-
-drop policy if exists crew_events_owner_insert on public.crew_events;
-create policy crew_events_owner_insert on public.crew_events for insert to authenticated
-  with check ((select public.is_owner()));
-
 revoke all on public.concession_events from anon;
-revoke all on public.crew_events from anon;
 revoke update, delete, truncate on public.concession_events from authenticated;
-revoke update, delete, truncate on public.crew_events from authenticated;
 grant select, insert on public.concession_events to authenticated;
-grant select, insert on public.crew_events to authenticated;
 
 -- ---- catering_hours_history ---------------------------------------------------------------
 
@@ -239,8 +189,7 @@ create table if not exists public.catering_hours_history (
   day             date         primary key,
   hours           numeric(8,2) not null,
   shifts          integer      not null,
-  excluded_hours  numeric(8,2) not null default 0,
-  excluded_reason text,
+  kind            text         not null default 'catering',
   source          text         not null,
   built_by        text         not null,
   updated_at      timestamptz  not null default now()
@@ -250,9 +199,13 @@ alter table public.catering_hours_history drop constraint if exists catering_hou
 alter table public.catering_hours_history add constraint catering_hours_history_source_ck
   check (source in ('when_i_work'));
 
+alter table public.catering_hours_history drop constraint if exists catering_hours_history_kind_ck;
+alter table public.catering_hours_history add constraint catering_hours_history_kind_ck
+  check (kind in ('catering', 'marketing'));
+
 alter table public.catering_hours_history drop constraint if exists catering_hours_history_hours_ck;
 alter table public.catering_hours_history add constraint catering_hours_history_hours_ck
-  check (hours >= 0 and shifts >= 0 and excluded_hours >= 0);
+  check (hours >= 0 and shifts >= 0);
 
 create or replace function public.touch_catering_hours_history()
 returns trigger
