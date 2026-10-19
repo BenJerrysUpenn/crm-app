@@ -35,16 +35,6 @@ function fakeServer() {
 
 const tick = () => new Promise((r) => setImmediate(r));
 
-test("the old race: two saves sent side by side, the second lands first, the older range sticks", async () => {
-  const s = fakeServer();
-  void s.send("v1", { from: "2026-08-02", to: "2026-08-30" });
-  void s.send("v1", { from: "2026-08-02", to: "2026-09-27" });
-  s.inFlight[1].settle(true);
-  s.inFlight[0].settle(true);
-  await tick();
-  assert.equal(s.stored.get("v1")?.to, "2026-08-30"); // what #696 saw live
-});
-
 test("serialised: the second save waits for the first, so the last choice is what is saved", async () => {
   const s = fakeServer();
   const save = serialSaves(s.send);
@@ -75,7 +65,9 @@ test("changes that pile up behind a save go as one, later fields winning", async
   assert.deepEqual(s.sent[1], { from: "2026-08-02", to: "2026-09-27" });
   s.inFlight[1].settle(true);
   const [r2, r3] = await Promise.all([second, third]);
-  assert.deepEqual(r2, r3, "both callers get the save that carried their change");
+  // Both callers get the save that carried their change: the merged range as stored.
+  assert.deepEqual(r2, { from: "2026-08-02", to: "2026-09-27" });
+  assert.deepEqual(r3, { from: "2026-08-02", to: "2026-09-27" });
   assert.deepEqual(s.stored.get("v1"), { from: "2026-08-02", to: "2026-09-27" });
 });
 
@@ -105,7 +97,6 @@ test("a failed save still lets the next one go, and only its own callers hear of
 
 test("a send that throws instead of rejecting is still reported, and the lane frees up", async () => {
   let calls = 0;
-  const save = serialSaves<Patch, string>(async () => "ok");
   const boom = serialSaves<Patch, string>(() => {
     calls++;
     if (calls === 1) throw new Error("boom");
@@ -113,7 +104,6 @@ test("a send that throws instead of rejecting is still reported, and the lane fr
   });
   await assert.rejects(boom("v1", { to: "x" }), /boom/);
   assert.equal(await boom("v1", { to: "y" }), "ok");
-  assert.equal(await save("v1", {}), "ok");
 });
 
 test("mergePatches: later fields win, earlier ones kept", () => {
