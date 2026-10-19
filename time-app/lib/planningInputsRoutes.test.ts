@@ -194,3 +194,63 @@ test("a closed day needs a real date", async () => {
   assert.equal(res.status, 400);
   assert.match((await res.json()).error, /real date/);
 });
+
+test("a closed day may instead have short hours, and short hours must close after they open", async () => {
+  db.signIn(MANAGER);
+  const res = await closedDays.POST(call("POST", "closed-days", { date: "2030-12-24", label: "Early close", is_closed: false, opens: "12:00", closes: "16:00" }), NO_PARAMS);
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    db.rows("store_hours_exceptions").map((r) => [r.date, r.label, r.is_closed, r.opens, r.closes]),
+    [["2030-12-24", "Early close", false, "12:00:00", "16:00:00"]],
+  );
+  const bad = await closedDays.POST(call("POST", "closed-days", { date: "2030-12-31", is_closed: false, opens: "16:00", closes: "12:00" }), NO_PARAMS);
+  assert.equal(bad.status, 400);
+  assert.equal(db.rows("store_hours_exceptions").length, 1);
+});
+
+// ---- the store hours read -------------------------------------------------------------
+
+const storeHours = await loadAppModule<{ GET: (request: Request) => Promise<Response> }>("app/api/store-hours/route.ts");
+const readHours = () => storeHours.GET(new Request("http://time.test/api/store-hours?from=2030-10-01"));
+
+test("the store hours read gives anyone signed in every season, oldest first", async () => {
+  db.signIn(OWNER);
+  await seasons.POST(call("POST", "seasons", { ...SEASON, effective_from: "2031-04-01", name: "Test summer", review_by: "2031-09-01" }), NO_PARAMS);
+  assert.equal(db.rows("store_hours_seasons").length, 7);
+  await seasons.POST(call("POST", "seasons", SEASON), NO_PARAMS);
+  db.signIn(EMPLOYEE);
+  const res = await readHours();
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.seasons.length, 14);
+  assert.deepEqual([body.seasons[0].name, body.seasons[0].effective_from, body.seasons[0].weekday], ["Test winter", "2030-11-01", 0]);
+  assert.deepEqual([body.seasons[13].name, body.seasons[13].effective_from, body.seasons[13].weekday], ["Test summer", "2031-04-01", 6]);
+  const monday = body.seasons.find((s: { name: string; weekday: number }) => s.name === "Test winter" && s.weekday === 1);
+  assert.deepEqual([monday.is_closed, monday.opens, monday.closes], [true, null, null]);
+});
+
+test("before migration 47 the store hours read has no seasons, and still answers", async () => {
+  db.missingTables.push("store_hours_seasons");
+  db.signIn(EMPLOYEE);
+  const res = await readHours();
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual([body.seasons, body.migrationNeeded], [[], false]);
+});
+
+test("a failed seasons read fails the store hours read, never reads as no seasons", async () => {
+  db.signIn(EMPLOYEE);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(new Request(input, init).url);
+    if (url.pathname === "/rest/v1/store_hours_seasons") return new Response(JSON.stringify({ message: "timeout" }), { status: 500 });
+    return realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const res = await readHours();
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /timeout/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
