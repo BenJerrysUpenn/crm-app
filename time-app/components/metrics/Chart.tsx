@@ -16,6 +16,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Chart as ChartType, ChartConfiguration } from "chart.js";
+import { placeGapMarks } from "@/lib/metrics/gapMarks";
 
 export type SeriesColor = "in_store" | "catering" | "concessions" | "orange" | "target" | "serious" | "other";
 export type ValueFormat = "money" | "count" | "hours" | "ratio" | "pct";
@@ -33,23 +34,6 @@ export type Series = {
   /** Bars at these indexes drawn in another colour, with their own legend entry: weeks over target. */
   highlight?: { indexes: number[]; color: SeriesColor; label: string };
 };
-
-/**
- * Where a vertical chart draws its "n/a" gap marks, given each gap's position
- * along the category axis (in order) and the room one mark needs: many narrow
- * weeks in a row, so a mark closer than that to the last one drawn is left out
- * and the marks never overlap (every gap is still in the table and the reasons).
- */
-export function thinGapMarks(positions: number[], room: number): number[] {
-  const out: number[] = [];
-  let last = -Infinity;
-  for (const along of positions) {
-    if (along - last < room) continue;
-    out.push(along);
-    last = along;
-  }
-  return out;
-}
 
 /** "#rrggbb" at an opacity, for area fills (canvas has no color-mix everywhere). */
 function alpha(hex: string, a: number): string {
@@ -303,7 +287,9 @@ export default function Chart({
                   ctx.textAlign = horizontal ? "left" : "center";
                   ctx.textBaseline = horizontal ? "middle" : "bottom";
                   const at = gaps.map((i) => cat.getPixelForValue(i));
-                  for (const along of horizontal ? at : thinGapMarks(at, ctx.measureText("n/a").width + 4)) {
+                  // Kept whole inside the plot area, so a narrow last week's mark is not cut off (#696).
+                  const { left, right } = chart.chartArea;
+                  for (const along of horizontal ? at : placeGapMarks(at, ctx.measureText("n/a").width, left, right)) {
                     const zero = val.getPixelForValue(0);
                     if (horizontal) ctx.fillText("n/a", zero + 4, along);
                     else ctx.fillText("n/a", along, zero - 4);
