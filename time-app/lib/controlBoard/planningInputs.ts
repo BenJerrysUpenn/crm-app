@@ -141,21 +141,13 @@ function bothWindows(opens: string | null, closes: string | null, staffed: Staff
 }
 
 /**
- * A season's hours in words: "1:00 PM to 9:00 PM, closed Monday". With
- * `staffed`, both windows: "Open 1:00 PM to 9:00 PM, staffed 12:15 PM to
- * 9:15 PM, closed Monday", the minutes those in force on `staffed.asOf`
- * (staffedWindow in lib/coverage.ts), and the minutes not set named at the end.
+ * A season's hours in words, both windows: "Open 1:00 PM to 9:00 PM, staffed
+ * 12:15 PM to 9:15 PM, closed Monday", the minutes those in force on
+ * `staffed.asOf` (staffedWindow in lib/coverage.ts), and the minutes not set
+ * named at the end.
  */
-export function seasonWords(s: Season, staffed?: StaffedAsOf): string {
+export function seasonWords(s: Season, staffed: StaffedAsOf): string {
   if (s.closedWeekdays.length === 7) return "closed every day";
-  if (!staffed) {
-    if (s.mixed) {
-      return s.rows.map((r) => `${WEEKDAY_NAMES[r.weekday].slice(0, 3)} ${r.is_closed ? "closed" : hoursWords(r.opens, r.closes)}`).join(", ");
-    }
-    const hours = hoursWords(s.opens, s.closes);
-    if (s.closedWeekdays.length === 0) return `${hours} every day`;
-    return `${hours}, closed ${andList(s.closedWeekdays.map((d) => WEEKDAY_NAMES[d]))}`;
-  }
   const missing = new Set<string>();
   let words: string;
   if (s.mixed) {

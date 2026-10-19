@@ -83,14 +83,11 @@ test("a season's seven weekday rows read as one season, oldest first", () => {
     ],
   );
   assert.equal(seasons[0].source, "invented");
-  assert.equal(seasonWords(seasons[0]), "1:00 PM to 9:00 PM, closed Monday");
-  assert.equal(seasonWords(seasons[1]), "10:00 AM to 10:00 PM every day");
 });
 
-test("a season whose open days differ is marked mixed and described day by day", () => {
+test("a season whose open days differ is marked mixed", () => {
   const s = seasonsFrom(week((wd) => (wd === 6 ? { opens: "11:00:00" } : {})))[0];
   assert.equal(s.mixed, true);
-  assert.match(seasonWords(s), /^Sun 1:00 PM to 9:00 PM, .*Sat 11:00 AM to 9:00 PM$/);
 });
 
 // Staffed hours (bj-finance #742 follow-up): each season shows its open hours
