@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  CUSTOM_RANGE, DEFAULT_WEEKS, FIRST_LABOR_WEEK, activeShortcut, monthChoiceFor, monthChoices, defaultLaborRange, monthShortcuts, isSunday, laborWeekStarts, monthWeeks, pickRange, rangeLabel, savedRange,
+  CUSTOM_RANGE, DEFAULT_WEEKS, FIRST_LABOR_WEEK, monthChoiceFor, monthChoices, defaultLaborRange, monthShortcuts, isSunday, laborWeekStarts, monthWeeks, pickRange, rangeLabel, savedRange,
   shownRange, sundayOf, weekOptionLabel,
 } from "./weekRange.ts";
 
@@ -108,15 +108,6 @@ test("a month shortcut for each month holding a week on offer, each its weeks by
   assert.deepEqual(monthShortcuts({ weeks: [{ start: "2026-12-27" }, { start: "2027-01-03" }], defaultRange: { from: "2026-12-27", to: "2026-12-27" } }).map((m) => m.name), ["Dec 2026", "Jan 2027"]);
 });
 
-test("a month shows as chosen while the range is its weeks, cut to those on offer", () => {
-  const offer = OFFER("2026-10-18");
-  const months = monthShortcuts(offer);
-  assert.equal(activeShortcut({ from: "2026-08-02", to: "2026-08-30" }, months, offer), "2026-08");
-  assert.equal(activeShortcut({ from: "2026-10-04", to: "2026-10-18" }, months, offer), "2026-10");
-  assert.equal(activeShortcut({ from: "2026-08-02", to: "2026-08-23" }, months, offer), null);
-  assert.equal(activeShortcut(offer.defaultRange, months, offer), null);
-});
-
 test("the month menu: Custom, then May 2026 to this month by full name, each setting that month's weeks", () => {
   const offer = OFFER("2026-10-18");
   const choices = monthChoices(offer);
@@ -125,7 +116,7 @@ test("the month menu: Custom, then May 2026 to this month by full name, each set
   assert.deepEqual(choices[4], { value: "2026-08", label: "Aug 2026", range: { from: "2026-08-02", to: "2026-08-30" } });
 });
 
-test("the month menu shows the month while the range is one, else Custom", () => {
+test("the month menu shows the month while the range is its weeks, cut to those on offer, else Custom", () => {
   const offer = OFFER("2026-10-18");
   assert.equal(monthChoiceFor({ from: "2026-08-02", to: "2026-08-30" }, offer), "2026-08");
   assert.equal(monthChoiceFor({ from: "2026-10-04", to: "2026-10-18" }, offer), "2026-10");

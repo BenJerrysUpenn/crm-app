@@ -137,15 +137,6 @@ export function monthShortcuts(offer: WeeksOnOffer): MonthShortcut[] {
   });
 }
 
-/** The shortcut the range shown equals, if any: a month whose weeks, cut to those on offer, are exactly the range. */
-export function activeShortcut(shown: WeekRange, shortcuts: MonthShortcut[], offer: WeeksOnOffer): string | null {
-  const hit = shortcuts.find((m) => {
-    const r = shownRange(m.range, offer);
-    return r.from === shown.from && r.to === shown.to;
-  });
-  return hit?.month ?? null;
-}
-
 /** The month menu's "no single month" choice: the range is not one month's weeks. */
 export const CUSTOM_RANGE = "custom";
 
@@ -163,7 +154,14 @@ export function monthChoices(offer: WeeksOnOffer): MonthChoice[] {
   ];
 }
 
-/** What the month menu shows for the range shown: its month while the range is one, else "Custom". */
+/**
+ * What the month menu shows for the range shown: its month while the range is
+ * one (the month's weeks, cut to those on offer, are exactly the range), else "Custom".
+ */
 export function monthChoiceFor(shown: WeekRange, offer: WeeksOnOffer): string {
-  return activeShortcut(shown, monthShortcuts(offer), offer) ?? CUSTOM_RANGE;
+  const hit = monthShortcuts(offer).find((m) => {
+    const r = shownRange(m.range, offer);
+    return r.from === shown.from && r.to === shown.to;
+  });
+  return hit?.month ?? CUSTOM_RANGE;
 }

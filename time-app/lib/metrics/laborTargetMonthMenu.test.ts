@@ -101,6 +101,8 @@ test("choosing a month from the menu sets the card to that month's weeks, and th
     assert.equal(card.select("to-w1").value, "2030-09-29");
     assert.equal(card.select("month-w1").value, "2030-09");
     assert.match(card.text(), /No week of Sep 1 to Sep 29 has its numbers yet/);
+    // The status line names the month the weeks are.
+    assert.match(card.text(), /Labor vs target: Sep 2030, weeks of Sep 1 to Sep 29\./);
   } finally {
     await card.unmount();
   }
@@ -133,6 +135,8 @@ test("a last week picked by hand that is not a month's end turns the menu to Cus
     assert.equal(card.select("from-w1").value, "2030-09-01");
     assert.equal(card.select("to-w1").value, "2030-10-06");
     assert.equal(card.select("month-w1").value, "custom");
+    // No month is named for weeks that are not one month's (and never "Custom").
+    assert.match(card.text(), /Labor vs target: weeks of Sep 1 to Oct 6\./);
   } finally {
     await card.unmount();
   }

@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MetricsData } from "@/lib/metrics/load";
 import { METRICS, METRIC_IDS, PERIOD_LABEL, blurbFor, type MetricId, type WidgetConfig, type WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, STREAMS, type StreamFilter } from "@/lib/metrics/targets";
-import { activeShortcut, monthChoiceFor, monthChoices, monthShortcuts, pickRange, rangeLabel, shownRange, weekOptionLabel } from "@/lib/metrics/weekRange";
+import { monthChoiceFor, monthChoices, pickRange, rangeLabel, shownRange, weekOptionLabel } from "@/lib/metrics/weekRange";
 import {
   MAX_NAME, MAX_VIEWS, MAX_WIDGETS, addWidget, checkName, freeName, moveView, moveWidget, ordered, removeWidget,
   updateWidgetSettings, type View,
@@ -513,9 +513,8 @@ function settingsNote(w: WidgetConfig, s: Partial<WidgetSettings>, data: Metrics
   if (METRICS[w.metric].weekRange && data.laborTarget && ("from" in s || "to" in s)) {
     const lt = data.laborTarget;
     const shown = shownRange(s, lt);
-    const shortcuts = monthShortcuts(lt);
-    const month = activeShortcut(shown, shortcuts, lt);
-    const name = shortcuts.find((m) => m.month === month)?.name;
+    const month = monthChoiceFor(shown, lt);
+    const name = monthChoices(lt).find((m) => m.range && m.value === month)?.label;
     return `${name ? `${name}, ` : ""}weeks of ${rangeLabel(shown)}`;
   }
   return PERIOD_LABEL[s.period ?? w.settings.period];
