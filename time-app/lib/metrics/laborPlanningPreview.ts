@@ -34,6 +34,7 @@ import { CATERING_POSITION, type LaborShift } from "@/lib/controlBoard/schedule"
 import { BOOKED_STAGES } from "@/lib/metrics/catering";
 import { PROFILE_COLUMNS, bookingsFrom, type BookingDeal } from "@/lib/controlBoard/scheduleLoad";
 import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/coverage";
+import { seasonHoursRows } from "@/lib/storeHoursSeasons";
 import { addDays, nyDay } from "./dates";
 import { MARKETING_POSITION, laborHoursPlanning, planningWindow, type HistoryRow, type HistoryShift, type MarketingDealRow } from "./laborPlanning";
 import { MARKETING_DEAL_COLUMNS, planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
@@ -195,7 +196,6 @@ export async function loadPreviewData(now: Date = new Date()): Promise<PreviewDa
   if (history.problem) problems.push(`last year's catering hours not read: ${history.problem}`);
   const s = seed.value ?? {};
   const seasons = seedSeasonRows(s);
-  const seasonRows: StoreHoursRow[] = seasons.map(({ weekday, is_closed, opens, closes, effective_from }) => ({ weekday, is_closed, opens, closes, effective_from }));
   const concessionEvents = seedRevisions(s.concession_events) as unknown as ConcessionEventRow[];
   // The file's closed days stand in for store_hours_exceptions: on a date in
   // both, the file's row is the one shown.
@@ -212,7 +212,7 @@ export async function loadPreviewData(now: Date = new Date()): Promise<PreviewDa
     daily: daily.filter((r) => r.day.startsWith(last.slice(0, 7)) || r.day.startsWith(lastYear.slice(0, 7))),
     profiles: profiles as LaborPlanningRows["profiles"],
     sales: daily.filter((r) => r.day >= w.salesFrom && r.day <= w.salesTo).map((r) => ({ day: r.day, in_store: r.in_store })),
-    storeHours: [...storeHours, ...seasonRows],
+    storeHours: [...storeHours, ...seasonHoursRows(seasons)],
     exceptions: allExceptions,
     closedRanges: closed,
     bookings,
