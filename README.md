@@ -272,7 +272,7 @@ The two `staffing.*` keys make staffed hours (bj-finance #742 follow-up): the op
 open-up minutes before and the close-down minutes after, the values in force on the date
 (`staffedWindow` in `time-app/lib/coverage.ts`). The schedule's Check week button, the coverage reminder
 and the coverage line on Labor Hours Planning measure cover against staffed hours; with a value not set
-they fall back to open hours and say so. Sales projections, affordable hours and payroll verify keep open
+they fall back to open hours (the button and Labor Hours Planning say so; the reminder does not). Sales projections, affordable hours and payroll verify keep open
 hours. New keys, so no migration.
 
 Reading it from the Mac (bj-finance): `select * from public.control_settings_on(date)` gives one

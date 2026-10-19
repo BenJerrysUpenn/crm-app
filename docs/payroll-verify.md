@@ -302,7 +302,9 @@ Notes on the ones that surprise people:
   replaces the weekly hours from its first day; with none on file the weekly hours apply
   (`storeHoursFor`, `lib/coverage.ts`). For 1.8 a day whose hours nobody has set is
   reported, never judged — hours-not-set is deliberately different from closed,
-  the same distinction `lib/coverage.ts` draws for the publish check.
+  the same distinction `lib/coverage.ts` draws for the schedule's Check week button. Both
+  rules use open hours (`resolveOpenWindow`), not the staffed hours (`staffedWindow`) the
+  button and the coverage reminder measure.
 - **Catering and Marketing shifts are off-site.** They never cover the store and
   can never be the night's closer.
 
