@@ -34,7 +34,7 @@ import type { SalaryRow, SettingRow } from "@/lib/controlBoard/settings";
 import { CATERING_POSITION, type LaborShift } from "@/lib/controlBoard/schedule";
 import { BOOKED_STAGES } from "@/lib/metrics/catering";
 import { PROFILE_COLUMNS, bookingsFrom, type BookingDeal } from "@/lib/controlBoard/scheduleLoad";
-import type { ClosedDateRange, StoreHoursException, StoreHoursRow } from "@/lib/coverage";
+import { STAFFING_KEYS, type ClosedDateRange, type StoreHoursException, type StoreHoursRow } from "@/lib/coverage";
 import { seasonHoursRows } from "@/lib/storeHoursSeasons";
 import { addDays, nyDay } from "./dates";
 import { nyMidnight } from "./supabaseReads";
@@ -243,6 +243,7 @@ export async function loadPreviewData(now: Date = new Date()): Promise<PreviewDa
       seasons,
       concession: concessionEvents,
       exceptions: allExceptions.filter((e) => e.date >= today),
+      staffing: settings.filter((r) => STAFFING_KEYS.includes(r.key)),
       problems: seed.problem ? [`The inputs file could not be read: ${seed.problem}`] : [],
     },
     liveClosedDays: liveKept.filter((e) => e.date >= today).map((e) => e.date),

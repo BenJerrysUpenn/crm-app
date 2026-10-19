@@ -93,6 +93,52 @@ test("a season whose open days differ is marked mixed and described day by day",
   assert.match(seasonWords(s), /^Sun 1:00 PM to 9:00 PM, .*Sat 11:00 AM to 9:00 PM$/);
 });
 
+// Staffed hours (bj-finance #742 follow-up): each season shows its open hours
+// and its staffed hours, the open-up and close-down minutes in force on the
+// day asked about. Invented minutes.
+const minutesRow = (key: string, value: number, effective_from = "2030-01-01") => ({
+  id: value, key, value, effective_from, recorded_at: `${effective_from}T00:00:00Z`,
+});
+const STAFFING = [minutesRow("staffing.open_up_minutes", 45), minutesRow("staffing.close_down_minutes", 15)];
+
+test("a season shows both windows: open hours, and staffed hours widened by the minutes in force", () => {
+  const seasons = seasonsFrom([
+    ...week((wd) => (wd === 1 ? { is_closed: true, opens: null, closes: null } : {})),
+    ...week(() => ({ effective_from: "2031-04-01", name: "Test summer", opens: "10:00:00", closes: "22:00:00" })),
+  ]);
+  assert.equal(
+    seasonWords(seasons[0], { rows: STAFFING, asOf: "2030-11-01" }),
+    "Open 1:00 PM to 9:00 PM, staffed 12:15 PM to 9:15 PM, closed Monday",
+  );
+  assert.equal(
+    seasonWords(seasons[1], { rows: STAFFING, asOf: "2031-04-01" }),
+    "Open 10:00 AM to 10:00 PM, staffed 9:15 AM to 10:15 PM, every day",
+  );
+  // Minutes that change later are read on the day asked about.
+  const later = [...STAFFING, minutesRow("staffing.open_up_minutes", 60, "2031-01-01")];
+  assert.match(seasonWords(seasons[0], { rows: later, asOf: "2031-01-02" }), /staffed 12:00 PM to 9:15 PM/);
+  assert.doesNotMatch(seasonWords(seasons[0], { rows: STAFFING, asOf: "2030-11-01" }), /\u2014/, "no em dashes");
+});
+
+test("a season with the minutes not set shows its staffed hours as its open hours and says so", () => {
+  const s = seasonsFrom(week(() => ({})))[0];
+  assert.equal(
+    seasonWords(s, { rows: [], asOf: "2030-11-01" }),
+    "Open 1:00 PM to 9:00 PM, staffed 1:00 PM to 9:00 PM, every day (open-up and close-down minutes not set)",
+  );
+  assert.equal(
+    seasonWords(s, { rows: [STAFFING[0]], asOf: "2030-11-01" }),
+    "Open 1:00 PM to 9:00 PM, staffed 12:15 PM to 9:00 PM, every day (close-down minutes not set)",
+  );
+});
+
+test("a mixed season shows both windows day by day; a closed day stays closed", () => {
+  const s = seasonsFrom(week((wd) => (wd === 6 ? { opens: "11:00:00" } : wd === 1 ? { is_closed: true, opens: null, closes: null } : {})))[0];
+  const words = seasonWords(s, { rows: STAFFING, asOf: "2030-11-01" });
+  assert.match(words, /^Sun open 1:00 PM to 9:00 PM, staffed 12:15 PM to 9:15 PM; Mon closed; /);
+  assert.match(words, /Sat open 11:00 AM to 9:00 PM, staffed 10:15 AM to 9:15 PM$/);
+});
+
 test("the season in force today is the latest one started on or before today", () => {
   const seasons = seasonsFrom([...week(() => ({})), ...week(() => ({ effective_from: "2031-04-01", name: "Test summer" }))]);
   assert.equal(seasonInForce(seasons, "2030-10-31"), null);

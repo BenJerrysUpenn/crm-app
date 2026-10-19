@@ -106,7 +106,7 @@ export default function PlanningInputs({ data, today, viewerIsOwner, preview }: 
           </Block>
         ) : (
           <>
-            <Seasons rows={data.seasons} today={today} owner={viewerIsOwner} send={send} />
+            <Seasons rows={data.seasons} staffing={data.staffing} today={today} owner={viewerIsOwner} send={send} />
             <Concessions rows={data.concession} today={today} owner={viewerIsOwner} send={send} />
           </>
         )}
@@ -251,15 +251,20 @@ function FormButtons({ busy, err, onSave, onCancel, extra }: { busy: boolean; er
 // Store-hours seasons
 // ---------------------------------------------------------------------------
 
-function Seasons({ rows, today, owner, send }: { rows: Parameters<typeof seasonsFrom>[0]; today: string; owner: boolean; send: Send }) {
+function Seasons({ rows, staffing, today, owner, send }: {
+  rows: Parameters<typeof seasonsFrom>[0]; staffing: PlanningInputsData["staffing"]; today: string; owner: boolean; send: Send;
+}) {
   const seasons = useMemo(() => seasonsFrom(rows), [rows]);
   const now = seasonInForce(seasons, today);
+  // Staffed hours use the open-up and close-down minutes in force today for
+  // the season in force, and on its first day for any other.
+  const words = (s: Season) => seasonWords(s, { rows: staffing, asOf: s === now ? today : s.effective_from });
   const [open, setOpen] = useState<string | null>(null);
   const toggle = (id: string) => setOpen((o) => (o === id ? null : id));
   return (
     <Block
       title="Store-hours seasons"
-      intro={`From its first day, a season's hours replace the weekly hours on the Team page until the next season starts. ${now ? `In force today: ${now.name}, ${seasonWords(now)}.` : "No season is in force today: the weekly hours apply."}`}
+      intro={`From its first day, a season's open hours replace the weekly hours on the Team page until the next season starts. Staffed hours add the open-up and close-down minutes set under Staffed hours on the Targets tab. ${now ? `In force today: ${now.name}, ${words(now)}.` : "No season is in force today: the weekly hours apply."}`}
       action={owner && <button type="button" onClick={() => toggle("new")} className={smallBtn}>Add a season</button>}
     >
       {open === "new" && (
@@ -270,7 +275,7 @@ function Seasons({ rows, today, owner, send }: { rows: Parameters<typeof seasons
         <div key={s.effective_from}>
           <Line
             label={`${s.name}, from ${shortDate(s.effective_from)}`}
-            value={seasonWords(s)}
+            value={words(s)}
             tags={s === now ? <Tag tone="green">in force today</Tag> : s.effective_from > today ? <Tag tone="sky">coming</Tag> : <Tag tone="slate">ended</Tag>}
             reviewBy={s.review_by}
             today={today}

@@ -266,6 +266,14 @@ a missing input shows as missing, never as zero.
 | `tax.workers_comp` | dollars per $100 of wages | `class_code` |
 | `rule.catering_premium` | dollars added per catering hour | `cap_rate`: dollars an hour |
 | `rule.solo_close` | dollars a qualifying night | `min_alone_hours`, `out_at_or_after` (`HH:MM`) |
+| `staffing.open_up_minutes`, `staffing.close_down_minutes` | whole minutes before opening / after closing | |
+
+The two `staffing.*` keys make staffed hours (bj-finance #742 follow-up): the open hours widened by the
+open-up minutes before and the close-down minutes after, the values in force on the date
+(`staffedWindow` in `time-app/lib/coverage.ts`). The schedule's Check week button, the coverage reminder
+and the coverage line on Labor Hours Planning measure cover against staffed hours; with a value not set
+they fall back to open hours and say so. Sales projections, affordable hours and payroll verify keep open
+hours. New keys, so no migration.
 
 Reading it from the Mac (bj-finance): `select * from public.control_settings_on(date)` gives one
 row per key in force on that day, and `public.profile_salaries_on(date)` one per person.
@@ -332,7 +340,7 @@ migration before deploying that card, or it says it could not load. Verify with 
 ### Labor Hours Planning (bj-finance #742)
 Apply `time-app/supabase/migration_47.sql` by hand in the Supabase SQL editor, after migration 46, BEFORE
 deploying the app that reads it. Schema only (this repo is public: owners enter every hour, sales figure and
-event date). It adds `store_hours_seasons` (opening hours from a first day until the next season starts, one
+event date). It adds `store_hours_seasons` (open hours from a first day until the next season starts, one
 row per weekday), `concession_events` (dated revisions per `event_key`, `cancelled` takes one off) and
 `catering_hours_history` (last year's raw Catering shift hours by day, `kind = 'marketing'` marking a
 marketing day; written from the Mac, never through the API). Owners write seasons and events on the Targets
@@ -355,7 +363,8 @@ never the database.
 
 ## Schedule coverage reminder (droplet command)
 Every Thursday and Friday at noon ET, emails the owners and on-schedule
-managers every open store hour and every booked catering event in the next two
+managers every staffed store hour (open hours plus the open-up and close-down
+minutes on the Targets tab) and every booked catering event in the next two
 Sun–Sat weeks that nobody is scheduled for (bj-finance #709). No gaps, no
 email. Store hours are judged by `checkWeekCoverage` in
 `time-app/lib/coverage.ts`, the function the schedule board's "Check week"

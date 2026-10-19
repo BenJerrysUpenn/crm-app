@@ -52,6 +52,11 @@ const DATA: PlanningInputsData = {
   seasons: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ effective_from: "2030-11-01", weekday, name: "Test winter", is_closed: false, opens: "13:00:00", closes: "21:00:00", ...NOTE })),
   concession: [],
   exceptions: [{ date: "2030-12-24", label: "Early close", is_closed: false, opens: "12:00:00", closes: "16:00:00", created_at: null }],
+  // Invented minutes: 45 before opening, 15 after closing.
+  staffing: [
+    { id: 1, key: "staffing.open_up_minutes", value: 45, effective_from: "2030-01-01", recorded_at: "2030-01-01T00:00:00Z" },
+    { id: 2, key: "staffing.close_down_minutes", value: 15, effective_from: "2030-01-01", recorded_at: "2030-01-01T00:00:00Z" },
+  ],
   problems: [],
 };
 
@@ -135,6 +140,15 @@ test("an owner may add seasons and events; any manager may close a day", async (
     assert.ok(manager.has(/^Add closed day$/));
   } finally {
     await manager.unmount();
+  }
+});
+
+test("each season shows its open hours and its staffed hours", async () => {
+  const card = await mount({ viewerIsOwner: false });
+  try {
+    assert.match(card.text(), /Open 1:00 PM to 9:00 PM, staffed 12:15 PM to 9:15 PM, every day/);
+  } finally {
+    await card.unmount();
   }
 });
 
