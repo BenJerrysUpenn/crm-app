@@ -17,6 +17,7 @@ import {
   updateWidgetSettings, type View,
 } from "@/lib/metrics/views";
 import type { ViewsState } from "@/lib/metrics/viewsServer";
+import { serialSaves } from "@/lib/metrics/saveQueue";
 import { NotEnabled, applyPatch, localStore, readLocal, serverStore, writeLocal, type ViewPatch, type ViewStore } from "./viewStore";
 import {
   ArWidget, ForwardWidget, LaborTargetWidget, LabourWidget, LeadsWidget, OutreachWidget, QuotesWidget, SalesWidget,
@@ -94,17 +95,36 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
     }
   }
 
+  // A view's saves go one at a time, in the order made, so two quick changes
+  // (a start week then an end week) can never land out of order and leave the
+  // older one saved (bj-finance #696). Every change to a view goes through it.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const savePatch = useRef(
+    serialSaves<ViewPatch, View | null | undefined>((id, patch) => saveRef.current((s) => s.patch(id, patch))),
+  ).current;
+  const lastEdit = useRef(new Map<string, number>());
+  const edits = useRef(0);
+
   async function patchView(view: View, patch: ViewPatch, message: string) {
-    const before = views;
-    setViews((vs) => vs.map((v) => (v.id === view.id ? applyPatch(v, patch) : v)));
-    const out = await save((s) => s.patch(view.id, patch));
-    if (out === undefined) setViews(before);
+    const prior = viewsRef.current.find((v) => v.id === view.id) ?? view;
+    const edit = ++edits.current;
+    lastEdit.current.set(view.id, edit);
+    const next = viewsRef.current.map((v) => (v.id === view.id ? applyPatch(v, patch) : v));
+    viewsRef.current = next;
+    setViews(next);
+    const out = await savePatch(view.id, patch);
+    // A later change to this view is saving its newer state: leave the screen and the message to it.
+    if (lastEdit.current.get(view.id) !== edit) return;
+    if (out === undefined) setViews((vs) => vs.map((v) => (v.id === view.id ? prior : v)));
     else say(message);
   }
 
-  function changeWidgets(next: View, message: string) {
+  /** Change the active view's widgets, starting from its latest state (not the last render's). */
+  function changeWidgets(edit: (v: View) => View, message: string) {
     if (!active) return;
-    void patchView(active, { widgets: next.widgets }, message);
+    const current = viewsRef.current.find((v) => v.id === active.id) ?? active;
+    void patchView(current, { widgets: edit(current).widgets }, message);
   }
 
   async function switchTo(id: string) {
@@ -136,7 +156,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
     const before = views;
     setViews(rest);
     setActiveId(rest[0].id);
-    const out = await save((s) => s.patch(active.id, { archived: true }));
+    const out = await savePatch(active.id, { archived: true });
     if (out === undefined) {
       setViews(before);
       setActiveId(active.id);
@@ -155,7 +175,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
     const before = views;
     setViews(next);
     for (const v of changed) {
-      const out = await save((s) => s.patch(v.id, { position: v.position }));
+      const out = await savePatch(v.id, { position: v.position });
       if (out === undefined) return setViews(before);
     }
     say(`Moved ${active.name} ${delta < 0 ? "left" : "right"}.`);
@@ -199,7 +219,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
           onMove={shiftView}
           onDuplicate={() => createView(freeName(list, `${active.name} copy`), active.widgets)}
           onDelete={archiveActive}
-          onAdd={(metric) => changeWidgets(addWidget(active, metric), `Added ${METRICS[metric].title}.`)}
+          onAdd={(metric) => changeWidgets((v) => addWidget(v, metric), `Added ${METRICS[metric].title}.`)}
         />
       )}
 
@@ -224,19 +244,19 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
           last={i === active.widgets.length - 1}
           onSettings={(s) =>
             changeWidgets(
-              updateWidgetSettings(active, w.id, s),
+              (v) => updateWidgetSettings(v, w.id, s),
               `${METRICS[w.metric].title}: ${settingsNote(w, s, data)}.`,
             )
           }
           onMove={(d) => {
             const atEnd = d < 0 ? i + d <= 0 : i + d >= active.widgets.length - 1;
-            changeWidgets(moveWidget(active, w.id, d), `Moved ${METRICS[w.metric].title} ${d < 0 ? "up" : "down"}.`);
+            changeWidgets((v) => moveWidget(v, w.id, d), `Moved ${METRICS[w.metric].title} ${d < 0 ? "up" : "down"}.`);
             // Keep focus on the arrow pressed, or on the other one once this end is reached.
             focusSoon(`${atEnd ? (d < 0 ? "down" : "up") : d < 0 ? "up" : "down"}-${w.id}`);
           }}
           onRemove={() => {
             const next = active.widgets[i + 1] ?? active.widgets[i - 1];
-            changeWidgets(removeWidget(active, w.id), `Removed ${METRICS[w.metric].title}.`);
+            changeWidgets((v) => removeWidget(v, w.id), `Removed ${METRICS[w.metric].title}.`);
             focusSoon(next ? `h-${next.id}` : "add-metric");
           }}
         />
