@@ -21,10 +21,8 @@ test("on a wide chart nothing moves", () => {
 
 test("on a phone the last week's mark stays inside the plot's right edge", () => {
   // 375 px phone: plot 50..355, 26 weeks, slots under 12 px; the last centre is 6 px from the edge.
-  const right = 355;
-  const [x] = placeGapMarks([right - 6], 18, 50, right);
-  assert.equal(x, right - 9);
-  assert.ok(x + 9 <= right, "the text's right end is inside the plot");
+  // An 18 px mark centred at 349 would end at 358, past the edge; moved in to 346, it ends at 355.
+  assert.deepEqual(placeGapMarks([349], 18, 50, 355), [346]);
 });
 
 test("the first week's mark stays inside the left edge too", () => {
@@ -34,8 +32,11 @@ test("the first week's mark stays inside the left edge too", () => {
 test("marks moved in are still thinned so they never overlap", () => {
   // Two last weeks both missing, 6 px apart: moved in, they would overlap, so one is drawn.
   assert.deepEqual(placeGapMarks([343, 349], 18, 50, 355), [343]);
+  // 24 px apart as drawn, room enough; the last moves in to 346, 16 px from 330, so it is left out.
+  assert.deepEqual(placeGapMarks([330, 354], 18, 50, 355), [330]);
 });
 
-test("a plot narrower than one mark centres it", () => {
+test("a plot narrower than one mark starts the mark at the plot's left edge", () => {
+  // Plot 10..20 (10 px), mark 18 px: centred at 19, it spans 10..28.
   assert.deepEqual(placeGapMarks([12], 18, 10, 20), [19]);
 });
