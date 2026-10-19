@@ -3,6 +3,17 @@
 Login-protected Kanban board for the catering pipeline. Reads and writes the
 `deals` table in the existing Supabase project.
 
+## This repo is public
+crm-app is the one public BenJerrysUpenn repo: Vercel Hobby deploys a private repo only
+from commits its owner authored. Treat every commit, branch, PR and issue here as published.
+
+- Never commit staff PII (names tied to pay, HR or schedule facts, contact details) or
+  Alina's personal phone number, in code, SQL, fixtures, tests, docs or commit messages.
+  Use placeholders.
+- Keys and tokens live in Vercel env vars and Supabase only (see Environment variables).
+- Real figures (hours, sales, salaries) are entered by owners into the database. Migrations
+  here are schema only.
+
 ## Stack
 - Next.js 14 (App Router) + TypeScript
 - Supabase Auth (email + password)
@@ -90,6 +101,8 @@ The web app assumes the following are already done in Supabase:
    using (true) with check (true);
    ```
 3. User accounts created by hand under Authentication, Users, with **Auto Confirm User** ticked. No public sign-up page exists.
+   **Allow new users to sign up** must be off under Authentication, Sign In / Providers: the anon key
+   ships to every browser, so with it on anyone can create an account through the Auth API.
 
 If the board later needs to read/write other tables (e.g. `quote_versions`,
 `invoices`), add the same policy for each.
