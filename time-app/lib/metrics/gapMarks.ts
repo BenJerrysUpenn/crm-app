@@ -9,7 +9,7 @@
  * last one drawn is left out and the marks never overlap (every gap is still
  * in the table and the reasons).
  */
-export function thinGapMarks(positions: number[], room: number): number[] {
+function thinGapMarks(positions: number[], room: number): number[] {
   const out: number[] = [];
   let last = -Infinity;
   for (const along of positions) {

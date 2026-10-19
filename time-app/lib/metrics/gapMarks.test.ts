@@ -5,11 +5,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { placeGapMarks, thinGapMarks } from "./gapMarks.ts";
+import { placeGapMarks } from "./gapMarks.ts";
 
 test("marks closer than the room they need are thinned, in order", () => {
-  assert.deepEqual(thinGapMarks([10, 20, 40, 45, 70], 22), [10, 40, 70]);
-  assert.deepEqual(thinGapMarks([], 22), []);
+  // An 18 px mark needs 22 px of room; on a 0..1000 plot none of these move.
+  assert.deepEqual(placeGapMarks([10, 20, 40, 45, 70], 18, 0, 1000), [10, 40, 70]);
+  assert.deepEqual(placeGapMarks([], 18, 0, 1000), []);
 });
 
 test("on a wide chart nothing moves", () => {
