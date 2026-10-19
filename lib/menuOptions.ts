@@ -141,7 +141,8 @@ export const EXTRAS: ReadonlyArray<Extra> = [
   // customer makes from its group (WINTER_DRY_TOPPINGS / _POURABLE_ below).
   // $0 garnishes. Every winter item includes whipped cream and chocolate
   // sauce (Alina, 2026-10-18), so a winter item built on Cup or Cone Party
-  // (Warmed Cookie and Brownie Sundaes, Waffle Sundae) carries both. The
+  // (Warmed Cookie and Brownie Sundaes, Waffle Sundae) carries both as these
+  // extras, added by hand; winterMenuWarnings does not check them. The
   // Price Book already has both rows at $0; every Sundae-family package and
   // the Hot Chocolate Float Party already include them.
   { key: "whipped_cream", label: "Whipped Cream", price: 0, unit: "per_guest", defaultQty: "one" },

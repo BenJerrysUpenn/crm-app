@@ -139,7 +139,10 @@ save. When the deal has a winter item (Hot Chocolate Float Party, or a winter ex
 notes an event outside Nov 1 - Mar 31 and an empty custom menu line. For each winter
 toppings extra on the deal it notes a pick count from that group other than 3; for winter
 toppings picked without their extra it notes that nothing bills them, unless a price
-override is set. It mirrors Catering-Manager `modules/winter_menu.py`.
+override is set. Every winter item includes whipped cream and chocolate sauce: the Hot
+Chocolate Float Party has them in the package; on a Cup or Cone Party (the Cookie and
+Brownie Sundaes, the Waffle Sundae) they are the $0 Whipped Cream and Chocolate Sauce
+extras, added by hand, and `winterMenuWarnings` does not check for them. It mirrors Catering-Manager `modules/winter_menu.py`.
 
 ## Local dev (optional)
 ```
