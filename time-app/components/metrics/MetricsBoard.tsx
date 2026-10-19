@@ -569,7 +569,8 @@ function WeekRangePicker({
         </select>
       </span>
       <span className="flex items-center gap-2">
-        <span aria-hidden="true" className="text-sm text-slate-400 dark:text-slate-500">
+        {/* On a phone the month menu wraps to its own line, where a leading dot would dangle. */}
+        <span aria-hidden="true" className="hidden sm:inline text-sm text-slate-400 dark:text-slate-500">
           ·
         </span>
         <label className="sr-only" htmlFor={`month-${widget.id}`}>
