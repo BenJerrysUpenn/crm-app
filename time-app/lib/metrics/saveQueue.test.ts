@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { mergePatches, serialSaves } from "./saveQueue.ts";
+import { serialSaves } from "./saveQueue.ts";
 
 type Patch = { from?: string; to?: string; position?: number };
 
@@ -104,8 +104,4 @@ test("a send that throws instead of rejecting is still reported, and the lane fr
   });
   await assert.rejects(boom("v1", { to: "x" }), /boom/);
   assert.equal(await boom("v1", { to: "y" }), "ok");
-});
-
-test("mergePatches: later fields win, earlier ones kept", () => {
-  assert.deepEqual(mergePatches<Patch>({ from: "a", to: "b" }, { to: "c" }), { from: "a", to: "c" });
 });

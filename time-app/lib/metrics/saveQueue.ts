@@ -15,17 +15,13 @@ export type Send<P, R> = (key: string, patch: P) => Promise<R>;
 type Waiter<R> = { resolve: (r: R) => void; reject: (e: unknown) => void };
 type Lane<P, R> = { busy: boolean; next: { patch: P; waiters: Waiter<R>[] } | null };
 
-/** Later fields over earlier ones: what a set of PATCH bodies adds up to. */
-export function mergePatches<P extends object>(older: P, newer: P): P {
-  return { ...older, ...newer };
-}
-
 /**
  * A save function that sends one patch per key at a time, in the order asked,
- * folding patches that queue up behind a save into one. Each caller's promise
+ * folding patches that queue up behind a save into one (later fields over
+ * earlier ones: what the PATCH bodies add up to). Each caller's promise
  * settles with the save that carried its patch.
  */
-export function serialSaves<P extends object, R>(send: Send<P, R>, merge: (older: P, newer: P) => P = mergePatches): Send<P, R> {
+export function serialSaves<P extends object, R>(send: Send<P, R>): Send<P, R> {
   const lanes = new Map<string, Lane<P, R>>();
 
   function run(key: string, lane: Lane<P, R>) {
@@ -58,7 +54,7 @@ export function serialSaves<P extends object, R>(send: Send<P, R>, merge: (older
       }
       const waiter = { resolve, reject };
       lane.next = lane.next
-        ? { patch: merge(lane.next.patch, patch), waiters: [...lane.next.waiters, waiter] }
+        ? { patch: { ...lane.next.patch, ...patch }, waiters: [...lane.next.waiters, waiter] }
         : { patch, waiters: [waiter] };
       if (!lane.busy) run(key, lane);
     });
