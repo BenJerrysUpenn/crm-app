@@ -114,6 +114,21 @@ describe("store hours", () => {
     expect(buildReminder(snapshot({ exceptions }), RUN_DATE)).toEqual([]);
   });
 
+  // Store-hours seasons (migration 47, bj-finance #742): lib/coverageReminderPg.ts
+  // reads them into storeHours as rows carrying effective_from. From its first
+  // day a season's row replaces its weekday's standing hours; before it, the
+  // standing hours apply.
+  it("from a season's first day the reminder checks the season's hours, and the standing hours before it", () => {
+    const longerSaturdays = [{ weekday: 6, is_closed: false, opens: "12:00:00", closes: "18:00:00", effective_from: "2026-10-25" }];
+    const lines = buildReminder(snapshot({ storeHours: [...SAT_HOURS, ...longerSaturdays] }), RUN_DATE);
+    expect(lines).toEqual(["Sat Oct 24, 2:00–6:00 PM", "Sat Oct 31, 12:00–2:00 PM"]);
+  });
+
+  it("a season that closes a weekday needs nobody on it from its first day", () => {
+    const closedSaturdays = [{ weekday: 6, is_closed: true, opens: null, closes: null, effective_from: "2026-10-18" }];
+    expect(buildReminder(snapshot({ storeHours: [...SAT_HOURS, ...closedSaturdays], shifts: [] }), RUN_DATE)).toEqual([]);
+  });
+
   it("a weekday with no hours row is not checked", () => {
     // Only Saturdays have hours and nobody works all fortnight: the twelve
     // days with no hours row produce no line, only the two Saturdays do.
