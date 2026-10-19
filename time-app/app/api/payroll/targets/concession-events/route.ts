@@ -3,8 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { financeAccess } from "@/lib/financeAccess";
 import { isOwner } from "@/lib/roles";
-import { parseConcessionInput } from "@/lib/controlBoard/planningInputs";
-import { addEventRevision, DATED_TABLES } from "@/lib/controlBoard/save";
+import { addConcessionEvent, DATED_TABLES } from "@/lib/controlBoard/save";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -24,5 +23,5 @@ export async function POST(request: Request) {
   if (!isOwner(me)) return NextResponse.json({ error: DATED_TABLES.concession_events.ownersOnly }, { status: 403 });
 
   const body = await request.json().catch(() => null);
-  return addEventRevision(createClient(), "concession_events", body, parseConcessionInput);
+  return addConcessionEvent(createClient(), body);
 }

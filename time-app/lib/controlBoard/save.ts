@@ -8,8 +8,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingTable } from "@/lib/storeHours";
 import { NEEDS_MIGRATION, NEEDS_MIGRATION_47 } from "./load";
-import type { SeasonRow } from "./planningInputs";
-import type { Parsed } from "./settings";
+import { parseConcessionInput, type SeasonRow } from "./planningInputs";
 
 /** Postgres: insufficient_privilege, what Row Level Security answers. */
 const REFUSED_BY_DATABASE = "42501";
@@ -34,22 +33,17 @@ export async function addDatedRow(supabase: SupabaseClient, table: DatedTable, r
 }
 
 /**
- * Add a revision of a concession event (migration 47). `parse` checks
- * the body against every event key on file: no key is a new event, a key not
- * on file is refused.
+ * Add a revision of a concession event (migration 47). parseConcessionInput
+ * checks the body against every event key on file: no key is a new event, a
+ * key not on file is refused.
  */
-export async function addEventRevision(
-  supabase: SupabaseClient,
-  table: "concession_events",
-  body: unknown,
-  parse: (body: unknown, taken: Set<string>) => Parsed<object>,
-): Promise<NextResponse> {
-  const { data, error } = await supabase.from(table).select("event_key");
+export async function addConcessionEvent(supabase: SupabaseClient, body: unknown): Promise<NextResponse> {
+  const { data, error } = await supabase.from("concession_events").select("event_key");
   if (isMissingTable(error)) return NextResponse.json({ error: NEEDS_MIGRATION_47 }, { status: 503 });
   if (error) return NextResponse.json({ error: `The events could not be read: ${error.message}` }, { status: 500 });
-  const parsed = parse(body, new Set(((data ?? []) as { event_key: string }[]).map((r) => r.event_key)));
+  const parsed = parseConcessionInput(body, new Set(((data ?? []) as { event_key: string }[]).map((r) => r.event_key)));
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
-  return addDatedRow(supabase, table, parsed.value);
+  return addDatedRow(supabase, "concession_events", parsed.value);
 }
 
 export const SEASONS_OWNERS_ONLY = "Only an owner can change the store-hours seasons.";
