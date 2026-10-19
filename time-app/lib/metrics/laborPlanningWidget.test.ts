@@ -78,10 +78,18 @@ test("the chart stacks in-store, concessions, catering booked and estimated, mar
   const t = text(render({}));
   assert.match(
     t,
-    /Affordable from in-store sales Affordable from concession sales Catering booked Catering estimated, not yet booked Marketing booked Marketing estimated, not yet booked Coverage \(store hours, one person\)/,
+    /Affordable from in-store sales Affordable from concession sales Catering booked Catering estimated, not yet booked Marketing booked Marketing estimated, not yet booked Coverage \(staffed hours, one person\)/,
   );
   assert.match(t, /Show numbers/);
   assert.doesNotMatch(t, /Catering last year Notes/, "the table waits for Show numbers");
+});
+
+test("the method says coverage is staffed hours, one person, and how they are made", () => {
+  const t = text(render({}));
+  assert.match(t, /Coverage \(the dashed line\) = staffed hours, one person:/);
+  assert.match(t, /open-up minutes before opening and the close-down minutes after closing/);
+  assert.match(t, /against the hours the store is staffed/);
+  assert.doesNotMatch(t, /\u2014/, "no em dashes");
 });
 
 test("a week with a number not available says what it needs, never zero", () => {

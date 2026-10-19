@@ -46,6 +46,7 @@ const WITH_GAP: ReminderSnapshot = {
   ],
   deals: [],
   dealShifts: [],
+  staffing: [],
 };
 const NO_GAP: ReminderSnapshot = { ...WITH_GAP, storeHours: [] };
 

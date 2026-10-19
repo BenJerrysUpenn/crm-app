@@ -739,7 +739,7 @@ export function LaborPlanningWidget({ data, settings }: { data: MetricsData; set
   return (
     <div>
       <Chart
-        title={`Target labor hours for the next ${weeks.length} weeks by their Sunday: affordable from sales, catering and marketing booked and still estimated, against the hours the store is open`}
+        title={`Target labor hours for the next ${weeks.length} weeks by their Sunday: affordable from sales, catering and marketing booked and still estimated, against the hours the store is staffed`}
         labels={weeks.map((w) => shortDay(w.start))}
         series={[
           { label: "Affordable from in-store sales", values: weeks.map((w) => w.inStoreHours.value), color: "in_store", stack: "target" },
@@ -748,7 +748,7 @@ export function LaborPlanningWidget({ data, settings }: { data: MetricsData; set
           { label: "Catering estimated, not yet booked", values: weeks.map((w) => w.estimatedHours.value), color: "orange", stack: "target" },
           { label: "Marketing booked", values: weeks.map((w) => w.marketingBookedHours), color: "marketing", stack: "target" },
           { label: "Marketing estimated, not yet booked", values: weeks.map((w) => w.marketingEstimatedHours.value), color: "marketing_light", stack: "target" },
-          { label: "Coverage (store hours, one person)", values: weeks.map((w) => w.coverageHours.value), color: "target", type: "line", dashed: true, stack: "coverage" },
+          { label: "Coverage (staffed hours, one person)", values: weeks.map((w) => w.coverageHours.value), color: "target", type: "line", dashed: true, stack: "coverage" },
         ]}
         format="hours"
         stacked
@@ -799,8 +799,9 @@ export function LaborPlanningWidget({ data, settings }: { data: MetricsData; set
           Marketing shifts once the time app took over.
         </p>
         <p>
-          Coverage (the dashed line) = the store&rsquo;s hours in force each day, from its season, for one person, summed over the
-          week. A closed day (on the Team page or the Targets tab, or a &ldquo;Business closed&rdquo; note on the schedule) projects no sales and
+          Coverage (the dashed line) = staffed hours, one person: the store&rsquo;s open hours in force each day, from its season,
+          plus the open-up minutes before opening and the close-down minutes after closing set on the Targets tab, summed over the
+          week. While those minutes are not set, coverage counts open hours only and the week&rsquo;s notes say so. A closed day (on the Team page or the Targets tab, or a &ldquo;Business closed&rdquo; note on the schedule) projects no sales and
           needs no cover. A day last year with no sales on file is the average of the same weekday in the nearest weeks either
           side that have sales; &ldquo;Show numbers&rdquo; names those days.
         </p>

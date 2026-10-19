@@ -50,6 +50,7 @@ function snapshot(over: Partial<ReminderSnapshot> = {}): ReminderSnapshot {
     shifts: [SAT_31_COVERED],
     deals: [],
     dealShifts: [],
+    staffing: [],
     ...over,
   };
 }
@@ -127,6 +128,33 @@ describe("store hours", () => {
   it("a season that closes a weekday needs nobody on it from its first day", () => {
     const closedSaturdays = [{ weekday: 6, is_closed: true, opens: null, closes: null, effective_from: "2026-10-18" }];
     expect(buildReminder(snapshot({ storeHours: [...SAT_HOURS, ...closedSaturdays], shifts: [] }), RUN_DATE)).toEqual([]);
+  });
+
+  // Staffed hours (bj-finance #742 follow-up, ruled 2026-10-19): the open
+  // hours plus the open-up minutes before and the close-down minutes after,
+  // as the Check week button measures them. The minutes here are invented.
+  const minutes = (key: string, value: number, effective_from = "2026-01-01") => ({
+    id: value + (key.includes("open_up") ? 1000 : 2000), key, value, effective_from, recorded_at: `${effective_from}T00:00:00Z`,
+  });
+
+  it("checks staffed hours: the open-up and close-down minutes either side of the open hours", () => {
+    const staffing = [minutes("staffing.open_up_minutes", 45), minutes("staffing.close_down_minutes", 15)];
+    expect(buildReminder(snapshot({ staffing }), RUN_DATE)).toEqual([
+      "Sat Oct 24, 1:15–6:15 PM",
+      "Sat Oct 31, 1:15–2:00 PM",
+      "Sat Oct 31, 6:00–6:15 PM",
+    ]);
+  });
+
+  it("uses the minutes in force on each day, and open hours before any are set", () => {
+    const staffing = [minutes("staffing.open_up_minutes", 45, "2026-10-25"), minutes("staffing.close_down_minutes", 0, "2026-10-25")];
+    expect(buildReminder(snapshot({ staffing }), RUN_DATE)).toEqual(["Sat Oct 24, 2:00–6:00 PM", "Sat Oct 31, 1:15–2:00 PM"]);
+  });
+
+  it("a closed day stays closed whatever the minutes", () => {
+    const staffing = [minutes("staffing.open_up_minutes", 45), minutes("staffing.close_down_minutes", 45)];
+    const exceptions = [{ date: "2026-10-24", is_closed: true }];
+    expect(buildReminder(snapshot({ staffing, exceptions, shifts: [shift("2026-10-31T13:15:00-04:00", "2026-10-31T18:45:00-04:00")] }), RUN_DATE)).toEqual([]);
   });
 
   it("a weekday with no hours row is not checked", () => {
