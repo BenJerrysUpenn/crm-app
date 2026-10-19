@@ -41,8 +41,13 @@
 //
 // And a line:
 //
-//   Coverage hours     the store hours of the season in force each day
-//                      (resolveOpenWindow), one person, summed per week.
+//   Coverage hours     the staffed hours each day, one person, summed per
+//                      week: the open hours of the season in force
+//                      (resolveOpenWindow) widened by the open-up and
+//                      close-down minutes in force (staffedWindow). With
+//                      the minutes not set, the open hours, and the week's
+//                      notes say so. Sales projections and affordable hours
+//                      stay on open hours.
 //
 // Closed dates (a store-hours exception that closes the day, a "Business
 // closed" annotation, a weekday the season closes) project no in-store sales
@@ -59,7 +64,15 @@ import type { Derived, Trend } from "../controlBoard/math.ts";
 import { groupBy, inForce, type SalaryRow, type SettingRow } from "../controlBoard/settings.ts";
 import type { SalariedProfile } from "../controlBoard/load.ts";
 import { CATERING_POSITION, averageHourlyRate, type CateringBooking, type LaborPerson, type LaborShift } from "../controlBoard/schedule.ts";
-import { resolveOpenWindow, type ClosedDateRange, type StoreHoursException, type StoreHoursRow } from "../coverage.ts";
+import {
+  CLOSE_DOWN_WORDS,
+  OPEN_UP_WORDS,
+  resolveOpenWindow,
+  staffedWindow,
+  type ClosedDateRange,
+  type StoreHoursException,
+  type StoreHoursRow,
+} from "../coverage.ts";
 import { billedCrewHours, eventDay } from "./catering.ts";
 import { addDays, eachDay, nyDay, spanHours } from "./dates.ts";
 import { PLANNING_WEEKS } from "./planningWeeks.ts";
@@ -256,6 +269,16 @@ const missing = (...needs: string[]): Derived => ({ value: null, needs: [...new 
 /** How many weeks either way a missing last-year day looks for the same weekday with sales. */
 const FILL_REACH = 8;
 
+/** The week's note when coverage could not add the open-up or close-down minutes. */
+function staffingNote(missing: Set<string>): string | null {
+  const up = missing.has(OPEN_UP_WORDS);
+  const down = missing.has(CLOSE_DOWN_WORDS);
+  if (up && down) return `${OPEN_UP_WORDS} and ${CLOSE_DOWN_WORDS} not set on the Targets tab: coverage counts open hours only`;
+  if (up) return `${OPEN_UP_WORDS} not set on the Targets tab: coverage counts from opening time`;
+  if (down) return `${CLOSE_DOWN_WORDS} not set on the Targets tab: coverage counts to closing time`;
+  return null;
+}
+
 /** Last year's sales on `day`, or the average of the nearest same weekdays on file either side. */
 function lastYearSales(day: string, byDay: Map<string, number>): { value: number | null; filled: boolean } {
   const on = byDay.get(day);
@@ -387,6 +410,7 @@ export function laborHoursPlanning(i: LaborPlanningInputs): LaborPlanning {
     const dates = eachDay(start, end);
     const needs: string[] = [];
     const coverNeeds: string[] = [];
+    const staffingMissing = new Set<string>();
     const days: PlanningDay[] = dates.map((date) => {
       const lastYearDay = addDays(date, -364);
       const open = resolveOpenWindow(date, i.storeHours, i.exceptions, i.closedRanges);
@@ -403,9 +427,12 @@ export function laborHoursPlanning(i: LaborPlanningInputs): LaborPlanning {
       const inStoreHours = projectedInStore != null && rateOk ? (projectedInStore * goal.value!) / avgRate.value! : null;
       const concessionHours = rateOk ? (concessionSales * goal.value!) / avgRate.value! : null;
       const affordableHours = inStoreHours != null && concessionHours != null ? inStoreHours + concessionHours : null;
+      const staffed = staffedWindow(date, open, i.settings);
       let coverageHours: number | null = null;
-      if (open.state === "open") coverageHours = (open.closes - open.opens) / 60;
-      else if (closed) coverageHours = 0;
+      if (staffed.state === "open") {
+        coverageHours = (staffed.closes - staffed.opens) / 60;
+        for (const m of staffed.missing) staffingMissing.add(m);
+      } else if (closed) coverageHours = 0;
       else coverNeeds.push(`store hours for ${date}`);
       return {
         date,
@@ -437,6 +464,8 @@ export function laborHoursPlanning(i: LaborPlanningInputs): LaborPlanning {
 
     // Booked catering.
     const notes: string[] = [];
+    const staffingWords = staffingNote(staffingMissing);
+    if (staffingWords) notes.push(staffingWords);
     let bookedHours = 0;
     if (i.bookings == null) notes.push("catering bookings could not be read: booked hours count none");
     for (const b of i.bookings ?? []) {

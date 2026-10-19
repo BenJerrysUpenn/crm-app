@@ -16,6 +16,7 @@
 // enter every value. Pure, so `node --test` runs it and the routes, the page
 // and the local preview validate identically.
 
+import { formatClock, formatMinutes, parseTime, staffedWindow, type StaffingSettingRow } from "../coverage.ts";
 import { holidaysForYear } from "../holidays.ts";
 import { fmtStoreTime, parseSpan, WEEKDAY_NAMES } from "../storeHours.ts";
 import type { StoreHoursException, StoreHoursSeason } from "../types.ts";
@@ -124,15 +125,47 @@ function andList(words: string[]): string {
   return words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
 }
 
-/** A season's hours in words: "1:00 PM to 9:00 PM, closed Monday". */
-export function seasonWords(s: Season): string {
+/** What a season's staffed hours are read with: the minutes rows, on a day. */
+export type StaffedAsOf = { rows: StaffingSettingRow[]; asOf: string };
+
+const clock = (minutes: number) => formatClock(formatMinutes(minutes));
+
+/** "Open 1:00 PM to 9:00 PM, staffed 12:15 PM to 9:15 PM", and the minutes missing that day. */
+function bothWindows(opens: string | null, closes: string | null, staffed: StaffedAsOf, lead: string): { words: string; missing: string[] } {
+  const o = parseTime(opens);
+  const c = parseTime(closes);
+  if (o == null || c == null || c <= o) return { words: `${lead} ${hoursWords(opens, closes)}`, missing: [] };
+  const w = staffedWindow(staffed.asOf, { state: "open", opens: o, closes: c, source: "weekday" }, staffed.rows);
+  if (w.state !== "open") return { words: `${lead} ${hoursWords(opens, closes)}`, missing: [] };
+  return { words: `${lead} ${hoursWords(opens, closes)}, staffed ${clock(w.opens)} to ${clock(w.closes)}`, missing: w.missing };
+}
+
+/**
+ * A season's hours in words, both windows: "Open 1:00 PM to 9:00 PM, staffed
+ * 12:15 PM to 9:15 PM, closed Monday", the minutes those in force on
+ * `staffed.asOf` (staffedWindow in lib/coverage.ts), and the minutes not set
+ * named at the end.
+ */
+export function seasonWords(s: Season, staffed: StaffedAsOf): string {
   if (s.closedWeekdays.length === 7) return "closed every day";
+  const missing = new Set<string>();
+  let words: string;
   if (s.mixed) {
-    return s.rows.map((r) => `${WEEKDAY_NAMES[r.weekday].slice(0, 3)} ${r.is_closed ? "closed" : hoursWords(r.opens, r.closes)}`).join(", ");
+    words = s.rows
+      .map((r) => {
+        const day = WEEKDAY_NAMES[r.weekday].slice(0, 3);
+        if (r.is_closed) return `${day} closed`;
+        const b = bothWindows(r.opens, r.closes, staffed, `${day} open`);
+        b.missing.forEach((m) => missing.add(m));
+        return b.words;
+      })
+      .join("; ");
+  } else {
+    const b = bothWindows(s.opens, s.closes, staffed, "Open");
+    b.missing.forEach((m) => missing.add(m));
+    words = s.closedWeekdays.length === 0 ? `${b.words}, every day` : `${b.words}, closed ${andList(s.closedWeekdays.map((d) => WEEKDAY_NAMES[d]))}`;
   }
-  const hours = hoursWords(s.opens, s.closes);
-  if (s.closedWeekdays.length === 0) return `${hours} every day`;
-  return `${hours}, closed ${andList(s.closedWeekdays.map((d) => WEEKDAY_NAMES[d]))}`;
+  return missing.size ? `${words} (${andList([...missing].map((m) => m.replace(/ minutes$/, "")))} minutes not set)` : words;
 }
 
 /** A season's seven rows again, as a save writes them. */

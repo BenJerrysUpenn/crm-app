@@ -374,6 +374,45 @@ test("coverage hours = the store hours of the season in force, one person, summe
   assert.equal(first({ storeHours: [] }).coverageHours.value, null, "hours never set are not zero");
 });
 
+test("coverage hours are staffed hours: the open hours plus open-up and close-down minutes in force each day", () => {
+  // Invented minutes: 45 before opening and 15 after closing make 11 open hours 12 staffed ones.
+  const staffing = [row("staffing.open_up_minutes", 45), row("staffing.close_down_minutes", 15)];
+  const w = first({ settings: [...BOARD, ...staffing] });
+  close(w.days[0].coverageHours, 12);
+  close(w.coverageHours.value, 7 * 12);
+  assert.ok(!w.notes.some((n) => /open-up|close-down/.test(n)), "no note once both are set");
+  // Longer minutes from Wednesday: 75 before and 15 after, 12.5 hours.
+  const later = first({ settings: [...BOARD, ...staffing, row("staffing.open_up_minutes", 75, {}, "2030-10-16")] });
+  close(later.days[2].coverageHours, 12, "Tuesday: the first minutes");
+  close(later.days[3].coverageHours, 12.5, "Wednesday: the later minutes");
+  // A closed day stays closed.
+  const closed = first({ settings: [...BOARD, ...staffing], exceptions: [{ date: "2030-10-15", is_closed: true }] });
+  close(closed.days[2].coverageHours, 0);
+});
+
+test("staffed hours change coverage only: projected sales and affordable hours stay on open hours", () => {
+  const staffing = [row("staffing.open_up_minutes", 45), row("staffing.close_down_minutes", 15)];
+  const staffed = first({ settings: [...BOARD, ...staffing] });
+  // The open-hours figures from "affordable hours = ...": 1,100 a day projected, 220 / 15 hours a day afforded.
+  close(staffed.projectedInStore, 7 * 1_100);
+  close(staffed.affordableHours.value, (7 * 220) / 15);
+});
+
+test("with the minutes not set, coverage falls back to open hours and the week's notes say so", () => {
+  const w = first();
+  close(w.coverageHours.value, 7 * 11);
+  assert.ok(
+    w.notes.includes("open-up minutes and close-down minutes not set on the Targets tab: coverage counts open hours only"),
+    w.notes.join(" | "),
+  );
+  const half = first({ settings: [...BOARD, row("staffing.close_down_minutes", 15)] });
+  close(half.coverageHours.value, 7 * 11.25);
+  const otherHalf = first({ settings: [...BOARD, row("staffing.open_up_minutes", 45)] });
+  close(otherHalf.coverageHours.value, 7 * 11.75);
+  assert.ok(otherHalf.notes.includes("close-down minutes not set on the Targets tab: coverage counts to closing time"), otherHalf.notes.join(" | "));
+  assert.ok(half.notes.includes("open-up minutes not set on the Targets tab: coverage counts from opening time"), half.notes.join(" | "));
+});
+
 // ---------------------------------------------------------------------------
 // Last year's catering hours: the loaded history, then the CRM's shifts
 // ---------------------------------------------------------------------------

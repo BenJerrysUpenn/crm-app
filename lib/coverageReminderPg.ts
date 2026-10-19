@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { addDays } from "../time-app/lib/coverage";
+import { STAFFING_KEYS, addDays } from "../time-app/lib/coverage";
 import type {
   RecipientRow,
   ReminderDeal,
@@ -17,9 +17,10 @@ import type { ReminderStore } from "@/lib/coverageReminderCli";
 // The store-hours reads mirror time-app/lib/weekCoverage.ts, the "Check week"
 // button's loader: store_hours and its seasons (store_hours_seasons, migration
 // 47), store_hours_exceptions, shift_types, shifts with two days of lead-in,
-// and "Business closed" annotations. Unlike the
-// button, a failed annotations read fails the run: a reminder that quietly
-// lists closed days is worse than one that reports it could not run.
+// "Business closed" annotations, and the open-up and close-down minutes
+// (control_settings, migration 43). Unlike the button, a failed annotations
+// read fails the run: a reminder that quietly lists closed days is worse than
+// one that reports it could not run.
 //
 // Every row comes back through to_json(), so values arrive as PostgREST gives
 // them to the web app: bigint as a JSON number, timestamptz as an ISO string,
@@ -80,6 +81,18 @@ function pgReminderStore(sql: postgres.TransactionSql): ReminderStore {
             ) s`)
         : [];
 
+      // The open-up and close-down minutes (bj-finance #742 follow-up): every
+      // dated row, staffedWindow picks the one in force each day. Before
+      // migration 43 there are none, and the store is checked on open hours.
+      const [{ board }] = await sql<{ board: boolean }[]>`select to_regclass('public.control_settings') is not null as board`;
+      const staffing = board
+        ? await jsonRows<ReminderSnapshot["staffing"][number]>(sql`
+            select to_json(c) as row from (
+              select id, key, value::float8 as value, effective_from, recorded_at from public.control_settings
+              where key in ${sql([...STAFFING_KEYS])}
+            ) c`)
+        : [];
+
       const dealIds = deals.map((d) => d.id);
       const dealShifts =
         dealIds.length === 0
@@ -98,6 +111,7 @@ function pgReminderStore(sql: postgres.TransactionSql): ReminderStore {
         closedRanges,
         deals,
         dealShifts,
+        staffing,
       };
     },
 

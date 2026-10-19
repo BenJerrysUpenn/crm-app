@@ -67,8 +67,19 @@ function seed(shifts: Record<string, unknown>[], annotations: Record<string, unk
     shifts,
     annotations,
     notifications: [],
+    // Zero open-up and close-down minutes: staffed hours are the open hours,
+    // so the tests above the staffed-hours section read as open-hours checks.
+    control_settings: [minutes("staffing.open_up_minutes", 0), minutes("staffing.close_down_minutes", 0)],
   });
   db.signIn(MANAGER);
+}
+
+let settingId = 1;
+function minutes(key: string, value: number, effective_from = "2026-01-01") {
+  return {
+    id: settingId++, key, value, detail: {}, effective_from, review_by: "2027-12-31", source: "invented", method: null,
+    recorded_by: null, recorded_at: `${effective_from}T00:00:00Z`,
+  };
 }
 
 beforeEach(() => seed(fullyCoveredWeek()));
@@ -81,7 +92,7 @@ async function run(weekStart = WEEK) {
 test("a fully covered week has no gaps", async () => {
   const { status, body } = await run();
   assert.equal(status, 200);
-  assert.deepEqual(body, { gaps: [], hoursNotSet: [] });
+  assert.deepEqual(body, { gaps: [], hoursNotSet: [], staffingNotSet: [] });
 });
 
 test("a missing closer is reported as the uncovered stretch of that day", async () => {
@@ -121,7 +132,7 @@ test("a weekday with no store hours is listed as not set, not as a gap", async (
   db.tables.store_hours = db.tables.store_hours.filter((h) => h.weekday !== 2);
   const { status, body } = await run();
   assert.equal(status, 200);
-  assert.deepEqual(body, { gaps: [], hoursNotSet: [{ date: TUE, weekday: 2 }] });
+  assert.deepEqual(body, { gaps: [], hoursNotSet: [{ date: TUE, weekday: 2 }], staffingNotSet: [] });
 });
 
 test("before the store-hours migration the answer is store_hours_not_set_up", async () => {
@@ -155,7 +166,7 @@ test("a failed Business-closed read still runs the check", async () => {
   try {
     const { status, body } = await run();
     assert.equal(status, 200);
-    assert.deepEqual(body, { gaps: [], hoursNotSet: [] });
+    assert.deepEqual(body, { gaps: [], hoursNotSet: [], staffingNotSet: [] });
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -243,7 +254,7 @@ test("a season in force shortens the hours the week must cover", async () => {
   db.tables.store_hours_seasons = earlySeason(TUE);
   const { status, body } = await run();
   assert.equal(status, 200);
-  assert.deepEqual(body, { gaps: [], hoursNotSet: [] });
+  assert.deepEqual(body, { gaps: [], hoursNotSet: [], staffingNotSet: [] });
 });
 
 test("a season that starts after the day leaves that day on the weekly hours", async () => {
@@ -266,6 +277,69 @@ test("a failed seasons read is never reported as covered", async () => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(new Request(input, init).url);
     if (url.pathname === "/rest/v1/store_hours_seasons") return new Response(JSON.stringify({ message: "timeout" }), { status: 500 });
+    return realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const { status, body } = await run();
+    assert.equal(status, 503);
+    assert.equal(body.error, "coverage_unavailable");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// --- Staffed hours (bj-finance #742 follow-up, ruled 2026-10-19) -------------
+// Cover is measured against staffed hours: the open hours plus the open-up
+// minutes before and the close-down minutes after, from the Targets tab.
+// Unset, the check falls back to open hours and names the days it did so.
+
+test("the week must be covered for its staffed hours: open-up before opening and close-down after closing", async () => {
+  seed(fullyCoveredWeek());
+  db.tables.control_settings = [minutes("staffing.open_up_minutes", 45), minutes("staffing.close_down_minutes", 15)];
+  const { status, body } = await run();
+  assert.equal(status, 200);
+  assert.equal(body.gaps.length, 14);
+  assert.deepEqual(body.gaps.filter((g: { date: string }) => g.date === TUE), [
+    { date: TUE, from: "11:15", to: "12:00" },
+    { date: TUE, from: "22:00", to: "22:15" },
+  ]);
+  assert.deepEqual(body.staffingNotSet, []);
+});
+
+test("minutes dated after a day leave that day on its open hours, as the board reads them", async () => {
+  seed(fullyCoveredWeek());
+  db.tables.control_settings = [minutes("staffing.open_up_minutes", 45, "2026-10-09"), minutes("staffing.close_down_minutes", 0)];
+  const { body } = await run();
+  assert.deepEqual(body.gaps, [
+    { date: "2026-10-09", from: "11:15", to: "12:00" },
+    { date: "2026-10-10", from: "11:15", to: "12:00" },
+  ]);
+  assert.deepEqual(body.staffingNotSet, DATES.slice(0, 5));
+});
+
+test("with no minutes set the check covers open hours and says which days it did so", async () => {
+  seed(fullyCoveredWeek());
+  db.tables.control_settings = [];
+  const { status, body } = await run();
+  assert.equal(status, 200);
+  assert.deepEqual(body.gaps, []);
+  assert.deepEqual(body.staffingNotSet, DATES);
+});
+
+test("before migration 43 there are no minutes: open hours stand", async () => {
+  seed(fullyCoveredWeek());
+  db.missingTables.push("control_settings");
+  const { status, body } = await run();
+  assert.equal(status, 200);
+  assert.deepEqual(body.gaps, []);
+  assert.deepEqual(body.staffingNotSet, DATES);
+});
+
+test("a failed read of the minutes is never reported as covered", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(new Request(input, init).url);
+    if (url.pathname === "/rest/v1/control_settings") return new Response(JSON.stringify({ message: "timeout" }), { status: 500 });
     return realFetch(input, init);
   }) as typeof fetch;
   try {

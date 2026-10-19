@@ -1,13 +1,15 @@
 // The store-coverage check for one week, against the live schedule: load the
-// opening hours, closures, shift types and live shifts, then hand them to the
-// pure check in lib/coverage.ts. Read-only: it selects and never writes.
+// open hours, the open-up and close-down minutes, closures, shift types and
+// live shifts, then hand them to the pure check in lib/coverage.ts, which
+// measures cover against staffed hours. Read-only: it selects and never writes.
 //
 // The "Check week" button on the schedule board runs this (via
-// GET /api/schedule/check-week). It used to run inside "Publish week", which
-// went away with drafts (PR #58).
+// GET /api/schedule/check-week). Shifts are written live, so the check is
+// something a manager asks for, not a gate on publishing.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  STAFFING_KEYS,
   addDays,
   checkWeekCoverage,
   shiftsTouchingWeek,
@@ -15,6 +17,7 @@ import {
   type CoverageResult,
   type CoverageShift,
   type ShiftTypeCoverage,
+  type StaffingSettingRow,
   type StoreHoursException,
   type StoreHoursRow,
 } from "@/lib/coverage";
@@ -22,7 +25,7 @@ import { isMissingInStoreColumn, isMissingTable } from "@/lib/storeHours";
 import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons";
 
 /**
- *  - "ok"            — the check ran; `gaps` empty means every opening hour is covered.
+ *  - "ok"            — the check ran; `gaps` empty means every staffed hour is covered.
  *  - "not_migrated"  — migration 24 (store hours) is not applied, so there is nothing to check against.
  *  - "unavailable"   — a read failed. Never reported as a pass.
  */
@@ -40,7 +43,7 @@ export async function checkLiveWeekCoverage(supabase: SupabaseClient, weekStart:
   const qEnd = addDays(weekStart, 8) + "T00:00:00Z";
 
   try {
-    const [hours, exceptions, types, shifts, closed, seasons] = await Promise.all([
+    const [hours, exceptions, types, shifts, closed, seasons, staffing] = await Promise.all([
       supabase.from("store_hours").select("weekday, is_closed, opens, closes"),
       supabase
         .from("store_hours_exceptions")
@@ -68,6 +71,10 @@ export async function checkLiveWeekCoverage(supabase: SupabaseClient, weekStart:
       // Store-hours seasons (migration 47): the season in force on each date
       // replaces the weekly pattern. None before the migration.
       loadStoreHoursSeasons(supabase),
+      // The open-up and close-down minutes (control_settings, migration 43),
+      // every dated row: staffedWindow picks the one in force each day. None
+      // before the migration, and then the check covers open hours.
+      supabase.from("control_settings").select("id, key, value, effective_from, recorded_at").in("key", [...STAFFING_KEYS]),
     ]);
 
     const notMigrated =
@@ -77,7 +84,8 @@ export async function checkLiveWeekCoverage(supabase: SupabaseClient, weekStart:
       (exceptions.error && !isMissingTable(exceptions.error)) ||
       (types.error && !isMissingInStoreColumn(types.error)) ||
       shifts.error ||
-      seasons.error;
+      seasons.error ||
+      (staffing.error && !isMissingTable(staffing.error));
     if (otherFailure) return { status: "unavailable" };
     if (notMigrated) return { status: "not_migrated" };
 
@@ -93,6 +101,10 @@ export async function checkLiveWeekCoverage(supabase: SupabaseClient, weekStart:
       })) satisfies ShiftTypeCoverage[],
       shifts: shiftsTouchingWeek((shifts.data ?? []) as CoverageShift[], weekStart),
       closedRanges: closed.error ? [] : ((closed.data ?? []) as ClosedDateRange[]),
+      // PostgREST returns numeric columns as strings.
+      staffing: staffing.error
+        ? []
+        : ((staffing.data ?? []) as StaffingSettingRow[]).map((r) => ({ ...r, value: Number(r.value) })),
     });
     return { status: "ok", ...result };
   } catch {

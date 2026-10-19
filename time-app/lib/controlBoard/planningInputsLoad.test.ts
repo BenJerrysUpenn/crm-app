@@ -49,6 +49,41 @@ test("the inputs read as numbers, and closed days from today on", async () => {
   assert.deepEqual(d.exceptions.map((e) => e.date), ["2030-11-28"]);
 });
 
+test("the open-up and close-down minutes are read for the seasons' staffed hours, as numbers, and no other board value", async () => {
+  db.tables.control_settings = [
+    { id: 1, key: "staffing.open_up_minutes", value: "20", detail: {}, effective_from: "2030-01-01", ...NOTE },
+    { id: 2, key: "staffing.close_down_minutes", value: "10", detail: {}, effective_from: "2030-01-01", ...NOTE },
+    { id: 3, key: "target.payroll_pct", value: "0.5", detail: {}, effective_from: "2030-01-01", ...NOTE },
+  ];
+  const d = await loadPlanningInputs(createClient(), TODAY);
+  assert.deepEqual(d.staffing.map((r) => [r.key, r.value]), [["staffing.open_up_minutes", 20], ["staffing.close_down_minutes", 10]]);
+  assert.deepEqual(d.problems, []);
+});
+
+test("before migration 43 there are no minutes, and nothing is wrong", async () => {
+  db.missingTables.push("control_settings");
+  const d = await loadPlanningInputs(createClient(), TODAY);
+  assert.deepEqual(d.staffing, []);
+  assert.deepEqual(d.problems, []);
+});
+
+test("a failed read of the minutes is named as a problem, and the seasons still read", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(new Request(input, init).url);
+    if (url.pathname === "/rest/v1/control_settings") return new Response(JSON.stringify({ message: "timeout" }), { status: 500 });
+    return realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const d = await loadPlanningInputs(createClient(), TODAY);
+    assert.deepEqual(d.staffing, []);
+    assert.deepEqual(d.problems, ["Open-up and close-down minutes could not be read: timeout"]);
+    assert.equal(d.seasons.length, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("before migration 47 the seasons and events say they need it; closed days still read", async () => {
   db.missingTables.push("store_hours_seasons", "concession_events");
   const d = await loadPlanningInputs(createClient(), TODAY);

@@ -135,7 +135,7 @@ export const METRICS: Record<MetricId, MetricDef> = {
     id: "labor_hours_planning",
     code: "W7",
     title: "Labor Hours Planning",
-    blurb: "Target labor hours for each week ahead, Sunday to Saturday, from last year's sales: what in-store and concession sales afford, catering and marketing booked and still expected, against the hours the store is open.",
+    blurb: "Target labor hours for each week ahead, Sunday to Saturday, from last year's sales: what in-store and concession sales afford, catering and marketing booked and still expected, against the hours the store is staffed.",
     periods: ["mtd"],
     defaultPeriod: "mtd",
     streams: false,

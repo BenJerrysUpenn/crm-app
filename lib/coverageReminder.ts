@@ -9,13 +9,15 @@ import {
   type ClosedDateRange,
   type CoverageShift,
   type ShiftTypeCoverage,
+  type StaffingSettingRow,
   type StoreHoursException,
   type StoreHoursRow,
 } from "../time-app/lib/coverage";
 import { BOOKED_STAGES } from "@/lib/cateringShifts";
 
 // The schedule coverage reminder (bj-finance #709): every Thursday and Friday
-// at noon, list every open store hour and every booked catering event in the
+// at noon, list every staffed store hour (open hours plus the open-up and
+// close-down minutes, bj-finance #742) and every booked catering event in the
 // next two Sun–Sat weeks that nobody is scheduled for. This file is the pure
 // part: rows in, email lines out. lib/coverageReminderCli.ts runs it;
 // lib/coverageReminderPg.ts reads the rows.
@@ -79,6 +81,11 @@ export type ReminderSnapshot = {
   deals: ReminderDeal[];
   /** Every shift on those deals. */
   dealShifts: ReminderDealShift[];
+  /**
+   * The open-up and close-down minutes (control_settings rows, any dates).
+   * None set: the store is checked against open hours.
+   */
+  staffing: StaffingSettingRow[];
 };
 
 /** "2:00–6:00 PM", or "11:00 AM–2:00 PM" when the halves of the day differ. */
@@ -137,6 +144,7 @@ export function buildReminder(snapshot: ReminderSnapshot, runDate: string): stri
       shiftTypes,
       shifts: shiftsTouchingWeek(published, weekStart),
       closedRanges: snapshot.closedRanges,
+      staffing: snapshot.staffing,
     });
     for (const gap of gaps) {
       lines.push({
