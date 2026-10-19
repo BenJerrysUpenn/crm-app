@@ -329,6 +329,30 @@ Sunday to Saturday weeks are the reader's grouping. Only the Labor vs target car
 migration before deploying that card, or it says it could not load. Verify with `migration_46_verify.sql`; roll back with
 `migration_46_down.sql`.
 
+### Labor Hours Planning (bj-finance #742)
+Apply `time-app/supabase/migration_47.sql` by hand in the Supabase SQL editor, after migration 46, BEFORE
+deploying the app that reads it. Schema only (this repo is public: owners enter every hour, sales figure and
+event date). It adds `store_hours_seasons` (opening hours from a first day until the next season starts, one
+row per weekday), `concession_events` (dated revisions per `event_key`, `cancelled` takes one off) and
+`catering_hours_history` (last year's raw Catering shift hours by day, `kind = 'marketing'` marking a
+marketing day; written from the Mac, never through the API). Owners write seasons and events on the Targets
+tab (`components/finance/targets/PlanningInputs.tsx`, routes under `/api/payroll/targets/`); managers set
+closed days and short hours there too, as `store_hours_exceptions` rows. Without the migration the readers
+see no seasons, events or history: every reader of `store_hours` (the schedule's coverage check, the
+coverage reminder, payroll verify, the Team page) takes the season in force on the date
+(`storeHoursFor` in `lib/coverage.ts`) and falls back to the standing `store_hours`. The Labor Hours
+Planning card on `/metrics` (`lib/metrics/laborPlanning.ts`, whose header defines every band) is
+the forward view: Labor vs target is the past, the Schedule page the present. Verify with
+`migration_47_verify.sql`; roll back with `migration_47_down.sql` (it drops every season, event and day of
+history).
+
+Local preview, before the migration is live: `LOCAL_PREVIEW=1 npm run dev` in `time-app/` serves
+`/dev/labor-hours-planning` with no sign-in, only when `NODE_ENV` is `development`
+(`previewEnabled`, `lib/localPreview.ts`). It reads production with SELECT only through `psql` on
+`DIRECT_DATABASE_URL`, and takes what migration 47 will hold from the files named by
+`LABOR_PLANNING_SEED` and `LABOR_PLANNING_HISTORY`, outside every repo; its editor saves to the seed file,
+never the database.
+
 ## Schedule coverage reminder (droplet command)
 Every Thursday and Friday at noon ET, emails the owners and on-schedule
 managers every open store hour and every booked catering event in the next two
