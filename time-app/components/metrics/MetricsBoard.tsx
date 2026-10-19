@@ -491,8 +491,7 @@ function ViewEditor({
 /** What a settings change says in the status line: the new range, or the new period. */
 function settingsNote(w: WidgetConfig, s: Partial<WidgetSettings>, data: MetricsData): string {
   if (METRICS[w.metric].weekRange && data.laborTarget && ("from" in s || "to" in s)) {
-    const lt = data.laborTarget;
-    return `weeks of ${rangeLabel(shownRange(s, lt.weeks.map((x) => x.start), lt.defaultRange))}`;
+    return `weeks of ${rangeLabel(shownRange(s, data.laborTarget))}`;
   }
   return PERIOD_LABEL[s.period ?? w.settings.period];
 }
@@ -507,7 +506,7 @@ function WeekRangePicker({
   onSettings: (s: Partial<WidgetSettings>) => void;
 }) {
   const starts = data.weeks.map((w) => w.start);
-  const range = shownRange(widget.settings, starts, data.defaultRange);
+  const range = shownRange(widget.settings, data);
   const pick = (end: "from" | "to", week: string) => onSettings(pickRange(range, end, week, data.defaultRange));
   const options = starts.map((d) => (
     <option key={d} value={d}>

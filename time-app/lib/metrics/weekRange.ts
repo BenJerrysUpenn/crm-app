@@ -77,15 +77,21 @@ export function savedRange(from: unknown, to: unknown, month: unknown): WeekRang
   return null;
 }
 
+/** The weeks a card can show (each named by its Sunday, oldest first) and the range it shows until one is chosen. */
+export type WeeksOnOffer = { weeks: { start: string }[]; defaultRange: WeekRange };
+
 /**
- * The range a card shows: the saved one cut to the weeks on offer (`starts`,
- * oldest first), or `fallback` when none is saved or none of it is on offer.
+ * The range a card shows: the saved one cut to the weeks on offer, or the
+ * offer's default range when none is saved or none of it is on offer.
  */
-export function shownRange(saved: Partial<WeekRange> | undefined, starts: string[], fallback: WeekRange): WeekRange {
+export function shownRange(saved: Partial<WeekRange> | undefined, offer: WeeksOnOffer): WeekRange {
+  const { weeks, defaultRange: fallback } = offer;
   const range = savedRange(saved?.from, saved?.to, undefined);
-  if (!range || !starts.length) return fallback;
-  const from = range.from < starts[0] ? starts[0] : range.from;
-  const to = range.to > starts[starts.length - 1] ? starts[starts.length - 1] : range.to;
+  if (!range || !weeks.length) return fallback;
+  const first = weeks[0].start;
+  const last = weeks[weeks.length - 1].start;
+  const from = range.from < first ? first : range.from;
+  const to = range.to > last ? last : range.to;
   return from <= to ? { from, to } : fallback;
 }
 

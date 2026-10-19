@@ -554,7 +554,7 @@ export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; r
 export function LaborTargetWidget({ data, settings }: { data: MetricsData; settings: WidgetSettings }) {
   const lt = data.laborTarget;
   if (!lt) return <CouldNotLoad what="hourly payroll, daily sales or the control board" />;
-  const range = shownRange(settings, lt.weeks.map((w) => w.start), lt.defaultRange);
+  const range = shownRange(settings, lt);
   const weeks = lt.weeks.filter((w) => w.start >= range.from && w.start <= range.to);
   const goals = [...new Set(weeks.map((w) => w.allInGoalPct.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
   const unavailable = weeks.filter((w) => !w.available);

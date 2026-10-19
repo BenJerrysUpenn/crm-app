@@ -56,20 +56,20 @@ test("a saved range is two Sundays in order; an old month reads as that month's 
 });
 
 test("the range shown is the saved one cut to the weeks on offer, else the default", () => {
-  const starts = laborWeekStarts("2026-10-18");
   const fallback = defaultLaborRange("2026-10-18");
-  assert.deepEqual(shownRange({}, starts, fallback), fallback);
-  assert.deepEqual(shownRange(undefined, starts, fallback), fallback);
-  assert.deepEqual(shownRange({ from: "2026-05-03", to: "2026-10-04" }, starts, fallback), { from: "2026-05-03", to: "2026-10-04" });
+  const offer = { weeks: laborWeekStarts("2026-10-18").map((start) => ({ start })), defaultRange: fallback };
+  assert.deepEqual(shownRange({}, offer), fallback);
+  assert.deepEqual(shownRange(undefined, offer), fallback);
+  assert.deepEqual(shownRange({ from: "2026-05-03", to: "2026-10-04" }, offer), { from: "2026-05-03", to: "2026-10-04" });
   // An old month from before the first week is cut to start at it.
-  assert.deepEqual(shownRange({ from: "2026-04-05", to: "2026-05-24" }, starts, fallback), { from: "2026-05-03", to: "2026-05-24" });
+  assert.deepEqual(shownRange({ from: "2026-04-05", to: "2026-05-24" }, offer), { from: "2026-05-03", to: "2026-05-24" });
   // Past this week: cut to it.
-  assert.deepEqual(shownRange({ from: "2026-10-04", to: "2026-11-29" }, starts, fallback), { from: "2026-10-04", to: "2026-10-18" });
+  assert.deepEqual(shownRange({ from: "2026-10-04", to: "2026-11-29" }, offer), { from: "2026-10-04", to: "2026-10-18" });
   // Nothing of it on offer: the default.
-  assert.deepEqual(shownRange({ from: "2025-11-02", to: "2025-11-30" }, starts, fallback), fallback);
-  assert.deepEqual(shownRange({ from: "2026-05-04", to: "2026-06-01" }, starts, fallback), fallback);
+  assert.deepEqual(shownRange({ from: "2025-11-02", to: "2025-11-30" }, offer), fallback);
+  assert.deepEqual(shownRange({ from: "2026-05-04", to: "2026-06-01" }, offer), fallback);
   // No weeks on offer at all: the default, never the saved range uncut.
-  assert.deepEqual(shownRange({ from: "2026-05-03", to: "2026-10-04" }, [], fallback), fallback);
+  assert.deepEqual(shownRange({ from: "2026-05-03", to: "2026-10-04" }, { weeks: [], defaultRange: fallback }), fallback);
 });
 
 test("the picker moves the other end when the two would cross, and saves the default as unset", () => {
