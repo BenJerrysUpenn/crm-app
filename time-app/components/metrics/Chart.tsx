@@ -18,7 +18,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import type { Chart as ChartType, ChartConfiguration } from "chart.js";
 import { placeGapMarks } from "@/lib/metrics/gapMarks";
 
-export type SeriesColor = "in_store" | "catering" | "concessions" | "orange" | "target" | "serious" | "other";
+export type SeriesColor = "in_store" | "catering" | "concessions" | "orange" | "marketing" | "marketing_light" | "target" | "serious" | "other";
 export type ValueFormat = "money" | "count" | "hours" | "ratio" | "pct";
 
 export type Series = {
@@ -48,6 +48,8 @@ const VAR: Record<SeriesColor, string> = {
   orange: "--m-series-2",
   catering: "--m-series-3",
   concessions: "--m-series-4",
+  marketing: "--m-series-7",
+  marketing_light: "--m-series-7-light",
   target: "--m-target",
   serious: "--m-serious",
   other: "--m-other",

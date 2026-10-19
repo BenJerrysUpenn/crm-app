@@ -547,3 +547,41 @@ test("gaps read as plain English", () => {
     "Sat Sep 26: nobody in store 12:00 AM to 2:00 AM",
   );
 });
+
+// --- Store-hours seasons (bj-finance #742) -------------------------------------
+// A season is the weekday pattern again with an `effective_from` date: from
+// that date the season's row for the weekday is the one in force. Rows with
+// no date are the standing pattern (public.store_hours) and apply before the
+// first season, so nothing changes for dates before it.
+
+test("resolveOpenWindow: a season's row takes over its weekday from its effective date, never before", () => {
+  const winter = everyDay("13:00:00", "21:00:00").map((r) => ({ ...r, effective_from: "2026-09-23" }));
+  const hours = [...everyDay(), ...winter];
+  assert.deepEqual(resolveOpenWindow(TUE, hours, []), { state: "open", opens: 540, closes: 1020, source: "weekday" }, "the day before: the standing pattern");
+  assert.deepEqual(resolveOpenWindow("2026-09-23", hours, []), { state: "open", opens: 780, closes: 1260, source: "weekday" }, "from the date: the season");
+  assert.deepEqual(resolveOpenWindow(TUE, everyDay(), []), resolveOpenWindow(TUE, hours, []), "before the first season, as if there were none");
+});
+
+test("resolveOpenWindow: the latest season on or before the date wins, and a later one ends it", () => {
+  const season = (from: string, opens: string) => everyDay(opens, "21:00:00").map((r) => ({ ...r, effective_from: from }));
+  const hours = [...season("2030-10-01", "13:00:00"), ...everyDay(), ...season("2031-04-01", "10:00:00"), ...season("2031-10-01", "13:00:00")];
+  const opensAt = (d: string) => {
+    const w = resolveOpenWindow(d, hours, []);
+    return w.state === "open" ? w.opens : null;
+  };
+  assert.equal(opensAt("2030-09-30"), 540, "before any season");
+  assert.equal(opensAt("2030-10-01"), 780, "winter");
+  assert.equal(opensAt("2031-03-31"), 780, "still winter");
+  assert.equal(opensAt("2031-04-01"), 600, "summer");
+  assert.equal(opensAt("2031-10-01"), 780, "winter again");
+});
+
+test("resolveOpenWindow: a season closes a weekday; exceptions and closures still win over a season", () => {
+  const hours = [...everyDay(), { weekday: 2, is_closed: true, opens: null, closes: null, effective_from: "2026-09-01" }];
+  assert.deepEqual(resolveOpenWindow(TUE, hours, []), { state: "closed", source: "weekday" });
+  const open = [...everyDay(), ...everyDay("13:00:00", "21:00:00").map((r) => ({ ...r, effective_from: "2026-09-01" }))];
+  assert.deepEqual(
+    resolveOpenWindow(TUE, open, [{ date: TUE, label: "Snow", is_closed: true, opens: null, closes: null }]),
+    { state: "closed", source: "exception", label: "Snow" },
+  );
+});

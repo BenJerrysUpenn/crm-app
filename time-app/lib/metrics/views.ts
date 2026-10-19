@@ -10,6 +10,7 @@
 import { METRICS, METRIC_IDS, PERIODS, type MetricId, type Period, type WidgetConfig, type WidgetSettings } from "./widgets.ts";
 import { STREAMS, type StreamFilter } from "./targets.ts";
 import { savedRange } from "./weekRange.ts";
+import { planningWeekCount } from "./planningWeeks.ts";
 
 export const MAX_WIDGETS = 24;
 export const MAX_NAME = 60;
@@ -70,6 +71,7 @@ export function cleanSettings(metric: MetricId, raw: unknown): WidgetSettings {
     const range = savedRange(r.from, r.to, r.month);
     if (range) Object.assign(out, range);
   }
+  if (def.weeksAhead) out.weeks = planningWeekCount(r.weeks);
   return out;
 }
 

@@ -16,13 +16,39 @@
 
 export const COVERAGE_TZ = "America/New_York";
 
-/** One row of the weekly pattern. weekday: 0 = Sunday … 6 = Saturday. */
+/**
+ * One row of the weekly pattern. weekday: 0 = Sunday … 6 = Saturday.
+ *
+ * `effective_from` marks a row of a store-hours SEASON (public.
+ * store_hours_seasons, migration 47; bj-finance #742): from that date it is
+ * the row for its weekday, until a later season's. A row with no date is the
+ * standing pattern (public.store_hours) and applies before the first season,
+ * so a reader that passes no season rows gets the standing pattern alone.
+ */
 export type StoreHoursRow = {
   weekday: number;
   is_closed: boolean;
   opens: string | null;
   closes: string | null;
+  effective_from?: string | null;
 };
+
+/**
+ * The row in force for `date`'s weekday: the season row with the latest
+ * effective_from on or before the date, else the standing row, else none.
+ */
+export function storeHoursFor<R extends StoreHoursRow>(date: string, storeHours: R[]): R | undefined {
+  const weekday = weekdayOf(date);
+  let best: R | undefined;
+  for (const r of storeHours) {
+    if (r.weekday !== weekday) continue;
+    const from = r.effective_from ?? null;
+    if (from != null && from > date) continue;
+    const bestFrom = best?.effective_from ?? null;
+    if (!best || (from != null && (bestFrom == null || from > bestFrom))) best = r;
+  }
+  return best;
+}
 
 /** A one-off date: a holiday closure or special hours. */
 export type StoreHoursException = {
@@ -170,7 +196,8 @@ export function nyWallClock(iso: string): { date: string; minutes: number } {
  *     exception row says so. It also beats "hours not set" — an annotated
  *     closure is an answer, so the day is not reported as missing hours.
  *  2. An exception row for that date — closed, or the special hours it carries.
- *  3. The weekday pattern.
+ *  3. The weekday pattern: the season in force on the date, else the
+ *     standing pattern (storeHoursFor).
  *
  * No weekday row at all means "unset", never "closed". A row that claims to be
  * open but carries unusable times is treated as unset too, because we genuinely
@@ -194,8 +221,7 @@ export function resolveOpenWindow(
     return { state: "open", opens, closes, source: "exception", label: exception.label ?? null };
   }
 
-  const weekday = weekdayOf(date);
-  const row = storeHours.find((r) => r.weekday === weekday);
+  const row = storeHoursFor(date, storeHours);
   if (!row) return { state: "unset" };
   if (row.is_closed) return { state: "closed", source: "weekday" };
   const opens = parseTime(row.opens);

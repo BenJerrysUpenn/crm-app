@@ -158,6 +158,18 @@ export type StoreHours = {
   updated_at: string | null;
 };
 
+// One weekday of a store-hours season (migration 47, bj-finance #742): from
+// effective_from it replaces the normal pattern's row for its weekday, until a
+// later season's. Before the first season the normal pattern applies.
+export type StoreHoursSeason = {
+  effective_from: string; // "YYYY-MM-DD"
+  weekday: number;
+  name: string;
+  is_closed: boolean;
+  opens: string | null; // "HH:MM:SS"
+  closes: string | null;
+};
+
 // A one-off override for a single date: a holiday closure, or special hours.
 // Never changes the weekly pattern — delete the row and the date goes back to
 // its normal weekday hours.

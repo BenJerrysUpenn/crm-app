@@ -31,6 +31,7 @@ export const METRIC_IDS = [
   "forward_cash",
   "labour",
   "labor_vs_target",
+  "labor_hours_planning",
   "closed_month",
   "leads",
   "outreach",
@@ -52,6 +53,8 @@ export type MetricDef = {
   streams: boolean;
   /** Whether the widget is set to a chosen range of weeks (settings.from, settings.to) instead of a period. */
   weekRange?: boolean;
+  /** Whether the widget shows a number of weeks ahead from this one (settings.weeks, a slider). */
+  weeksAhead?: boolean;
   source: "crm" | "feed" | "mixed";
 };
 
@@ -128,6 +131,17 @@ export const METRICS: Record<MetricId, MetricDef> = {
     weekRange: true,
     source: "crm",
   },
+  labor_hours_planning: {
+    id: "labor_hours_planning",
+    code: "W7",
+    title: "Labor Hours Planning",
+    blurb: "Target labor hours for each week ahead, Sunday to Saturday, from last year's sales: what in-store and concession sales afford, catering and marketing booked and still expected, against the hours the store is open.",
+    periods: ["mtd"],
+    defaultPeriod: "mtd",
+    streams: false,
+    weeksAhead: true,
+    source: "crm",
+  },
   closed_month: {
     id: "closed_month",
     code: "Month",
@@ -177,6 +191,7 @@ export function blurbFor(def: MetricDef, period: Period): string {
 /**
  * `from` and `to` are the Sundays of the first and last week shown, for a
  * metric with `weekRange` (weekRange.ts); unset, it shows the default range.
+ * `weeks` is how many weeks ahead a `weeksAhead` metric shows (4 to 52).
  */
-export type WidgetSettings = { period: Period; stream?: StreamFilter; from?: string; to?: string };
+export type WidgetSettings = { period: Period; stream?: StreamFilter; from?: string; to?: string; weeks?: number };
 export type WidgetConfig = { id: string; metric: MetricId; settings: WidgetSettings };

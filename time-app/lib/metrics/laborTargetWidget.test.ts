@@ -59,7 +59,7 @@ const DEFAULT: WeekRange = { from: "2030-10-06", to: "2030-10-27" };
 function render(settings: Partial<WidgetSettings> & { month?: string }, laborTarget: MetricsData["laborTarget"] = { weeks: WEEKS, defaultRange: DEFAULT }): string {
   const data = {
     today: "2030-11-05", targets: [], catering: null, ar: null, labour: null, forward: null, leads: null, outreach: null, quotes: null,
-    laborTarget, feed: { status: "not_enabled" }, problems: [],
+    laborTarget, laborPlanning: null, feed: { status: "not_enabled" }, problems: [],
   } as MetricsData;
   // As the page loads a saved view: cleaned.
   const view = { id: "v1", name: "Labor", position: 0, widgets: cleanWidgets([{ id: "w1", metric: "labor_vs_target", settings: { period: "mtd", ...settings } }]) };

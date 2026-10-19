@@ -31,8 +31,10 @@
 // manager's own rows only, and two live views of one person cannot share a
 // name (23505). control_settings and profile_salaries (migration 43): a
 // manager reads, only an owner adds a row, nobody changes or removes one, and
-// the row is stamped with the caller and the database clock. Every other
-// table is readable by any signed-in caller.
+// the row is stamped with the caller and the database clock; concession_events
+// (migration 47) the same. store_hours_seasons (migration 47):
+// anyone signed in reads, only an owner writes. Every other table is readable
+// by any signed-in caller.
 //
 // Storage (migration 37's travel-reimbursements bucket) is faked too: signed
 // upload URLs, signed read URLs and downloads, under the bucket's policies
@@ -214,8 +216,11 @@ function isOwner(caller: Caller): boolean {
   return fake.tables.profiles?.some((p) => p.id === caller.id && p.role === "owner") ?? false;
 }
 
-// Migration 43: managers read, owners add, the API never changes or removes a row.
-const OWNER_ADDS = ["control_settings", "profile_salaries"];
+// Migrations 43 and 47: managers read, owners add, the API never changes or removes a row.
+const OWNER_ADDS = ["control_settings", "profile_salaries", "concession_events"];
+
+// Migration 47: everyone signed in reads, only an owner writes.
+const OWNER_WRITES = ["store_hours_seasons"];
 
 const OWN_ROWS: Record<string, string> = {
   time_entries: "employee_id",
@@ -244,7 +249,7 @@ function canWrite(table: string, caller: Caller): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
   if (table === "time_entries") return isManager(caller);
-  if (OWNER_ADDS.includes(table)) return isOwner(caller);
+  if (OWNER_ADDS.includes(table) || OWNER_WRITES.includes(table)) return isOwner(caller);
   if (table in MANAGER_OWN_ROWS) return isManager(caller);
   return true;
 }
@@ -272,6 +277,10 @@ function matchesOne(cell: unknown, col: string, cond: string): boolean {
     const list = val.replace(/^\(|\)$/g, "").split(",").map((v) => v.replace(/^"|"$/g, ""));
     return cell !== null && cell !== undefined && list.includes(String(cell));
   }
+  if (op === "ilike" || op === "like") {
+    const re = new RegExp(`^${val.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*")}$`, op === "ilike" ? "i" : "");
+    return cell != null && re.test(String(cell));
+  }
   return (
       op === "eq" ? cell !== null && cell !== undefined && String(cell) === val
       : op === "neq" ? String(cell) !== val
@@ -284,9 +293,36 @@ function matchesOne(cell: unknown, col: string, cond: string): boolean {
   );
 }
 
+/** The top-level parts of an `or=(a.eq.1,b.in.(x,y))` filter. */
+function orParts(cond: string): string[] {
+  const inner = cond.replace(/^\(|\)$/g, "");
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of inner) {
+    if (ch === "," && depth === 0) {
+      parts.push(cur);
+      cur = "";
+      continue;
+    }
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    cur += ch;
+  }
+  return [...parts, cur];
+}
+
 function matches(row: Row, params: URLSearchParams): boolean {
   for (const [col, cond] of params) {
     if (["select", "order", "limit", "offset", "on_conflict", "columns"].includes(col)) continue;
+    if (col === "or") {
+      const any = orParts(cond).some((part) => {
+        const dot = part.indexOf(".");
+        return matchesOne(row[part.slice(0, dot)], part.slice(0, dot), part.slice(dot + 1));
+      });
+      if (!any) return false;
+      continue;
+    }
     if (!matchesOne(row[col], col, cond)) return false;
   }
   return true;
@@ -341,6 +377,8 @@ const DEFAULTS: Record<string, () => Row> = {
   // Migration 43.
   control_settings: () => ({ detail: {}, method: null }),
   profile_salaries: () => ({ method: null }),
+  // Migration 47.
+  concession_events: () => ({ provisional: false, cancelled: false, method: null }),
   lyft_ride_reports: () => ({ filed_at: DB_NOW, emailed_at: null, deal_id: null, event_label: null, event_date: null, reason_note: null }),
   // Migration 39: a saved view is live until archived.
   metric_views: () => ({ position: 0, widgets: [], archived_at: null, created_at: DB_NOW, updated_at: DB_NOW }),
@@ -524,7 +562,10 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     });
   }
   const caller = callerOf(headers);
-  const all = (fake.tables[table] ??= []);
+  // A read of a table no test seeded sees it empty without creating it, so a
+  // read-only check leaves fake.tables exactly as it found them.
+  const reading = method === "GET" || method === "HEAD";
+  const all = fake.tables[table] ?? (reading ? [] : (fake.tables[table] = []));
 
   if (method === "GET" || method === "HEAD") {
     let rows = all.filter((r) => canRead(table, caller, r) && matches(r, url.searchParams));

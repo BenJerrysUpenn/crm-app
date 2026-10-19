@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  DEFAULT_VIEWS, MAX_WIDGETS, addWidget, checkName, cleanName, cleanWidgets, freeName, moveView, moveWidget,
+  DEFAULT_VIEWS, MAX_WIDGETS, addWidget, checkName, cleanName, cleanSettings, cleanWidgets, freeName, moveView, moveWidget,
   removeWidget, updateWidgetSettings, type View,
 } from "./views.ts";
 
@@ -107,4 +107,12 @@ test("views move left and right and are renumbered", () => {
   const views = [view({ id: "a", position: 0 }), view({ id: "b", name: "B", position: 1 }), view({ id: "c", name: "C", position: 2 })];
   assert.deepEqual(moveView(views, "c", -1).map((v) => [v.id, v.position]), [["a", 0], ["c", 1], ["b", 2]]);
   assert.deepEqual(moveView(views, "a", -1).map((v) => v.id), ["a", "b", "c"]);
+});
+
+test("Labor Hours Planning keeps its week count (4 to 52, 26 until chosen); no other metric has one", () => {
+  assert.deepEqual(cleanSettings("labor_hours_planning", { weeks: 13 }), { period: "mtd", weeks: 13 });
+  assert.deepEqual(cleanSettings("labor_hours_planning", { weeks: 99 }), { period: "mtd", weeks: 52 });
+  assert.deepEqual(cleanSettings("labor_hours_planning", { weeks: "abc" }), { period: "mtd", weeks: 26 });
+  assert.deepEqual(cleanSettings("labor_hours_planning", {}), { period: "mtd", weeks: 26 });
+  assert.deepEqual(cleanSettings("leads", { weeks: 13 }), { period: "8w" });
 });

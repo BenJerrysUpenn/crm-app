@@ -19,6 +19,7 @@ import {
   type StoreHoursRow,
 } from "@/lib/coverage";
 import { isMissingInStoreColumn, isMissingTable } from "@/lib/storeHours";
+import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons";
 
 /**
  *  - "ok"            — the check ran; `gaps` empty means every opening hour is covered.
@@ -39,7 +40,7 @@ export async function checkLiveWeekCoverage(supabase: SupabaseClient, weekStart:
   const qEnd = addDays(weekStart, 8) + "T00:00:00Z";
 
   try {
-    const [hours, exceptions, types, shifts, closed] = await Promise.all([
+    const [hours, exceptions, types, shifts, closed, seasons] = await Promise.all([
       supabase.from("store_hours").select("weekday, is_closed, opens, closes"),
       supabase
         .from("store_hours_exceptions")
@@ -64,6 +65,9 @@ export async function checkLiveWeekCoverage(supabase: SupabaseClient, weekStart:
         .eq("business_closed", true)
         .lte("start_date", lastDate)
         .gte("end_date", weekStart),
+      // Store-hours seasons (migration 47): the season in force on each date
+      // replaces the weekly pattern. None before the migration.
+      loadStoreHoursSeasons(supabase),
     ]);
 
     const notMigrated =
@@ -72,13 +76,14 @@ export async function checkLiveWeekCoverage(supabase: SupabaseClient, weekStart:
       (hours.error && !isMissingTable(hours.error)) ||
       (exceptions.error && !isMissingTable(exceptions.error)) ||
       (types.error && !isMissingInStoreColumn(types.error)) ||
-      shifts.error;
+      shifts.error ||
+      seasons.error;
     if (otherFailure) return { status: "unavailable" };
     if (notMigrated) return { status: "not_migrated" };
 
     const result = checkWeekCoverage({
       weekStart,
-      storeHours: (hours.data ?? []) as StoreHoursRow[],
+      storeHours: [...((hours.data ?? []) as StoreHoursRow[]), ...seasonHoursRows(seasons.seasons)],
       exceptions: (exceptions.data ?? []) as StoreHoursException[],
       // in_store is `not null default true`; anything else reads as in-store so
       // an unclassified type can never excuse an uncovered hour.

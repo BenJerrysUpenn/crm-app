@@ -60,7 +60,7 @@ const WEEKS = ["2030-09-01", "2030-09-08", "2030-09-15", "2030-09-22", "2030-09-
 
 const DATA = {
   today: "2030-11-02", targets: [], catering: null, ar: null, labour: null, forward: null, leads: null, outreach: null, quotes: null,
-  laborTarget: { weeks: WEEKS, defaultRange: { from: "2030-10-06", to: "2030-10-27" } }, feed: { status: "not_enabled" }, problems: [],
+  laborTarget: { weeks: WEEKS, defaultRange: { from: "2030-10-06", to: "2030-10-27" } }, laborPlanning: null, feed: { status: "not_enabled" }, problems: [],
 } as unknown as MetricsData;
 
 async function mount() {

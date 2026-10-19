@@ -3,6 +3,7 @@ import { getProfile } from "@/lib/auth";
 import { dayKey } from "@/lib/format";
 import { addMonths, isISODate } from "@/lib/holidays";
 import { isMissingTable, parseWeek } from "@/lib/storeHours";
+import { loadStoreHoursSeasons } from "@/lib/storeHoursSeasons";
 import type { StoreHours, StoreHoursException } from "@/lib/types";
 import { NextResponse } from "next/server";
 import { isManager } from "@/lib/roles";
@@ -20,7 +21,8 @@ function today(): string {
 // GET /api/store-hours
 //   ?from=YYYY-MM-DD  first date of the exception window (default: today)
 //   ?to=YYYY-MM-DD    last date of it (default: from + 12 months)
-// -> { hours: StoreHours[], exceptions: StoreHoursException[], migrationNeeded }
+// -> { hours: StoreHours[], exceptions: StoreHoursException[], seasons: StoreHoursSeason[], migrationNeeded }
+//    seasons: every store-hours season row (migration 47); [] before it.
 // Any signed-in user may read; RLS allows select to all authenticated.
 export async function GET(request: Request) {
   const profile = await getProfile();
@@ -47,16 +49,20 @@ export async function GET(request: Request) {
     .lte("date", to)
     .order("date");
 
+  const seasons = await loadStoreHoursSeasons(supabase);
+
   // Before migration 24 the tables simply aren't there. That is a normal
   // "not set up yet" state, not a server error.
   if (isMissingTable(hoursRes.error) || isMissingTable(excRes.error))
-    return NextResponse.json({ hours: [], exceptions: [], migrationNeeded: true });
+    return NextResponse.json({ hours: [], exceptions: [], seasons: [], migrationNeeded: true });
   if (hoursRes.error) return NextResponse.json({ error: hoursRes.error.message }, { status: 400 });
   if (excRes.error) return NextResponse.json({ error: excRes.error.message }, { status: 400 });
+  if (seasons.error) return NextResponse.json({ error: seasons.error }, { status: 400 });
 
   return NextResponse.json({
     hours: (hoursRes.data as StoreHours[]) ?? [],
     exceptions: (excRes.data as StoreHoursException[]) ?? [],
+    seasons: seasons.seasons,
     migrationNeeded: false,
   });
 }
