@@ -165,7 +165,11 @@ is judged by the board as it stood then: a pay rule before its first row paid no
 counts only the people salaried that day. A Sunday-to-Saturday week shows only once it is over with all
 seven days of payroll and sales on file, every booked catering deal priced (a deal billed zero crew hours,
 a pickup, takes nothing off), and hours and hourly labor
-still above zero after the catering crew comes off, otherwise "n/a" with the reason. Tests: `npm test` in `time-app/` includes
+still above zero after the catering crew comes off, otherwise "n/a" with the reason. The card covers a range of weeks
+(`lib/metrics/weekRange.ts`), saved in the widget's settings as `from` and `to`, the Sundays of its first and last
+week, chosen from 2026-05-03 (`FIRST_LABOR_WEEK`) to the week holding today. Unset, it shows the last 8 weeks ending
+with the most recent one that is over. A view saved under the old month picker keeps its `month`, read as the weeks
+that start in it. Tests: `npm test` in `time-app/` includes
 `lib/metrics/*.test.ts`.
 
 ## Travel Reimbursements (Withers Time)
