@@ -54,9 +54,11 @@ export function isTierKey(x: unknown): x is TierKey {
   return typeof x === "string" && (TIER_KEYS as string[]).includes(x);
 }
 
+const SEQUENCE_KEY = new RegExp(`^(${TIER_KEYS.join("|")}):.+$`);
+
 /** "<tier>:<category key>", as the migration's CHECK has it. */
 export function isSequenceKey(x: unknown): x is string {
-  return typeof x === "string" && x.length <= 200 && /^(cold|warm|offer):.+$/.test(x);
+  return typeof x === "string" && x.length <= 200 && SEQUENCE_KEY.test(x);
 }
 
 export function isValidKey(kind: StoreKind, key: unknown): key is string {
