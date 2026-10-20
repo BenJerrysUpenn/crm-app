@@ -114,6 +114,20 @@ describe("package name", () => {
   it("names marshmallows for no other package", () => {
     expect(packageIncludes(row("Sundae Party"))).toBe("3 flavors · sauce · whipped cream");
   });
+
+  it("lists every inclusion a package's row flags, in chip order", () => {
+    const deluxe: DealFormPackageOption = {
+      ...row("Super Deluxe Sundae Party"),
+      flavors_included: 4,
+      dry_toppings_count: 6,
+      includes_waffle_cones: true,
+      includes_cookies: true,
+      includes_brownies: true,
+    };
+    expect(packageIncludes(deluxe)).toBe(
+      "4 flavors · 6 toppings · waffle cones · sauce · whipped cream · cookies · brownies",
+    );
+  });
 });
 
 describe("crm/008 deals_package_name_check", () => {
