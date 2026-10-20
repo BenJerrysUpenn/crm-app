@@ -134,7 +134,8 @@ test("changing your availability emails nobody: the schedulers' bells show it no
 
   assert.deepEqual(db.outbox, []);
   const rows = db.rows("notifications");
-  assert.ok(rows.length > 0);
+  // The same schedulers as the 8pm email: not the off-schedule, archived or banned managers.
+  assert.deepEqual(rows.map((n) => n.user_id).sort(), [OWNER, MANAGER].sort());
   assert.ok(rows.every((n) => n.type === "availability_change" && n.sent_email === false && n.sent_sms === false));
   assert.equal(rows[0].body, "Sam Lee changed their availability: Tue, Oct 13.");
   assert.deepEqual(db.rows("availability_notices").map((n) => [n.employee_id, n.changed_date ?? null, n.changed_weekday ?? null]), [
@@ -364,4 +365,15 @@ test("when the people cannot be read after the claim, nothing is sent and the ch
 
   await tick(edt("2026-10-09", "20:00"));
   assert.equal(mail(OWNER)[0].text, "Availability changes\n\nSam Lee: Tue, Oct 13");
+});
+
+test("when the changes cannot even be put back, the cron answer says they are lost", async () => {
+  await addDay("2026-10-13");
+  db.beforeWrite = (target) => {
+    if (target === "rpc/claim_availability_digest") db.missingTables = ["profiles", "availability_notices"];
+  };
+  const out = await tick(edt("2026-10-08", "20:00"));
+  db.beforeWrite = null;
+  db.missingTables = [];
+  assert.match(out.availabilityDigestError, /profiles.*could not put 1 changes back, so they are lost/);
 });

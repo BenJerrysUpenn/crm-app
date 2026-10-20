@@ -16,18 +16,19 @@
 //
 // Not queued: time-off requests and cancelled approved time off (each has its
 // own alert, as before), and a change a manager makes to someone else's rows.
-// A scheduler's email leaves out their own changes.
+// A scheduler's bell and email leave out their own changes.
 //
 // THE SCHEDULERS are chosen as the coverage reminder chooses them
 // (lib/coverageReminder.ts selectRecipients, repo root): every owner, plus
 // every manager on the schedule (active), leaving out anyone archived or
-// banned. Then notif_prefs, as notify() applies them: availability_change
-// switched off, or email switched off, means no email.
+// banned. The bell and the email go to the same people. Then notif_prefs, as
+// notify() applies them: availability_change switched off means neither,
+// email switched off means no email.
 //
 // Best-effort, like every notification here: a change that cannot be queued
 // never fails the save that has already been made.
 import { createAdminClient } from "@/lib/supabase/admin";
-import { notifyManagers, sendOnChannels, wants, type NotifPrefs } from "@/lib/notify";
+import { notify, sendOnChannels, wants, type NotifPrefs } from "@/lib/notify";
 import { digestDayAt } from "@/lib/shiftNotice";
 import { shortDate } from "@/lib/repeatUntil";
 import { isManagerRole, isOwnerRole, MANAGER_ROLES } from "@/lib/roles";
@@ -114,14 +115,17 @@ export async function queueAvailabilityChange(
     ...[...new Set(change.weekdays)].map((w) => ({ employee_id: employee.id, changed_weekday: w })),
   ];
   if (!rows.length) return;
-  const { error } = await createAdminClient().from("availability_notices").insert(rows);
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("availability_notices").insert(rows);
   if (error) console.error(`availability of ${employee.id}: could not queue the change: ${error.message}`);
-  await notifyManagers({
-    type: AVAILABILITY_TYPE,
-    title: AVAILABILITY_BELL_TITLE,
-    body: `${employee.full_name ?? "An employee"} changed their availability: ${describeChange(change).join(", ")}.`,
-    inAppOnly: true,
-  }).catch(() => {});
+  // The bell goes to the same schedulers as the 8pm email, less the person
+  // who made the change.
+  const found = await loadSchedulers(supabase).catch(() => ({ people: [] as Scheduler[], error: "unreadable" }));
+  const body = `${employee.full_name ?? "An employee"} changed their availability: ${describeChange(change).join(", ")}.`;
+  for (const s of found.people) {
+    if (s.id === employee.id) continue;
+    await notify({ userId: s.id, type: AVAILABILITY_TYPE, title: AVAILABILITY_BELL_TITLE, body, inAppOnly: true }).catch(() => {});
+  }
 }
 
 type Claimed = { id?: number; employee_id: string; changed_date: string | null; changed_weekday: number | null };
@@ -135,10 +139,39 @@ type Person = {
   notif_prefs: NotifPrefs | null;
 };
 
-/** Is this person a scheduler: an owner, or a manager on the schedule, not archived? */
+type Scheduler = Person & { email: string };
+
+/**
+ * Is this person a scheduler: an owner, or a manager on the schedule, not
+ * archived? (Banned is read from their login, in loadSchedulers.) A copy of
+ * selectRecipients in the repo root's lib/coverageReminder.ts, kept by hand
+ * because the two apps share no code: change both together.
+ */
 function schedulerByProfile(p: Person): boolean {
   if (p.archived_at) return false;
   return isOwnerRole(p.role) || (isManagerRole(p.role) && p.active === true);
+}
+
+/** The schedulers with their login email, leaving out anyone banned or with no readable email. */
+async function loadSchedulers(supabase: ReturnType<typeof createAdminClient>): Promise<{ people: Scheduler[]; error: string | null }> {
+  const read = await supabase.from("profiles").select("*").in("role", MANAGER_ROLES);
+  if (read.error) return { people: [], error: read.error.message };
+  const people: Scheduler[] = [];
+  for (const p of ((read.data ?? []) as Person[]).filter(schedulerByProfile)) {
+    const account = await schedulerAccount(p.id);
+    if (account && !account.banned) people.push({ ...p, email: account.email });
+  }
+  return { people, error: null };
+}
+
+/** Put claimed changes back on the queue; null, or why they could not be. */
+async function putBack(supabase: ReturnType<typeof createAdminClient>, claimed: Claimed[]): Promise<string | null> {
+  const { error } = await supabase.from("availability_notices").insert(
+    claimed.map(({ employee_id, changed_date, changed_weekday }) =>
+      changed_date ? { employee_id, changed_date } : { employee_id, changed_weekday },
+    ),
+  );
+  return error ? `could not put ${claimed.length} changes back, so they are lost: ${error.message}` : null;
 }
 
 /**
@@ -178,35 +211,29 @@ export async function sendAvailabilityDigest(now: number = Date.now()): Promise<
   const changers = [...new Set(claimed.map((c) => c.employee_id))];
   const [changersRead, schedulersRead] = await Promise.all([
     supabase.from("profiles").select("id, full_name").in("id", changers),
-    supabase.from("profiles").select("*").in("role", MANAGER_ROLES),
+    loadSchedulers(supabase),
   ]);
-  if (changersRead.error || schedulersRead.error) {
+  const readError = changersRead.error?.message ?? schedulersRead.error;
+  if (readError) {
     // Today's email is claimed, so put the changes back for tomorrow's rather
-    // than lose them.
-    await supabase.from("availability_notices").insert(
-      claimed.map(({ employee_id, changed_date, changed_weekday }) =>
-        changed_date ? { employee_id, changed_date } : { employee_id, changed_weekday },
-      ),
-    );
-    return { told: [], error: (changersRead.error ?? schedulersRead.error)!.message };
+    // than lose them; if even that fails, say so.
+    const lost = await putBack(supabase, claimed);
+    return { told: [], error: lost ? `${readError}; ${lost}` : readError };
   }
 
   const names = new Map(((changersRead.data ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name]));
-  const schedulers = ((schedulersRead.data ?? []) as Person[]).filter(schedulerByProfile);
 
   const told: string[] = [];
-  for (const s of schedulers) {
+  for (const s of schedulersRead.people) {
     const prefs = s.notif_prefs ?? {};
     if (!wants(prefs, AVAILABILITY_TYPE) || !wants(prefs, "email")) continue;
     const lines = availabilityDigestLines(claimed, names, s.id);
     if (!lines.length) continue;
-    const account = await schedulerAccount(s.id);
-    if (!account || account.banned) continue;
     const { sent_email } = await sendOnChannels({
       prefs,
       title: AVAILABILITY_DIGEST_TITLE,
       body: lines.join("\n"),
-      email: account.email,
+      email: s.email,
       phone: null,
     }).catch(() => ({ sent_email: false }));
     if (sent_email) told.push(s.id);

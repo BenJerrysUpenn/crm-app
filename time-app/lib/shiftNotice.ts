@@ -86,18 +86,21 @@ export async function tellEmployeeAboutShift(
   }).catch(() => {});
 }
 
-// Is this shift new to this person since their last summary (a "posted"
-// notice for it is still queued)? Ask BEFORE deleting a shift: the delete
-// takes its queued notices with it (ON DELETE CASCADE, migration 38).
+// Is this shift new to this person since their last summary? A "posted"
+// notice for it is still queued, and no "removed" one: a queued removal means
+// they had it before (moved away and back again), so taking it away now is
+// news, with the times they have now. Ask BEFORE deleting a shift: the delete
+// takes its queued posted/changed notices with it (ON DELETE CASCADE,
+// migration 38).
 export async function shiftNewToThem(employeeId: string, shiftId: number): Promise<boolean> {
-  const pending = await createAdminClient()
-    .from("shift_notices")
-    .select("id")
-    .eq("shift_id", shiftId)
-    .eq("employee_id", employeeId)
-    .eq("notice", "posted")
-    .limit(1);
-  return !pending.error && (pending.data ?? []).length > 0;
+  const supabase = createAdminClient();
+  const [posted, removed] = await Promise.all([
+    supabase.from("shift_notices").select("id").eq("shift_id", shiftId).eq("employee_id", employeeId).eq("notice", "posted").limit(1),
+    // Before migration 48 there is no former_shift_id, and so no removal.
+    supabase.from("shift_notices").select("id").eq("former_shift_id", shiftId).eq("employee_id", employeeId).eq("notice", "removed").limit(1),
+  ]);
+  const hadBefore = !removed.error && (removed.data ?? []).length > 0;
+  return !posted.error && (posted.data ?? []).length > 0 && !hadBefore;
 }
 
 // A shift `employeeId` had was deleted, or moved to someone else. `shift` is
@@ -225,15 +228,21 @@ export async function sendShiftDigests(now: number = Date.now()): Promise<{ told
   ]);
   if (shiftsRead.error || peopleRead.error) {
     // Today's summaries are claimed, so put the notices back for tomorrow's
-    // rather than lose them.
-    await supabase.from("shift_notices").insert(
+    // rather than lose them; if even that fails, say so.
+    const readError = (shiftsRead.error ?? peopleRead.error)!.message;
+    const putBack = await supabase.from("shift_notices").insert(
       claimed.map(({ employee_id, shift_id, notice, former_shift_id, starts_at, ends_at, position }) =>
         notice === "removed"
           ? { employee_id, shift_id: null, notice, former_shift_id, starts_at, ends_at, position }
           : { employee_id, shift_id, notice },
       ),
     );
-    return { told: [], error: (shiftsRead.error ?? peopleRead.error)!.message };
+    return {
+      told: [],
+      error: putBack.error
+        ? `${readError}; could not put ${claimed.length} notices back, so they are lost: ${putBack.error.message}`
+        : readError,
+    };
   }
 
   const shifts = new Map(((shiftsRead.data ?? []) as ShiftRow[]).map((s) => [s.id, s]));

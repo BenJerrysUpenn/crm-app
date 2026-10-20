@@ -435,6 +435,21 @@ test("a shift they had, moved away and back, reads as Changed", async () => {
   assert.deepEqual(to("jo@example.test"), []);
 });
 
+// From the review pass: a removal after a move back is news, with the times
+// they last had.
+test("moved away, back, edited, then deleted: Removed with the times they last had", async () => {
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00");
+  await edit(1, { employee_id: JO });
+  await edit(1, { employee_id: SAM });
+  await edit(1, { ends_at: edt("2026-10-15", "18:00") });
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(1))).status, 200);
+
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.equal(to("sam@example.test")[0]?.text, "Your shift updates\n\nThu, Oct 15 · Removed · 12:00 PM–6:00 PM");
+  assert.deepEqual(to("jo@example.test"), []);
+});
+
 test("removed, new and changed lines sit together in start order, each leading with its day", async () => {
   hadBefore(1, SAM, "2026-10-16", "12:00", "17:00");
   hadBefore(2, SAM, "2026-10-13", "17:00", "22:00");
@@ -556,6 +571,17 @@ test("when the shifts cannot be read after the claim, a removed notice comes bac
 
   await tick(edt("2026-10-09", "20:00"));
   assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nThu, Oct 15 · Removed · 12:00 PM–5:00 PM");
+});
+
+test("when the notices cannot even be put back, the cron answer says they are lost", async () => {
+  await create(SAM, "2026-10-13", "12:00", "17:00");
+  db.beforeWrite = (target) => {
+    if (target === "rpc/claim_shift_digests") db.missingTables = ["shifts", "shift_notices"];
+  };
+  const out = await tick(edt("2026-10-08", "20:00"));
+  db.beforeWrite = null;
+  db.missingTables = [];
+  assert.match(out.shiftDigestError, /shifts.*could not put 1 notices back, so they are lost/);
 });
 
 // ---- Other alerts are not held for 8pm -------------------------------------------
