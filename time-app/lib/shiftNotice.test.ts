@@ -9,6 +9,10 @@
 // summary on its first tick at or after 20:00, once per person per day, from
 // each shift as it stands then.
 //
+// bj-finance #754: "a daily notification whenever their schedule changes and
+// what day was updated". Every line leads with the day, and a shift deleted or
+// moved to someone else is a Removed line (migration 48).
+//
 // Stand-in Supabase: lib/testing/fakeSupabase.ts. Time: node:test's mock Date.
 //
 //   npm test        (node --test; Node runs TypeScript directly)
@@ -170,7 +174,7 @@ test("five saves of one shift are one line with the final times, by email and te
   ]);
   const text = sent[0].text;
   assert.equal(sent[1].text, text);
-  assert.equal(text, "Your shift updates\n\nNew: Tue, Oct 13 · 1:00 PM–6:00 PM · PENN Closer");
+  assert.equal(text, "Your shift updates\n\nTue, Oct 13 · New · 1:00 PM–6:00 PM · PENN Closer");
   assert.deepEqual(out.shiftDigests, [SAM]);
   assert.deepEqual(db.rows("shift_notices"), []);
   // The summary is not a sixth bell row: the bell already had each save.
@@ -186,7 +190,7 @@ test("a shift they already had reads as changed; new and changed are listed in s
 
   assert.equal(
     to("sam@example.test")[0].text,
-    "Your shift updates\n\nNew: Wed, Oct 14 · 5:00 PM–10:00 PM\nChanged: Thu, Oct 15 · 12:00 PM–6:00 PM",
+    "Your shift updates\n\nWed, Oct 14 · New · 5:00 PM–10:00 PM\nThu, Oct 15 · Changed · 12:00 PM–6:00 PM",
   );
 });
 
@@ -200,7 +204,7 @@ test("a shift deleted before 8pm is left out, and nobody is sent an empty summar
   await tick(edt("2026-10-08", "20:00"));
 
   assert.equal(to("sam@example.test").length, 1);
-  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 13 · 12:00 PM–5:00 PM");
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nTue, Oct 13 · New · 12:00 PM–5:00 PM");
   assert.deepEqual(to("jo@example.test"), []);
   assert.deepEqual(to(JO_PHONE), []);
 });
@@ -213,7 +217,7 @@ test("a shift moved to someone else is left out of the first person's summary an
 
   assert.deepEqual(to("sam@example.test"), []);
   assert.deepEqual(to(SAM_PHONE), []);
-  assert.equal(to("jo@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 13 · 12:00 PM–5:00 PM");
+  assert.equal(to("jo@example.test")[0].text, "Your shift updates\n\nTue, Oct 13 · New · 12:00 PM–5:00 PM");
 });
 
 test("a shift moved away and back again is still theirs", async () => {
@@ -223,7 +227,7 @@ test("a shift moved away and back again is still theirs", async () => {
 
   await tick(edt("2026-10-08", "20:00"));
 
-  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 13 · 12:00 PM–5:00 PM");
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nTue, Oct 13 · New · 12:00 PM–5:00 PM");
   assert.deepEqual(to("jo@example.test"), []);
 });
 
@@ -235,7 +239,7 @@ test("schedule_change switched off: changed shifts are left out, new ones still 
 
   await tick(edt("2026-10-08", "20:00"));
 
-  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Wed, Oct 14 · 5:00 PM–10:00 PM");
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nWed, Oct 14 · New · 5:00 PM–10:00 PM");
 });
 
 test("shift_published switched off: new shifts are left out, so a summary of only new shifts is not sent", async () => {
@@ -277,7 +281,7 @@ test("one summary a day however many ticks; a save after it waits for tomorrow's
 
   await tick(edt("2026-10-09", "20:00"));
   assert.equal(to("sam@example.test").length, 2);
-  assert.equal(to("sam@example.test")[1].text, "Your shift updates\n\nNew: Wed, Oct 14 · 12:00 PM–5:00 PM");
+  assert.equal(to("sam@example.test")[1].text, "Your shift updates\n\nWed, Oct 14 · New · 12:00 PM–5:00 PM");
   assert.deepEqual(
     db.rows("shift_digests").map((d) => [d.employee_id, d.digest_day]),
     [
@@ -311,7 +315,7 @@ test("copy last week queues each copy for its person's summary", async () => {
   assert.deepEqual(db.rows("shift_notices").map((n) => [n.shift_id, n.employee_id, n.notice]), [[3, SAM, "posted"]]);
 
   await tick(edt("2026-10-08", "20:00"));
-  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 6 · 12:00 PM–5:00 PM");
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nTue, Oct 6 · New · 12:00 PM–5:00 PM");
 });
 
 test("8pm is New York's 8pm on both sides of a clock change", () => {
@@ -343,6 +347,161 @@ test("the night the clocks go back, the summary waits for 8pm EST, not 8pm EDT",
   assert.deepEqual(db.rows("shift_digests").map((d) => d.digest_day), ["2026-11-01"]);
 });
 
+// ---- Removed shifts (bj-finance #754, migration 48) ------------------------------
+// "A daily notification whenever their schedule changes and what day was
+// updated": a shift taken away is a change too. Every line leads with the day.
+
+// A shift Sam already had before today: no notice queued for it.
+function hadBefore(shiftId: number, employee: string, date: string, from: string, to: string, position: string | null = null) {
+  db.tables.shifts.push({ id: shiftId, employee_id: employee, starts_at: edt(date, from), ends_at: edt(date, to), position, published: true });
+}
+
+test("a shift they had, deleted, is a Removed line with its day and times, by email and text at 8pm", async () => {
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00", "PENN Opener");
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(1))).status, 200);
+
+  assert.equal(sent.length, 0);
+  assert.deepEqual(notified(), [[SAM, "schedule_change"]]);
+  assert.equal(db.rows("notifications")[0].title, "Your shift was removed");
+  assert.equal(db.rows("notifications")[0].body, "Thu, Oct 15 · 12:00 PM–5:00 PM · PENN Opener");
+
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.deepEqual(sent.map((s) => [s.channel, s.to]), [
+    ["email", "sam@example.test"],
+    ["sms", SAM_PHONE],
+  ]);
+  assert.equal(sent[0].text, "Your shift updates\n\nThu, Oct 15 · Removed · 12:00 PM–5:00 PM · PENN Opener");
+  assert.deepEqual(db.rows("shift_notices"), []);
+});
+
+test("a shift they had, moved to someone else, is Removed for them and New for the other person", async () => {
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00");
+  await edit(1, { employee_id: JO });
+
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nThu, Oct 15 · Removed · 12:00 PM–5:00 PM");
+  assert.equal(to("jo@example.test")[0].text, "Your shift updates\n\nThu, Oct 15 · New · 12:00 PM–5:00 PM");
+});
+
+test("left open counts as removed too", async () => {
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00");
+  await edit(1, { employee_id: null });
+
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nThu, Oct 15 · Removed · 12:00 PM–5:00 PM");
+});
+
+test("edited and then deleted the same day: one Removed line, with the times they last had", async () => {
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00");
+  await edit(1, { ends_at: edt("2026-10-15", "18:00") });
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(1))).status, 200);
+
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nThu, Oct 15 · Removed · 12:00 PM–6:00 PM");
+});
+
+test("a shift new to them today and taken away again is not in the summary (the bell had both)", async () => {
+  const gone = await create(SAM, "2026-10-14", "12:00", "17:00");
+  const moved = await create(SAM, "2026-10-15", "12:00", "17:00");
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(gone))).status, 200);
+  await edit(moved, { employee_id: JO });
+
+  assert.deepEqual(notified(), [
+    [SAM, "shift_published"],
+    [SAM, "shift_published"],
+    [SAM, "schedule_change"],
+    [SAM, "schedule_change"],
+    [JO, "shift_published"],
+  ]);
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.deepEqual(to("sam@example.test"), []);
+  assert.deepEqual(to(SAM_PHONE), []);
+  assert.equal(to("jo@example.test")[0].text, "Your shift updates\n\nThu, Oct 15 · New · 12:00 PM–5:00 PM");
+});
+
+test("a shift they had, moved away and back, reads as Changed", async () => {
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00");
+  await edit(1, { employee_id: JO });
+  await edit(1, { employee_id: SAM });
+
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nThu, Oct 15 · Changed · 12:00 PM–5:00 PM");
+  assert.deepEqual(to("jo@example.test"), []);
+});
+
+// From the review pass: a removal after a move back is news, with the times
+// they last had.
+test("moved away, back, edited, then deleted: Removed with the times they last had", async () => {
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00");
+  await edit(1, { employee_id: JO });
+  await edit(1, { employee_id: SAM });
+  await edit(1, { ends_at: edt("2026-10-15", "18:00") });
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(1))).status, 200);
+
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.equal(to("sam@example.test")[0]?.text, "Your shift updates\n\nThu, Oct 15 · Removed · 12:00 PM–6:00 PM");
+  assert.deepEqual(to("jo@example.test"), []);
+});
+
+test("removed, new and changed lines sit together in start order, each leading with its day", async () => {
+  hadBefore(1, SAM, "2026-10-16", "12:00", "17:00");
+  hadBefore(2, SAM, "2026-10-13", "17:00", "22:00");
+  await edit(1, { starts_at: edt("2026-10-16", "13:00") });
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(2))).status, 200);
+  await create(SAM, "2026-10-14", "12:00", "17:00");
+
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.equal(
+    to("sam@example.test")[0].text,
+    "Your shift updates\n\n" +
+      "Tue, Oct 13 · Removed · 5:00 PM–10:00 PM\n" +
+      "Wed, Oct 14 · New · 12:00 PM–5:00 PM\n" +
+      "Fri, Oct 16 · Changed · 1:00 PM–5:00 PM",
+  );
+});
+
+test("schedule_change switched off: removed lines are left out too", async () => {
+  db.tables.profiles.find((p) => p.id === SAM)!.notif_prefs = { schedule_change: false };
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00");
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(1))).status, 200);
+
+  await tick(edt("2026-10-08", "20:00"));
+
+  assert.deepEqual(sent, []);
+});
+
+test("a shift taken away after tonight's summary is in tomorrow's", async () => {
+  await create(SAM, "2026-10-13", "12:00", "17:00");
+  await tick(edt("2026-10-08", "20:00"));
+  assert.equal(to("sam@example.test").length, 1);
+
+  at(edt("2026-10-08", "21:00"));
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(1))).status, 200);
+  await tick(edt("2026-10-08", "21:05"));
+  assert.equal(to("sam@example.test").length, 1);
+
+  await tick(edt("2026-10-09", "20:00"));
+  assert.equal(to("sam@example.test")[1].text, "Your shift updates\n\nTue, Oct 13 · Removed · 12:00 PM–5:00 PM");
+});
+
+test("before migration 48 a removal still deletes the shift and rings the bell; the summary cannot carry it", async () => {
+  db.missingColumns = { shift_notices: ["former_shift_id", "starts_at", "ends_at", "position"] };
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00");
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(1))).status, 200);
+
+  assert.deepEqual(db.rows("shifts"), []);
+  assert.deepEqual(notified(), [[SAM, "schedule_change"]]);
+  assert.deepEqual(db.rows("shift_notices"), []);
+});
+
 // ---- When a step fails ---------------------------------------------------------
 
 test("a shift is still saved, and on the bell, when its notice cannot be queued", async () => {
@@ -371,7 +530,7 @@ test("when the summaries cannot be claimed, the cron still answers, says why, an
   // The next tick that can claim sends the summary that same evening.
   db.beforeWrite = null;
   await tick(edt("2026-10-08", "20:05"));
-  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 13 · 12:00 PM–5:00 PM");
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nTue, Oct 13 · New · 12:00 PM–5:00 PM");
 });
 
 test("when the shifts cannot be read after the claim, nothing is sent and the notices come back in the next day's summary", async () => {
@@ -395,7 +554,34 @@ test("when the shifts cannot be read after the claim, nothing is sent and the no
   assert.deepEqual(sent, []);
   await tick(edt("2026-10-09", "20:00"));
   assert.equal(to("sam@example.test").length, 1);
-  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nNew: Tue, Oct 13 · 12:00 PM–5:00 PM");
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nTue, Oct 13 · New · 12:00 PM–5:00 PM");
+});
+
+test("when the shifts cannot be read after the claim, a removed notice comes back with its day and times", async () => {
+  hadBefore(1, SAM, "2026-10-15", "12:00", "17:00");
+  assert.equal((await shiftById.DELETE(req("DELETE"), id(1))).status, 200);
+  db.beforeWrite = (target) => {
+    if (target === "rpc/claim_shift_digests") db.missingTables = ["shifts"];
+  };
+
+  await tick(edt("2026-10-08", "20:00"));
+  db.beforeWrite = null;
+  db.missingTables = [];
+  assert.deepEqual(sent, []);
+
+  await tick(edt("2026-10-09", "20:00"));
+  assert.equal(to("sam@example.test")[0].text, "Your shift updates\n\nThu, Oct 15 · Removed · 12:00 PM–5:00 PM");
+});
+
+test("when the notices cannot even be put back, the cron answer says they are lost", async () => {
+  await create(SAM, "2026-10-13", "12:00", "17:00");
+  db.beforeWrite = (target) => {
+    if (target === "rpc/claim_shift_digests") db.missingTables = ["shifts", "shift_notices"];
+  };
+  const out = await tick(edt("2026-10-08", "20:00"));
+  db.beforeWrite = null;
+  db.missingTables = [];
+  assert.match(out.shiftDigestError, /shifts.*could not put 1 notices back, so they are lost/);
 });
 
 // ---- Other alerts are not held for 8pm -------------------------------------------

@@ -26,7 +26,8 @@
 // manager inserts, updates or deletes one through their session, and the
 // service role is not held to RLS. travel_reimbursements and lyft_ride_reports
 // (migration 37) are read as their policies say: your own, or all for a
-// manager. shift_notices and shift_digests (migration 38) are the service
+// manager. shift_notices and shift_digests (migration 38), and
+// availability_notices and availability_digests (migration 48), are the service
 // role's alone. metric_views and metric_preferences (migration 39) are a
 // manager's own rows only, and two live views of one person cannot share a
 // name (23505). control_settings and profile_salaries (migration 43): a
@@ -64,8 +65,9 @@ export type FakeSupabase = {
   // underneath the route between its read and its write, as a fob tap would.
   beforeWrite: ((table: string) => void) | null;
   // Columns a migration has not added yet, per table. A write naming one is
-  // refused as hosted PostgREST does (PGRST204, "schema cache"); seed the rows
-  // without the column too, as select("*") would return them.
+  // refused as hosted PostgREST does (PGRST204, "schema cache"), and so is a
+  // read whose column list names one (42703); seed the rows without the
+  // column too, as select("*") would return them.
   missingColumns: Record<string, string[]>;
   // Tables a migration has not created yet: every request to one is refused
   // as hosted PostgREST does (PGRST205, "schema cache").
@@ -101,6 +103,19 @@ export type FakeSupabase = {
 let cookieJar = new Map<string, string>();
 let tokens = new Map<string, string>(); // access token -> user id
 let fake: FakeSupabase;
+// The last id handed out per table. Like an identity column, an id is never
+// handed out twice, even after the row holding it is deleted.
+let lastId = new Map<string, number>();
+function spendIds(table: string, rows: Row[]): number {
+  const seen = Math.max(0, lastId.get(table) ?? 0, ...rows.map((r) => (typeof r.id === "number" ? r.id : 0)));
+  lastId.set(table, seen);
+  return seen;
+}
+function nextId(table: string, all: Row[]): number {
+  const id = spendIds(table, all) + 1;
+  lastId.set(table, id);
+  return id;
+}
 
 // ---- module resolution: the "@/..." alias, extensionless imports, next/* ---
 type Resolved = { url: string; shortCircuit?: boolean };
@@ -229,7 +244,8 @@ const OWN_ROWS: Record<string, string> = {
 };
 
 // Migration 38: no API role but the service role touches these.
-const SERVICE_ONLY = ["shift_notices", "shift_digests"];
+// Migration 48: availability_notices and availability_digests likewise.
+const SERVICE_ONLY = ["shift_notices", "shift_digests", "availability_notices", "availability_digests"];
 
 // Migration 39: a manager's own rows, and only a manager's.
 const MANAGER_OWN_ROWS: Record<string, string> = { metric_views: "owner_id", metric_preferences: "owner_id" };
@@ -424,6 +440,7 @@ const RPC: Record<string, (args: Row, caller: Caller) => Response> = {
   // shift notices and no summary yet for p_day gets one: their notices are
   // taken off the queue and returned. Anyone already summarised that day keeps
   // theirs queued for the next day. The service role alone may call it.
+  // Migration 48 returns every column of the notice, the queue id first.
   claim_shift_digests(args, caller) {
     if (caller.kind !== "service") {
       return json(401, { code: "42501", details: null, hint: null, message: "permission denied for function claim_shift_digests" });
@@ -436,7 +453,40 @@ const RPC: Record<string, (args: Row, caller: Caller) => Response> = {
     for (const e of fresh) digests.push({ employee_id: e, digest_day: day, claimed_at: new Date().toISOString() });
     const claimed = notices.filter((n) => fresh.includes(n.employee_id));
     fake.tables.shift_notices = notices.filter((n) => !claimed.includes(n));
-    return json(200, claimed.map((n) => ({ employee_id: n.employee_id, shift_id: n.shift_id, notice: n.notice })));
+    // A set-returning function promises no row order; this one hands the
+    // notices back newest first, so a caller that needs them oldest first has
+    // to order them itself (by the queue id).
+    return json(
+      200,
+      [...claimed].reverse().map((n) => ({
+        id: n.id,
+        employee_id: n.employee_id,
+        shift_id: n.shift_id ?? null,
+        notice: n.notice,
+        former_shift_id: n.former_shift_id ?? null,
+        starts_at: n.starts_at ?? null,
+        ends_at: n.ends_at ?? null,
+        position: n.position ?? null,
+      })),
+    );
+  },
+  // Migration 48: claim today's availability email for the schedulers. The
+  // first claim for p_day records the day and takes the whole queue; any
+  // later claim that day returns nothing. The service role alone may call it.
+  claim_availability_digest(args, caller) {
+    if (caller.kind !== "service") {
+      return json(401, { code: "42501", details: null, hint: null, message: "permission denied for function claim_availability_digest" });
+    }
+    const day = String(args.p_day);
+    const digests = (fake.tables.availability_digests ??= []);
+    if (digests.some((d) => d.digest_day === day)) return json(200, []);
+    digests.push({ digest_day: day, claimed_at: new Date().toISOString() });
+    const claimed = fake.tables.availability_notices ?? [];
+    fake.tables.availability_notices = [];
+    return json(
+      200,
+      claimed.map((n) => ({ id: n.id, employee_id: n.employee_id, changed_date: n.changed_date ?? null, changed_weekday: n.changed_weekday ?? null })),
+    );
   },
 };
 
@@ -568,6 +618,15 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
   const all = fake.tables[table] ?? (reading ? [] : (fake.tables[table] = []));
 
   if (method === "GET" || method === "HEAD") {
+    // A plain column list (no "*", no embeds or aliases) is honoured as
+    // PostgREST honours it: a column a migration has not added fails the read
+    // (42703), and each row comes back with only the columns named.
+    const select = url.searchParams.get("select");
+    const named = select && /^[\w\s,]+$/.test(select) ? select.split(",").map((c) => c.trim()).filter(Boolean) : null;
+    const unknown = named?.find((c) => fake.missingColumns[table]?.includes(c));
+    if (unknown) {
+      return json(400, { code: "42703", details: null, hint: null, message: `column ${table}.${unknown} does not exist` });
+    }
     let rows = all.filter((r) => canRead(table, caller, r) && matches(r, url.searchParams));
     const order = url.searchParams.get("order");
     if (order) rows = sortBy(rows, order);
@@ -579,6 +638,7 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     if (method === "HEAD") {
       return new Response(null, { status: 200, headers: { "content-range": total ? `0-${total - 1}/${total}` : `*/${total}` } });
     }
+    if (named) rows = rows.map((r) => Object.fromEntries(named.filter((c) => c in r).map((c) => [c, r[c]])));
     return represent(rows, headers, 200);
   }
 
@@ -628,7 +688,7 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     const inserted = (Array.isArray(input) ? input : [input]).map((r) => {
       const same = conflict && all.find((x) => conflict.every((c) => x[c] === r[c]));
       if (same) return Object.assign(same, r);
-      const row = { ...(DEFAULTS[table]?.() ?? {}), id: all.length + 1, ...r };
+      const row = { ...(DEFAULTS[table]?.() ?? {}), id: nextId(table, all), ...r };
       // Migration 43's stamp_control_row(): who and when are the database's word.
       if (OWNER_ADDS.includes(table)) Object.assign(row, { recorded_at: DB_NOW, recorded_by: caller.kind === "user" ? caller.id : (r.recorded_by ?? null) });
       all.push(row);
@@ -654,6 +714,12 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
   if (method === "DELETE") {
     const hit = all.filter((r) => canWrite(table, caller) && canRead(table, caller, r) && matches(r, url.searchParams));
     fake.tables[table] = all.filter((r) => !hit.includes(r));
+    spendIds(table, hit); // a deleted row's id is not handed out again
+    // Migration 38: shift_notices.shift_id references shifts ON DELETE CASCADE.
+    if (table === "shifts" && fake.tables.shift_notices) {
+      const ids = new Set(hit.map((r) => r.id));
+      fake.tables.shift_notices = fake.tables.shift_notices.filter((n) => !ids.has(n.shift_id));
+    }
     return represent(hit, headers, 200);
   }
 
@@ -689,6 +755,7 @@ export function startFakeSupabase(tables: Record<string, Row[]>): FakeSupabase {
   process.env.SUPABASE_SERVICE_ROLE_KEY = SERVICE_KEY;
   globalThis.fetch = fakeFetch as typeof fetch;
   cookieJar = new Map();
+  lastId = new Map();
   tokens = new Map();
   fake = {
     tables: structuredClone(tables),

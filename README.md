@@ -375,6 +375,31 @@ Local preview, before the migration is live: `LOCAL_PREVIEW=1 npm run dev` in `t
 `LABOR_PLANNING_SEED` and `LABOR_PLANNING_HISTORY`, outside every repo; its editor saves to the seed file,
 never the database.
 
+## Schedule and availability notices (Withers Time, bj-finance #754)
+Apply `time-app/supabase/migration_48.sql` by hand in the Supabase SQL editor, after migration 47
+(`_verify.sql` and `_down.sql` beside it). Either order with the code is safe: before it, a removed
+shift or an availability change is not queued (logged; the save is made) and saving weekly
+availability answers 503 with a message.
+
+- **Staff summary** (`lib/shiftNotice.ts`): the 8pm summary's lines lead with the day,
+  `Thu, Oct 22 · New|Changed|Removed · <times>`. A shift a manager deletes or moves away from
+  someone is a `Removed` line with the times they had (the notice keeps them; the shift may be
+  gone). Not a line: a shift new to them since their last summary and taken away again, and a
+  drop they asked for (its approval tells them). `schedule_change` governs removed lines.
+- **Schedulers' availability email** (`lib/availabilityNotice.ts`): an employee's change to their
+  own availability (`/api/availability` POST and DELETE, `week`, `copy-week`, `recurring`) puts
+  an in-app row on each scheduler's bell and queues the dates or weekdays whose blocks changed in
+  `availability_notices`. The same 8pm cron claims the day's queue once
+  (`claim_availability_digest`) and emails each scheduler one list, by person. Schedulers: every
+  owner plus every active manager, not archived or banned (the coverage reminder's rule). Off with
+  notif_prefs `availability_change` or `email`. Time-off requests, a scheduler's own changes and a
+  manager's edits to someone else's rows are left out.
+- **Repeat-until** (`lib/repeatUntil.ts`): `availability.repeat_until` is the last date, inclusive,
+  a weekly row applies. Saving a weekly block requires it (the calendar fills in three months
+  out). `resolveDay` in `lib/availabilityCheck.ts` drops a weekly row after it, so the save and
+  auto-fill checks, the schedule cells and the team grid all stop there; the personal calendar
+  uses `weeklyRowApplies`. Null means open-ended: every row saved before migration 48.
+
 ## Schedule coverage reminder (droplet command)
 Every day at noon ET, emails the owners and on-schedule managers every staffed
 store hour (open hours plus the open-up and close-down minutes on the Targets
