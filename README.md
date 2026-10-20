@@ -158,6 +158,22 @@ call-desk chip, `packageIncludes` in `lib/callDesk/options.ts`, both name them);
 Brownie Sundaes, the Waffle Sundae) they are the $0 Whipped Cream and Chocolate Sauce
 extras, added by hand, and `winterMenuWarnings` does not check for them. It mirrors Catering-Manager `modules/winter_menu.py`.
 
+## Email campaigns sequence editor (crm/013)
+The sequence editor on `/email-campaigns` saves steps, and each lane's signature and footer, to
+the shared copy in Supabase: `supabase/crm/013_email_campaign_sequences.sql` (apply by hand in
+the SQL editor BEFORE deploying the app that reads it; `_verify.sql` checks it, `_down.sql`
+reverses it and drops every saved sequence). A sequence or lane with no row shows its seed in
+`lib/emailCampaignsPrototype/sequences.ts`; "Reset to original" deletes the row. Writes go through
+`/api/email-campaigns/sequences` as the signed-in manager. Neither Apollo nor warm_sender reads
+these tables: editing here changes nothing that is sent.
+
+Before crm/013 every edit lived in one browser's localStorage. On load the page uploads any such
+copies (`rescue` in `lib/emailCampaignsPrototype/sharedSequences.ts`): a copy whose every step has
+an empty subject and body, or one identical to its seed, is skipped; a copy for a key with no row
+becomes the row; a copy that differs from an existing row never overwrites it and is kept in
+`email_campaign_sequence_conflicts`, with a notice on the page until an owner sets `resolved_at`.
+The localStorage keys are never deleted.
+
 ## Local dev (optional)
 ```
 npm install
