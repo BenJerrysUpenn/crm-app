@@ -501,7 +501,9 @@ combobox: show them as chips / radio lists on mobile):
 2. Customer profile (reference only; goes to notes) — from `deal_form_options`
 3. Event: event type* (from `deal_form_options`), event name, date*, start*,
    end*, venue name, venue address*, guest count*, outdoor? (yes/no, default no)
-4. Package* — from `pricing_packages` (name, price/guest, what's included)
+4. Package* — from `pricing_packages` (name, price/guest, what's included, summarised by
+   `packageIncludes` in `lib/callDesk/options.ts`; the Price Book has no marshmallow flag, so
+   that function adds "marshmallows" for the Hot Chocolate Float Party by name)
 5. Flavors (3 included, up to 6) — `lib/menuOptions.ts`
 6. Toppings — `lib/menuOptions.ts`
 7. Extras with quantity — from `pricing_extras`
