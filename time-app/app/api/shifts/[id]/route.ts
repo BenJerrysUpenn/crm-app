@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
+import { shiftNewToThem, tellEmployeeAboutShift, tellEmployeeShiftRemoved } from "@/lib/shiftNotice";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
@@ -12,7 +12,9 @@ import { isManager } from "@/lib/roles";
 //
 // There are no drafts: an edit always leaves the shift live (published =
 // true), whatever the body says, and the assigned employee is told: on their
-// bell now, by email and text in the 8pm summary (lib/shiftNotice.ts).
+// bell now, by email and text in the 8pm summary (lib/shiftNotice.ts). When
+// the edit moves the shift to someone else (or leaves it open), the person who
+// had it is told it was removed, the same way.
 //
 // An edit that leaves the shift 15+ hours long is refused with 409 unless the
 // body carries confirmLong: true. The check is run against the shift as it will
@@ -99,6 +101,15 @@ export async function PATCH(
   // just assigned to them) reads as a new shift, the message publishing the
   // week used to send. Any other edit of an assigned shift is a change.
   const newToThem = before?.published === false || (before?.employee_id ?? null) !== (data?.employee_id ?? null);
+  const hadIt = before?.employee_id ?? null;
+  if (before && hadIt && hadIt !== (data?.employee_id ?? null)) {
+    await tellEmployeeShiftRemoved(hadIt, {
+      id: Number(params.id),
+      starts_at: before.starts_at,
+      ends_at: before.ends_at,
+      position: before.position ?? null,
+    });
+  }
   if (newToThem && data?.employee_id) {
     await tellEmployeeAboutShift("posted", data);
   } else if (data?.employee_id) {
@@ -108,6 +119,8 @@ export async function PATCH(
   return NextResponse.json({ shift: data });
 }
 
+// DELETE: remove a shift (manager only). The person on it, if anyone, is told
+// it was removed: on their bell now, in the 8pm summary (lib/shiftNotice.ts).
 export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } },
@@ -116,7 +129,15 @@ export async function DELETE(
   if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const supabase = createClient();
+  const { data: before } = await supabase
+    .from("shifts")
+    .select("id, employee_id, starts_at, ends_at, position")
+    .eq("id", params.id)
+    .maybeSingle();
+  // Asked before the delete, which takes the shift's queued notices with it.
+  const newToThem = before?.employee_id ? await shiftNewToThem(before.employee_id, before.id) : false;
   const { error } = await supabase.from("shifts").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (before?.employee_id) await tellEmployeeShiftRemoved(before.employee_id, before, newToThem);
   return NextResponse.json({ ok: true });
 }
