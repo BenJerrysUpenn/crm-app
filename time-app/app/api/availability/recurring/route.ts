@@ -1,12 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { dayKey } from "@/lib/format";
 import { changedKeys, queueAvailabilityChange } from "@/lib/availabilityNotice";
 import { missingRepeatUntilColumn, parseRepeatUntil, REPEAT_UNTIL_NOT_READY } from "@/lib/repeatUntil";
 import { NextResponse } from "next/server";
-
-function todayEastern() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-}
 
 // Replace the signed-in employee's recurring weekly availability in one shot.
 // Body: { repeat_until: "YYYY-MM-DD",
@@ -26,7 +23,7 @@ export async function PUT(request: Request) {
 
   let repeatUntil: string | null = null;
   if (blocks.length) {
-    const parsed = parseRepeatUntil(body.repeat_until, todayEastern());
+    const parsed = parseRepeatUntil(body.repeat_until, dayKey(new Date().toISOString()));
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
     repeatUntil = parsed.value;
   }
