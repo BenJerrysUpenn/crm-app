@@ -4,7 +4,9 @@
 //
 // Shift notices (shift_published, schedule_change) put only the in-app row
 // out at save time (inAppOnly); their email and text go in the 8pm summary,
-// which sends through sendOnChannels below (lib/shiftNotice.ts).
+// which sends through sendOnChannels below (lib/shiftNotice.ts). Availability
+// changes do the same for the schedulers: the bell at save time, the email at
+// 8pm (lib/availabilityNotice.ts).
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
 import { MANAGER_ROLES } from "@/lib/roles";
@@ -122,15 +124,16 @@ export async function notify(args: NotifyArgs) {
   return { sent_email, sent_sms };
 }
 
-// Notify every manager and owner, on or off the roster (respecting each one's preferences).
-export async function notifyManagers(args: { type: string; title: string; body?: string }) {
+// Notify every manager and owner, on or off the roster (respecting each one's
+// preferences). inAppOnly: the bell row alone, no email or text.
+export async function notifyManagers(args: { type: string; title: string; body?: string; inAppOnly?: boolean }) {
   const supabase = createAdminClient();
   const { data: managers } = await supabase
     .from("profiles")
     .select("id, phone")
     .in("role", MANAGER_ROLES);
   for (const m of managers ?? []) {
-    const email = await emailForUser(m.id);
+    const email = args.inAppOnly ? null : await emailForUser(m.id);
     await notify({
       userId: m.id,
       type: args.type,
@@ -138,6 +141,7 @@ export async function notifyManagers(args: { type: string; title: string; body?:
       body: args.body,
       phone: m.phone ?? null,
       email,
+      inAppOnly: args.inAppOnly,
     }).catch(() => {});
   }
 }

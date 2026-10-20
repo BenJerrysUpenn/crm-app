@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { notifyManagers } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
+import { queueAvailabilityChange } from "@/lib/availabilityNotice";
+import { missingRepeatUntilColumn, parseRepeatUntil, REPEAT_UNTIL_NOT_READY } from "@/lib/repeatUntil";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
@@ -91,6 +93,15 @@ export async function POST(request: Request) {
       );
     }
   }
+  // A weekly block repeats until a date (lib/repeatUntil.ts, migration 48);
+  // a dated one carries none.
+  const weekly = body.weekday !== null && body.weekday !== undefined;
+  let repeatUntil: string | null = null;
+  if (weekly) {
+    const parsed = parseRepeatUntil(body.repeat_until, todayEastern());
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    repeatUntil = parsed.value;
+  }
   const { data, error } = await supabase
     .from("availability")
     .insert({
@@ -105,16 +116,21 @@ export async function POST(request: Request) {
         ? body.preference
         : "available",
       status: body.status ?? (body.is_available === false ? "pending" : "approved"),
+      ...(weekly ? { repeat_until: repeatUntil } : {}),
     })
     .select()
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error) {
+    if (missingRepeatUntilColumn(error)) return NextResponse.json({ error: REPEAT_UNTIL_NOT_READY }, { status: 503 });
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  // The schedulers hear of it on their bell now and by email at 8pm
+  // (lib/availabilityNotice.ts).
   if (body.is_available !== false) {
-    await notifyManagers({
-      type: "availability_change",
-      title: "Availability updated",
-      body: `${profile.full_name ?? "An employee"} updated their availability.`,
-    }).catch(() => {});
+    await queueAvailabilityChange(profile, {
+      dates: weekly || !body.specific_date ? [] : [body.specific_date],
+      weekdays: weekly ? [Number(body.weekday)] : [],
+    });
   }
   return NextResponse.json({ availability: data });
 }

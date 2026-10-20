@@ -360,7 +360,7 @@ test("a shift they had, deleted, is a Removed line with its day and times, by em
   hadBefore(1, SAM, "2026-10-15", "12:00", "17:00", "PENN Opener");
   assert.equal((await shiftById.DELETE(req("DELETE"), id(1))).status, 200);
 
-  assert.deepEqual(sent, []);
+  assert.equal(sent.length, 0);
   assert.deepEqual(notified(), [[SAM, "schedule_change"]]);
   assert.equal(db.rows("notifications")[0].title, "Your shift was removed");
   assert.equal(db.rows("notifications")[0].body, "Thu, Oct 15 · 12:00 PM–5:00 PM · PENN Opener");

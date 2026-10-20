@@ -145,7 +145,10 @@ test("loadAvailabilityRows reports a failed read as a failure, never as 'nothing
   assert.deepEqual(await loadAvailabilityRows(failing, { from: "2026-09-26", to: "2026-10-04" }), { ok: false });
 });
 
-test("loadAvailabilityRows reads created_at, so weekly rows start on the day they were made", async () => {
+// Every column: created_at (a weekly row starts on the day it was made) and
+// repeat_until (it stops after that date, migration 48), without naming a
+// column a database before migration 48 does not have.
+test("loadAvailabilityRows reads created_at and repeat_until, so weekly rows start and stop on their dates", async () => {
   const selects: string[] = [];
   const recording = {
     from: () => {
@@ -161,7 +164,7 @@ test("loadAvailabilityRows reads created_at, so weekly rows start on the day the
   };
   await loadAvailabilityRows(recording, { from: "2026-09-26", to: "2026-10-04" });
   assert.equal(selects.length, 2);
-  for (const cols of selects) assert.match(cols, /\bcreated_at\b/);
+  for (const cols of selects) assert.equal(cols, "*");
 });
 
 test("saving a shift on a date before a weekly can't-work row was created is not a conflict", async () => {

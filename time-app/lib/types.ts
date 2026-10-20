@@ -120,6 +120,9 @@ export type Availability = {
   request_group: string | null;
   preference: "available" | "preferred" | "unavailable";
   created_at: string;
+  // Weekly rows only (migration 48): the last date, inclusive, the row repeats
+  // on. Null or absent: open-ended, as every row was before migration 48.
+  repeat_until?: string | null;
 };
 
 export type ShiftRequest = {

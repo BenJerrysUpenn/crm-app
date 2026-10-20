@@ -112,6 +112,8 @@ documentation_map:
     docs: [README.md, GLOSSARY.md]
   - paths: ["time-app/app/api/schedule/check-week/**", "time-app/components/CheckWeekButton.tsx"]
     docs: [README.md]
+  - paths: ["time-app/supabase/migration_48*.sql", "time-app/lib/shiftNotice.ts", "time-app/lib/availabilityNotice.ts", "time-app/lib/repeatUntil.ts", "time-app/app/api/availability/**", "time-app/components/AvailabilityCalendar.tsx"]
+    docs: [README.md]
   - paths: ["lib/coverageReminder.ts", "lib/coverageReminderCli.ts", "lib/coverageReminderPg.ts", "lib/gmailSend.ts", "scripts/coverage-reminder.ts"]
     docs: [README.md]
   - paths: ["components/DealDetailDrawer.tsx", "lib/winterMenu.ts", "lib/menuOptions.ts", "lib/types.ts", "supabase/crm/012_winter_menu_extras*.sql"]
