@@ -342,9 +342,9 @@ export const PACKAGES: ReadonlyArray<Package> = [
     description: "cookies, brownies, 6 toppings",
   },
   {
-    // Upgrades: cookies and brownies only.
+    // Upgrades: cookies and brownies only. Marshmallows: Alina, 2026-10-19.
     value: HOT_CHOCOLATE_FLOAT_PARTY,
-    description: "1 scoop on hot chocolate, whipped cream, chocolate sauce",
+    description: "1 scoop on hot chocolate, whipped cream, marshmallows, chocolate sauce",
   },
 ];
 

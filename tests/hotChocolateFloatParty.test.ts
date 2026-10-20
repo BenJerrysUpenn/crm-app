@@ -85,6 +85,7 @@ describe("package name", () => {
     const d = packageDescription(HOT_CHOC);
     expect(d).toMatch(/hot chocolate/i);
     expect(d).toMatch(/whipped cream/i);
+    expect(d).toMatch(/marshmallows/i); // Alina, 2026-10-19
     expect(d).toMatch(/chocolate sauce/i);
   });
 });
