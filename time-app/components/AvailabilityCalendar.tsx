@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
 import type { Availability } from "@/lib/types";
-import { defaultRepeatUntil, REPEAT_UNTIL_PAST, REPEAT_UNTIL_REQUIRED, shortDate, weeklyRowApplies } from "@/lib/repeatUntil";
+import { defaultRepeatUntil, parseRepeatUntil, shortDate, weeklyRowApplies } from "@/lib/repeatUntil";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -93,12 +93,10 @@ export default function AvailabilityCalendar({
 
   async function save() {
     if (!draft) return;
-    if (draft.repeats && !draft.until) {
-      setErr(REPEAT_UNTIL_REQUIRED);
-      return;
-    }
-    if (draft.repeats && draft.until < today) {
-      setErr(REPEAT_UNTIL_PAST);
+    // The server's own check (lib/repeatUntil.ts), asked here first.
+    const until = draft.repeats ? parseRepeatUntil(draft.until, today) : null;
+    if (until && !until.ok) {
+      setErr(until.error);
       return;
     }
     setBusy(true);
