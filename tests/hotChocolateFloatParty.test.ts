@@ -160,7 +160,7 @@ describe("missing-toppings badge", () => {
   const missing = (pkg: string) =>
     missingRequiredFields(bookedDeal(pkg)).map((m) => m.field);
 
-  // Whipped cream and chocolate sauce only: no dry toppings to pick.
+  // Whipped cream, marshmallows and chocolate sauce only: no dry toppings to pick.
   it("does not ask a Hot Chocolate Float Party for toppings", () => {
     expect(missing(HOT_CHOC)).toEqual([]);
   });
