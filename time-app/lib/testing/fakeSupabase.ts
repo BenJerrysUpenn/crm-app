@@ -65,8 +65,9 @@ export type FakeSupabase = {
   // underneath the route between its read and its write, as a fob tap would.
   beforeWrite: ((table: string) => void) | null;
   // Columns a migration has not added yet, per table. A write naming one is
-  // refused as hosted PostgREST does (PGRST204, "schema cache"); seed the rows
-  // without the column too, as select("*") would return them.
+  // refused as hosted PostgREST does (PGRST204, "schema cache"), and so is a
+  // read whose column list names one (42703); seed the rows without the
+  // column too, as select("*") would return them.
   missingColumns: Record<string, string[]>;
   // Tables a migration has not created yet: every request to one is refused
   // as hosted PostgREST does (PGRST205, "schema cache").
@@ -614,6 +615,15 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
   const all = fake.tables[table] ?? (reading ? [] : (fake.tables[table] = []));
 
   if (method === "GET" || method === "HEAD") {
+    // A plain column list (no "*", no embeds or aliases) is honoured as
+    // PostgREST honours it: a column a migration has not added fails the read
+    // (42703), and each row comes back with only the columns named.
+    const select = url.searchParams.get("select");
+    const named = select && /^[\w\s,]+$/.test(select) ? select.split(",").map((c) => c.trim()).filter(Boolean) : null;
+    const unknown = named?.find((c) => fake.missingColumns[table]?.includes(c));
+    if (unknown) {
+      return json(400, { code: "42703", details: null, hint: null, message: `column ${table}.${unknown} does not exist` });
+    }
     let rows = all.filter((r) => canRead(table, caller, r) && matches(r, url.searchParams));
     const order = url.searchParams.get("order");
     if (order) rows = sortBy(rows, order);
@@ -625,6 +635,7 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     if (method === "HEAD") {
       return new Response(null, { status: 200, headers: { "content-range": total ? `0-${total - 1}/${total}` : `*/${total}` } });
     }
+    if (named) rows = rows.map((r) => Object.fromEntries(named.filter((c) => c in r).map((c) => [c, r[c]])));
     return represent(rows, headers, 200);
   }
 
