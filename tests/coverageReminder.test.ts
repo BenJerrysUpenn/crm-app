@@ -125,15 +125,22 @@ describe("reminderWindow", () => {
 describe("a Sunday-to-Wednesday run", () => {
   // Monday Oct 19: the weeks of Oct 18 and Oct 25, from the 19th on.
   const MONDAY = "2026-10-19";
-  const SUN_AND_SAT_HOURS = [
+  const SUN_MON_AND_SAT_HOURS = [
     { weekday: 0, is_closed: false, opens: "14:00:00", closes: "18:00:00" },
+    { weekday: 1, is_closed: false, opens: "14:00:00", closes: "18:00:00" },
     ...SAT_HOURS,
   ];
 
   it("leaves out store hours already past and keeps today and later", () => {
-    const lines = buildReminder(snapshot({ storeHours: SUN_AND_SAT_HOURS }), MONDAY);
-    // Sun Oct 18 is yesterday: left out. Sat Oct 31 is covered.
-    expect(lines).toEqual(["Sat Oct 24, 2:00–6:00 PM", "Sun Oct 25, 2:00–6:00 PM"]);
+    const lines = buildReminder(snapshot({ storeHours: SUN_MON_AND_SAT_HOURS }), MONDAY);
+    // Sun Oct 18 is yesterday: left out. Mon Oct 19 is today: kept.
+    // Sat Oct 31 is covered.
+    expect(lines).toEqual([
+      "Mon Oct 19, 2:00–6:00 PM",
+      "Sat Oct 24, 2:00–6:00 PM",
+      "Sun Oct 25, 2:00–6:00 PM",
+      "Mon Oct 26, 2:00–6:00 PM",
+    ]);
   });
 
   it("leaves out catering events already past and keeps today's", () => {
