@@ -124,16 +124,15 @@ export async function notify(args: NotifyArgs) {
   return { sent_email, sent_sms };
 }
 
-// Notify every manager and owner, on or off the roster (respecting each one's
-// preferences). inAppOnly: the bell row alone, no email or text.
-export async function notifyManagers(args: { type: string; title: string; body?: string; inAppOnly?: boolean }) {
+// Notify every manager and owner, on or off the roster (respecting each one's preferences).
+export async function notifyManagers(args: { type: string; title: string; body?: string }) {
   const supabase = createAdminClient();
   const { data: managers } = await supabase
     .from("profiles")
     .select("id, phone")
     .in("role", MANAGER_ROLES);
   for (const m of managers ?? []) {
-    const email = args.inAppOnly ? null : await emailForUser(m.id);
+    const email = await emailForUser(m.id);
     await notify({
       userId: m.id,
       type: args.type,
@@ -141,7 +140,6 @@ export async function notifyManagers(args: { type: string; title: string; body?:
       body: args.body,
       phone: m.phone ?? null,
       email,
-      inAppOnly: args.inAppOnly,
     }).catch(() => {});
   }
 }
