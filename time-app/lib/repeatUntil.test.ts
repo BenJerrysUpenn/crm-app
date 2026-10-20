@@ -219,6 +219,15 @@ test("before migration 48, a weekly save is refused with a message and nothing a
   assert.equal(dated.status, 200);
 });
 
+test("before migration 48, a first set of weekly blocks (none saved yet) is refused with the same message", async () => {
+  db.missingColumns = { availability: ["repeat_until"] };
+  db.signIn(SAM);
+  const res = await recurring.PUT(req("PUT", { repeat_until: "2027-01-08", blocks: [{ weekday: 3, start_time: "12:00:00", end_time: "17:00:00" }] }), noParams);
+  assert.equal(res.status, 503);
+  assert.equal((await res.json()).error, REPEAT_UNTIL_NOT_READY);
+  assert.deepEqual(db.rows("availability"), []);
+});
+
 test("saving a shift after someone's weekly block has ended asks first; before it ended it does not", async () => {
   db.tables.availability.push(weeklyRow(SAM, 2));
   db.signIn(MANAGER);
