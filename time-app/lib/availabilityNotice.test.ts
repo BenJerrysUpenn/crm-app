@@ -204,17 +204,35 @@ test("one email a day however many ticks; a change after it waits for tomorrow's
   assert.equal(mail(OWNER)[1].text, "Availability changes\n\nSam Lee: Wed, Oct 14");
 });
 
-test("availability_change switched off, or email switched off: that scheduler gets no email", async () => {
+test("availability_change switched off: no bell and no email; email switched off: the bell only", async () => {
   db.tables.profiles.find((p) => p.id === OWNER)!.notif_prefs = { availability_change: false };
   db.tables.profiles.find((p) => p.id === MANAGER)!.notif_prefs = { email: false };
   await addDay("2026-10-13");
+  // The bell follows the same switch: no row for the owner, who switched the type off.
+  assert.deepEqual(db.rows("notifications").map((n) => n.user_id), [MANAGER]);
   await tick(edt("2026-10-08", "20:00"));
   assert.deepEqual(db.outbox, []);
 });
 
-test("a scheduler is not told of their own changes; the other schedulers are", async () => {
+test("the cron answer names only the schedulers the email actually reached", async () => {
+  await addDay("2026-10-13");
+  db.resendStatus = 500;
+  const out = await tick(edt("2026-10-08", "20:00"));
+  assert.deepEqual(out.availabilityDigest, []);
+});
+
+test("someone with no name on file is still listed, as such", async () => {
+  db.tables.profiles.find((p) => p.id === SAM)!.full_name = null;
+  await addDay("2026-10-13");
+  assert.equal(db.rows("notifications")[0].body, "An employee changed their availability: Tue, Oct 13.");
+  await tick(edt("2026-10-08", "20:00"));
+  assert.equal(mail(OWNER)[0].text, "Availability changes\n\nSomeone with no name on file: Tue, Oct 13");
+});
+
+test("a scheduler is not told of their own changes, on the bell or by email; the other schedulers are", async () => {
   as(MANAGER);
   await addDay("2026-10-13");
+  assert.deepEqual(db.rows("notifications").map((n) => n.user_id), [OWNER]);
   await tick(edt("2026-10-08", "20:00"));
 
   assert.deepEqual(mail(MANAGER), []);
@@ -241,6 +259,19 @@ test("a week saved: only the dates whose blocks changed; the same week saved aga
 
   await tick(edt("2026-10-08", "20:00"));
   assert.equal(mail(OWNER)[0].text, "Availability changes\n\nSam Lee: Tue, Oct 13 · Fri, Oct 16");
+});
+
+test("a week saved with only one date's preference changed: that date changed", async () => {
+  db.tables.availability.push(
+    { id: 1, employee_id: SAM, specific_date: "2026-10-12", weekday: null, start_time: "12:00:00", end_time: "17:00:00", is_available: true, status: "approved", preference: "available" },
+    { id: 2, employee_id: SAM, specific_date: "2026-10-13", weekday: null, start_time: "12:00:00", end_time: "17:00:00", is_available: true, status: "approved", preference: "available" },
+  );
+  const blocks = [
+    { date: "2026-10-12", start_time: "12:00:00", end_time: "17:00:00", preference: "available" },
+    { date: "2026-10-13", start_time: "12:00:00", end_time: "17:00:00", preference: "preferred" },
+  ];
+  assert.equal((await week.PUT(req("PUT", { weekStart: "2026-10-11", blocks }), noParams)).status, 200);
+  assert.deepEqual(db.rows("availability_notices").map((n) => n.changed_date), ["2026-10-13"]);
 });
 
 test("copy last week: the target dates the copy changed", async () => {
