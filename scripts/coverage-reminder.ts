@@ -1,7 +1,8 @@
 // Schedule coverage reminder (bj-finance #709): emails the owners and
 // on-schedule managers every open store hour and booked catering event in the
-// next two Sun–Sat weeks that nobody is scheduled for. Runs Thu/Fri at noon
-// ET from bj-coverage-reminder.timer on bj-box (Software-Factory droplet/).
+// two Sun–Sat weeks it checks that nobody is scheduled for. Runs every day at
+// noon ET from bj-coverage-reminder.timer on bj-box (Software-Factory
+// droplet/, bj-finance #753).
 // All logic lives in lib/; this file only wires it to the process.
 //
 //   npm run coverage-reminder -- --dry-run   # prints recipients + email, sends nothing

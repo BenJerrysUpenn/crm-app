@@ -143,6 +143,15 @@ describe("--dry-run", () => {
     expect(h.out.join("\n")).toContain("run date 2026-10-17, checking 2026-10-18 to 2026-10-31");
   });
 
+  it("on a Monday checks from today through next week, and names both weeks (bj-finance #753)", async () => {
+    const h = harness();
+    h.deps.now = () => new Date("2026-10-19T16:00:00Z"); // Monday, 12:00 New York
+    expect(await runCoverageReminderCli(["--dry-run"], h.deps)).toBe(0);
+    expect(h.out.join("\n")).toContain(
+      "run date 2026-10-19, checking 2026-10-19 to 2026-10-31 (weeks of 2026-10-18 and 2026-10-25)",
+    );
+  });
+
   it("shows the email without a configured sender, and says the sender is not set", async () => {
     const h = harness({ env: { DATABASE_URL: "postgres://fake" } });
     expect(await runCoverageReminderCli(["--dry-run"], h.deps)).toBe(0);
