@@ -48,6 +48,18 @@ export function describeChange(change: AvailabilityChange): string[] {
   return [...dates, ...weekdays];
 }
 
+/**
+ * What saving or removing one block touched: its weekday when it repeats
+ * weekly, otherwise its date (none when it has neither).
+ */
+export function blockChange(block: { weekday?: number | string | null; specific_date?: string | null }): AvailabilityChange {
+  const weekly = block.weekday !== null && block.weekday !== undefined;
+  return {
+    dates: !weekly && block.specific_date ? [block.specific_date] : [],
+    weekdays: weekly ? [Number(block.weekday)] : [],
+  };
+}
+
 /** One block as a save compares it: everything a person can change about it. */
 type Block = {
   specific_date?: string | null;

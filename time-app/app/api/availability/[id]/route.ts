@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { notify, notifyManagers, emailForUser } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
-import { queueAvailabilityChange } from "@/lib/availabilityNotice";
+import { blockChange, queueAvailabilityChange } from "@/lib/availabilityNotice";
 import { NextResponse } from "next/server";
 import { isManager } from "@/lib/roles";
 
@@ -48,11 +48,7 @@ export async function DELETE(
   // the schedulers hear of it on their bell now and by email at 8pm
   // (lib/availabilityNotice.ts). Time off is not; it has its own alert below.
   if (row && row.is_available !== false && row.employee_id === profile.id) {
-    const weekly = row.weekday !== null && row.weekday !== undefined;
-    await queueAvailabilityChange(profile, {
-      dates: !weekly && row.specific_date ? [row.specific_date as string] : [],
-      weekdays: weekly ? [Number(row.weekday)] : [],
-    });
+    await queueAvailabilityChange(profile, blockChange(row));
   }
 
   // If an APPROVED time-off day was deleted, alert managers (they planned around it).

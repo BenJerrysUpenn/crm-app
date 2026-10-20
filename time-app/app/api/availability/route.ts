@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { notifyManagers } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
-import { queueAvailabilityChange } from "@/lib/availabilityNotice";
+import { blockChange, queueAvailabilityChange } from "@/lib/availabilityNotice";
 import { missingRepeatUntilColumn, parseRepeatUntil, REPEAT_UNTIL_NOT_READY } from "@/lib/repeatUntil";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
@@ -127,10 +127,7 @@ export async function POST(request: Request) {
   // The schedulers hear of it on their bell now and by email at 8pm
   // (lib/availabilityNotice.ts).
   if (body.is_available !== false) {
-    await queueAvailabilityChange(profile, {
-      dates: weekly || !body.specific_date ? [] : [body.specific_date],
-      weekdays: weekly ? [Number(body.weekday)] : [],
-    });
+    await queueAvailabilityChange(profile, blockChange(body));
   }
   return NextResponse.json({ availability: data });
 }
