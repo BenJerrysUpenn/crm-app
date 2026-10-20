@@ -153,7 +153,8 @@ notes an event outside Nov 1 - Mar 31 and an empty custom menu line. For each wi
 toppings extra on the deal it notes a pick count from that group other than 3; for winter
 toppings picked without their extra it notes that nothing bills them, unless a price
 override is set. Every winter item includes whipped cream and chocolate sauce: the Hot
-Chocolate Float Party has them in the package; on a Cup or Cone Party (the Cookie and
+Chocolate Float Party has them, and marshmallows, in the package (`PACKAGES` description and the
+call-desk chip, `packageIncludes` in `lib/callDesk/options.ts`, both name them); on a Cup or Cone Party (the Cookie and
 Brownie Sundaes, the Waffle Sundae) they are the $0 Whipped Cream and Chocolate Sauce
 extras, added by hand, and `winterMenuWarnings` does not check for them. It mirrors Catering-Manager `modules/winter_menu.py`.
 
