@@ -191,6 +191,20 @@ describe("rescue: a shared row is never overwritten; the browser copy is kept as
     expect(state.conflicts).toEqual([{ kind: "sequence", key: "warm:wedding", created_at: "2026-10-20T12:00:00Z" }]);
   });
 
+  it("leaves an edit the page already shows in place when the same key comes back saved", () => {
+    const onPage = { ...emptyState(), sequences: { "warm:corporate": otherWork }, lanes: { cold: { signature: "Typed", footer: "" } } };
+    const state = applyRescue(
+      onPage,
+      [
+        { kind: "sequence", key: "warm:corporate", result: "saved", doc: work },
+        { kind: "lane", key: "cold", result: "saved", doc: { signature: "Rescued", footer: "" } },
+      ],
+      "2026-10-20T12:00:00Z",
+    );
+    expect(state.sequences["warm:corporate"]).toEqual(otherWork);
+    expect(state.lanes.cold).toEqual({ signature: "Typed", footer: "" });
+  });
+
   it("says nothing when nothing was saved", () => {
     expect(rescueMessage([{ kind: "sequence", key: "warm:corporate", result: "blank" }])).toBeNull();
     expect(rescueMessage([{ kind: "sequence", key: "warm:corporate", result: "saved", doc: work }])).toBe(
