@@ -375,11 +375,16 @@ Local preview, before the migration is live: `LOCAL_PREVIEW=1 npm run dev` in `t
 never the database.
 
 ## Schedule coverage reminder (droplet command)
-Every Thursday and Friday at noon ET, emails the owners and on-schedule
-managers every staffed store hour (open hours plus the open-up and close-down
-minutes on the Targets tab) and every booked catering event in the next two
-Sun–Sat weeks that nobody is scheduled for (bj-finance #709). No gaps, no
-email. Store hours are judged by `checkWeekCoverage` in
+Every day at noon ET, emails the owners and on-schedule managers every staffed
+store hour (open hours plus the open-up and close-down minutes on the Targets
+tab) and every booked catering event in two Sun–Sat weeks that nobody is
+scheduled for (bj-finance #709, daily since #753). No gaps, no email. The two
+weeks start the Sunday after the most recent Thursday (a Thursday run counts
+itself), because the schedule is made on Wednesdays: Thursday, Friday and
+Saturday runs check the next two weeks; Sunday to Wednesday runs check the
+current week from that day on, plus the next week. Days already past are left
+out. Every run from one Thursday to the Wednesday after checks the same two
+weeks (`reminderWindow`). Store hours are judged by `checkWeekCoverage` in
 `time-app/lib/coverage.ts`, the function the schedule board's "Check week"
 button runs, so the two cannot disagree. Catering events are deals at Booked
 Paid, Booked Unpaid or Closed Marketing Event (`archived = 0`); one counts as

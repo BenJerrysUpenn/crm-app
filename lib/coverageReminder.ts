@@ -15,10 +15,11 @@ import {
 } from "../time-app/lib/coverage";
 import { BOOKED_STAGES } from "@/lib/cateringShifts";
 
-// The schedule coverage reminder (bj-finance #709): every Thursday and Friday
-// at noon, list every staffed store hour (open hours plus the open-up and
-// close-down minutes, bj-finance #742) and every booked catering event in the
-// next two Sun–Sat weeks that nobody is scheduled for. This file is the pure
+// The schedule coverage reminder (bj-finance #709): every day at noon, list
+// every staffed store hour (open hours plus the open-up and close-down
+// minutes, bj-finance #742) and every booked catering event in the two
+// Sun–Sat weeks it checks (reminderWindow) that nobody is scheduled for. This
+// file is the pure
 // part: rows in, email lines out. lib/coverageReminderCli.ts runs it;
 // lib/coverageReminderPg.ts reads the rows.
 //
@@ -30,17 +31,29 @@ import { BOOKED_STAGES } from "@/lib/cateringShifts";
 
 export type ReminderWindow = {
   weekStarts: [string, string];
-  start: string; // the first Sunday, YYYY-MM-DD
+  /** The first day checked: the first Sunday, or the run date when it falls inside the first week. */
+  start: string;
   end: string; // the last Saturday, inclusive
 };
 
 /**
- * The next two full Sun–Sat weeks after `runDate` (a New York YYYY-MM-DD).
- * Thursday and Friday land on the same two weeks.
+ * The two Sun–Sat weeks starting the Sunday after the most recent Thursday
+ * (the run date counts when it is a Thursday). `runDate` is a New York
+ * YYYY-MM-DD. The schedule is made on Wednesdays, so Thursday is when the
+ * window moves on a week (bj-finance #753):
+ * - Thu, Fri, Sat: the next two full weeks.
+ * - Sun–Wed: the current week and the next, from the run date on. Days
+ *   already past are left out; a gap there is noise.
+ * Every run from a Thursday to the Wednesday after it lands on the same two weeks.
  */
 export function reminderWindow(runDate: string): ReminderWindow {
-  const first = addDays(runDate, 7 - weekdayOf(runDate));
-  return { weekStarts: [first, addDays(first, 7)], start: first, end: addDays(first, 13) };
+  const daysSinceThursday = (weekdayOf(runDate) + 3) % 7;
+  const first = addDays(runDate, 3 - daysSinceThursday);
+  return {
+    weekStarts: [first, addDays(first, 7)],
+    start: first > runDate ? first : runDate,
+    end: addDays(first, 13),
+  };
 }
 
 /** A shifts row as the reminder reads it. Only published rows cover. */
@@ -147,6 +160,8 @@ export function buildReminder(snapshot: ReminderSnapshot, runDate: string): stri
       staffing: snapshot.staffing,
     });
     for (const gap of gaps) {
+      // Sun–Wed runs check the current week from today on (reminderWindow).
+      if (gap.date < window.start) continue;
       lines.push({
         date: gap.date,
         minute: parseTime(gap.from)!,
