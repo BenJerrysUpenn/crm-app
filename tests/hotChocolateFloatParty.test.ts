@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PACKAGE_NAMES, packageDescription } from "@/lib/menuOptions";
+import { packageIncludes, type DealFormPackageOption } from "@/lib/callDesk/options";
 import { missingRequiredFields } from "@/lib/required";
 import type { Deal } from "@/lib/types";
 
@@ -87,6 +88,31 @@ describe("package name", () => {
     expect(d).toMatch(/whipped cream/i);
     expect(d).toMatch(/marshmallows/i); // Alina, 2026-10-19
     expect(d).toMatch(/chocolate sauce/i);
+  });
+
+  // The call-desk deal form summarises a package from its Price Book row,
+  // which has no marshmallow flag; it must still agree with the drawer.
+  const row = (name: string): DealFormPackageOption => ({
+    name,
+    price: 8,
+    flavors_included: 3,
+    includes_waffle_cones: false,
+    includes_sauce: true,
+    includes_whipped_cream: true,
+    includes_cookies: false,
+    includes_brownies: false,
+    dry_toppings_count: 0,
+    sort_order: 8,
+  });
+
+  it("says marshmallows on the call-desk package chip", () => {
+    expect(packageIncludes(row(HOT_CHOC))).toBe(
+      "3 flavors · sauce · whipped cream · marshmallows",
+    );
+  });
+
+  it("names marshmallows for no other package", () => {
+    expect(packageIncludes(row("Sundae Party"))).toBe("3 flavors · sauce · whipped cream");
   });
 });
 
