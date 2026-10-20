@@ -116,6 +116,8 @@ documentation_map:
     docs: [README.md]
   - paths: ["components/DealDetailDrawer.tsx", "lib/winterMenu.ts", "lib/menuOptions.ts", "lib/types.ts", "supabase/crm/012_winter_menu_extras*.sql"]
     docs: [README.md]
+  - paths: ["lib/callDesk/options.ts", "components/callDesk/GenerateDealForm.tsx"]
+    docs: [docs/call-desk.md, docs/manual-deal-intake.md]
 
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
