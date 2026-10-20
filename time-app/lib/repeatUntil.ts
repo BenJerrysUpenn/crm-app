@@ -63,8 +63,16 @@ export function parseRepeatUntil(value: unknown, today: string): { ok: true; val
  * the end is new.)
  */
 export function weeklyRowApplies(row: { weekday: number | null; repeat_until?: string | null }, date: string, weekday: number): boolean {
-  if (row.weekday !== weekday) return false;
-  return !row.repeat_until || date <= row.repeat_until.slice(0, 10);
+  return row.weekday === weekday && repeatsOn(row.repeat_until, date);
+}
+
+/**
+ * Is `date` (yyyy-mm-dd) on or before a weekly row's repeat-until date? No
+ * repeat-until means open-ended. The one statement of the inclusive end, for
+ * the calendar above and resolveDay in lib/availabilityCheck.ts.
+ */
+export function repeatsOn(repeatUntil: string | null | undefined, date: string): boolean {
+  return !repeatUntil || date <= repeatUntil.slice(0, 10);
 }
 
 /** "Mon, Jan 19" for a yyyy-mm-dd date: the short form of the calendar and the schedulers' 8pm email. */

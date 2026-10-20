@@ -77,6 +77,7 @@ import {
   uncovered,
   weekdayOf,
 } from "./coverage.ts";
+import { repeatsOn } from "./repeatUntil.ts";
 
 /** Just enough of an availability row to judge a shift by. */
 export type AvailabilityRow = {
@@ -242,7 +243,7 @@ export function resolveDay(employeeId: string, date: string, rows: AvailabilityR
       const anchor = offset === 0 ? date : prevDate;
       const since = offset === null ? null : createdOn(row);
       if (since !== null && anchor < since) offset = null;
-      if (offset !== null && row.repeat_until && anchor > row.repeat_until.slice(0, 10)) offset = null;
+      if (offset !== null && !repeatsOn(row.repeat_until, anchor)) offset = null;
     }
     if (offset === null) continue;
 
