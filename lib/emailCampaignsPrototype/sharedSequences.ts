@@ -46,6 +46,10 @@ export const emptyState = (): SharedState => ({ sequences: {}, lanes: {}, confli
 
 // --- shape --------------------------------------------------------------------
 
+export function isStoreKind(x: unknown): x is StoreKind {
+  return x === "sequence" || x === "lane";
+}
+
 export function isTierKey(x: unknown): x is TierKey {
   return typeof x === "string" && (TIER_KEYS as string[]).includes(x);
 }

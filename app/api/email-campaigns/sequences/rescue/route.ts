@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sequenceRepoForRequest } from "@/lib/emailCampaignsPrototype/sequenceRepo";
-import { rescue, type RescueItem } from "@/lib/emailCampaignsPrototype/sharedSequences";
+import { isStoreKind, rescue, type RescueItem } from "@/lib/emailCampaignsPrototype/sharedSequences";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   if (!Array.isArray(body.items) || body.items.length > MAX_ITEMS)
     return NextResponse.json({ error: `items must be an array of at most ${MAX_ITEMS}` }, { status: 400 });
   const items: RescueItem[] = body.items
-    .filter((i): i is RescueItem => !!i && typeof i === "object" && (i.kind === "sequence" || i.kind === "lane"))
+    .filter((i): i is RescueItem => !!i && typeof i === "object" && isStoreKind(i.kind))
     .map((i) => ({ kind: i.kind, key: String(i.key ?? ""), doc: i.doc }));
 
   try {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sequenceRepoForRequest } from "@/lib/emailCampaignsPrototype/sequenceRepo";
-import { isValidKey, normalizeDoc, type StoreKind } from "@/lib/emailCampaignsPrototype/sharedSequences";
+import { isStoreKind, isValidKey, normalizeDoc, type StoreKind } from "@/lib/emailCampaignsPrototype/sharedSequences";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +25,8 @@ async function readTarget(request: Request): Promise<{ kind: StoreKind; key: str
   } catch {
     return "Bad JSON";
   }
-  const kind = body.kind === "sequence" || body.kind === "lane" ? body.kind : null;
-  if (!kind) return "kind must be sequence or lane";
+  const kind = body.kind;
+  if (!isStoreKind(kind)) return "kind must be sequence or lane";
   if (!isValidKey(kind, body.key)) return `Bad ${kind} key`;
   return { kind, key: body.key, doc: body.doc };
 }
