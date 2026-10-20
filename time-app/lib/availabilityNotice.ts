@@ -29,6 +29,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyManagers, sendOnChannels, wants, type NotifPrefs } from "@/lib/notify";
 import { digestDayAt } from "@/lib/shiftNotice";
+import { shortDate } from "@/lib/repeatUntil";
 import { isManagerRole, isOwnerRole, MANAGER_ROLES } from "@/lib/roles";
 
 export const AVAILABILITY_TYPE = "availability_change";
@@ -40,19 +41,9 @@ const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "
 /** What one save touched: dated days and weekly weekdays. */
 export type AvailabilityChange = { dates: string[]; weekdays: number[] };
 
-/** "Tue, Oct 21" for a yyyy-mm-dd date. */
-function dayLabel(date: string): string {
-  return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 /** The dates and weekdays of one change, dates first in order, then weekdays Sunday on. */
 export function describeChange(change: AvailabilityChange): string[] {
-  const dates = [...new Set(change.dates)].sort().map(dayLabel);
+  const dates = [...new Set(change.dates)].sort().map(shortDate);
   const weekdays = [...new Set(change.weekdays)].sort((a, b) => a - b).map((w) => `every ${WEEKDAY_NAMES[w]}`);
   return [...dates, ...weekdays];
 }

@@ -67,7 +67,7 @@ export function weeklyRowApplies(row: { weekday: number | null; repeat_until?: s
   return !row.repeat_until || date <= row.repeat_until.slice(0, 10);
 }
 
-/** "Mon, Jan 19" for a yyyy-mm-dd date, the calendar's short form. */
+/** "Mon, Jan 19" for a yyyy-mm-dd date: the short form of the calendar and the schedulers' 8pm email. */
 export function shortDate(date: string): string {
   return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
     timeZone: "UTC",
