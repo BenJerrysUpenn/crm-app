@@ -26,6 +26,7 @@ import {
 } from "@/lib/emailCampaignsPrototype/sequences";
 import {
   applyRescue,
+  emptyState,
   markUploaded,
   pendingLocalCopies,
   rescueMessage,
@@ -1017,7 +1018,7 @@ function conflictLabel(c: ConflictInfo, tiers: TierPayload[]): string {
   return `${tierLabel} › ${cat}`;
 }
 
-const EMPTY_SHARED: SharedState = { sequences: {}, lanes: {}, conflicts: [] };
+const EMPTY_SHARED: SharedState = emptyState();
 
 const CONFLICT_NOTE =
   "a different copy saved in a browser was kept aside; the shared copy was not changed. An owner can compare the two (email_campaign_sequence_conflicts).";
