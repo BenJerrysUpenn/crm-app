@@ -124,6 +124,8 @@ documentation_map:
     docs: [README.md]
   - paths: ["lib/callDesk/options.ts", "components/callDesk/GenerateDealForm.tsx"]
     docs: [docs/call-desk.md, docs/manual-deal-intake.md]
+  - paths: ["app/api/email-campaigns/sequences/**", "app/email-campaigns/page.tsx", "components/emailCampaignsPrototype/EmailCampaignsPrototype.tsx", "components/emailCampaignsPrototype/SequenceEditor.tsx", "lib/emailCampaignsPrototype/sequenceRepo.ts", "lib/emailCampaignsPrototype/sequences.ts", "lib/emailCampaignsPrototype/sharedSequences.ts", "supabase/crm/013_email_campaign_sequences*.sql"]
+    docs: [README.md]
 
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
