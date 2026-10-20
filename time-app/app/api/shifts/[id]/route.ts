@@ -98,8 +98,8 @@ export async function PATCH(
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   // A shift that is new to this person (a leftover draft going live, or one
-  // just assigned to them) reads as a new shift, the message publishing the
-  // week used to send. Any other edit of an assigned shift is a change.
+  // just assigned to them) reads as a new shift. Any other edit of an assigned
+  // shift is a change.
   const newToThem = before?.published === false || (before?.employee_id ?? null) !== (data?.employee_id ?? null);
   const hadIt = before?.employee_id ?? null;
   if (before && hadIt && hadIt !== (data?.employee_id ?? null)) {
