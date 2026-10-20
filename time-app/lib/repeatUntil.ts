@@ -13,6 +13,8 @@
 //
 // Pure, so the browser and `node --test` can both use it.
 
+import { addMonths } from "./holidays.ts";
+
 /** How far ahead the editor's repeat-until date starts. */
 export const REPEAT_UNTIL_DEFAULT_MONTHS = 3;
 
@@ -25,18 +27,10 @@ function isRealDate(value: string): boolean {
 }
 
 /**
- * `months` calendar months after `date` (yyyy-mm-dd). A day the target month
- * does not have is the month's last day: Nov 30 + 3 months is Feb 28 (or 29).
+ * The editor's starting repeat-until date: three months from `today` (New
+ * York). A day the target month does not have is the month's last day: Nov 30
+ * + 3 months is Feb 28 (or 29).
  */
-export function addMonths(date: string, months: number): string {
-  const [y, m, d] = date.split("-").map(Number);
-  const first = new Date(Date.UTC(y, m - 1 + months, 1));
-  const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
-  first.setUTCDate(Math.min(d, lastDay));
-  return first.toISOString().slice(0, 10);
-}
-
-/** The editor's starting repeat-until date: three months from `today` (New York). */
 export function defaultRepeatUntil(today: string): string {
   return addMonths(today, REPEAT_UNTIL_DEFAULT_MONTHS);
 }

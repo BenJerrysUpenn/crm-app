@@ -22,7 +22,6 @@ import assert from "node:assert/strict";
 
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "./testing/fakeSupabase.ts";
 import {
-  addMonths,
   defaultRepeatUntil,
   parseRepeatUntil,
   REPEAT_UNTIL_NOT_READY,
@@ -77,8 +76,8 @@ function weeklyRow(employee_id: string, weekday: number, extra: Partial<Availabi
 
 test("the editor starts the repeat-until date three months from today, on a day the month has", () => {
   assert.equal(defaultRepeatUntil("2026-10-08"), "2027-01-08");
-  assert.equal(addMonths("2026-11-30", 3), "2027-02-28");
-  assert.equal(addMonths("2027-11-30", 3), "2028-02-29");
+  assert.equal(defaultRepeatUntil("2026-11-30"), "2027-02-28");
+  assert.equal(defaultRepeatUntil("2027-11-30"), "2028-02-29");
 });
 
 test("a repeat-until date is required, a real date, and not in the past", () => {
