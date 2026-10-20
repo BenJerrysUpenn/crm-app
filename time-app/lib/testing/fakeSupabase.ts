@@ -453,9 +453,12 @@ const RPC: Record<string, (args: Row, caller: Caller) => Response> = {
     for (const e of fresh) digests.push({ employee_id: e, digest_day: day, claimed_at: new Date().toISOString() });
     const claimed = notices.filter((n) => fresh.includes(n.employee_id));
     fake.tables.shift_notices = notices.filter((n) => !claimed.includes(n));
+    // A set-returning function promises no row order; this one hands the
+    // notices back newest first, so a caller that needs them oldest first has
+    // to order them itself (by the queue id).
     return json(
       200,
-      claimed.map((n) => ({
+      [...claimed].reverse().map((n) => ({
         id: n.id,
         employee_id: n.employee_id,
         shift_id: n.shift_id ?? null,
