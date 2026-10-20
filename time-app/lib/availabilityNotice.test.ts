@@ -273,6 +273,39 @@ test("weekly blocks saved: the weekdays whose blocks changed", async () => {
   assert.equal(mail(OWNER)[0].text, "Availability changes\n\nSam Lee: every Wednesday · every Friday");
 });
 
+test("weekly blocks saved again with the same times written without seconds queue nothing", async () => {
+  // The database hands times back as "12:00:00"; a caller may send "12:00".
+  db.tables.availability.push(
+    { id: 1, employee_id: SAM, specific_date: null, weekday: 1, start_time: "12:00:00", end_time: "17:00:00", is_available: true, status: "approved", preference: "available", repeat_until: "2027-01-08" },
+  );
+  const res = await recurring.PUT(
+    req("PUT", { repeat_until: "2027-01-08", blocks: [{ weekday: 1, start_time: "12:00", end_time: "17:00" }] }),
+    noParams,
+  );
+  assert.equal(res.status, 200);
+  assert.deepEqual(db.rows("availability_notices"), []);
+});
+
+test("weekly blocks saved with only the repeat-until date moved: every weekday they cover changed", async () => {
+  db.tables.availability.push(
+    { id: 1, employee_id: SAM, specific_date: null, weekday: 1, start_time: "12:00:00", end_time: "17:00:00", is_available: true, status: "approved", preference: "available", repeat_until: "2027-01-08" },
+    { id: 2, employee_id: SAM, specific_date: null, weekday: 3, start_time: "12:00:00", end_time: "17:00:00", is_available: true, status: "approved", preference: "available", repeat_until: "2027-01-08" },
+  );
+  const res = await recurring.PUT(
+    req("PUT", {
+      repeat_until: "2026-11-30",
+      blocks: [
+        { weekday: 1, start_time: "12:00:00", end_time: "17:00:00" },
+        { weekday: 3, start_time: "12:00:00", end_time: "17:00:00" },
+      ],
+    }),
+    noParams,
+  );
+  assert.equal(res.status, 200);
+  await tick(edt("2026-10-08", "20:00"));
+  assert.equal(mail(OWNER)[0].text, "Availability changes\n\nSam Lee: every Monday · every Wednesday");
+});
+
 test("removing one of your own blocks is a change; removing time off is not one", async () => {
   const day = await addDay("2026-10-13");
   const weekly = await addWeekly(4);
