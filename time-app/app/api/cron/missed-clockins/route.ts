@@ -5,6 +5,7 @@ import { fmtTime } from "@/lib/format";
 import { alertName } from "@/lib/profileName";
 import { clockoutReminderDue, shiftEndForEntry } from "@/lib/clockoutReminder";
 import { sendShiftDigests } from "@/lib/shiftNotice";
+import { sendAvailabilityDigest } from "@/lib/availabilityNotice";
 import type { TimeEntry } from "@/lib/types";
 import { NextResponse } from "next/server";
 import { MANAGER_ROLES } from "@/lib/roles";
@@ -241,6 +242,15 @@ export async function GET(request: Request) {
     error: e instanceof Error ? e.message : String(e),
   }));
 
+  // ---- The schedulers' 8pm availability email (lib/availabilityNotice.ts) ----
+  // From 20:00 New York time, once a day, each scheduler gets one email
+  // listing who changed their availability since the last one, and which
+  // dates or weekdays. No changes, no email.
+  const availabilityDigest = await sendAvailabilityDigest(now).catch((e: unknown) => ({
+    told: [] as string[],
+    error: e instanceof Error ? e.message : String(e),
+  }));
+
   // Housekeeping: delete notifications older than 30 days so the bell stays tidy.
   await supabase
     .from("notifications")
@@ -256,5 +266,7 @@ export async function GET(request: Request) {
     clockoutReminded,
     shiftDigests: digests.told,
     ...(digests.error ? { shiftDigestError: digests.error } : {}),
+    availabilityDigest: availabilityDigest.told,
+    ...(availabilityDigest.error ? { availabilityDigestError: availabilityDigest.error } : {}),
   });
 }

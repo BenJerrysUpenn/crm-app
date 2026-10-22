@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import ClockinRemindersAdmin, { type ReminderWithAcks } from "@/components/ClockinRemindersAdmin";
 import StoreHoursAdmin from "@/components/StoreHoursAdmin";
-import type { Profile, Location, ShiftType, StoreHours, StoreHoursException } from "@/lib/types";
+import type { Profile, Location, ShiftType, StoreHours, StoreHoursException, StoreHoursSeason } from "@/lib/types";
 import type { Holiday } from "@/lib/holidays";
 import type { AppSettings } from "@/lib/settings";
 import { usableName, validateFullName } from "@/lib/profileName";
@@ -43,6 +43,7 @@ export default function TeamAdmin({
   employeeCount,
   storeHours,
   storeExceptions,
+  storeSeasons = [],
   storeHoursReady,
   holidays,
 }: {
@@ -58,6 +59,8 @@ export default function TeamAdmin({
   employeeCount: number;
   storeHours: StoreHours[];
   storeExceptions: StoreHoursException[];
+  /** Store-hours seasons (migration 47); none before it. */
+  storeSeasons?: StoreHoursSeason[];
   storeHoursReady: boolean;
   holidays: Holiday[];
 }) {
@@ -304,6 +307,7 @@ export default function TeamAdmin({
         <StoreHoursAdmin
           hours={storeHours}
           exceptions={storeExceptions}
+          seasons={storeSeasons}
           holidays={holidays}
           ready={storeHoursReady}
         />

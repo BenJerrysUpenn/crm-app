@@ -11,8 +11,9 @@
 // this email", so nobody is sent the same email twice, whatever tier they are
 // in now.
 //
-// Persistence is localStorage (see useSequences in the component):
-// nothing here is written to the database, Apollo or warm_sender.
+// These are the seeds. Edits are saved to the shared copy in Supabase
+// (supabase/crm/013, sharedSequences.ts); a sequence or lane with no row shows
+// its seed here. Nothing here is written to Apollo or warm_sender.
 
 import type { TierKey } from "./model";
 
@@ -203,8 +204,8 @@ const SEED_SENT_AS: Record<string, string[]> = Object.fromEntries(
   Object.values(SEED_SEQUENCES).flatMap((d) => d.steps.map((s) => [s.id, s.sentAs ?? []])),
 );
 
-/** The history keys that mean "already received this step". v4 edits stored
- * in localStorage have no sentAs, so seed ids fall back to the seed's keys. */
+/** The history keys that mean "already received this step". v4 edits (saved
+ * in localStorage before the shared copy) have no sentAs, so seed ids fall back to the seed's keys. */
 export function stepKeys(s: SeqStep): string[] {
   return s.sentAs ?? SEED_SENT_AS[s.id] ?? [s.id];
 }

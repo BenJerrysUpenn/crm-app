@@ -10,7 +10,7 @@ import {
 } from "@/lib/coverageReminder";
 
 // The schedule coverage reminder as a command (bj-finance #709), for the
-// Thu/Fri noon timer on bj-box. scripts/coverage-reminder.ts wires it to
+// daily noon timer on bj-box (bj-finance #753). scripts/coverage-reminder.ts wires it to
 // Postgres (lib/coverageReminderPg.ts) and the Gmail API (lib/gmailSend.ts);
 // tests wire it to an in-memory schedule and a recording mailer.
 //
@@ -115,7 +115,8 @@ export async function runCoverageReminderCli(argv: string[], deps: CliDeps): Pro
   const span = `${window.start} to ${window.end}`;
 
   if (dryRun) {
-    deps.out(`${TAG} DRY RUN: run date ${runDate}, checking ${span}`);
+    const weeks = `weeks of ${window.weekStarts[0]} and ${window.weekStarts[1]}`;
+    deps.out(`${TAG} DRY RUN: run date ${runDate}, checking ${span} (${weeks})`);
     deps.out(`${TAG} recipients (${recipients.length}): ${recipients.join(", ")}`);
     if (!email) {
       deps.out(`${TAG} no gaps: nothing would be sent`);

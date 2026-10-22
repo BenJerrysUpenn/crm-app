@@ -7,8 +7,10 @@
 // editor changes views with it, and both stores (the database, migration 39,
 // and the browser, until that is applied) hold what it returns.
 
-import { METRICS, METRIC_IDS, PERIODS, isMonthSetting, type MetricId, type Period, type WidgetConfig, type WidgetSettings } from "./widgets.ts";
+import { METRICS, METRIC_IDS, PERIODS, type MetricId, type Period, type WidgetConfig, type WidgetSettings } from "./widgets.ts";
 import { STREAMS, type StreamFilter } from "./targets.ts";
+import { savedRange } from "./weekRange.ts";
+import { planningWeekCount } from "./planningWeeks.ts";
 
 export const MAX_WIDGETS = 24;
 export const MAX_NAME = 60;
@@ -64,7 +66,12 @@ export function cleanSettings(metric: MetricId, raw: unknown): WidgetSettings {
       : def.defaultPeriod;
   const out: WidgetSettings = { period };
   if (def.streams) out.stream = isStream(r.stream) ? r.stream : "all";
-  if (def.month && isMonthSetting(r.month)) out.month = r.month;
+  if (def.weekRange) {
+    // A view saved under the old month picker keeps its month, as that month's weeks.
+    const range = savedRange(r.from, r.to, r.month);
+    if (range) Object.assign(out, range);
+  }
+  if (def.weeksAhead) out.weeks = planningWeekCount(r.weeks);
   return out;
 }
 

@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PACKAGE_NAMES, packageDescription } from "@/lib/menuOptions";
+import { packageIncludes, type DealFormPackageOption } from "@/lib/callDesk/options";
 import { missingRequiredFields } from "@/lib/required";
 import type { Deal } from "@/lib/types";
 
@@ -85,7 +86,47 @@ describe("package name", () => {
     const d = packageDescription(HOT_CHOC);
     expect(d).toMatch(/hot chocolate/i);
     expect(d).toMatch(/whipped cream/i);
+    expect(d).toMatch(/marshmallows/i); // Alina, 2026-10-19
     expect(d).toMatch(/chocolate sauce/i);
+  });
+
+  // The call-desk deal form summarises a package from its Price Book row,
+  // which has no marshmallow flag; it must still agree with the drawer.
+  const row = (name: string): DealFormPackageOption => ({
+    name,
+    price: 8,
+    flavors_included: 3,
+    includes_waffle_cones: false,
+    includes_sauce: true,
+    includes_whipped_cream: true,
+    includes_cookies: false,
+    includes_brownies: false,
+    dry_toppings_count: 0,
+    sort_order: 8,
+  });
+
+  it("says marshmallows on the call-desk package chip", () => {
+    expect(packageIncludes(row(HOT_CHOC))).toBe(
+      "3 flavors · sauce · whipped cream · marshmallows",
+    );
+  });
+
+  it("names marshmallows for no other package", () => {
+    expect(packageIncludes(row("Sundae Party"))).toBe("3 flavors · sauce · whipped cream");
+  });
+
+  it("lists every inclusion a package's row flags, in chip order", () => {
+    const deluxe: DealFormPackageOption = {
+      ...row("Super Deluxe Sundae Party"),
+      flavors_included: 4,
+      dry_toppings_count: 6,
+      includes_waffle_cones: true,
+      includes_cookies: true,
+      includes_brownies: true,
+    };
+    expect(packageIncludes(deluxe)).toBe(
+      "4 flavors · 6 toppings · waffle cones · sauce · whipped cream · cookies · brownies",
+    );
   });
 });
 
@@ -159,7 +200,7 @@ describe("missing-toppings badge", () => {
   const missing = (pkg: string) =>
     missingRequiredFields(bookedDeal(pkg)).map((m) => m.field);
 
-  // Whipped cream and chocolate sauce only: no dry toppings to pick.
+  // Whipped cream, marshmallows and chocolate sauce only: no dry toppings to pick.
   it("does not ask a Hot Chocolate Float Party for toppings", () => {
     expect(missing(HOT_CHOC)).toEqual([]);
   });

@@ -250,7 +250,7 @@ const detailText = (row: SettingRow | undefined, name: string): string | null =>
  * strictly ('hourly'); an active hourly person with no rate is left out and
  * listed in `unrated`. Target hours and open shifts are priced at it.
  */
-function averageHourlyRate(people: Iterable<LaborPerson>): { avgRate: Derived; over: number; unrated: LaborPerson[] } {
+export function averageHourlyRate(people: Iterable<LaborPerson>): { avgRate: Derived; over: number; unrated: LaborPerson[] } {
   const activeHourly = [...people].filter((p) => p.active && p.pay_type === "hourly" && !p.overhead);
   const rated = activeHourly.filter((p) => p.hourly_rate != null && Number(p.hourly_rate) > 0);
   const unrated = activeHourly.filter((p) => !rated.includes(p));

@@ -34,6 +34,8 @@ function filled(): BoardData {
     setRow("tax.workers_comp", 1, { class_code: "0000" }),
     setRow("rule.catering_premium", 1, { cap_rate: 10 }),
     setRow("rule.solo_close", 5, { min_alone_hours: 3, out_at_or_after: "21:30" }),
+    setRow("staffing.open_up_minutes", 20),
+    setRow("staffing.close_down_minutes", 1),
   ];
   const salary: SalaryRow = { id: 1, profile_id: "p1", annual_salary: 50_000, effective_from: "2030-01-01", review_by: "2031-01-01", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z" };
   return emptyBoard({
@@ -45,10 +47,10 @@ function filled(): BoardData {
 
 const find = (d: BoardData, id: string) => boardSections(d).flatMap((s) => s.lines).find((l) => l.id === id);
 
-test("the board is the seven categories, in order", () => {
+test("the board is the eight categories, in order", () => {
   assert.deepEqual(
     CATEGORIES.map((c) => c.title),
-    ["Sales estimate", "Cost targets", "Salaried payroll", "Hourly payroll", "Payroll taxes", "Schedule rules", "Trend"],
+    ["Sales estimate", "Cost targets", "Salaried payroll", "Hourly payroll", "Payroll taxes", "Schedule rules", "Staffed hours", "Trend"],
   );
   assert.equal(new Set(CATEGORIES.map((c) => c.id)).size, CATEGORIES.length);
 });
@@ -95,6 +97,23 @@ test("a filled board shows each value in words with its review-by row, and the d
   // payroll; (300,000 - 55,000) / 1.12 = 218,750 of hourly wages.
   const hourly = (find(d, "hourlyDollars") as ComputedLine).amount;
   assert.ok(hourly != null && Math.abs(hourly - 218_750) < 1e-6, `hourly wages ${hourly}`);
+});
+
+test("staffed hours: open-up and close-down minutes in words, and what coverage does while they are not set", () => {
+  const d = filled();
+  const up = find(d, "staffing.open_up_minutes") as StoredLine;
+  assert.equal(up.label, "Open-up time");
+  assert.equal(up.show, "20 minutes before opening");
+  assert.equal(up.row?.review_by, "2031-01-01");
+  assert.equal((find(d, "staffing.close_down_minutes") as StoredLine).show, "1 minute after closing");
+  const empty = emptyBoard();
+  const notSet = find(empty, "staffing.open_up_minutes") as StoredLine;
+  assert.equal(notSet.show, null);
+  assert.match(notSet.note ?? "", /Not set: coverage starts at opening time/);
+  assert.match((find(empty, "staffing.close_down_minutes") as StoredLine).note ?? "", /Not set: coverage ends at closing time/);
+  const intro = CATEGORIES.find((c) => c.id === "staffed")!.intro;
+  assert.match(intro, /Open hours are when customers can buy/);
+  assert.doesNotMatch(intro, /\u2014/, "no em dashes");
 });
 
 test("each salaried person's salary is on the board, set on the Team page, with its taxes beneath it", () => {

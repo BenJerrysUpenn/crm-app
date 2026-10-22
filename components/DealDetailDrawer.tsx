@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   FLAVOR_NAMES,
   EXTRA_LABELS,
-  TOPPING_NAMES,
+  DRAWER_TOPPING_OPTIONS,
   PACKAGES,
   PAYMENT_STATUSES,
   defaultExtraQuantity,
@@ -39,6 +39,7 @@ import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
 import { missingRequiredFields } from "@/lib/required";
+import { positiveOrNull, winterMenuWarnings } from "@/lib/winterMenu";
 
 function ReadOnlyRow({
   label,
@@ -388,6 +389,7 @@ export default function DealDetailDrawer({
   // Multi-select binding helpers.
   const flavorsSelected = parseFlavorsField(current.flavors);
   const extrasSelected = parseExtrasField(current.extras);
+  const winterWarnings = winterMenuWarnings(current);
   // Source of truth: mileage_charge_eligible (1 = we drove, charged mileage;
   // 0 = we ubered). transport_mode is the picklist-side derived cache.
   // Uber checked → mileage_charge_eligible = 0.
@@ -875,7 +877,7 @@ export default function DealDetailDrawer({
                 </FieldRow>
                 <FieldRow label="Toppings">
                   <MultiSelect
-                    options={TOPPING_NAMES}
+                    options={DRAWER_TOPPING_OPTIONS}
                     value={parseToppingsField(current.toppings)}
                     onChange={(next) =>
                       setField("toppings", serializeMultiselect(next))
@@ -897,6 +899,33 @@ export default function DealDetailDrawer({
                     }
                   />
                 </FieldRow>
+                <FieldRow label="Custom menu line">
+                  <TextInput
+                    value={current.custom_menu_line ?? ""}
+                    onChange={(v) => setField("custom_menu_line", v.trim() ? v : null)}
+                    placeholder="Printed on the quote instead of the package"
+                  />
+                </FieldRow>
+                <FieldRow label="Price override">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={
+                      current.price_override == null
+                        ? ""
+                        : String(current.price_override)
+                    }
+                    onChange={(v) => setField("price_override", positiveOrNull(v))}
+                    placeholder="Per guest, replaces the package price"
+                  />
+                </FieldRow>
+                {winterWarnings.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-[11px] text-amber-300">
+                    {winterWarnings.map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                )}
               </section>
 
               <section>

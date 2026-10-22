@@ -3,6 +3,7 @@ import { getProfile } from "@/lib/auth";
 import { alertName } from "@/lib/profileName";
 import { notify, notifyManagers, emailForUser } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
+import { blockChange, queueAvailabilityChange } from "@/lib/availabilityNotice";
 import { NextResponse } from "next/server";
 import { isManager } from "@/lib/roles";
 
@@ -17,7 +18,7 @@ export async function DELETE(
   // Read the row first so we can tell if it was an approved time-off being removed.
   const { data: row } = await supabase
     .from("availability")
-    .select("specific_date, is_available, status, request_group, employee_id")
+    .select("specific_date, weekday, is_available, status, request_group, employee_id")
     .eq("id", params.id)
     .maybeSingle();
 
@@ -42,6 +43,13 @@ export async function DELETE(
   } else {
     const { error } = await supabase.from("availability").delete().eq("id", params.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  // Removing one of your own availability blocks is an availability change:
+  // the schedulers hear of it on their bell now and by email at 8pm
+  // (lib/availabilityNotice.ts). Time off is not; it has its own alert below.
+  if (row && row.is_available !== false && row.employee_id === profile.id) {
+    await queueAvailabilityChange(profile, blockChange(row));
   }
 
   // If an APPROVED time-off day was deleted, alert managers (they planned around it).

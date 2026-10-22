@@ -21,6 +21,7 @@ type Handler = (request: Request, ctx: { params: { id: string } }) => Promise<Re
 const shifts = await loadAppModule<{ POST: Handler }>("app/api/shifts/route.ts");
 const shiftById = await loadAppModule<{ PATCH: Handler }>("app/api/shifts/[id]/route.ts");
 const autoFill = await loadAppModule<{ POST: Handler }>("app/api/schedule/auto-fill/route.ts");
+const { createAdminClient } = await loadAppModule<{ createAdminClient: () => { from: (table: string) => any } }>("lib/supabase/admin.ts");
 
 const MANAGER = "00000000-0000-0000-0000-00000000000a";
 const SAM = "00000000-0000-0000-0000-00000000000b";
@@ -145,23 +146,38 @@ test("loadAvailabilityRows reports a failed read as a failure, never as 'nothing
   assert.deepEqual(await loadAvailabilityRows(failing, { from: "2026-09-26", to: "2026-10-04" }), { ok: false });
 });
 
-test("loadAvailabilityRows reads created_at, so weekly rows start on the day they were made", async () => {
-  const selects: string[] = [];
-  const recording = {
-    from: () => {
-      const q: Record<string, unknown> = {};
-      q.select = (cols: string) => {
-        selects.push(cols);
-        return q;
-      };
-      for (const m of ["not", "gte", "lte", "in"]) q[m] = () => q;
-      q.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
-      return q;
-    },
-  };
-  await loadAvailabilityRows(recording, { from: "2026-09-26", to: "2026-10-04" });
-  assert.equal(selects.length, 2);
-  for (const cols of selects) assert.match(cols, /\bcreated_at\b/);
+// created_at (a weekly row starts on the day it was made) and repeat_until (it
+// stops after that date, migration 48) come back on every row, and a database
+// before migration 48, which has no repeat_until column, still answers.
+test("loadAvailabilityRows hands back each row's created_at and repeat_until", async () => {
+  db.tables.availability.push(
+    { ...weekly(SAM, 2, "11:00:00", "22:00:00"), id: 1, created_at: "2026-09-01T12:00:00Z", repeat_until: "2026-12-29" },
+    { id: 2, employee_id: JO, weekday: null, specific_date: TUE, start_time: "12:00:00", end_time: "17:00:00", is_available: true, status: "approved", preference: "available", created_at: "2026-09-02T12:00:00Z" },
+  );
+  const load = await loadAvailabilityRows(createAdminClient(), { from: "2026-09-26", to: "2026-10-04" });
+  assert.equal(load.ok, true);
+  const rows = load.ok ? load.rows : [];
+  assert.deepEqual(
+    rows.map((r) => [r.employee_id, r.created_at, r.repeat_until ?? null]).sort(),
+    [
+      [SAM, "2026-09-01T12:00:00Z", "2026-12-29"],
+      [JO, "2026-09-02T12:00:00Z", null],
+    ],
+  );
+});
+
+test("before migration 48, loadAvailabilityRows still reads every row, each open-ended", async () => {
+  db.missingColumns = { availability: ["repeat_until"] };
+  db.tables.availability.push(
+    { ...weekly(SAM, 2, "11:00:00", "22:00:00"), id: 1, created_at: "2026-09-01T12:00:00Z" },
+    { id: 2, employee_id: JO, weekday: null, specific_date: TUE, start_time: "12:00:00", end_time: "17:00:00", is_available: true, status: "approved", preference: "available" },
+  );
+  const load = await loadAvailabilityRows(createAdminClient(), { from: "2026-09-26", to: "2026-10-04" });
+  assert.equal(load.ok, true);
+  assert.deepEqual((load.ok ? load.rows : []).map((r) => [r.employee_id, r.repeat_until ?? null]).sort(), [
+    [SAM, null],
+    [JO, null],
+  ]);
 });
 
 test("saving a shift on a date before a weekly can't-work row was created is not a conflict", async () => {

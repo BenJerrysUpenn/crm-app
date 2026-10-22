@@ -14,14 +14,12 @@ import assert from "node:assert/strict";
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "./testing/fakeSupabase.ts";
 
 type Handler = (request: Request, ctx: { params: { id: string } }) => Promise<Response>;
-const week = await loadAppModule<{ PUT: Handler }>("app/api/availability/week/route.ts");
 const drop = await loadAppModule<{ POST: Handler }>("app/api/shifts/[id]/drop/route.ts");
 
 const BOSS = "00000000-0000-0000-0000-00000000000a";
 const SAM = "00000000-0000-0000-0000-00000000000b";
 const OLD = "00000000-0000-0000-0000-00000000000c"; // pre-migration_21: email as name
 const NONE = "00000000-0000-0000-0000-00000000000d"; // no name at all
-const WEEK = "2026-09-27"; // Sunday
 
 let db: FakeSupabase;
 
@@ -42,40 +40,14 @@ beforeEach(() => {
   });
 });
 
-function saveWeek(): Promise<Response> {
-  return week.PUT(
-    new Request("http://time.test/api/availability/week", {
-      method: "PUT",
-      body: JSON.stringify({ weekStart: WEEK, blocks: [] }),
-    }),
-    { params: { id: "" } },
-  );
-}
+// The availability-change alert (a save of a day, week or weekly block) moved
+// to the schedulers' bell/8pm digest in lib/availabilityNotice.ts (bj-finance
+// #754); its name rendering through this PR's helper is covered route-level in
+// lib/availabilityNotice.test.ts ("someone with no name / an email on file").
 
 function bossAlerts(): string[] {
   return db.rows("notifications").filter((n) => n.user_id === BOSS).map((n) => String(n.body));
 }
-
-test("a named person's availability update names them to managers", async () => {
-  db.signIn(SAM);
-  const res = await saveWeek();
-  assert.equal(res.status, 200);
-  assert.deepEqual(bossAlerts(), ["Sam Lee updated their availability."]);
-});
-
-test("an email sitting in the name never reaches the manager's alert", async () => {
-  db.signIn(OLD);
-  const res = await saveWeek();
-  assert.equal(res.status, 200);
-  assert.deepEqual(bossAlerts(), ["An employee updated their availability."]);
-});
-
-test("a person with no name is 'An employee' in the alert", async () => {
-  db.signIn(NONE);
-  const res = await saveWeek();
-  assert.equal(res.status, 200);
-  assert.deepEqual(bossAlerts(), ["An employee updated their availability."]);
-});
 
 test("a drop request from someone whose name is their email says 'An employee wants to drop'", async () => {
   db.signIn(OLD);
@@ -174,19 +146,6 @@ test("a named person's time-off request names them", async () => {
   );
   assert.equal(res.status, 200);
   assert.match(onlyAlert(), /^Sam Lee requested time off for /);
-});
-
-test("a single availability preference saved by someone whose name is their email is 'An employee updated'", async () => {
-  db.signIn(OLD);
-  const res = await availability.POST(
-    new Request("http://time.test/api/availability", {
-      method: "POST",
-      body: JSON.stringify({ weekday: 2, start_time: "09:00", end_time: "17:00", preference: "preferred" }),
-    }),
-    { params: { id: "" } },
-  );
-  assert.equal(res.status, 200);
-  assert.equal(onlyAlert(), "An employee updated their availability.");
 });
 
 test("cancelling approved time off, for someone whose name is their email, is 'An employee removed'", async () => {
