@@ -13,11 +13,13 @@
 // never a migration. Nothing here holds a business figure: crm-app is public,
 // and the owners enter every value on the board.
 //
-// Pure and dependency-free, so `node --test` runs it and the route and the
-// page validate identically.
+// Pure, importing only the dependency-free lib/coverage.ts, so `node --test`
+// runs it and the route and the page validate identically.
 
-/** How a number is entered and shown. Shares are stored as fractions (0.25 is 25%). */
-export type FieldKind = "pct" | "money" | "per100" | "hours" | "time" | "text";
+import { CLOSE_DOWN_KEY, OPEN_UP_KEY } from "../coverage.ts";
+
+/** How a number is entered and shown. Shares are stored as fractions (0.25 is 25%). Minutes are whole minutes. */
+export type FieldKind = "pct" | "money" | "per100" | "hours" | "minutes" | "time" | "text";
 
 export type FieldSpec = {
   /** "value" for the row's main number, otherwise the name of its key in `detail`. */
@@ -78,6 +80,17 @@ export const SETTINGS: SettingSpec[] = [
       { name: "min_alone_hours", kind: "hours", digits: 2, label: "Closer alone at least", after: "hours" },
       { name: "out_at_or_after", kind: "time", digits: 0, label: "Clocks out at or after" },
     ],
+  },
+  // Staffed hours (bj-finance #742 follow-up, ruled 2026-10-19): the open hours
+  // widened by these minutes are what coverage is measured against
+  // (staffedWindow in lib/coverage.ts, which defines the two keys).
+  {
+    key: OPEN_UP_KEY, label: "Open-up time", unit: "minutes before opening that someone must be in the store",
+    fields: [{ name: "value", kind: "minutes", digits: 0, label: "Open-up time", after: "minutes before opening", inline: true }],
+  },
+  {
+    key: CLOSE_DOWN_KEY, label: "Close-down time", unit: "minutes after closing that someone must be in the store",
+    fields: [{ name: "value", kind: "minutes", digits: 0, label: "Close-down time", after: "minutes after closing", inline: true }],
   },
 ];
 
@@ -202,6 +215,8 @@ export function reviewState(reviewBy: string, today: string): ReviewState {
 // ---------------------------------------------------------------------------
 
 export const MAX_NOTE = 2000;
+/** The most a minutes value may be: four hours. */
+export const MAX_MINUTES = 240;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -233,6 +248,7 @@ export function parseField(f: FieldSpec, raw: unknown): Parsed<number | string |
   if (n < 0) return { ok: false, error: `${f.label} cannot be negative.` };
   if (f.kind === "pct" && n > 1) return { ok: false, error: `${f.label} is a share: at most 100%.` };
   if (f.kind === "hours" && (n <= 0 || n > 24)) return { ok: false, error: `${f.label} must be between 0 and 24 hours.` };
+  if (f.kind === "minutes" && (!Number.isInteger(n) || n > MAX_MINUTES)) return { ok: false, error: `${f.label} must be whole minutes, from 0 to ${MAX_MINUTES}.` };
   if (f.name === "wage_cap" && n === 0) return { ok: false, error: `${f.label}: leave it blank for "on all wages", or give the cap.` };
   return { ok: true, value: n };
 }

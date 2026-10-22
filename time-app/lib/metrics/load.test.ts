@@ -119,9 +119,15 @@ test("before profiles has pay_type the people read is a problem, never a read wi
       : undefined,
   );
   const data = buildMetricsData(await loadMetricsInputs(client, NOW));
-  // Labor vs target prices the catering crew from the team, so it cannot load either.
-  assert.deepEqual(data.problems, ["people: column profiles.pay_type does not exist", "labor vs target: column profiles.pay_type does not exist"]);
+  // Labor vs target prices the catering crew from the team, so it cannot load
+  // either; Labor Hours Planning takes its average rate from the team.
+  assert.deepEqual(data.problems, [
+    "people: column profiles.pay_type does not exist",
+    "labor vs target: column profiles.pay_type does not exist",
+    "labor hours planning: column profiles.pay_type does not exist",
+  ]);
   assert.equal(data.laborTarget, null);
+  assert.equal(data.laborPlanning, null);
   assert.equal(data.labour, null);
   assert.equal(data.forward, null);
   assert.equal(data.catering?.byDay["2026-10-04"], 1000);
@@ -134,7 +140,8 @@ test("a section that cannot load is null and named in problems, never zeros; the
   assert.equal(data.labour, null); // hours need the shifts to split catering from in-store
   assert.equal(data.forward, null);
   assert.equal(data.laborTarget, null); // the catering crew's shifts price its offset
-  assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["labor vs target", "outreach", "shifts"]);
+  assert.equal(data.laborPlanning, null); // booked catering is its Catering shifts
+  assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["labor hours planning", "labor vs target", "outreach", "shifts"]);
   assert.equal(data.catering?.byDay["2026-10-04"], 1000);
 });
 
@@ -145,9 +152,13 @@ test("when the deals cannot load, every deal-based widget is null rather than em
   assert.equal(data.ar, null);
   assert.equal(data.leads, null);
   assert.equal(data.quotes, null);
-  assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["catering deals", "labor vs target", "new enquiries"]);
+  // Labor Hours Planning names both its deal reads.
+  assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["catering deals", "labor hours planning", "labor hours planning", "labor vs target", "new enquiries"]);
+  // Labor Hours Planning still draws, saying booked catering and marketing deals could not be read.
+  assert.ok(data.laborPlanning?.weeks[0].notes.some((n) => n.startsWith("catering bookings could not be read")));
+  assert.ok(data.laborPlanning?.weeks[0].notes.some((n) => n.startsWith("marketing deals could not be read")));
   // The card still draws, with no labor for a week whose catering offset cannot be known.
-  assert.ok(data.laborTarget?.months.find((m) => m.month === "2026-09")?.weeks[0].why.includes("catering bookings could not be read"));
+  assert.ok(data.laborTarget?.weeks.find((w) => w.start === "2026-09-06")?.why.includes("catering bookings could not be read"));
   assert.equal(data.outreach?.at(-1)?.sent, 1);
 });
 
@@ -196,15 +207,18 @@ function seedLaborTarget() {
   db.tables.sales_daily_in_store = SEPT_WEEK.map((day) => ({ day, in_store: "700.00", basis: "booked", source: "square" }));
 }
 
-test("labor vs target: each week of the last full month by default, from the paid actuals, the daily sales and the board", async () => {
+test("labor vs target: every week on offer, the last 8 over by default, from the paid actuals, the daily sales and the board", async () => {
   seedLaborTarget();
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
   assert.deepEqual(data.problems, []);
-  assert.equal(data.laborTarget?.defaultMonth, "2026-09");
-  assert.equal(data.laborTarget?.months[0].month, "2026-10");
-  const sept = data.laborTarget?.months.find((m) => m.month === "2026-09");
-  assert.deepEqual(sept?.weeks.map((w) => w.start), ["2026-09-06", "2026-09-13", "2026-09-20", "2026-09-27"]);
-  const [first, second] = sept!.weeks;
+  // NOW is Saturday Oct 10: the week of Oct 4 is not over, so the default ends with Sep 27.
+  assert.deepEqual(data.laborTarget?.defaultRange, { from: "2026-08-09", to: "2026-09-27" });
+  const starts = data.laborTarget!.weeks.map((w) => w.start);
+  assert.equal(starts[0], "2026-05-03");
+  assert.equal(starts.at(-1), "2026-10-04");
+  assert.equal(starts.length, 23);
+  const i = starts.indexOf("2026-09-06");
+  const [first, second] = data.laborTarget!.weeks.slice(i, i + 2);
   assert.equal(first.available, true);
   assert.equal(first.sales, 4_900);
   assert.equal(first.actual, 1_400);
@@ -226,7 +240,7 @@ test("labor vs target: a booked deal's billed crew hours come off the week's lab
   db.tables.deals.push(deal({ id: 3, event_date: "2026-09-08", labor_hours: "5", staff_count: 2 }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
   assert.deepEqual(data.problems, []);
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true);
   assert.equal(first.cateringHours, 10);
   assert.equal(first.cateringOffset, 250);
@@ -247,7 +261,7 @@ test("labor vs target: whoever is on the deal's Catering shift sets the crew rat
   // 5 hours x 2 crew = 10 billed hours at 25 + 5 = 300 of crew cost, 375 with taxes and comp.
   db.tables.deals.push(deal({ id: 3, event_date: "2026-09-08", labor_hours: "5", staff_count: 2 }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true);
   assert.equal(first.cateringOffset, 375);
   assert.equal(first.actual, 1_025);
@@ -260,7 +274,7 @@ test("labor vs target: a booked deal with no billed crew hours reads n/a for its
   });
   db.tables.deals.push(deal({ id: 4, event_date: "2026-09-09", labor_hours: null, staff_count: null }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, false);
   assert.equal(first.actual, null);
   assert.ok(first.why.includes("no billed crew hours on catering deal #4"), first.why.join("; "));
@@ -276,7 +290,7 @@ test("labor vs target: a week before the catering premium was first set prices t
   // 5 hours x 2 crew = 10 billed hours at the active average of 15, no premium: 150, 187.50 with taxes and comp.
   db.tables.deals.push(deal({ id: 3, event_date: "2026-09-08", labor_hours: "5", staff_count: 2 }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true, first.why.join("; "));
   assert.equal(first.cateringOffset, 187.5);
   assert.equal(first.actual, 1_212.5);
@@ -294,7 +308,7 @@ test("labor vs target: a week's fixed payroll is the people salaried that week, 
     { id: 2, profile_id: "p-gone", annual_salary: "10000.00", effective_from: "2026-01-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-01-01T00:00:00Z" },
   ];
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true, first.why.join("; "));
   // 25,000 of payroll target less 10,000 x 1.25 of fixed payroll = 12,500 of 100,000.
   assert.equal(first.targetPct.value, 0.125);
@@ -305,7 +319,7 @@ test("labor vs target: a deal billed zero crew hours (a pickup) takes nothing of
   // PostgREST sends the numeric labor_hours as a string; no staff count on file.
   db.tables.deals.push(deal({ id: 5, event_date: "2026-09-08", labor_hours: "0", staff_count: null }));
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
-  const first = data.laborTarget!.months.find((m) => m.month === "2026-09")!.weeks[0];
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true, first.why.join("; "));
   assert.equal(first.cateringHours, 0);
   assert.equal(first.actual, 1_400);
@@ -318,4 +332,59 @@ test("labor vs target: when the paid actuals cannot be read the card cannot load
   assert.equal(data.laborTarget, null);
   assert.deepEqual(data.problems.map((p) => p.split(":")[0]), ["labor vs target"]);
   assert.equal(data.catering?.byDay["2026-10-04"], 1000);
+});
+
+// ---- Labor Hours Planning (bj-finance #742) -------------------------------------------------
+
+const rev = (over: Record<string, unknown>) => ({
+  id: 1, effective_from: "2026-09-01", review_by: "2026-12-31", source: "invented", method: null, recorded_by: null,
+  recorded_at: "2026-09-01T12:00:00Z", cancelled: false, ...over,
+});
+
+test("labor hours planning reads seasons, the events in force and last year's hours (migration 47)", async () => {
+  const days = [0, 1, 2, 3, 4, 5, 6];
+  db.tables.store_hours = days.map((weekday) => ({ weekday, is_closed: false, opens: "10:00:00", closes: "21:00:00" }));
+  // From Wednesday Oct 7: 13:00 to 21:00.
+  db.tables.store_hours_seasons = days.map((weekday) => ({ effective_from: "2026-10-07", weekday, name: "Test season", is_closed: false, opens: "13:00:00", closes: "21:00:00" }));
+  db.tables.concession_events = [
+    rev({ id: 1, event_key: "test-expo", name: "Test Expo", start_date: "2026-10-12", end_date: "2026-10-13", expected_net_sales: "100.00", provisional: false }),
+    rev({ id: 2, event_key: "test-expo", name: "Test Expo", start_date: "2026-10-05", end_date: "2026-10-06", expected_net_sales: "200.00", provisional: true, effective_from: "2026-09-15" }),
+    rev({ id: 3, event_key: "test-fair", name: "Test Fair", start_date: "2026-10-05", end_date: "2026-10-05", expected_net_sales: "50.00", provisional: false, cancelled: true }),
+    // Last year's show: its day leaves last year's catering as it is read.
+    rev({ id: 4, event_key: "test-show", name: "Test Show", start_date: "2025-10-09", end_date: "2025-10-09", expected_net_sales: "10.00", provisional: false }),
+  ];
+  // Raw catering hours, and one day marked marketing.
+  const hours: Record<string, [string, string]> = { "2025-10-07": ["6.00", "catering"], "2025-10-08": ["20.00", "marketing"], "2025-10-09": ["4.00", "catering"] };
+  db.tables.catering_hours_history = ["2025-10-05", "2025-10-06", "2025-10-07", "2025-10-08", "2025-10-09", "2025-10-10", "2025-10-11"].map((day) => ({
+    day, hours: hours[day]?.[0] ?? "0.00", kind: hours[day]?.[1] ?? "catering", shifts: 0, source: "when_i_work", built_by: "test", updated_at: NOW.toISOString(),
+  }));
+  // A marketing deal this week with a Marketing shift of 3 hours, and a Marketing shift with no deal of 2.
+  db.tables.deals.push({ ...deal({ id: 7, event_date: "2026-10-08", labor_hours: "5", staff_count: 2 }), event_type: "Marketing Event", stage: "Closed Marketing Event" });
+  db.tables.shifts.push(
+    { id: 21, employee_id: null, starts_at: "2026-10-08T14:00:00Z", ends_at: "2026-10-08T17:00:00Z", position: "Marketing", deal_id: 7 },
+    { id: 22, employee_id: null, starts_at: "2026-10-09T14:00:00Z", ends_at: "2026-10-09T16:00:00Z", position: "Marketing", deal_id: null },
+  );
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const week = data.laborPlanning?.weeks[0];
+  assert.equal(week?.start, "2026-10-04");
+  assert.equal(week?.coverageHours.value, 3 * 11 + 4 * 8, "the season from its first day");
+  assert.equal(week?.concessionSales, 200, "the revision in force; the cancelled event is gone");
+  assert.deepEqual(week?.events, ["Test Expo (placeholder)"]);
+  assert.equal(week?.lastYearCatering, 6, "the marketing day and the show day are not catering");
+  assert.equal(week?.estimatedHours.value, 6);
+  assert.equal(week?.lastYearMarketing, 20);
+  assert.equal(week?.marketingBookedHours, 3 + 2);
+  assert.equal(week?.marketingEstimatedHours.value, 15);
+  assert.ok(week?.notes.some((n) => n.includes("#1")), "the booked deal with no billed crew hours is named");
+});
+
+test("labor hours planning before migration 47: the weekly hours, no events, and the estimate waits, saying why", async () => {
+  db.tables.store_hours = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, is_closed: false, opens: "10:00:00", closes: "21:00:00" }));
+  db.missingTables = ["store_hours_seasons", "concession_events", "catering_hours_history"];
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const week = data.laborPlanning?.weeks[0];
+  assert.equal(week?.coverageHours.value, 7 * 11);
+  assert.deepEqual(week?.events, []);
+  assert.equal(week?.estimatedHours.value, null);
+  assert.ok(data.problems.includes("labor hours planning: last year's catering hours are not loaded yet (migration 47)"));
 });

@@ -50,6 +50,7 @@ function snapshot(over: Partial<ReminderSnapshot> = {}): ReminderSnapshot {
     shifts: [SAT_31_COVERED],
     deals: [],
     dealShifts: [],
+    staffing: [],
     ...over,
   };
 }
@@ -67,7 +68,10 @@ function deal(over: Record<string, unknown> = {}) {
 }
 
 describe("reminderWindow", () => {
-  it("is the next two full Sun–Sat weeks after the run date", () => {
+  // bj-finance #753: the reminder runs every day. The schedule is made on
+  // Wednesdays, so the window moves on a week each Thursday: the two Sun–Sat
+  // weeks starting the Sunday after the most recent Thursday.
+  it("is the next two full Sun–Sat weeks on a Thursday", () => {
     expect(reminderWindow("2026-10-15")).toEqual({
       weekStarts: ["2026-10-18", "2026-10-25"],
       start: "2026-10-18",
@@ -75,12 +79,79 @@ describe("reminderWindow", () => {
     });
   });
 
-  it("Thursday and Friday check the same two weeks", () => {
-    expect(reminderWindow("2026-10-16")).toEqual({
+  it.each([
+    ["Thu", "2026-10-22", "2026-10-25"],
+    ["Fri", "2026-10-23", "2026-10-25"],
+    ["Sat", "2026-10-24", "2026-10-25"],
+  ])("%s %s checks the next two full weeks", (_day, runDate, first) => {
+    expect(reminderWindow(runDate)).toEqual({
+      weekStarts: [first, "2026-11-01"],
+      start: first,
+      end: "2026-11-07",
+    });
+  });
+
+  it.each([
+    ["Sun", "2026-10-25"],
+    ["Mon", "2026-10-26"],
+    ["Tue", "2026-10-27"],
+    ["Wed", "2026-10-28"],
+  ])("%s %s checks the current week from today on, and the next week", (_day, runDate) => {
+    expect(reminderWindow(runDate)).toEqual({
+      weekStarts: ["2026-10-25", "2026-11-01"],
+      start: runDate,
+      end: "2026-11-07",
+    });
+  });
+
+  it("Wednesday still checks the current week; Thursday rolls on a week", () => {
+    expect(reminderWindow("2026-10-28").weekStarts).toEqual(["2026-10-25", "2026-11-01"]);
+    expect(reminderWindow("2026-10-29")).toEqual({
+      weekStarts: ["2026-11-01", "2026-11-08"],
+      start: "2026-11-01",
+      end: "2026-11-14",
+    });
+  });
+
+  it("Monday 2026-10-19 checks from the 19th through the week of the 25th", () => {
+    expect(reminderWindow("2026-10-19")).toEqual({
       weekStarts: ["2026-10-18", "2026-10-25"],
-      start: "2026-10-18",
+      start: "2026-10-19",
       end: "2026-10-31",
     });
+  });
+});
+
+describe("a Sunday-to-Wednesday run", () => {
+  // Monday Oct 19: the weeks of Oct 18 and Oct 25, from the 19th on.
+  const MONDAY = "2026-10-19";
+  const SUN_MON_AND_SAT_HOURS = [
+    { weekday: 0, is_closed: false, opens: "14:00:00", closes: "18:00:00" },
+    { weekday: 1, is_closed: false, opens: "14:00:00", closes: "18:00:00" },
+    ...SAT_HOURS,
+  ];
+
+  it("leaves out store hours already past and keeps today and later", () => {
+    const lines = buildReminder(snapshot({ storeHours: SUN_MON_AND_SAT_HOURS }), MONDAY);
+    // Sun Oct 18 is yesterday: left out. Mon Oct 19 is today: kept.
+    // Sat Oct 31 is covered.
+    expect(lines).toEqual([
+      "Mon Oct 19, 2:00–6:00 PM",
+      "Sat Oct 24, 2:00–6:00 PM",
+      "Sun Oct 25, 2:00–6:00 PM",
+      "Mon Oct 26, 2:00–6:00 PM",
+    ]);
+  });
+
+  it("leaves out catering events already past and keeps today's", () => {
+    const deals = [
+      deal({ id: 1, event_date: "2026-10-18", event_start_time: "12:00", event_end_time: "13:00" }),
+      deal({ id: 2, event_date: "2026-10-19", event_start_time: "12:00", event_end_time: "13:00" }),
+    ];
+    expect(buildReminder(snapshot({ deals }), MONDAY)).toEqual([
+      "Mon Oct 19, 12:00–1:00 PM (catering)",
+      "Sat Oct 24, 2:00–6:00 PM",
+    ]);
   });
 });
 
@@ -112,6 +183,48 @@ describe("store hours", () => {
   it("a closed exception beats the weekday pattern", () => {
     const exceptions = [{ date: "2026-10-24", is_closed: true }];
     expect(buildReminder(snapshot({ exceptions }), RUN_DATE)).toEqual([]);
+  });
+
+  // Store-hours seasons (migration 47, bj-finance #742): lib/coverageReminderPg.ts
+  // reads them into storeHours as rows carrying effective_from. From its first
+  // day a season's row replaces its weekday's standing hours; before it, the
+  // standing hours apply.
+  it("from a season's first day the reminder checks the season's hours, and the standing hours before it", () => {
+    const longerSaturdays = [{ weekday: 6, is_closed: false, opens: "12:00:00", closes: "18:00:00", effective_from: "2026-10-25" }];
+    const lines = buildReminder(snapshot({ storeHours: [...SAT_HOURS, ...longerSaturdays] }), RUN_DATE);
+    expect(lines).toEqual(["Sat Oct 24, 2:00–6:00 PM", "Sat Oct 31, 12:00–2:00 PM"]);
+  });
+
+  it("a season that closes a weekday needs nobody on it from its first day", () => {
+    const closedSaturdays = [{ weekday: 6, is_closed: true, opens: null, closes: null, effective_from: "2026-10-18" }];
+    expect(buildReminder(snapshot({ storeHours: [...SAT_HOURS, ...closedSaturdays], shifts: [] }), RUN_DATE)).toEqual([]);
+  });
+
+  // Staffed hours (bj-finance #742 follow-up, ruled 2026-10-19): the open
+  // hours plus the open-up minutes before and the close-down minutes after,
+  // as the Check week button measures them. The minutes here are invented.
+  const minutes = (key: string, value: number, effective_from = "2026-01-01") => ({
+    id: value + (key.includes("open_up") ? 1000 : 2000), key, value, effective_from, recorded_at: `${effective_from}T00:00:00Z`,
+  });
+
+  it("checks staffed hours: the open-up and close-down minutes either side of the open hours", () => {
+    const staffing = [minutes("staffing.open_up_minutes", 45), minutes("staffing.close_down_minutes", 15)];
+    expect(buildReminder(snapshot({ staffing }), RUN_DATE)).toEqual([
+      "Sat Oct 24, 1:15–6:15 PM",
+      "Sat Oct 31, 1:15–2:00 PM",
+      "Sat Oct 31, 6:00–6:15 PM",
+    ]);
+  });
+
+  it("uses the minutes in force on each day, and open hours before any are set", () => {
+    const staffing = [minutes("staffing.open_up_minutes", 45, "2026-10-25"), minutes("staffing.close_down_minutes", 0, "2026-10-25")];
+    expect(buildReminder(snapshot({ staffing }), RUN_DATE)).toEqual(["Sat Oct 24, 2:00–6:00 PM", "Sat Oct 31, 1:15–2:00 PM"]);
+  });
+
+  it("a closed day stays closed whatever the minutes", () => {
+    const staffing = [minutes("staffing.open_up_minutes", 45), minutes("staffing.close_down_minutes", 45)];
+    const exceptions = [{ date: "2026-10-24", is_closed: true }];
+    expect(buildReminder(snapshot({ staffing, exceptions, shifts: [shift("2026-10-31T13:15:00-04:00", "2026-10-31T18:45:00-04:00")] }), RUN_DATE)).toEqual([]);
   });
 
   it("a weekday with no hours row is not checked", () => {

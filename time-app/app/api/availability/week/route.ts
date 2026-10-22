@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { notifyManagers } from "@/lib/notify";
+import { changedKeys, queueAvailabilityChange } from "@/lib/availabilityNotice";
 import { NextResponse } from "next/server";
 
 function addDays(d: string, n: number) {
@@ -11,6 +11,10 @@ function addDays(d: string, n: number) {
 
 // Replace the employee's availability blocks for one week (date-based).
 // Body: { weekStart, blocks: [{date, start_time, end_time, preference}] }.
+//
+// The dates whose blocks actually changed are queued for the schedulers: on
+// their bell now, in the 8pm email (lib/availabilityNotice.ts). Saving the
+// same week again queues nothing.
 export async function PUT(request: Request) {
   const profile = await getProfile();
   if (!profile) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -26,7 +30,7 @@ export async function PUT(request: Request) {
   // Clear this employee's availability rows for the week.
   const { data: existing } = await supabase
     .from("availability")
-    .select("id, specific_date")
+    .select("id, specific_date, start_time, end_time, preference, is_available")
     .eq("employee_id", profile.id)
     .eq("is_available", true)
     .not("specific_date", "is", null)
@@ -54,11 +58,10 @@ export async function PUT(request: Request) {
     if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
   }
 
-  await notifyManagers({
-    type: "availability_change",
-    title: "Availability updated",
-    body: `${profile.full_name ?? "An employee"} updated their availability.`,
-  }).catch(() => {});
+  await queueAvailabilityChange(profile, {
+    dates: changedKeys(existing ?? [], rows, (r) => r.specific_date),
+    weekdays: [],
+  });
 
   return NextResponse.json({ ok: true, inserted: rows.length });
 }

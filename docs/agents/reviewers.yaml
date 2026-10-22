@@ -139,8 +139,22 @@ documentation_map:
     docs: [README.md]
   - paths: [time-app/supabase/migration_46*.sql]
     docs: [README.md, docs/payroll-verify.md]
-  - paths: [lib/coverageReminder.ts, lib/coverageReminderCli.ts, lib/coverageReminderPg.ts, lib/gmailSend.ts, scripts/coverage-reminder.ts]
+  - paths: ["time-app/supabase/migration_47*.sql", "time-app/lib/coverage.ts", "time-app/lib/weekCoverage.ts", "time-app/lib/storeHours*.ts", "time-app/lib/localPreview.ts", "time-app/components/StoreHoursAdmin.tsx", "time-app/app/api/store-hours/**", "time-app/app/api/dev/**", "time-app/app/dev/**"]
+    docs: [README.md, GLOSSARY.md]
+  - paths: ["time-app/app/api/schedule/check-week/**", "time-app/components/CheckWeekButton.tsx"]
     docs: [README.md]
+  - paths: ["time-app/supabase/migration_48*.sql", "time-app/lib/shiftNotice.ts", "time-app/lib/availabilityNotice.ts", "time-app/lib/repeatUntil.ts", "time-app/app/api/availability/**", "time-app/components/AvailabilityCalendar.tsx"]
+    docs: [README.md, time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/app/api/shifts/**", "time-app/lib/notify.ts", "time-app/lib/notifPrefs.ts", "time-app/lib/availabilityCheck.ts", "time-app/lib/availabilityRows.ts"]
+    docs: [README.md, time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/app/api/cron/missed-clockins/route.ts"]
+    docs: [time-app/ALEX-CRON-SETUP.md, time-app/SETUP-GUIDE.md]
+  - paths: ["lib/coverageReminder.ts", "lib/coverageReminderCli.ts", "lib/coverageReminderPg.ts", "lib/gmailSend.ts", "scripts/coverage-reminder.ts"]
+    docs: [README.md]
+  - paths: ["components/DealDetailDrawer.tsx", "lib/winterMenu.ts", "lib/menuOptions.ts", "lib/types.ts", "supabase/crm/012_winter_menu_extras*.sql"]
+    docs: [README.md]
+  - paths: ["lib/callDesk/options.ts", "components/callDesk/GenerateDealForm.tsx"]
+    docs: [docs/call-desk.md, docs/manual-deal-intake.md]
 
 # Extra one-way globs for merge_danger.py, beyond Software-Factory's built-in
 # list. This repo's migrations do NOT live under a `migrations/` directory: they

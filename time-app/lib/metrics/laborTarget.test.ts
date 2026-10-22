@@ -9,7 +9,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { defaultLaborMonth, laborMonths, laborVsTarget, monthWeeks, type LaborDayRow, type LaborTargetInputs } from "./laborTarget.ts";
+import { laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs } from "./laborTarget.ts";
+import { monthWeeks } from "./weekRange.ts";
 import { addDays, eachDay } from "./dates.ts";
 import type { SalaryRow, SettingRow } from "../controlBoard/settings.ts";
 import { boardOn } from "../controlBoard/board.ts";
@@ -41,6 +42,8 @@ const BOARD: SettingRow[] = [
 
 // October 2030 starts on a Tuesday: its Sundays are the 6th, 13th, 20th and 27th.
 const OCT = "2030-10";
+/** The weeks of OCT, as the card read them when it showed one month. */
+const octWeeks = (i: LaborTargetInputs) => ({ weeks: laborVsTarget(monthWeeks(OCT), i) });
 const TODAY = "2030-11-20";
 
 // Each day: 10 hours, 150 wages + 6 catering premium + 4 solo close = 160,
@@ -68,7 +71,7 @@ test("a month's weeks are the Sunday-to-Saturday weeks that start in it", () => 
   assert.deepEqual(monthWeeks("2030-10"), ["2030-10-06", "2030-10-13", "2030-10-20", "2030-10-27"]);
   // A month that starts on a Sunday has its first week on the 1st; its last runs into the next month.
   assert.deepEqual(monthWeeks("2026-11"), ["2026-11-01", "2026-11-08", "2026-11-15", "2026-11-22", "2026-11-29"]);
-  const weeks = laborVsTarget(OCT, inputs()).weeks;
+  const weeks = octWeeks(inputs()).weeks;
   assert.deepEqual(weeks.map((w) => [w.start, w.end]), [
     ["2030-10-06", "2030-10-12"],
     ["2030-10-13", "2030-10-19"],
@@ -78,7 +81,7 @@ test("a month's weeks are the Sunday-to-Saturday weeks that start in it", () => 
 });
 
 test("a complete week: actual labor with taxes and comp, against the hourly goal with its taxes and comp", () => {
-  const w = laborVsTarget(OCT, inputs()).weeks[0];
+  const w = octWeeks(inputs()).weeks[0];
   assert.equal(w.available, true);
   assert.deepEqual(w.why, []);
   close(w.sales, 4_800);
@@ -100,7 +103,7 @@ test("a complete week: actual labor with taxes and comp, against the hourly goal
 
 test("a week missing a day of payroll is not available, never zero; its sales and target still show", () => {
   const labor = inputs().labor.filter((r) => r.day !== "2030-10-15");
-  const w = laborVsTarget(OCT, inputs({ labor })).weeks[1];
+  const w = octWeeks(inputs({ labor })).weeks[1];
   assert.equal(w.available, false);
   assert.equal(w.hours, null);
   assert.equal(w.actual, null);
@@ -111,12 +114,12 @@ test("a week missing a day of payroll is not available, never zero; its sales an
   close(w.targetPct.value, 0.25);
   assert.deepEqual(w.why, ["hourly payroll on file for 6 of 7 days"]);
   // The weeks around it are untouched.
-  assert.equal(laborVsTarget(OCT, inputs({ labor })).weeks[0].available, true);
+  assert.equal(octWeeks(inputs({ labor })).weeks[0].available, true);
 });
 
 test("a week missing a day of sales has no sales, % or variance; its labor $ still shows", () => {
   const sales = inputs().sales.filter((r) => r.day !== "2030-10-22" && r.day !== "2030-10-23");
-  const w = laborVsTarget(OCT, inputs({ sales })).weeks[2];
+  const w = octWeeks(inputs({ sales })).weeks[2];
   assert.equal(w.available, false);
   assert.equal(w.sales, null);
   assert.equal(w.actualPct, null);
@@ -128,19 +131,19 @@ test("a week missing a day of sales has no sales, % or variance; its labor $ sti
 });
 
 test("a week not over yet is not available, whatever rows it has", () => {
-  const w = laborVsTarget(OCT, inputs({ today: "2030-10-30" })).weeks[3];
+  const w = octWeeks(inputs({ today: "2030-10-30" })).weeks[3];
   assert.equal(w.available, false);
   assert.equal(w.actual, null);
   assert.equal(w.sales, null);
   assert.deepEqual(w.why, ["the week is not over yet"]);
   // A week ending yesterday is over.
-  assert.equal(laborVsTarget(OCT, inputs({ today: "2030-11-03" })).weeks[3].available, true);
+  assert.equal(octWeeks(inputs({ today: "2030-11-03" })).weeks[3].available, true);
 });
 
 test("each day is held to the target in force that day", () => {
   // From Wednesday the 9th the payroll target is 20%: 200,000 / 1.25 = 160,000, a 16% goal, 20% with taxes and comp.
   const settings = [...BOARD, row("target.payroll_pct", 0.2, {}, "2030-10-09")];
-  const w = laborVsTarget(OCT, inputs({ settings })).weeks[0];
+  const w = octWeeks(inputs({ settings })).weeks[0];
   // Sun-Tue sales 300 + 500 + 600 = 1,400 at 25%; Wed-Sat 700 + 800 + 900 + 1,000 = 3,400 at 20%.
   close(w.targetDollars, 1_400 * 0.25 + 3_400 * 0.2);
   close(w.targetPct.value, (1_400 * 0.25 + 3_400 * 0.2) / 4_800);
@@ -148,7 +151,7 @@ test("each day is held to the target in force that day", () => {
   close(w.varianceDollars, 1_400 - 1_030);
   // Without the week's sales a changing target cannot be shown as one %.
   const sales = inputs().sales.filter((r) => r.day !== "2030-10-07");
-  const noSales = laborVsTarget(OCT, inputs({ settings, sales })).weeks[0];
+  const noSales = octWeeks(inputs({ settings, sales })).weeks[0];
   assert.equal(noSales.targetPct.value, null);
   assert.deepEqual(noSales.targetPct.needs, ["the week's sales (the target changed during the week)"]);
 });
@@ -156,13 +159,13 @@ test("each day is held to the target in force that day", () => {
 test("taxes and comp on actual labor are the rates in force on each day", () => {
   // From Thursday the 10th FICA is 25%: those three days carry 35%, so 160 x 1.35 = 216.
   const settings = [...BOARD, row("tax.fica", 0.25, { wage_cap: null }, "2030-10-10")];
-  const w = laborVsTarget(OCT, inputs({ settings })).weeks[0];
+  const w = octWeeks(inputs({ settings })).weeks[0];
   close(w.taxesWc, 4 * 40 + 3 * 56);
   close(w.actual, 4 * 200 + 3 * 216);
 });
 
 test("an empty control board: the target is missing with what it needs, the actuals still show", () => {
-  const w = laborVsTarget(OCT, inputs({ settings: [] })).weeks[0];
+  const w = octWeeks(inputs({ settings: [] })).weeks[0];
   assert.equal(w.targetPct.value, null);
   assert.ok(w.targetPct.needs.includes("Total payroll target"));
   assert.equal(w.actual, null); // the taxes and comp are board values too
@@ -171,13 +174,8 @@ test("an empty control board: the target is missing with what it needs, the actu
   close(w.hours, 70);
 });
 
-test("months on offer: the current month and the 11 before it, newest first; the default is last month", () => {
-  const months = laborMonths("2030-03-15");
-  assert.equal(months.length, 12);
-  assert.equal(months[0], "2030-03");
-  assert.equal(months[11], "2029-04");
-  assert.equal(defaultLaborMonth("2030-03-15"), "2030-02");
-  assert.equal(defaultLaborMonth("2030-01-01"), "2029-12");
+test("the days read: from the first week on offer to the Saturday of this week", () => {
+  assert.deepEqual(laborWindow("2026-10-18"), { from: "2026-05-03", to: "2026-10-24" });
   assert.equal(addDays(monthWeeks("2030-02").at(-1)!, 6), "2030-03-02");
 });
 
@@ -192,7 +190,7 @@ test("the target % is the all-in hourly goal the Targets tab derives: payroll ta
     { id: 1, profile_id: "s1", annual_salary: 50_000, effective_from: "2030-01-01", review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z" },
   ];
   const salaried = [{ id: "s1", name: "Person S" }];
-  const w = laborVsTarget(OCT, inputs({ salaries, salaried })).weeks[0];
+  const w = octWeeks(inputs({ salaries, salaried })).weeks[0];
   const board = boardOn("2030-10-06", BOARD, salaries, salaried);
   close(board.hourlyAllInPct.value, 0.1875);
   close(w.allInGoalPct.value, 0.1875);
@@ -213,7 +211,7 @@ const booking = (id: number, d: string, billedHours: number | null): CateringBoo
 test("the catering crew the client paid for comes off hourly labor, at crew cost + premium, with that day's taxes and comp", () => {
   // Tuesday the 8th: deal 7 billed 10 crew hours, nobody on its shifts, so the average rate 20 + premium 5 = 25 an hour.
   // 250 of crew cost off the week's 1,120 of pay leaves 870; with 25% taxes and comp, 1,087.50.
-  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[0];
+  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[0];
   assert.equal(w.available, true);
   close(w.cateringHours, 10);
   close(w.cateringOffset, 312.5); // 250 x 1.25
@@ -225,19 +223,19 @@ test("the catering crew the client paid for comes off hourly labor, at crew cost
   // In-store hours 70 - 10 = 60 at 1,087.50: 18.125 an hour.
   close(w.varianceHours, -6.2068965517); // -112.50 / 18.125
   // The other weeks carry no offset.
-  close(laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[1].actual, 1_400);
+  close(octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[1].actual, 1_400);
 });
 
 test("the crew rate is whoever is on the deal's Catering shifts, as on the schedule, even someone no longer active", () => {
   const shift: LaborShift = { id: 1, employee_id: "p3", starts_at: "2030-10-08T16:00:00Z", ends_at: "2030-10-08T21:00:00Z", position: "Catering", deal_id: 7 };
-  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [shift], people: PEOPLE } })).weeks[0];
+  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [shift], people: PEOPLE } })).weeks[0];
   // 10 billed hours at 30 + 5 = 350 of crew cost; 770 left, 962.50 with taxes and comp.
   close(w.cateringOffset, 350 * 1.25);
   close(w.actual, 962.5);
 });
 
 test("a booked deal with no billed crew hours makes the week's labor n/a, naming the deal, never zero", () => {
-  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", null)], shifts: [], people: PEOPLE } })).weeks[0];
+  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", null)], shifts: [], people: PEOPLE } })).weeks[0];
   assert.equal(w.available, false);
   assert.equal(w.actual, null);
   assert.equal(w.cateringOffset, null);
@@ -246,7 +244,7 @@ test("a booked deal with no billed crew hours makes the week's labor n/a, naming
 });
 
 test("when the catering bookings could not be read, every week's labor is n/a rather than counting no catering", () => {
-  const w = laborVsTarget(OCT, inputs({ catering: { bookings: null, shifts: [], people: PEOPLE } })).weeks[0];
+  const w = octWeeks(inputs({ catering: { bookings: null, shifts: [], people: PEOPLE } })).weeks[0];
   assert.equal(w.available, false);
   assert.equal(w.actual, null);
   assert.ok(w.why.includes("catering bookings could not be read"));
@@ -254,7 +252,7 @@ test("when the catering bookings could not be read, every week's labor is n/a ra
 
 test("when the catering crew's billed hours take up every hour paid, the week is n/a and says why, never a variance in hours", () => {
   // 70 hours paid in the week and 70 crew hours billed on Tuesday's deal: no in-store hours left to price a variance at.
-  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 70)], shifts: [], people: PEOPLE } })).weeks[0];
+  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 70)], shifts: [], people: PEOPLE } })).weeks[0];
   assert.equal(w.available, false);
   assert.equal(w.varianceHours, null);
   assert.ok(w.why.includes("no in-store hours left once the catering crew's billed hours are taken off"), w.why.join("; "));
@@ -263,7 +261,7 @@ test("when the catering crew's billed hours take up every hour paid, the week is
 test("when the catering offset leaves hourly labor at zero or less, the week is n/a and says why", () => {
   // An invented crew rate of 100 an hour (the only active hourly person), + 5 premium.
   const people: LaborPerson[] = [{ id: "p9", name: "Person Nine", hourly_rate: 100, pay_type: "hourly", active: true }];
-  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 20)], shifts: [], people } })).weeks[0];
+  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 20)], shifts: [], people } })).weeks[0];
   // 20 billed hours x 105 = 2,100 off 1,120 paid: -980, -1,225 all-in. 50 in-store hours remain.
   close(w.actual, -1_225);
   assert.equal(w.available, false);
@@ -275,7 +273,7 @@ test("when the catering offset leaves hourly labor at exactly zero, the week is 
   // An invented crew rate of 107 an hour (the only active hourly person), + 5 premium: 112 an hour.
   // 10 billed hours x 112 = 1,120 off the week's 1,120 paid: nothing left, 0 all-in. 60 in-store hours remain.
   const people: LaborPerson[] = [{ id: "p9", name: "Person Nine", hourly_rate: 107, pay_type: "hourly", active: true }];
-  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people } })).weeks[0];
+  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people } })).weeks[0];
   assert.equal(w.actual, 0);
   assert.equal(w.available, false);
   assert.equal(w.varianceHours, null);
@@ -290,7 +288,7 @@ test("when the catering offset leaves hourly labor at exactly zero, the week is 
 
 test("a week before the catering premium's first row prices the crew at cost, no premium, instead of reading n/a", () => {
   const settings = [...BOARD, row("rule.catering_premium", 5, { cap_rate: null }, "2030-10-20")];
-  const w = laborVsTarget(OCT, inputs({ settings, catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[0];
+  const w = octWeeks(inputs({ settings, catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[0];
   assert.equal(w.available, true, w.why.join("; "));
   close(w.cateringOffset, 10 * 20 * 1.25, "10 billed hours at the average 20, no premium, with taxes and comp");
 });
@@ -301,7 +299,7 @@ test("a salaried person hired after the week is not in that week's target; someo
     { id: 2, profile_id: "s2", annual_salary: 70_000, effective_from: "2030-10-20", review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z" },
   ];
   const salaried = [{ id: "s1", name: "Person S", archivedOn: "2030-10-25" }, { id: "s2", name: "Person T", archivedOn: null }];
-  const weeks = laborVsTarget(OCT, inputs({ salaries, salaried })).weeks;
+  const weeks = octWeeks(inputs({ salaries, salaried })).weeks;
   assert.equal(weeks[0].available, true, weeks[0].why.join("; "));
   close(weeks[0].targetPct.value, 0.1875, "only Person S: 250,000 - 62,500 = 187,500");
   // Oct 20-26: both from the 20th, Person S through the 25th, the archive day. Sunday to
@@ -313,7 +311,7 @@ test("a salaried person hired after the week is not in that week's target; someo
 });
 
 test("a booked deal billed zero crew hours offsets nothing and leaves the week available", () => {
-  const w = laborVsTarget(OCT, inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 0)], shifts: [], people: PEOPLE } })).weeks[0];
+  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 0)], shifts: [], people: PEOPLE } })).weeks[0];
   assert.equal(w.available, true, w.why.join("; "));
   close(w.cateringHours, 0);
   close(w.cateringOffset, 0);

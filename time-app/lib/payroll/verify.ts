@@ -1058,6 +1058,9 @@ function checkOverlaps(views: PunchView[], window: PayWindow): Finding[] {
  * distinction lib/coverage.ts draws between "closed" and "not set".
  */
 function checkCoverageGaps(views: PunchView[], input: VerifyInput): Finding[] {
+  // Open hours (resolveOpenWindow), not staffed hours (staffedWindow): 1.8 is
+  // a punch audit of trading time, and 1.9 measures the last punch out from
+  // the close. The schedule's coverage check and reminder use staffed hours.
   const { window } = input;
   const exceptions = input.storeHoursExceptions ?? [];
   const closedRanges = input.closedRanges ?? [];

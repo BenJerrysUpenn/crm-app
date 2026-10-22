@@ -123,11 +123,14 @@ test("copy last week writes live shifts and tells each person once per shift", a
   ]);
 });
 
-test("taking someone off a shift messages nobody", async () => {
+// bj-finance #754: the person taken off it is told it was removed, on their
+// bell now and in the 8pm summary (lib/shiftNotice.test.ts); nobody else is.
+test("taking someone off a shift tells only them, that it was removed", async () => {
   db.tables.shifts.push({ id: 1, employee_id: SAM, starts_at: edt("2026-10-06", "12:00"), ends_at: edt("2026-10-06", "17:00"), position: null, published: true });
   const res = await shiftById.PATCH(req("PATCH", { employee_id: null }), { params: { id: "1" } });
   assert.equal(res.status, 200);
   assert.equal(db.rows("shifts")[0].employee_id, null);
   assert.equal(db.rows("shifts")[0].published, true);
-  assert.deepEqual(notified(), []);
+  assert.deepEqual(notified(), [[SAM, "schedule_change"]]);
+  assert.equal(db.rows("notifications")[0].title, "Your shift was removed");
 });

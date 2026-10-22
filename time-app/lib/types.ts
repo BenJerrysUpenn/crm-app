@@ -120,6 +120,9 @@ export type Availability = {
   request_group: string | null;
   preference: "available" | "preferred" | "unavailable";
   created_at: string;
+  // Weekly rows only (migration 48): the last date, inclusive, the row repeats
+  // on. Null or absent: open-ended, as every row was before migration 48.
+  repeat_until?: string | null;
 };
 
 export type ShiftRequest = {
@@ -156,6 +159,18 @@ export type StoreHours = {
   opens: string | null; // "HH:MM:SS"
   closes: string | null;
   updated_at: string | null;
+};
+
+// One weekday of a store-hours season (migration 47, bj-finance #742): from
+// effective_from it replaces the normal pattern's row for its weekday, until a
+// later season's. Before the first season the normal pattern applies.
+export type StoreHoursSeason = {
+  effective_from: string; // "YYYY-MM-DD"
+  weekday: number;
+  name: string;
+  is_closed: boolean;
+  opens: string | null; // "HH:MM:SS"
+  closes: string | null;
 };
 
 // A one-off override for a single date: a holiday closure, or special hours.
