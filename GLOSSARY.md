@@ -2,6 +2,12 @@
 
 The CRM and Withers Time share one database and one language: catering deals, the staff who work them, and what staff are paid for that work.
 
+## Systems
+
+**CRM**:
+The one Withers Ventures CRM, at crm.withers-ventures.com (this repo). "The CRM" always means this system; there is no other.
+_Avoid_: Catering-Manager (the catering automation that reads and writes the CRM), Apollo, Salesforce
+
 ## Staff pay
 
 **Travel Reimbursement**:
