@@ -109,12 +109,11 @@ documentation_map:
     docs: [indeed-cv-downloader/README.md]
   - paths: [.github/workflows/agent-reviews.yml, docs/agents/reviewers.yaml]
     docs: [docs/agents/reviewers.yaml]   # its header above; a gate file, so findings are questions
-  # Folded in from origin/main: the net-new mappings main's own documentation_map
-  # entries carried (areas not already covered by the globs above). A changed path
-  # takes the docs of EVERY entry it matches, so these only ADD docs, never remove
-  # any. Redundant-with-the-globs entries main also had (roles/money/dial/safe
-  # pages, covered by lib/** and app/** above; app/api/call-desk, covered by the
-  # call-desk cluster above) are not repeated.
+  # Finer-grained entries for individual time-app and crm areas. A changed path
+  # takes the docs of EVERY entry it matches, so an entry here only adds docs on
+  # top of the broad globs above; any overlap between entries is harmless. Areas
+  # already covered by the lib/** or app/** globs, or by the call-desk cluster
+  # above, need no entry of their own.
   - paths: [time-app/supabase/migration_*.sql, time-app/lib/payroll/*.ts]
     docs: [docs/payroll-verify.md]
   - paths: [time-app/lib/financeAccess.ts]
