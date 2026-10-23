@@ -1,9 +1,8 @@
 // Follow-up and event-reminder helpers for the deal cards.
 //
-// The boomerang badge that used to live here is gone: bj-finance #333 retired
-// the automatic boomerang follow-up, and migration 018b drops
-// `deals.boomerang_reason`. Card staleness is now driven purely by
-// `last_outbound_at`. See bj-finance #466.
+// There is no boomerang badge (bj-finance #333 retired the automatic
+// follow-up). Card staleness is driven purely by `last_outbound_at`.
+// See bj-finance #466.
 import type { Deal } from "@/lib/types";
 import {
   calendarDaysBetween,
