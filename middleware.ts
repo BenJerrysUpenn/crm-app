@@ -1,6 +1,6 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
-import { isPfPath, isGateExempt } from "@/lib/roles";
+import { isPfRoute, isGateExempt } from "@/lib/roles";
 import { handleShortLinkRequest, isShortLinkHost } from "@/lib/shortLinks";
 
 // Personal-finance pages live on their own subdomain (same Vercel project,
@@ -44,8 +44,10 @@ export async function middleware(request: NextRequest, event?: NextFetchEvent) {
   if (pathname === CRON_CATERING_SHIFTS) {
     return NextResponse.next();
   }
-  const isPfRoute = isPfPath(pathname);
-
+  // The pf pages plus the API the /money change-category button posts to
+  // (bj-finance #223): on the personal host these must not bounce to /safe, and
+  // on the CRM host they redirect to the personal host like the pages. Which
+  // paths count as pf lives in lib/roles.ts (isPfRoute), not inline here.
   if (host === PF_HOST) {
     // Landing: the phone-frequent widget. Auth still applies below.
     if (pathname === "/") {
@@ -55,14 +57,14 @@ export async function middleware(request: NextRequest, event?: NextFetchEvent) {
     // sign-out and the "no access" page the role gate sends an employee to;
     // bouncing those to /safe would loop them between /safe and /no-access).
     if (
-      !isPfRoute &&
+      !isPfRoute(pathname) &&
       pathname !== "/login" &&
       !pathname.startsWith("/auth") &&
       !isGateExempt(pathname)
     ) {
       return NextResponse.redirect(new URL("/safe", request.url));
     }
-  } else if (isPfRoute && host.endsWith("withers-ventures.com")) {
+  } else if (isPfRoute(pathname) && host.endsWith("withers-ventures.com")) {
     // PF pages moved off the CRM host — same path on the personal domain.
     // (localhost / preview hosts keep serving them directly, for dev.)
     return NextResponse.redirect(new URL(`https://${PF_HOST}${pathname}`));

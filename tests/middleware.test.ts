@@ -111,3 +111,31 @@ describe("the offers opt-in page (bj-finance #425)", () => {
     expect(gate.calls).toEqual([path]);
   });
 });
+
+describe("the personal-finance host (bj-finance #223)", () => {
+  const PF = "personal.withers-ventures.com";
+
+  it.each(["/api/pf/overrides", "/api/pf"])(
+    "lets the pf API %s through to the login gate, not to /safe",
+    async (path) => {
+      const response = await middleware(get(path, PF));
+      expect(gate.calls).toEqual([path]);
+      expect(response.headers.get("location")).not.toContain("/safe");
+    },
+  );
+
+  it.each([
+    ["a CRM API", "/api/deals"],
+    ["a path that only starts with the same letters", "/api/pfx"],
+  ])("still sends %s on that host to /safe", async (_what, path) => {
+    const response = await middleware(get(path, PF));
+    expect(response.headers.get("location")).toBe(`https://${PF}/safe`);
+    expect(gate.calls).toEqual([]);
+  });
+
+  it("sends the change-category API on the CRM host to the personal host", async () => {
+    const response = await middleware(get("/api/pf/overrides"));
+    expect(response.headers.get("location")).toBe(`https://${PF}/api/pf/overrides`);
+    expect(gate.calls).toEqual([]);
+  });
+});
