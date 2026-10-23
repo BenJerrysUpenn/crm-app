@@ -14,8 +14,9 @@
 
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import DealCard from "@/components/DealCard";
+import DealDetailDrawer from "@/components/DealDetailDrawer";
 import { daysSince, formatFollowupDate, lastOutboundChipText } from "@/lib/boomerang";
 import {
   fmtEasternDate,
@@ -25,6 +26,10 @@ import {
   parseNaiveUtc,
 } from "@/lib/dateFormat";
 import type { Deal } from "@/lib/types";
+
+// The Supabase browser client is the system boundary; a static first render
+// (no effects run) never calls it.
+vi.mock("@/lib/supabase/client", () => ({ createClient: () => ({}) }));
 
 const MACHINE_ZONES = ["America/New_York", "UTC", "America/Los_Angeles", "Asia/Kolkata"];
 
@@ -164,6 +169,26 @@ for (const zone of MACHINE_ZONES) {
         );
         expect(html).toContain("Oct 22, 2026, 3:17 PM");
         expect(html).not.toContain("7:17 PM");
+      });
+    });
+
+    describe("the deal drawer's Pipeline rows", () => {
+      it("show Last outbound, Created and Updated at their Eastern times", () => {
+        const html = renderToStaticMarkup(
+          createElement(DealDetailDrawer, {
+            deal: mkDeal({
+              last_outbound_at: "2026-10-22T19:17:14",
+              created_at: "2026-10-01T13:05:00",
+              updated_at: "2026-10-23T03:30:00",
+            }),
+            onClose: () => {},
+          }),
+        );
+        const row = (label: string, value: string) =>
+          new RegExp(`>${label}</div><div[^>]*>${value}</div>`);
+        expect(html).toMatch(row("Last outbound", "Oct 22, 2026, 3:17 PM"));
+        expect(html).toMatch(row("Created", "Oct 1, 2026, 9:05 AM"));
+        expect(html).toMatch(row("Updated", "Oct 22, 2026, 11:30 PM"));
       });
     });
 
