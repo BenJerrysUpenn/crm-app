@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseCalledAt } from "@/lib/callLog";
+import { easternInputValue } from "@/lib/dateFormat";
 
 // GET /api/deals/:id/calls
 //
@@ -83,7 +84,6 @@ export async function POST(
       { error: `called_at is not a valid datetime: ${calledAtRaw}` },
       { status: 400 },
     );
-  const calledAt = parsed.instant;
 
   const admin = createAdminClient();
 
@@ -104,18 +104,8 @@ export async function POST(
   // 2. Append to deals.notes (activity log) so the drawer shows it
   //    without a second query. Format:
   //      [2026-07-27 14:30 ET] Call log (alina@…): <notes>
-  //    Times rendered in America/New_York to match the rest of the app.
-  const stamp = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  })
-    .format(calledAt)
-    .replace(",", "");
+  //    Times rendered in Eastern (lib/dateFormat.ts) to match the rest of the app.
+  const stamp = easternInputValue(parsed.instant).replace("T", " ");
   const email = user.email ?? "unknown";
   const line = `[${stamp} ET] Call log (${email}): ${notes}`;
 
