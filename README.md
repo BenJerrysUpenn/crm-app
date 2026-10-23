@@ -131,6 +131,15 @@ if the write fails.
 The board loads `archived = 0` rows only. Archived deals (9.5k+ historical rows)
 stay hidden. Within each column, cards sort by `event_date` ascending.
 
+## Timestamps
+Deal timestamps are text. `deals.last_outbound_at`, `created_at`, `updated_at` and
+`thread_messages.sent_at` hold UTC, mostly with no Z or offset (`2026-10-22T19:17:14`).
+`new Date()` reads a naive string as the browser's local time, so read these with
+`parseNaiveUtc` or `fmtNaiveUtcDateTime` (`lib/dateFormat.ts`), which leave a value with a
+Z or an offset as it was. Event dates and times (`YYYY-MM-DD`, `HH:MM`) are Eastern
+wall-clock. The card's days-since-last-outbound chip counts Eastern calendar days
+(`daysSince` in `lib/boomerang.ts`): "today", "1d" for yesterday.
+
 ## COI panel (deal drawer)
 `components/CoiPanel.tsx` renders on deals with `coi_required = 1` and assembles the
 Hartford certificate request from the deal (`buildCoiRequest` in `lib/coi.ts`). It never
