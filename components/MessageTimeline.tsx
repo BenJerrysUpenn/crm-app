@@ -12,7 +12,7 @@ function senderShort(s: string | null): string {
   return at > 0 ? s.slice(0, at) : s;
 }
 
-function MessageBubble({
+export function MessageBubble({
   msg,
   prevSubject,
 }: {

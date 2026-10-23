@@ -17,6 +17,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import DealCard from "@/components/DealCard";
 import DealDetailDrawer from "@/components/DealDetailDrawer";
+import { MessageBubble } from "@/components/MessageTimeline";
 import { daysSince, formatFollowupDate, lastOutboundChipText } from "@/lib/boomerang";
 import {
   fmtEasternDate,
@@ -25,7 +26,7 @@ import {
   fmtNaiveUtcDateTime,
   parseNaiveUtc,
 } from "@/lib/dateFormat";
-import type { Deal } from "@/lib/types";
+import type { Deal, ThreadMessage } from "@/lib/types";
 
 // The Supabase browser client is the system boundary; a static first render
 // (no effects run) never calls it.
@@ -189,6 +190,26 @@ for (const zone of MACHINE_ZONES) {
         expect(html).toMatch(row("Last outbound", "Oct 22, 2026, 3:17 PM"));
         expect(html).toMatch(row("Created", "Oct 1, 2026, 9:05 AM"));
         expect(html).toMatch(row("Updated", "Oct 22, 2026, 11:30 PM"));
+      });
+    });
+
+    describe("the message timeline bubble", () => {
+      it("shows a naive UTC sent_at at its Eastern time", () => {
+        const msg: ThreadMessage = {
+          id: 1,
+          deal_id: 1,
+          gmail_message_id: "synthetic",
+          direction: "outbound",
+          sender: "sender@example.com",
+          recipient: "client@example.com",
+          sent_at: "2026-10-21T23:33:32",
+          subject: "Your quote",
+          body: "Hello",
+          body_full: "Hello",
+        };
+        const html = renderToStaticMarkup(createElement(MessageBubble, { msg, prevSubject: null }));
+        expect(html).toContain("Oct 21, 2026, 7:33 PM");
+        expect(html).not.toContain("11:33 PM");
       });
     });
 
