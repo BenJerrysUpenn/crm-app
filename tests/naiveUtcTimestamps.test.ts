@@ -75,18 +75,20 @@ for (const zone of MACHINE_ZONES) {
       });
 
       it("leaves a string with Z or an offset as it was", () => {
-        for (const s of [
-          "2026-10-22T14:42:25.311Z",
-          "2026-05-22T12:33:35Z",
-          "2026-09-10 02:52:13.632291+00",
-          "2026-10-22T15:17:14-04:00",
-        ]) {
-          expect(parseNaiveUtc(s)?.getTime()).toBe(new Date(s).getTime());
+        const cases: [string, string][] = [
+          ["2026-10-22T14:42:25.311Z", "2026-10-22T14:42:25.311Z"],
+          ["2026-05-22T12:33:35Z", "2026-05-22T12:33:35.000Z"],
+          ["2026-09-10 02:52:13.632291+00", "2026-09-10T02:52:13.632Z"],
+          ["2026-10-22T15:17:14-04:00", "2026-10-22T19:17:14.000Z"],
+        ];
+        for (const [stored, instant] of cases) {
+          expect(parseNaiveUtc(stored)?.toISOString()).toBe(instant);
         }
       });
 
       it("leaves a bare date as it was, and answers null for nothing or junk", () => {
-        expect(parseNaiveUtc("2026-05-07")?.getTime()).toBe(new Date("2026-05-07").getTime());
+        // A bare ISO date is UTC midnight, as `new Date()` has always read it.
+        expect(parseNaiveUtc("2026-05-07")?.toISOString()).toBe("2026-05-07T00:00:00.000Z");
         expect(parseNaiveUtc(null)).toBeNull();
         expect(parseNaiveUtc("")).toBeNull();
         expect(parseNaiveUtc("not a date")).toBeNull();
@@ -116,19 +118,22 @@ for (const zone of MACHINE_ZONES) {
         expect(fmtNaiveUtcDateTime("2026-11-01T06:30:00")).toBe("Nov 1, 2026, 1:30 AM");
       });
 
-      it("shows a Z or offset value exactly as fmtEasternDateTime does", () => {
-        for (const s of [
-          "2026-10-22T14:42:25.311Z",
-          "2026-09-10 02:52:13.632291+00",
-          "2026-10-22T15:17:14-04:00",
-        ]) {
-          expect(fmtNaiveUtcDateTime(s)).toBe(fmtEasternDateTime(s));
+      it("shows a Z or offset value at the Eastern time of the instant it names", () => {
+        const cases: [string, string][] = [
+          ["2026-10-22T14:42:25.311Z", "Oct 22, 2026, 10:42 AM"],
+          ["2026-09-10 02:52:13.632291+00", "Sep 9, 2026, 10:52 PM"],
+          ["2026-10-22T15:17:14-04:00", "Oct 22, 2026, 3:17 PM"],
+        ];
+        for (const [stored, shown] of cases) {
+          expect(fmtNaiveUtcDateTime(stored)).toBe(shown);
+          expect(fmtEasternDateTime(stored)).toBe(shown);
         }
-        expect(fmtNaiveUtcDateTime("2026-10-22T14:42:25.311Z")).toBe("Oct 22, 2026, 10:42 AM");
       });
 
       it("leaves a bare date, nothing, and junk as before", () => {
-        expect(fmtNaiveUtcDateTime("2026-05-07")).toBe(fmtEasternDateTime("2026-05-07"));
+        // UTC midnight on May 7 is 8 PM Eastern on May 6, as fmtEasternDateTime shows it.
+        expect(fmtNaiveUtcDateTime("2026-05-07")).toBe("May 6, 2026, 8:00 PM");
+        expect(fmtEasternDateTime("2026-05-07")).toBe("May 6, 2026, 8:00 PM");
         expect(fmtNaiveUtcDateTime(null)).toBe("");
         expect(fmtNaiveUtcDateTime("not a date")).toBe("not a date");
       });
