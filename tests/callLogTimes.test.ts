@@ -204,11 +204,13 @@ for (const zone of BROWSER_ZONES) {
 }
 
 describe("called_at that cannot be read", () => {
+  const saved = process.env.TZ;
   beforeAll(() => {
     process.env.TZ = "America/New_York";
   });
   afterAll(() => {
-    delete process.env.TZ;
+    if (saved === undefined) delete process.env.TZ;
+    else process.env.TZ = saved;
   });
 
   it("opens the edit form empty", () => {
