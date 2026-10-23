@@ -10,8 +10,8 @@
 // fmtNaiveUtcDateTime, never a bare `new Date()`. Confirmed naive UTC:
 // deals.last_outbound_at, created_at and updated_at (Catering-Manager
 // db.now_iso(), the CRM's nowIso() in lib/callDesk/dealForm.ts; the CRM's own
-// updated_at writes add a Z) and thread_messages.sent_at (the Date header,
-// normalised to UTC).
+// updated_at writes add a Z), thread_messages.sent_at (the Date header,
+// normalised to UTC) and call_logs.called_at (lib/callLog.ts).
 
 const TZ = "America/New_York";
 
@@ -49,6 +49,68 @@ export function fmtNaiveUtcDateTime(value: string | null): string {
   if (!value) return "";
   const d = parseNaiveUtc(value);
   return d ? d.toLocaleString("en-US", DATE_TIME_PARTS) : value;
+}
+
+// Eastern wall-clock parts of an instant. h23 keeps midnight at "00".
+const WALL_CLOCK = new Intl.DateTimeFormat("en-US", {
+  timeZone: TZ,
+  hourCycle: "h23",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+function easternParts(instant: Date): Record<string, string> {
+  const parts: Record<string, string> = {};
+  for (const p of WALL_CLOCK.formatToParts(instant)) parts[p.type] = p.value;
+  return parts;
+}
+
+// Minutes Eastern time is ahead of UTC at an instant: -240 in EDT, -300 in EST.
+function easternOffsetMinutes(ms: number): number {
+  const p = easternParts(new Date(ms));
+  const wall = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  return Math.round((wall - Math.floor(ms / 1000) * 1000) / 60000);
+}
+
+// "2026-10-22T15:11": an instant as Eastern wall-clock time, the value an
+// <input type="datetime-local"> holds when its time is Eastern.
+export function easternInputValue(instant: Date): string {
+  const p = easternParts(instant);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+const WALL_CLOCK_INPUT = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+
+// The instant an Eastern wall-clock time names, whatever the machine's zone.
+// A time the spring-forward skips (2:30 AM) reads as the clock moved on
+// (3:30 AM EDT); the hour the fall-back repeats reads as its first, EDT pass.
+// Null for anything that is not a real "YYYY-MM-DDTHH:MM[:SS]".
+export function parseEasternInput(value: string): Date | null {
+  const m = WALL_CLOCK_INPUT.exec(value.trim());
+  if (!m) return null;
+  const [y, mo, d, h, mi, s] = m.slice(1).map((x) => Number(x ?? 0));
+  const wall = Date.UTC(y, mo - 1, d, h, mi, s);
+  const check = new Date(wall);
+  if (
+    check.getUTCFullYear() !== y ||
+    check.getUTCMonth() !== mo - 1 ||
+    check.getUTCDate() !== d ||
+    check.getUTCHours() !== h ||
+    check.getUTCMinutes() !== mi ||
+    check.getUTCSeconds() !== s
+  )
+    return null;
+  // The offsets in force half a day either side cover any DST change.
+  const before = easternOffsetMinutes(wall - 12 * 3600_000);
+  const after = easternOffsetMinutes(wall + 12 * 3600_000);
+  const fits = [before, after]
+    .map((off) => wall - off * 60_000)
+    .filter((ms) => easternOffsetMinutes(ms) * 60_000 === wall - ms);
+  return new Date(fits.length ? Math.min(...fits) : wall - before * 60_000);
 }
 
 // "Jun 2, 2026" style for a calendar date.
