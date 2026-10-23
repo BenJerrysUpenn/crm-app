@@ -7,6 +7,7 @@ import {
   fmtEasternDate,
   fmtEasternDateTime,
   fmtEasternTime,
+  fmtNaiveUtcDateTime,
 } from "@/lib/dateFormat";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -1270,7 +1271,7 @@ export default function DealDetailDrawer({
                 </h3>
                 <ReadOnlyRow
                   label="Last outbound"
-                  value={fmtEasternDateTime(current.last_outbound_at)}
+                  value={fmtNaiveUtcDateTime(current.last_outbound_at)}
                 />
                 <ReadOnlyRow label="Active" value={boolish(current.is_active)} />
                 <ReadOnlyRow label="Lead source" value={current.lead_source} />
@@ -1291,11 +1292,11 @@ export default function DealDetailDrawer({
                 />
                 <ReadOnlyRow
                   label="Created"
-                  value={fmtEasternDateTime(current.created_at)}
+                  value={fmtNaiveUtcDateTime(current.created_at)}
                 />
                 <ReadOnlyRow
                   label="Updated"
-                  value={fmtEasternDateTime(current.updated_at)}
+                  value={fmtNaiveUtcDateTime(current.updated_at)}
                 />
               </section>
             </div>

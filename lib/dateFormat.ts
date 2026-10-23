@@ -3,8 +3,53 @@
 // YYYY-MM-DD for calendar dates. We treat YYYY-MM-DD as a calendar day
 // in Eastern, not as midnight UTC, so "event tomorrow" math is correct
 // regardless of when the user's browser local clock is.
+//
+// Many of those UTC timestamps carry no Z or offset, and `new Date()` reads
+// such a string as the browser's local time (4 hours late in an Eastern
+// browser). Read a column that holds them with parseNaiveUtc /
+// fmtNaiveUtcDateTime, never a bare `new Date()`. Confirmed naive UTC:
+// deals.last_outbound_at, created_at and updated_at (Catering-Manager
+// db.now_iso(), the CRM's nowIso() in lib/callDesk/dealForm.ts; the CRM's own
+// updated_at writes add a Z) and thread_messages.sent_at (the Date header,
+// normalised to UTC).
 
 const TZ = "America/New_York";
+
+const DATE_TIME_PARTS: Intl.DateTimeFormatOptions = {
+  timeZone: TZ,
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+};
+
+// A date and a time with no Z and no offset: "2026-10-22T19:17:14", also with
+// a space for the T, without seconds, or with a fraction of any length.
+const NAIVE_DATE_TIME =
+  /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2})(?:\.(\d+))?)?$/;
+
+// The instant a stored timestamp names, reading a naive date-time as UTC.
+// A string with a Z or an offset, a bare date, or anything else is parsed by
+// `new Date()` exactly as before. Null for nothing or an unparseable string.
+export function parseNaiveUtc(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const m = NAIVE_DATE_TIME.exec(value.trim());
+  const d = m
+    ? new Date(
+        `${m[1]}T${m[2]}:${m[3] ?? "00"}.${(m[4] ?? "").padEnd(3, "0").slice(0, 3)}Z`,
+      )
+    : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// "Oct 22, 2026, 3:17 PM" for a timestamp column whose naive values are UTC.
+// Empty for nothing; an unparseable string comes back as it was.
+export function fmtNaiveUtcDateTime(value: string | null): string {
+  if (!value) return "";
+  const d = parseNaiveUtc(value);
+  return d ? d.toLocaleString("en-US", DATE_TIME_PARTS) : value;
+}
 
 // "Jun 2, 2026" style for a calendar date.
 export function fmtEasternDate(value: string | null): string {
@@ -22,19 +67,13 @@ export function fmtEasternDate(value: string | null): string {
   });
 }
 
-// "Jun 2, 2026, 5:47 PM" style for a timestamp.
+// "Jun 2, 2026, 5:47 PM" style for a timestamp. A naive value is read as the
+// browser's local time: for a naive-UTC column use fmtNaiveUtcDateTime.
 export function fmtEasternDateTime(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-US", {
-    timeZone: TZ,
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return d.toLocaleString("en-US", DATE_TIME_PARTS);
 }
 
 // "5:47 PM" style for a time-of-day.

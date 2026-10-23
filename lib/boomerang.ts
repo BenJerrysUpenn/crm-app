@@ -5,7 +5,12 @@
 // `deals.boomerang_reason`. Card staleness is now driven purely by
 // `last_outbound_at`. See bj-finance #466.
 import type { Deal } from "@/lib/types";
-import { daysUntilEvent, fmtEasternDateTime } from "@/lib/dateFormat";
+import {
+  daysUntilEvent,
+  easternTodayYmd,
+  fmtNaiveUtcDateTime,
+  parseNaiveUtc,
+} from "@/lib/dateFormat";
 
 // Pre-event reminder window. Booked Paid deals whose event is this many
 // calendar days away (or fewer, including past) get an "event soon"
@@ -36,20 +41,21 @@ export function eventReminderLabel(
   return `Event in ${days} days`;
 }
 
-// Re-export EST timestamp formatter under the old name so call sites
-// don't have to change.
+// The card's "Last outbound" stamp in Eastern. last_outbound_at is naive UTC.
 export function formatFollowupDate(iso: string | null): string {
   if (!iso) return "never";
-  return fmtEasternDateTime(iso) || iso;
+  return fmtNaiveUtcDateTime(iso) || iso;
 }
 
-// Whole calendar days since `iso`. Negative if iso is in the future,
-// null if iso is missing or unparseable.
+// Whole Eastern calendar days from `iso` (naive UTC, or with a Z or offset)
+// to `now`: 0 for earlier the same Eastern day, 1 for yesterday. Negative if
+// iso is in the future, null if iso is missing or unparseable.
 export function daysSince(iso: string | null, now: Date = new Date()): number | null {
-  if (!iso) return null;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return null;
-  return Math.floor((now.getTime() - t) / (24 * 60 * 60 * 1000));
+  const at = parseNaiveUtc(iso);
+  if (!at) return null;
+  const from = Date.parse(easternTodayYmd(at) + "T00:00:00Z");
+  const to = Date.parse(easternTodayYmd(now) + "T00:00:00Z");
+  return Math.round((to - from) / (24 * 60 * 60 * 1000));
 }
 
 // Short chip text for the days-since-last-outbound indicator.
