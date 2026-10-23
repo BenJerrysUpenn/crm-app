@@ -2,11 +2,10 @@
 // and its edit form round-trips the value without moving it, whatever the
 // browser's time zone.
 //
-// The list used to read the naive value with `new Date()`, which takes it as
-// the browser's local time, and the edit form filled its datetime-local input
-// the same way. The form now holds Eastern wall-clock time, so a caller in any
-// zone sees and types the same Eastern time, and an edit that leaves the time
-// alone never sends it.
+// The list reads the naive value as UTC, not with `new Date()`, which would take
+// it as the browser's local time. The edit form's datetime-local input holds
+// Eastern wall-clock time, so a caller in any zone sees and types the same
+// Eastern time, and an edit that leaves the time alone never sends it.
 
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
