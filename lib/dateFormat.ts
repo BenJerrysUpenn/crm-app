@@ -117,10 +117,15 @@ export function daysUntilEvent(
   now: Date = new Date(),
 ): number | null {
   if (!eventDate || !/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) return null;
-  const today = easternTodayYmd(now);
+  const days = calendarDaysBetween(easternTodayYmd(now), eventDate);
+  return Number.isNaN(days) ? null : days;
+}
+
+// Whole calendar days from one YYYY-MM-DD to another. Negative if `to` is
+// earlier; NaN when either is not a real date.
+export function calendarDaysBetween(fromYmd: string, toYmd: string): number {
   // UTC math on calendar dates is safe because both are anchored YMD.
-  const t = Date.parse(today + "T00:00:00Z");
-  const e = Date.parse(eventDate + "T00:00:00Z");
-  if (Number.isNaN(t) || Number.isNaN(e)) return null;
-  return Math.round((e - t) / (24 * 60 * 60 * 1000));
+  const from = Date.parse(fromYmd + "T00:00:00Z");
+  const to = Date.parse(toYmd + "T00:00:00Z");
+  return Math.round((to - from) / (24 * 60 * 60 * 1000));
 }

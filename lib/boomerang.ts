@@ -6,6 +6,7 @@
 // `last_outbound_at`. See bj-finance #466.
 import type { Deal } from "@/lib/types";
 import {
+  calendarDaysBetween,
   daysUntilEvent,
   easternTodayYmd,
   fmtNaiveUtcDateTime,
@@ -53,9 +54,7 @@ export function formatFollowupDate(iso: string | null): string {
 export function daysSince(iso: string | null, now: Date = new Date()): number | null {
   const at = parseNaiveUtc(iso);
   if (!at) return null;
-  const from = Date.parse(easternTodayYmd(at) + "T00:00:00Z");
-  const to = Date.parse(easternTodayYmd(now) + "T00:00:00Z");
-  return Math.round((to - from) / (24 * 60 * 60 * 1000));
+  return calendarDaysBetween(easternTodayYmd(at), easternTodayYmd(now));
 }
 
 // Short chip text for the days-since-last-outbound indicator.
