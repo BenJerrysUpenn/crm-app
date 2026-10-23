@@ -369,7 +369,3 @@ export function openingScript(
   }
   return `${opener} You have been in touch with us before.`;
 }
-
-/** The callback number the rules require us to give on request. Set in the
- *  deploy environment, never in source: it is a personal line. */
-export const CALLBACK_NUMBER = process.env.CALL_DESK_CALLBACK_NUMBER ?? "";

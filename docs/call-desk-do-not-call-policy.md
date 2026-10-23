@@ -75,8 +75,7 @@ inside the first 30 seconds.
 
 If they ask how we got their number, the honest answer is that they enquired
 with us or booked with us, and the date is on the screen. If they ask for a
-number to call back, give the business callback number (the
-`CALL_DESK_CALLBACK_NUMBER` setting; it is not written in this repo).
+number to call back, give the business callback number.
 
 ## 5. When someone says stop
 
