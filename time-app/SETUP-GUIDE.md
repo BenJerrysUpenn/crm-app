@@ -143,7 +143,7 @@ HTTPS matters here more than it did for the CRM: phone GPS only works over HTTPS
 
 ### 5d. The finance site (finance.withers-ventures.com)
 
-The manager-only finance pages are served by the same app on their own host (bj-finance #519, ruled 2026-09-27): `finance.withers-ventures.com/payroll` and `/metrics`, with `/` going to `/payroll`. Nothing new to deploy; it is one more domain on the same **time** project.
+The finance pages (managers and owners only) are served by the same app on their own host (bj-finance #519, ruled 2026-09-27): `finance.withers-ventures.com/payroll` and `/metrics`, with `/` going to `/payroll`. Nothing new to deploy; it is one more domain on the same **time** project.
 
 1. In Vercel, open the **time** project, **Settings**, **Domains**, add `finance.withers-ventures.com`. Vercel shows a CNAME value.
 2. Where the `time` record lives, add **Type** CNAME, **Name** `finance`, **Value** the one Vercel showed (for `time` it is `9ac0daf55be63992.vercel-dns-017.com`).
@@ -151,9 +151,9 @@ The manager-only finance pages are served by the same app on their own host (bj-
 
 How the two hosts split (the rules are in `lib/hosts.ts`, enforced by `middleware.ts`):
 
-- On `finance.`: only `/payroll`, `/metrics`, sign-in (`/login`, `/auth/*`) and the APIs those use (`/api/payroll/*`, `/api/auth/*`, `/api/logout`). A staff page such as `/schedule` redirects to the same path on `time.`; a staff API answers 404.
+- On `finance.`: only `/payroll`, `/metrics`, sign-in (`/login`, `/auth/*`) and the APIs those use (`/api/payroll/*`, `/api/metrics/*`, `/api/auth/*`, `/api/logout`). A staff page such as `/schedule` redirects to the same path on `time.`; a staff API answers 404.
 - On `time.`: `/finance` is a permanent redirect to `https://finance.withers-ventures.com/payroll` (`/finance?tab=metrics` goes to `/metrics`). The time app has no menu entry for it; open the finance site by its address.
-- Sign-in is per host. The session cookie belongs to the host that set it, so signing in on `time.` does not sign you in on `finance.`, and a staff session is never sent to the finance host. Only active managers see any finance page or API; anyone else signed in gets a "managers only" page or a 403.
+- Sign-in is per host. The session cookie belongs to the host that set it, so signing in on `time.` does not sign you in on `finance.`, and a staff session is never sent to the finance host. Only managers and owners see any finance page or API (`active` is not checked: `lib/financeAccess.ts`); anyone else signed in gets a "managers only" page or a 403.
 
 Testing without the real domain: every other host serves both sites, so on `localhost:3000` or a Vercel preview URL open `/payroll` and `/metrics` directly (`/finance` redirects to `/payroll`). To try the host split itself locally, run `npm run dev` and open `http://finance.localhost:3000` and `http://time.localhost:3000`; those two names behave like the production hosts.
 
@@ -282,24 +282,54 @@ Email also needs the service role key (Part 1d) to be set, because that's how th
 
 ### Shift notices come once a day, at 8pm
 
-New and changed shifts are not emailed or texted one by one. Saving a shift puts
-it on the person's bell straight away; the email and text come in **one summary
-at 8pm New York time**, listing every shift of theirs saved since their last
-summary, each as it stands at 8pm. A shift edited five times is one line with
-the final times; a shift deleted or moved to someone else by then is left out.
-Everything waits for 8pm, even a change to a shift starting that evening, so if
-something is urgent, call or message the person yourself.
+New, changed and removed shifts are not emailed or texted one by one. Saving a
+shift puts it on the person's bell straight away; the email and text come in
+**one summary at 8pm New York time**, listing every shift of theirs saved since
+their last summary, each as it stands at 8pm. Every line starts with the day,
+for example `Thu, Oct 22 · Changed · 12:00 PM–5:00 PM`. A shift edited five
+times is one line with the final times. A shift they had that a manager deleted,
+or moved to someone else, is a `Removed` line with the day and times they had.
+A shift that was new to them since their last summary and then taken away
+again is left out (their bell shows both). Everything waits for 8pm, even a
+change to a shift starting that evening, so if something is urgent, call or
+message the person yourself.
 
 1. One-time setup: in Supabase, **SQL Editor**, run `supabase/migration_38.sql`
    (after `migration_37.sql`). It adds the queue and the once-a-day record.
+   `supabase/migration_48.sql` (after `migration_47.sql`) adds the Removed
+   lines, the schedulers' availability email and weekly repeat-until dates
+   below.
 2. Nothing else to schedule: the summary rides the `missed-clockins` check
    (Part 8). It goes out on that check's first run at or after 8pm, once per
    person per day. If the check does not run between 8pm and midnight (the Mac
    that runs it is asleep), that day's summary goes out the next evening instead.
 
 Each person's **Notifications** settings still apply: switching off *A new shift
-is posted for me* or *When my schedule changes* leaves those shifts out of the
-summary, and the email and text switches choose how it arrives.
+is posted for me* or *When my schedule changes or a shift is removed* leaves
+those shifts out of the summary, and the email and text switches choose how it
+arrives.
+
+### Schedulers get one availability email a day, at 8pm
+
+When someone changes their own availability (a day, a week, copy last week, a
+weekly block, or removing one), each scheduler sees it on their bell straight
+away, and at 8pm New York time gets **one email** listing who changed their
+availability and which dates or weekdays, for example
+`Sam Lee: Tue, Oct 13 · every Thursday`. No changes, no email. The schedulers
+are every owner plus every manager on the schedule, leaving out anyone archived
+or banned. Time-off requests keep their own alert, and a scheduler is not told
+of their own changes. It rides the same `missed-clockins` check, once a day.
+Switching off *When someone changes their availability* (or email) in
+**Notifications** stops it for that scheduler.
+
+### Weekly availability repeats until a date
+
+Ticking **Repeats every …** on the Availability calendar now asks for an
+**Until** date, filled in three months from today; it can't be saved without
+one. After that date the weekly block stops counting everywhere: the schedule's
+availability warnings and cells, auto-fill, the Team availability view and the
+person's own calendar. Weekly blocks saved before `migration_48.sql` have no end
+date and keep repeating until the person saves them again.
 
 ---
 

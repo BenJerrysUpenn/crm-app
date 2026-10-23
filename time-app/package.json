@@ -7,13 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --test lib/*.test.ts lib/payroll/*.test.ts lib/reimbursements/*.test.ts",
+    "test": "node --test lib/*.test.ts lib/payroll/*.test.ts lib/reimbursements/*.test.ts lib/metrics/*.test.ts lib/controlBoard/*.test.ts",
     "test:db": "supabase/local/verify.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.0",
+    "chart.js": "4.5.1",
     "next": "14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -25,6 +26,7 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.35",
+    "happy-dom": "20.14.5",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "typescript": "^5"

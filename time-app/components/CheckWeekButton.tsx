@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import Modal from "./Modal";
-import { describeGap, describeHoursNotSet, type CoverageGap, type HoursNotSetDay } from "@/lib/coverage";
+import { describeGap, describeHoursNotSet, describeStaffingNotSet, type CoverageGap, type HoursNotSetDay } from "@/lib/coverage";
 
 type Result =
-  | { kind: "checked"; gaps: CoverageGap[]; hoursNotSet: HoursNotSetDay[] }
+  | { kind: "checked"; gaps: CoverageGap[]; hoursNotSet: HoursNotSetDay[]; staffingNotSet: string[] }
   | { kind: "failed"; message: string };
 
 /**
  * "Check week": runs the store-coverage check against the live shifts of the
- * week on screen and shows each opening hour nobody is scheduled in store for.
+ * week on screen and shows each staffed hour (open hours plus open-up and
+ * close-down time) nobody is scheduled in store for.
  * Managers only (renders nothing for anyone else). Read-only: it changes no
  * data and sends nothing.
  */
@@ -26,7 +27,7 @@ export default function CheckWeekButton({ isManager, weekStart }: { isManager: b
       const res = await fetch(`/api/schedule/check-week?weekStart=${encodeURIComponent(weekStart)}`, { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
       if (res.ok) {
-        setResult({ kind: "checked", gaps: j.gaps ?? [], hoursNotSet: j.hoursNotSet ?? [] });
+        setResult({ kind: "checked", gaps: j.gaps ?? [], hoursNotSet: j.hoursNotSet ?? [], staffingNotSet: j.staffingNotSet ?? [] });
       } else {
         setResult({
           kind: "failed",
@@ -60,7 +61,7 @@ export default function CheckWeekButton({ isManager, weekStart }: { isManager: b
               ? "Store coverage couldn't be checked"
               : result.gaps.length > 0
                 ? "Nobody is in the store"
-                : "All opening hours covered"}
+                : "All staffed hours covered"}
           </h2>
           {result.kind === "failed" ? (
             <p className="text-sm text-slate-600 dark:text-slate-400">{result.message}</p>
@@ -69,7 +70,7 @@ export default function CheckWeekButton({ isManager, weekStart }: { isManager: b
               {result.gaps.length > 0 ? (
                 <>
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    The store is open at these times this week, and no one is scheduled in store:
+                    The store needs someone in at these times this week, and no one is scheduled in store:
                   </p>
                   <ul className="space-y-1 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2">
                     {result.gaps.map((g) => (
@@ -81,12 +82,18 @@ export default function CheckWeekButton({ isManager, weekStart }: { isManager: b
                 </>
               ) : (
                 <p className="text-sm text-slate-600 dark:text-slate-400">
-                  Somebody is scheduled in store for every hour the store is open this week.
+                  Somebody is scheduled in store for every staffed hour this week: the open hours plus the time to open up and close down.
                 </p>
               )}
               {result.hoursNotSet.length > 0 && (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Store hours aren&apos;t set for {describeHoursNotSet(result.hoursNotSet)}. Set them on the Team page — those days weren&apos;t checked.
+                  Store hours aren&apos;t set for {describeHoursNotSet(result.hoursNotSet)}. Set them on the Team page. Those days weren&apos;t checked.
+                </p>
+              )}
+              {result.staffingNotSet.length > 0 && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Open-up and close-down minutes aren&apos;t set on the Targets tab for {describeStaffingNotSet(result.staffingNotSet)}, so
+                  those days were checked against open hours only.
                 </p>
               )}
             </>

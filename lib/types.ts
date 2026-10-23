@@ -57,6 +57,18 @@ export type Deal = {
   picklist_notes: string | null;
   lead_source: string | null;
   how_did_you_hear: string | null;
+  // Channel + ad attribution, owned by Catering-Manager migration 024
+  // (bj-finance #715). Optional: absent from rows until 024 is applied.
+  source?: string | null;
+  ad_platform?: string | null;
+  ad_campaign_name?: string | null;
+  ad_name?: string | null;
+  // Winter menu, owned by Catering-Manager migration 026 (bj-finance #717).
+  // custom_menu_line: the menu the quote prints in place of the package
+  // name. price_override: per-guest price replacing the package's on every
+  // quote of the deal. Optional: absent from rows until 026 is applied.
+  custom_menu_line?: string | null;
+  price_override?: number | null;
   created_at: string;
   updated_at: string;
 };

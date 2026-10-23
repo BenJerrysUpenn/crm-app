@@ -6,6 +6,7 @@ import { getSettings } from "@/lib/settings";
 import { dayKey } from "@/lib/format";
 import { addMonths, holidaysBetween } from "@/lib/holidays";
 import { isMissingTable } from "@/lib/storeHours";
+import { loadStoreHoursSeasons } from "@/lib/storeHoursSeasons";
 import TopBar from "@/components/TopBar";
 import TeamAdmin from "@/components/TeamAdmin";
 import type { ReminderWithAcks } from "@/components/ClockinRemindersAdmin";
@@ -16,14 +17,16 @@ import type {
   ClockinReminder,
   StoreHours,
   StoreHoursException,
+  StoreHoursSeason,
 } from "@/lib/types";
+import { isManager } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage() {
   const profile = await getProfile();
   if (!profile) redirect("/login");
-  if (profile.role !== "manager") redirect("/");
+  if (!isManager(profile)) redirect("/");
   const supabase = createClient();
 
   const { data: emps } = await supabase
@@ -66,6 +69,7 @@ export default async function TeamPage() {
   let storeHoursReady = true;
   let storeHours: StoreHours[] = [];
   let storeExceptions: StoreHoursException[] = [];
+  let storeSeasons: StoreHoursSeason[] = [];
   try {
     const hoursRes = await supabase.from("store_hours").select("*").order("weekday");
     const excRes = await supabase
@@ -78,6 +82,8 @@ export default async function TeamPage() {
     } else {
       storeHours = (hoursRes.data as StoreHours[]) ?? [];
       storeExceptions = (excRes.data as StoreHoursException[]) ?? [];
+      // Seasons (migration 47): none before it, and a failed read shows none.
+      storeSeasons = (await loadStoreHoursSeasons(supabase)).seasons;
     }
   } catch {
     storeHoursReady = false;
@@ -105,6 +111,7 @@ export default async function TeamPage() {
             keeps the other sections at their usual centred width. */}
         <div className="px-4 py-6">
           <TeamAdmin
+            viewerRole={profile.role}
             employees={(emps as Profile[]) ?? []}
             locations={(locs as Location[]) ?? []}
             emailById={emailById}
@@ -114,6 +121,7 @@ export default async function TeamPage() {
             employeeCount={((emps as Profile[]) ?? []).filter((e) => e.active).length}
             storeHours={storeHours}
             storeExceptions={storeExceptions}
+            storeSeasons={storeSeasons}
             storeHoursReady={storeHoursReady}
             holidays={holidays}
           />

@@ -4,13 +4,14 @@ import { getProfile } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import TopBar from "@/components/TopBar";
 import AttendanceView, { type Notice } from "@/components/AttendanceView";
+import { isManager } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
 export default async function AttendancePage() {
   const profile = await getProfile();
   if (!profile) redirect("/login");
-  if (profile.role !== "manager") redirect("/");
+  if (!isManager(profile)) redirect("/");
   const supabase = createClient();
   const GRACE_MIN = (await getSettings(supabase)).tardy_grace_min;
 
