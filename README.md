@@ -140,6 +140,11 @@ Z or an offset as it was. Event dates and times (`YYYY-MM-DD`, `HH:MM`) are East
 wall-clock. The card's days-since-last-outbound chip counts Eastern calendar days
 (`daysSince` in `lib/boomerang.ts`): "today", "1d" for yesterday.
 
+`call_logs.called_at` is naive UTC too (`lib/callLog.ts`). The drawer's Log a call and
+edit inputs hold Eastern wall-clock time in any browser; the call routes convert it to UTC
+with `parseCalledAt`, never with the server's own zone (Vercel runs in UTC). An edit sends
+`called_at` only when the time was changed, so saving untouched leaves it as stored.
+
 ## COI panel (deal drawer)
 `components/CoiPanel.tsx` renders on deals with `coi_required = 1` and assembles the
 Hartford certificate request from the deal (`buildCoiRequest` in `lib/coi.ts`). It never

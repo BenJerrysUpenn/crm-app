@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { parseCalledAt } from "@/lib/callLog";
 
 // PATCH /api/deals/:id/calls/:callId
 //
-// Update a specific call_logs entry (called_at and/or notes). We do NOT
+// Update a specific call_logs entry (called_at and/or notes). The drawer sends
+// called_at only when the caller changed it, so an untouched time is never
+// rewritten. We do NOT
 // try to keep the appended line in deals.notes in sync — that field is
 // an append-only activity log; the structured entry in the Calls
 // section is the source of truth for current call details.
@@ -33,13 +36,14 @@ export async function PATCH(
 
   const updates: Record<string, string> = {};
   if (typeof body.called_at === "string" && body.called_at.trim()) {
-    const d = new Date(body.called_at.replace(" ", "T"));
-    if (isNaN(d.getTime()))
+    // Eastern wall-clock time from the form; see lib/callLog.ts.
+    const parsed = parseCalledAt(body.called_at);
+    if (!parsed)
       return NextResponse.json(
         { error: `called_at invalid: ${body.called_at}` },
         { status: 400 },
       );
-    updates.called_at = d.toISOString();
+    updates.called_at = parsed.stored;
   }
   if (typeof body.notes === "string") {
     const trimmed = body.notes.trim();
