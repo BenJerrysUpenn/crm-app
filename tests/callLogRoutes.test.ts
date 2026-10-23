@@ -141,6 +141,18 @@ for (const zone of ["UTC", "America/New_York"]) {
         expect(res.status).toBe(400);
         expect(db.state.inserts).toHaveLength(0);
       });
+
+      it("refuses text that is not a time", async () => {
+        const res = await logCall("tomorrow at 3");
+        expect(res.status).toBe(400);
+        expect(db.state.inserts).toHaveLength(0);
+      });
+
+      it("refuses a value with a Z that is not a real time", async () => {
+        const res = await logCall("2026-13-01T10:00:00Z");
+        expect(res.status).toBe(400);
+        expect(db.state.inserts).toHaveLength(0);
+      });
     });
 
     describe("PATCH /api/deals/:id/calls/:callId", () => {
