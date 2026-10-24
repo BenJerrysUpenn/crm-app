@@ -32,6 +32,7 @@ import { notify, sendOnChannels, wants, type NotifPrefs } from "@/lib/notify";
 import { digestDayAt } from "@/lib/shiftNotice";
 import { shortDate } from "@/lib/repeatUntil";
 import { isManagerRole, isOwnerRole, MANAGER_ROLES } from "@/lib/roles";
+import { alertName, usableName } from "@/lib/profileName";
 
 export const AVAILABILITY_TYPE = "availability_change";
 export const AVAILABILITY_BELL_TITLE = "Availability updated";
@@ -121,7 +122,9 @@ export async function queueAvailabilityChange(
   // The bell goes to the same schedulers as the 8pm email, less the person
   // who made the change.
   const found = await loadSchedulers(supabase).catch(() => ({ people: [] as Scheduler[], error: "unreadable" }));
-  const body = `${employee.full_name ?? "An employee"} changed their availability: ${describeChange(change).join(", ")}.`;
+  // Never greet by a login email a pre-migration_21 row holds as its name
+  // (bj-finance #468): alertName renders that, and a missing name, as "An employee".
+  const body = `${alertName(employee.full_name)} changed their availability: ${describeChange(change).join(", ")}.`;
   for (const s of found.people) {
     if (s.id === employee.id) continue;
     await notify({ userId: s.id, type: AVAILABILITY_TYPE, title: AVAILABILITY_BELL_TITLE, body, inAppOnly: true }).catch(() => {});
@@ -189,7 +192,8 @@ export function availabilityDigestLines(claimed: Claimed[], names: Map<string, s
     byPerson.set(c.employee_id, change);
   }
   return [...byPerson]
-    .map(([id, change]) => ({ name: names.get(id)?.trim() || "Someone with no name on file", parts: describeChange(change) }))
+    // usableName drops a blank or email-like name to the fallback (bj-finance #468).
+    .map(([id, change]) => ({ name: usableName(names.get(id)) ?? "Someone with no name on file", parts: describeChange(change) }))
     .filter((x) => x.parts.length > 0)
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((x) => `${x.name}: ${x.parts.join(" · ")}`);

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { alertName } from "@/lib/profileName";
 import { notify, notifyManagers, emailForUser } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
 import { blockChange, queueAvailabilityChange } from "@/lib/availabilityNotice";
@@ -53,7 +54,7 @@ export async function DELETE(
 
   // If an APPROVED time-off day was deleted, alert managers (they planned around it).
   if (row && !row.is_available && row.status === "approved") {
-    const who = profile.full_name ?? "An employee";
+    const who = alertName(profile.full_name);
     const when =
       rangeStart && rangeEnd && rangeStart !== rangeEnd
         ? `${fmtDate(rangeStart + "T12:00:00")}–${fmtDate(rangeEnd + "T12:00:00")}`

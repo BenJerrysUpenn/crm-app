@@ -82,6 +82,10 @@ test("archiveName: full name first", () => {
   assert.equal(archiveName(p("Joey Smith"), "joey@example.com"), "Joey Smith");
 });
 
+test("archiveName: a stored name with stray spaces is asked about trimmed", () => {
+  assert.equal(archiveName(p("  Joey Smith  "), "joey@example.com"), "Joey Smith");
+});
+
 test("archiveName: a name that is really an email, or none, falls back to the email", () => {
   assert.equal(archiveName(p("joey@example.com"), "joey@example.com"), "joey@example.com");
   assert.equal(archiveName(p(null), "joey@example.com"), "joey@example.com");
