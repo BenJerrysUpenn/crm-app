@@ -1,6 +1,12 @@
-# What the three agent PR reviewers grade a pull request in this repository against.
-# Schema and deployment: BenJerrysUpenn/bj-finance
-# docs/agents/scheduled-tasks/README-reviewers.md. Lane bj-finance #452, rollout #496.
+# What the factory review pass grades a pull request in this repository against
+# (bj-finance #585).
+#
+# THIS FILE IS HOW THIS REPOSITORY OPTS IN. The review pass is a set of cloud
+# routines shared across the portfolio. On every pull request,
+# .github/workflows/agent-reviews.yml fires those routines over their Anthropic
+# API fire endpoints; each routine then reads this file from this repo's
+# origin/main and grades the PR against it. No file, no review. Schema and
+# deployment: Software-Factory docs/routines/reviewers.md.
 #
 # Maintainer information, not reviewer output. A reviewer never reports what it read,
 # never says a document is thin, and never mentions a gap. It cites rules and
@@ -58,55 +64,79 @@ architecture_ground_truth:
 
 documentation_reference: README.md
 
+# Which documents describe which code, for the documentation lens of the factory
+# review pass (bj-finance #585; schema: Software-Factory docs/routines/reviewers.md).
+# Globs match like git's `:(glob)` pathspec: `*` stays inside one directory, `**`
+# crosses them. A changed path takes the docs of EVERY entry it matches.
 documentation_map:
+  - paths: [app/**, components/**, lib/**, scripts/**, middleware.ts, next.config.js, package.json, .env.example]
+    docs: [README.md]
   - paths:
-      - lib/roles.ts
-      - lib/pf/access.ts
-      - middleware.ts
-      - lib/supabase/middleware.ts
-      - app/money/page.tsx
-      - app/dial/page.tsx
-      - app/safe/page.tsx
-      - app/no-access/page.tsx
-    docs:
-      - README.md
-  - paths:
+      - app/call-desk/**
       - app/api/call-desk/**
-    docs:
-      - docs/call-desk.md
+      - components/callDesk/**
+      - lib/callDesk/**
+      - supabase/crm/001_call_desk.sql
+      - supabase/crm/002_call_desk_history.sql
+      - supabase/crm/003_call_desk_compliance.sql
+      - supabase/crm/004_call_desk_perf.sql
+    docs: [docs/call-desk.md]
+  - paths: [lib/callDesk/compliance.ts, app/call-desk/dnc-import/**, app/api/call-desk/dnc/**, supabase/crm/003_call_desk_compliance.sql]
+    docs: [docs/call-desk-do-not-call-policy.md]
+  - paths: [app/api/unsubscribe/**, lib/outreach/**, supabase/crm/005_unsubscribe.sql]
+    docs: [docs/unsubscribe.md]
   - paths:
-      - time-app/supabase/migration_*.sql
-      - time-app/lib/payroll/*.ts
-    docs:
-      - docs/payroll-verify.md
-  - paths:
-      - time-app/lib/financeAccess.ts
-    docs:
-      - time-app/SETUP-GUIDE.md
-  - paths:
-      - time-app/lib/reimbursements/*.ts
-    docs:
-      - README.md
-      - GLOSSARY.md
-  - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
-    docs: [README.md]
-  - paths: ["time-app/lib/hosts.ts", "time-app/middleware.ts"]
+      - app/deals/**
+      - app/api/deals/**
+      - components/NewDealForm.tsx
+      - lib/dealIntake.ts
+      - lib/dealAutofill.ts
+      - lib/dealDedupe.ts
+      - lib/callDesk/dealCreate.ts
+      - lib/callDesk/dealForm.ts
+      - lib/callDesk/dealRequest.ts
+      - supabase/crm/006_manual_deal_intake.sql
+    docs: [docs/manual-deal-intake.md]
+  - paths: [supabase/crm/backfills/**]
+    docs: [supabase/crm/backfills/README.md]
+  - paths: [time-app/**]
     docs: [time-app/SETUP-GUIDE.md]
-  - paths: ["time-app/app/metrics/**", "time-app/app/api/metrics/**", "time-app/components/metrics/**", "time-app/lib/metrics/**"]
+  - paths: [time-app/app/api/cron/missed-clockins/**]
+    docs: [time-app/ALEX-CRON-SETUP.md]
+  - paths: [time-app/lib/payroll/**, time-app/app/api/payroll/**, time-app/supabase/migration_25*.sql, time-app/supabase/migration_26*.sql, time-app/supabase/migration_27*.sql, time-app/supabase/migration_28*.sql]
+    docs: [docs/payroll-verify.md]
+  - paths: [indeed-cv-downloader/**]
+    docs: [indeed-cv-downloader/README.md]
+  - paths: [.github/workflows/agent-reviews.yml, docs/agents/reviewers.yaml]
+    docs: [docs/agents/reviewers.yaml]   # its header above; a gate file, so findings are questions
+  # Finer-grained entries for individual time-app and crm areas not covered by
+  # the broad globs above. A changed path takes the docs of EVERY entry it
+  # matches, so each entry below names the one area it documents; areas already
+  # covered by the lib/** or app/** globs, or by the call-desk cluster above, are
+  # not repeated here. (Payroll code and the payroll migrations map to
+  # docs/payroll-verify.md once, above; a time-app migration outside the payroll
+  # series is documented by its own entry below, not by payroll-verify.)
+  - paths: [time-app/lib/financeAccess.ts]
+    docs: [time-app/SETUP-GUIDE.md]
+  - paths: [time-app/lib/reimbursements/*.ts]
+    docs: [README.md, GLOSSARY.md]
+  - paths: [lib/shortLinks.ts, middleware.ts, supabase/crm/010_short_link_clicks.sql]
     docs: [README.md]
-  - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql"]
+  - paths: [time-app/lib/hosts.ts, time-app/middleware.ts]
+    docs: [time-app/SETUP-GUIDE.md]
+  - paths: [time-app/app/metrics/**, time-app/app/api/metrics/**, time-app/components/metrics/**, time-app/lib/metrics/**]
     docs: [README.md]
-  - paths: ["time-app/supabase/migration_41*.sql"]
+  - paths: [time-app/supabase/migration_39*.sql, time-app/supabase/migration_40*.sql, time-app/supabase/migration_41*.sql]
     docs: [README.md]
-  - paths: ["time-app/lib/staffing/**", "time-app/lib/team.ts", "time-app/app/api/staffing/**", "time-app/app/api/profiles/route.ts", "time-app/components/TeamAdmin.tsx", "time-app/components/StaffingRecords.tsx", "time-app/supabase/migration_44.sql"]
+  - paths: [time-app/lib/staffing/**, time-app/lib/team.ts, time-app/app/api/staffing/**, time-app/app/api/profiles/route.ts, time-app/components/TeamAdmin.tsx, time-app/components/StaffingRecords.tsx, time-app/supabase/migration_44.sql]
     docs: [time-app/docs/staffing.md]
-  - paths: ["time-app/supabase/migration_44.sql"]
+  - paths: [time-app/supabase/migration_44.sql]
     docs: [README.md]
-  - paths: ["time-app/supabase/migration_43*.sql", "time-app/lib/controlBoard/**", "time-app/app/payroll/targets/**", "time-app/app/api/payroll/targets/**", "time-app/components/finance/targets/**", "time-app/components/SalaryPanel.tsx"]
+  - paths: [time-app/supabase/migration_43*.sql, time-app/lib/controlBoard/**, time-app/app/payroll/targets/**, time-app/app/api/payroll/targets/**, time-app/components/finance/targets/**, time-app/components/SalaryPanel.tsx]
     docs: [README.md]
-  - paths: ["time-app/components/ScheduleLaborLine.tsx", "time-app/components/ScheduleBoard.tsx"]
+  - paths: [time-app/components/ScheduleLaborLine.tsx, time-app/components/ScheduleBoard.tsx]
     docs: [README.md]
-  - paths: ["time-app/supabase/migration_46*.sql"]
+  - paths: [time-app/supabase/migration_46*.sql]
     docs: [README.md, docs/payroll-verify.md]
   - paths: ["time-app/supabase/migration_47*.sql", "time-app/lib/coverage.ts", "time-app/lib/weekCoverage.ts", "time-app/lib/storeHours*.ts", "time-app/lib/localPreview.ts", "time-app/components/StoreHoursAdmin.tsx", "time-app/app/api/store-hours/**", "time-app/app/api/dev/**", "time-app/app/dev/**"]
     docs: [README.md, GLOSSARY.md]
@@ -126,6 +156,27 @@ documentation_map:
     docs: [docs/call-desk.md, docs/manual-deal-intake.md]
   - paths: ["lib/dateFormat.ts", "lib/boomerang.ts", "components/MessageTimeline.tsx", "lib/callLog.ts", "app/api/deals/*/calls/**"]
     docs: [README.md]
+
+# Extra one-way globs for merge_danger.py, beyond Software-Factory's built-in
+# list. This repo's migrations do NOT live under a `migrations/` directory: they
+# are supabase/crm/*.sql and time-app/supabase/migration_*.sql, which the
+# built-in list catches only through `**/*.sql`. The two directories are listed
+# whole so a non-.sql file there (supabase/crm/backfills/*.py writes the live
+# hosted database) is one-way too. Money-movement paths are built-in already. The
+# call-desk do-not-call gate and the one-click unsubscribe decide who may
+# legally be called or mailed: a call or a mail made while they are wrong
+# cannot be recalled by a revert.
+one_way_paths:
+  - supabase/**
+  - time-app/supabase/**
+  - lib/callDesk/compliance.ts
+  - app/api/call-desk/dnc/**
+  - app/api/unsubscribe/**
+  - lib/outreach/unsubscribe*.ts
+
+# This repository's agent-reviews.yml calls the factory review pass (#585), so
+# the review-wait hook waits for its `factory-review:` summary.
+review_pipeline: factory
 
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
