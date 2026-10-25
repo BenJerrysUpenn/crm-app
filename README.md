@@ -3,6 +3,17 @@
 Login-protected Kanban board for the catering pipeline. Reads and writes the
 `deals` table in the existing Supabase project.
 
+## This repo is public
+crm-app is the one public BenJerrysUpenn repo: Vercel Hobby deploys a private repo only
+from commits its owner authored. Treat every commit, branch, PR and issue here as published.
+
+- Never commit staff PII (names tied to pay, HR or schedule facts, contact details) or
+  Alina's personal phone number, in code, SQL, fixtures, tests, docs or commit messages.
+  Use placeholders.
+- Keys and tokens live in Vercel env vars and Supabase only (see Environment variables).
+- Real figures (hours, sales, salaries) are entered by owners into the database. Migrations
+  here are schema only.
+
 ## Stack
 - Next.js 14 (App Router) + TypeScript
 - Supabase Auth (email + password)
@@ -99,6 +110,8 @@ The web app assumes the following are already done in Supabase:
    using (true) with check (true);
    ```
 3. User accounts created by hand under Authentication, Users, with **Auto Confirm User** ticked. No public sign-up page exists.
+   **Allow new users to sign up** must be off under Authentication, Sign In / Providers: the anon key
+   ships to every browser, so with it on anyone can create an account through the Auth API.
 
 If the board later needs to read/write other tables (e.g. `quote_versions`,
 `invoices`), add the same policy for each.
@@ -127,6 +140,20 @@ if the write fails.
 The board loads `archived = 0` rows only. Archived deals (9.5k+ historical rows)
 stay hidden. Within each column, cards sort by `event_date` ascending.
 
+## Timestamps
+Deal timestamps are text. `deals.last_outbound_at`, `created_at`, `updated_at` and
+`thread_messages.sent_at` hold UTC, mostly with no Z or offset (`2026-10-22T19:17:14`).
+`new Date()` reads a naive string as the browser's local time, so read these with
+`parseNaiveUtc` or `fmtNaiveUtcDateTime` (`lib/dateFormat.ts`), which leave a value with a
+Z or an offset as it was. Event dates and times (`YYYY-MM-DD`, `HH:MM`) are Eastern
+wall-clock. The card's days-since-last-outbound chip counts Eastern calendar days
+(`daysSince` in `lib/boomerang.ts`): "today", "1d" for yesterday.
+
+`call_logs.called_at` is naive UTC too (`lib/callLog.ts`). The drawer's Log a call and
+edit inputs hold Eastern wall-clock time in any browser; the call routes convert it to UTC
+with `parseCalledAt`, never with the server's own zone (Vercel runs in UTC). An edit sends
+`called_at` only when the time was changed, so saving untouched leaves it as stored.
+
 ## COI panel (deal drawer)
 `components/CoiPanel.tsx` renders on deals with `coi_required = 1` and assembles the
 Hartford certificate request from the deal (`buildCoiRequest` in `lib/coi.ts`). It never
@@ -134,6 +161,41 @@ submits to The Hartford; the human sends. Its only write is `coi_sent_at` plus
 `updated_at` in one `deals` update (it never touches `stage`). A COI is urgent when
 required, unsent and the event is 0 to 14 days out (`COI_URGENT_WINDOW_DAYS`), the
 same window as Catering-Manager `revive.coi_required_unsent`.
+
+## Winter menu (deal drawer)
+No winter package exists: a winter item is an existing package plus extras (bj-finance
+#717). `supabase/crm/012_winter_menu_extras.sql` adds the three Price Book extras (Belgian
+Waffle, Winter Dry Toppings, Winter Pourable Toppings); `lib/menuOptions.ts` lists them
+and the two topping groups, and the drawer's toppings picker offers both groups. The drawer
+also edits `deals.custom_menu_line` (printed on the quote in place of the package name) and
+`deals.price_override` (a per-guest price replacing the package's on every quote of the
+deal; blank, 0 or negative clears it). Both columns belong to Catering-Manager migration
+`026`. `winterMenuWarnings` (`lib/winterMenu.ts`) shows amber notes, and never blocks a
+save. When the deal has a winter item (Hot Chocolate Float Party, or a winter extra) it
+notes an event outside Nov 1 - Mar 31 and an empty custom menu line. For each winter
+toppings extra on the deal it notes a pick count from that group other than 3; for winter
+toppings picked without their extra it notes that nothing bills them, unless a price
+override is set. Every winter item includes whipped cream and chocolate sauce: the Hot
+Chocolate Float Party has them, and marshmallows, in the package (`PACKAGES` description and the
+call-desk chip, `packageIncludes` in `lib/callDesk/options.ts`, both name them); on a Cup or Cone Party (the Cookie and
+Brownie Sundaes, the Waffle Sundae) they are the $0 Whipped Cream and Chocolate Sauce
+extras, added by hand, and `winterMenuWarnings` does not check for them. It mirrors Catering-Manager `modules/winter_menu.py`.
+
+## Email campaigns sequence editor (crm/013)
+The sequence editor on `/email-campaigns` saves steps, and each lane's signature and footer, to
+the shared copy in Supabase: `supabase/crm/013_email_campaign_sequences.sql` (apply by hand in
+the SQL editor BEFORE deploying the app that reads it; `_verify.sql` checks it, `_down.sql`
+reverses it and drops every saved sequence). A sequence or lane with no row shows its seed in
+`lib/emailCampaignsPrototype/sequences.ts`; "Reset to original" deletes the row. Writes go through
+`/api/email-campaigns/sequences` as the signed-in manager. Neither Apollo nor warm_sender reads
+these tables: editing here changes nothing that is sent.
+
+Before crm/013 every edit lived in one browser's localStorage. On load the page uploads any such
+copies (`rescue` in `lib/emailCampaignsPrototype/sharedSequences.ts`): a copy whose every step has
+an empty subject and body, or one identical to its seed, is skipped; a copy for a key with no row
+becomes the row; a copy that differs from an existing row never overwrites it and is kept in
+`email_campaign_sequence_conflicts`, with a notice on the page until an owner sets `resolved_at`.
+The localStorage keys are never deleted.
 
 ## Local dev (optional)
 ```
@@ -174,7 +236,14 @@ is judged by the board as it stood then: a pay rule before its first row paid no
 counts only the people salaried that day. A Sunday-to-Saturday week shows only once it is over with all
 seven days of payroll and sales on file, every booked catering deal priced (a deal billed zero crew hours,
 a pickup, takes nothing off), and hours and hourly labor
-still above zero after the catering crew comes off, otherwise "n/a" with the reason. Tests: `npm test` in `time-app/` includes
+still above zero after the catering crew comes off, otherwise "n/a" with the reason. The card covers a range of weeks
+(`lib/metrics/weekRange.ts`), saved in the widget's settings as `from` and `to`, the Sundays of its first and last
+week, chosen from 2026-05-03 (`FIRST_LABOR_WEEK`) to the week holding today. Unset, it shows the last 8 weeks ending
+with the most recent one that is over. A view saved under the old month picker keeps its `month`, read as the weeks
+that start in it. A button per month on offer sets the range to that month's weeks by the same rule, and shows
+pressed while the range is that month. Every save of a saved view goes through `serialSaves`
+(`lib/metrics/saveQueue.ts`), one at a time per view, in the order made: a save sent around it can land out of
+order and leave the older choice saved. Tests: `npm test` in `time-app/` includes
 `lib/metrics/*.test.ts`.
 
 ## Travel Reimbursements (Withers Time)
@@ -250,6 +319,14 @@ a missing input shows as missing, never as zero.
 | `tax.workers_comp` | dollars per $100 of wages | `class_code` |
 | `rule.catering_premium` | dollars added per catering hour | `cap_rate`: dollars an hour |
 | `rule.solo_close` | dollars a qualifying night | `min_alone_hours`, `out_at_or_after` (`HH:MM`) |
+| `staffing.open_up_minutes`, `staffing.close_down_minutes` | whole minutes before opening / after closing | |
+
+The two `staffing.*` keys make staffed hours (bj-finance #742 follow-up): the open hours widened by the
+open-up minutes before and the close-down minutes after, the values in force on the date
+(`staffedWindow` in `time-app/lib/coverage.ts`). The schedule's Check week button, the coverage reminder
+and the coverage line on Labor Hours Planning measure cover against staffed hours; with a value not set
+they fall back to open hours (the button and Labor Hours Planning say so; the reminder does not). Sales projections, affordable hours and payroll verify keep open
+hours. New keys, so no migration.
 
 Reading it from the Mac (bj-finance): `select * from public.control_settings_on(date)` gives one
 row per key in force on that day, and `public.profile_salaries_on(date)` one per person.
@@ -313,11 +390,66 @@ Sunday to Saturday weeks are the reader's grouping. Only the Labor vs target car
 migration before deploying that card, or it says it could not load. Verify with `migration_46_verify.sql`; roll back with
 `migration_46_down.sql`.
 
+### Labor Hours Planning (bj-finance #742)
+Apply `time-app/supabase/migration_47.sql` by hand in the Supabase SQL editor, after migration 46, BEFORE
+deploying the app that reads it. Schema only (this repo is public: owners enter every hour, sales figure and
+event date). It adds `store_hours_seasons` (open hours from a first day until the next season starts, one
+row per weekday), `concession_events` (dated revisions per `event_key`, `cancelled` takes one off) and
+`catering_hours_history` (last year's raw Catering shift hours by day, `kind = 'marketing'` marking a
+marketing day; written from the Mac, never through the API). Owners write seasons and events on the Targets
+tab (`components/finance/targets/PlanningInputs.tsx`, routes under `/api/payroll/targets/`); managers set
+closed days and short hours there too, as `store_hours_exceptions` rows. Without the migration the readers
+see no seasons, events or history: every reader of `store_hours` (the schedule's coverage check, the
+coverage reminder, payroll verify, the Team page) takes the season in force on the date
+(`storeHoursFor` in `lib/coverage.ts`) and falls back to the standing `store_hours`. The Labor Hours
+Planning card on `/metrics` (`lib/metrics/laborPlanning.ts`, whose header defines every band) is
+the forward view: Labor vs target is the past, the Schedule page the present. Verify with
+`migration_47_verify.sql`; roll back with `migration_47_down.sql` (it drops every season, event and day of
+history).
+
+Local preview, before the migration is live: `LOCAL_PREVIEW=1 npm run dev` in `time-app/` serves
+`/dev/labor-hours-planning` with no sign-in, only when `NODE_ENV` is `development`
+(`previewEnabled`, `lib/localPreview.ts`). It reads production with SELECT only through `psql` on
+`DIRECT_DATABASE_URL`, and takes what migration 47 will hold from the files named by
+`LABOR_PLANNING_SEED` and `LABOR_PLANNING_HISTORY`, outside every repo; its editor saves to the seed file,
+never the database.
+
+## Schedule and availability notices (Withers Time, bj-finance #754)
+Apply `time-app/supabase/migration_48.sql` by hand in the Supabase SQL editor, after migration 47
+(`_verify.sql` and `_down.sql` beside it). Either order with the code is safe: before it, a removed
+shift or an availability change is not queued (logged; the save is made) and saving weekly
+availability answers 503 with a message.
+
+- **Staff summary** (`lib/shiftNotice.ts`): the 8pm summary's lines lead with the day,
+  `Thu, Oct 22 · New|Changed|Removed · <times>`. A shift a manager deletes or moves away from
+  someone is a `Removed` line with the times they had (the notice keeps them; the shift may be
+  gone). Not a line: a shift new to them since their last summary and taken away again, and a
+  drop they asked for (its approval tells them). `schedule_change` governs removed lines.
+- **Schedulers' availability email** (`lib/availabilityNotice.ts`): an employee's change to their
+  own availability (`/api/availability` POST and DELETE, `week`, `copy-week`, `recurring`) puts
+  an in-app row on each scheduler's bell and queues the dates or weekdays whose blocks changed in
+  `availability_notices`. The same 8pm cron claims the day's queue once
+  (`claim_availability_digest`) and emails each scheduler one list, by person. Schedulers: every
+  owner plus every active manager, not archived or banned (the coverage reminder's rule). Off with
+  notif_prefs `availability_change` or `email`. Time-off requests, a scheduler's own changes and a
+  manager's edits to someone else's rows are left out.
+- **Repeat-until** (`lib/repeatUntil.ts`): `availability.repeat_until` is the last date, inclusive,
+  a weekly row applies. Saving a weekly block requires it (the calendar fills in three months
+  out). `resolveDay` in `lib/availabilityCheck.ts` drops a weekly row after it, so the save and
+  auto-fill checks, the schedule cells and the team grid all stop there; the personal calendar
+  uses `weeklyRowApplies`. Null means open-ended: every row saved before migration 48.
+
 ## Schedule coverage reminder (droplet command)
-Every Thursday and Friday at noon ET, emails the owners and on-schedule
-managers every open store hour and every booked catering event in the next two
-Sun–Sat weeks that nobody is scheduled for (bj-finance #709). No gaps, no
-email. Store hours are judged by `checkWeekCoverage` in
+Every day at noon ET, emails the owners and on-schedule managers every staffed
+store hour (open hours plus the open-up and close-down minutes on the Targets
+tab) and every booked catering event in two Sun–Sat weeks that nobody is
+scheduled for (bj-finance #709, daily since #753). No gaps, no email. The two
+weeks start the Sunday after the most recent Thursday (a Thursday run counts
+itself), because the schedule is made on Wednesdays: Thursday, Friday and
+Saturday runs check the next two weeks; Sunday to Wednesday runs check the
+current week from that day on, plus the next week. Days already past are left
+out. Every run from one Thursday to the Wednesday after checks the same two
+weeks (`reminderWindow`). Store hours are judged by `checkWeekCoverage` in
 `time-app/lib/coverage.ts`, the function the schedule board's "Check week"
 button runs, so the two cannot disagree. Catering events are deals at Booked
 Paid, Booked Unpaid or Closed Marketing Event (`archived = 0`); one counts as

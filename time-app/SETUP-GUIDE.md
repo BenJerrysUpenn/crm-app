@@ -282,24 +282,54 @@ Email also needs the service role key (Part 1d) to be set, because that's how th
 
 ### Shift notices come once a day, at 8pm
 
-New and changed shifts are not emailed or texted one by one. Saving a shift puts
-it on the person's bell straight away; the email and text come in **one summary
-at 8pm New York time**, listing every shift of theirs saved since their last
-summary, each as it stands at 8pm. A shift edited five times is one line with
-the final times; a shift deleted or moved to someone else by then is left out.
-Everything waits for 8pm, even a change to a shift starting that evening, so if
-something is urgent, call or message the person yourself.
+New, changed and removed shifts are not emailed or texted one by one. Saving a
+shift puts it on the person's bell straight away; the email and text come in
+**one summary at 8pm New York time**, listing every shift of theirs saved since
+their last summary, each as it stands at 8pm. Every line starts with the day,
+for example `Thu, Oct 22 · Changed · 12:00 PM–5:00 PM`. A shift edited five
+times is one line with the final times. A shift they had that a manager deleted,
+or moved to someone else, is a `Removed` line with the day and times they had.
+A shift that was new to them since their last summary and then taken away
+again is left out (their bell shows both). Everything waits for 8pm, even a
+change to a shift starting that evening, so if something is urgent, call or
+message the person yourself.
 
 1. One-time setup: in Supabase, **SQL Editor**, run `supabase/migration_38.sql`
    (after `migration_37.sql`). It adds the queue and the once-a-day record.
+   `supabase/migration_48.sql` (after `migration_47.sql`) adds the Removed
+   lines, the schedulers' availability email and weekly repeat-until dates
+   below.
 2. Nothing else to schedule: the summary rides the `missed-clockins` check
    (Part 8). It goes out on that check's first run at or after 8pm, once per
    person per day. If the check does not run between 8pm and midnight (the Mac
    that runs it is asleep), that day's summary goes out the next evening instead.
 
 Each person's **Notifications** settings still apply: switching off *A new shift
-is posted for me* or *When my schedule changes* leaves those shifts out of the
-summary, and the email and text switches choose how it arrives.
+is posted for me* or *When my schedule changes or a shift is removed* leaves
+those shifts out of the summary, and the email and text switches choose how it
+arrives.
+
+### Schedulers get one availability email a day, at 8pm
+
+When someone changes their own availability (a day, a week, copy last week, a
+weekly block, or removing one), each scheduler sees it on their bell straight
+away, and at 8pm New York time gets **one email** listing who changed their
+availability and which dates or weekdays, for example
+`Sam Lee: Tue, Oct 13 · every Thursday`. No changes, no email. The schedulers
+are every owner plus every manager on the schedule, leaving out anyone archived
+or banned. Time-off requests keep their own alert, and a scheduler is not told
+of their own changes. It rides the same `missed-clockins` check, once a day.
+Switching off *When someone changes their availability* (or email) in
+**Notifications** stops it for that scheduler.
+
+### Weekly availability repeats until a date
+
+Ticking **Repeats every …** on the Availability calendar now asks for an
+**Until** date, filled in three months from today; it can't be saved without
+one. After that date the weekly block stops counting everywhere: the schedule's
+availability warnings and cells, auto-fill, the Team availability view and the
+person's own calendar. Weekly blocks saved before `migration_48.sql` have no end
+date and keep repeating until the person saves them again.
 
 ---
 

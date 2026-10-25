@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  DEFAULT_VIEWS, MAX_WIDGETS, addWidget, checkName, cleanName, cleanWidgets, freeName, moveView, moveWidget,
+  DEFAULT_VIEWS, MAX_WIDGETS, addWidget, checkName, cleanName, cleanSettings, cleanWidgets, freeName, moveView, moveWidget,
   removeWidget, updateWidgetSettings, type View,
 } from "./views.ts";
 
@@ -49,24 +49,34 @@ test("cleanWidgets drops unknown metrics, fixes settings, keeps ids unique, caps
   assert.equal(cleanWidgets(many).length, MAX_WIDGETS);
 });
 
-test("a month-set metric keeps a chosen month as YYYY-MM; other metrics never carry one", () => {
+test("a week-range metric keeps a chosen range of Sundays; an old month reads as its weeks; other metrics never carry one", () => {
   const out = cleanWidgets([
-    { id: "a", metric: "labor_vs_target", settings: { month: "2030-10" } },
-    { id: "b", metric: "labor_vs_target", settings: { month: "2030-13" } },
-    { id: "c", metric: "labor_vs_target", settings: { month: "October" } },
-    { id: "d", metric: "labor_vs_target", settings: {} },
-    { id: "e", metric: "labour", settings: { period: "4w", month: "2030-10" } },
+    { id: "a", metric: "labor_vs_target", settings: { from: "2030-08-04", to: "2030-10-06" } },
+    { id: "b", metric: "labor_vs_target", settings: { from: "2030-10-06", to: "2030-08-04" } }, // backwards
+    { id: "c", metric: "labor_vs_target", settings: { from: "2030-08-05", to: "2030-10-06" } }, // a Monday
+    { id: "d", metric: "labor_vs_target", settings: { month: "2030-10" } }, // saved under the month picker
+    { id: "e", metric: "labor_vs_target", settings: { month: "2030-13" } },
+    { id: "f", metric: "labor_vs_target", settings: { from: "2030-09-01", to: "2030-09-15", month: "2030-10" } },
+    { id: "g", metric: "labor_vs_target", settings: {} },
+    { id: "h", metric: "labour", settings: { period: "4w", month: "2030-10", from: "2030-08-04", to: "2030-10-06" } },
   ]);
   assert.deepEqual(out.map((w) => w.settings), [
-    { period: "mtd", month: "2030-10" },
-    { period: "mtd" }, // not a month: back to the default, the last full month
+    { period: "mtd", from: "2030-08-04", to: "2030-10-06" },
+    { period: "mtd" }, // not a range: the default
     { period: "mtd" },
+    { period: "mtd", from: "2030-10-06", to: "2030-10-27" }, // Oct 2030's weeks, Oct 6 to Oct 27
+    { period: "mtd" },
+    { period: "mtd", from: "2030-09-01", to: "2030-09-15" }, // a range beats an old month
     { period: "mtd" },
     { period: "4w" },
   ]);
   let v = addWidget(view(), "labor_vs_target");
-  v = updateWidgetSettings(v, v.widgets[0].id, { month: "2030-09" });
-  assert.deepEqual(v.widgets[0].settings, { period: "mtd", month: "2030-09" });
+  v = updateWidgetSettings(v, v.widgets[0].id, { from: "2030-09-01", to: "2030-09-29" });
+  assert.deepEqual(v.widgets[0].settings, { period: "mtd", from: "2030-09-01", to: "2030-09-29" });
+  // Back to the default: the range is dropped.
+  v = updateWidgetSettings(v, v.widgets[0].id, { from: undefined, to: undefined });
+  assert.deepEqual(v.widgets[0].settings, { period: "mtd" });
+  assert.deepEqual(JSON.parse(JSON.stringify(v.widgets[0].settings)), { period: "mtd" });
 });
 
 test("the default views are a finance page and a catering page, already clean", () => {
@@ -97,4 +107,12 @@ test("views move left and right and are renumbered", () => {
   const views = [view({ id: "a", position: 0 }), view({ id: "b", name: "B", position: 1 }), view({ id: "c", name: "C", position: 2 })];
   assert.deepEqual(moveView(views, "c", -1).map((v) => [v.id, v.position]), [["a", 0], ["c", 1], ["b", 2]]);
   assert.deepEqual(moveView(views, "a", -1).map((v) => v.id), ["a", "b", "c"]);
+});
+
+test("Labor Hours Planning keeps its week count (4 to 52, 26 until chosen); no other metric has one", () => {
+  assert.deepEqual(cleanSettings("labor_hours_planning", { weeks: 13 }), { period: "mtd", weeks: 13 });
+  assert.deepEqual(cleanSettings("labor_hours_planning", { weeks: 99 }), { period: "mtd", weeks: 52 });
+  assert.deepEqual(cleanSettings("labor_hours_planning", { weeks: "abc" }), { period: "mtd", weeks: 26 });
+  assert.deepEqual(cleanSettings("labor_hours_planning", {}), { period: "mtd", weeks: 26 });
+  assert.deepEqual(cleanSettings("leads", { weeks: 13 }), { period: "8w" });
 });

@@ -133,6 +133,21 @@ test("the schedule rules store their parts: the catering cap, and the solo-close
   assert.equal(parseSettingInput({ key: "tax.workers_comp", value: 1.5, detail: { class_code: "x".repeat(41) }, ...note }).ok, false, "a class code is at most 40 characters");
 });
 
+test("open-up and close-down are whole minutes: zero is a value, a negative, a fraction or more than four hours is refused", () => {
+  for (const key of ["staffing.open_up_minutes", "staffing.close_down_minutes"]) {
+    const ok = parseSettingInput({ key, value: "20", ...note });
+    assert.ok(ok.ok, key);
+    assert.equal(ok.value.value, 20);
+    assert.deepEqual(ok.value.detail, {});
+    assert.equal(parseSettingInput({ key, value: 0, ...note }).ok, true, `${key}: no time is still a value`);
+    assert.equal(parseSettingInput({ key, value: -5, ...note }).ok, false);
+    assert.equal(parseSettingInput({ key, value: 12.5, ...note }).ok, false);
+    assert.equal(parseSettingInput({ key, value: 240, ...note }).ok, true, `${key}: four hours is the most, and allowed`);
+    assert.equal(parseSettingInput({ key, value: 241, ...note }).ok, false);
+    assert.equal(parseSettingInput({ key, ...note }).ok, false, "required");
+  }
+});
+
 test("only the fields a setting declares are stored", () => {
   const p = parseSettingInput({ key: "target.cogs_pct", value: 0.2, detail: { wage_cap: 5 }, ...note });
   assert.ok(p.ok);

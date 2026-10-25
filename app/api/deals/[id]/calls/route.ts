@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { parseCalledAt } from "@/lib/callLog";
+import { easternInputValue } from "@/lib/dateFormat";
 
 // GET /api/deals/:id/calls
 //
@@ -34,7 +36,8 @@ export async function GET(
 
 // POST /api/deals/:id/calls
 //
-// Log a phone call against a deal. Body: { called_at: ISO string, notes: string }.
+// Log a phone call against a deal. Body: { called_at, notes }, called_at being
+// Eastern wall-clock time from the form (or an ISO string with a Z or offset).
 // Writes a structured row to call_logs AND appends a human-readable entry to
 // deals.notes (the activity log column shown in the drawer) so the crew sees
 // the call in the running log without a separate view.
@@ -72,11 +75,11 @@ export async function POST(
   if (!notes)
     return NextResponse.json({ error: "notes required" }, { status: 400 });
 
-  // Parse called_at as a real Date so we can format it consistently for
-  // the activity-log line. Accepts either ISO datetime ("2026-07-27T14:30")
-  // or bare "YYYY-MM-DD HH:MM" — normalize to Date first.
-  const calledAt = new Date(calledAtRaw.replace(" ", "T"));
-  if (isNaN(calledAt.getTime()))
+  // The form sends Eastern wall-clock time ("2026-07-27T14:30"); parseCalledAt
+  // turns it into the instant (for the activity-log line) and the naive-UTC
+  // text called_at stores, without reading the server's own time zone.
+  const parsed = parseCalledAt(calledAtRaw);
+  if (!parsed)
     return NextResponse.json(
       { error: `called_at is not a valid datetime: ${calledAtRaw}` },
       { status: 400 },
@@ -89,7 +92,7 @@ export async function POST(
     .from("call_logs")
     .insert({
       deal_id: dealId,
-      called_at: calledAt.toISOString(),
+      called_at: parsed.stored,
       notes,
       created_by: user.email ?? null,
     })
@@ -101,18 +104,8 @@ export async function POST(
   // 2. Append to deals.notes (activity log) so the drawer shows it
   //    without a second query. Format:
   //      [2026-07-27 14:30 ET] Call log (alina@…): <notes>
-  //    Times rendered in America/New_York to match the rest of the app.
-  const stamp = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  })
-    .format(calledAt)
-    .replace(",", "");
+  //    Times rendered in Eastern (lib/dateFormat.ts) to match the rest of the app.
+  const stamp = easternInputValue(parsed.instant).replace("T", " ");
   const email = user.email ?? "unknown";
   const line = `[${stamp} ET] Call log (${email}): ${notes}`;
 

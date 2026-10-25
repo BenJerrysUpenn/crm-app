@@ -2,6 +2,8 @@
 // enumeration the guided deal form renders. Shared by the route handler and
 // components/callDesk/GenerateDealForm.tsx so the two cannot drift.
 
+import { HOT_CHOCOLATE_FLOAT_PARTY } from "@/lib/menuOptions";
+
 export type DealFormOption = {
   value: string;
   label: string;
@@ -49,6 +51,23 @@ export type DealFormOptionsResponse = {
   max_flavors: number;
   flavors_included: number;
 };
+
+/** One-line summary of what a package includes, from the pricing row.
+ *
+ *  The Price Book row has no flag for the Hot Chocolate Float Party's
+ *  marshmallows (Alina, 2026-10-19), so they are named here by package, to
+ *  agree with the drawer's description (lib/menuOptions.ts PACKAGES). */
+export function packageIncludes(p: DealFormPackageOption): string {
+  const bits: string[] = [`${p.flavors_included} flavors`];
+  if (p.dry_toppings_count > 0) bits.push(`${p.dry_toppings_count} toppings`);
+  if (p.includes_waffle_cones) bits.push("waffle cones");
+  if (p.includes_sauce) bits.push("sauce");
+  if (p.includes_whipped_cream) bits.push("whipped cream");
+  if (p.name === HOT_CHOCOLATE_FLOAT_PARTY) bits.push("marshmallows");
+  if (p.includes_cookies) bits.push("cookies");
+  if (p.includes_brownies) bits.push("brownies");
+  return bits.join(" · ");
+}
 
 /** Message returned (503) when supabase/crm/001_call_desk.sql has not been run
  *  in the target project yet. The UI surfaces it verbatim. */

@@ -8,8 +8,9 @@
 //
 // Opened from a tile's sequence dots (loaded with that sequence) or from
 // "+ Add sequence" (empty, for that tier and category). One step = one email
-// = one dot on the tile. Edits persist in localStorage only: nothing here is
-// sent to Apollo, warm_sender or the database.
+// = one dot on the tile. Edits are saved to the shared copy (supabase/crm/013,
+// through the parent's onChange / onBlocksChange), so everyone sees them.
+// Nothing here is sent to Apollo or warm_sender.
 
 import { useEffect, useRef, useState } from "react";
 import { CADENCES, type Cadence, type TierPayload } from "@/lib/emailCampaignsPrototype/model";
@@ -374,6 +375,7 @@ export default function SequenceEditor({
   blocksEdited,
   onBlocksChange,
   onBlocksReset,
+  conflicts,
   onClose,
 }: {
   target: EditorTarget;
@@ -387,6 +389,8 @@ export default function SequenceEditor({
   blocksEdited: boolean;
   onBlocksChange: (b: LaneBlocks) => void;
   onBlocksReset: () => void;
+  /** Notices for unresolved conflict records on this sequence or this lane. */
+  conflicts: string[];
   onClose: () => void;
 }) {
   const { tier, catKey, catLabel, cadence } = target;
@@ -413,7 +417,7 @@ export default function SequenceEditor({
     setSteps(next);
   };
   const remove = (i: number) => {
-    if (!window.confirm(`Delete step ${i + 1}? (This browser only.)`)) return;
+    if (!window.confirm(`Delete step ${i + 1}? This changes the shared copy for everyone.`)) return;
     setSteps(steps.filter((_, k) => k !== i));
   };
   const add = () => {
@@ -530,7 +534,7 @@ export default function SequenceEditor({
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm("Put back the original copy? Your edits in this browser are discarded.")) onReset();
+                  if (window.confirm("Put back the original copy? The shared edits are discarded for everyone.")) onReset();
                 }}
                 className="ml-auto text-xs text-slate-500 hover:text-slate-200"
               >
@@ -541,8 +545,13 @@ export default function SequenceEditor({
         </div>
 
         <div className="border-b border-amber-700/50 bg-amber-500/10 px-5 py-2 text-xs text-amber-200">
-          Edits here (steps, signature and footer) are saved in this browser only. They do not change what Apollo
-          or the warm sender sends.
+          Edits here (steps, signature and footer) are saved to the shared copy, which everyone on this page sees.
+          They do not change what Apollo or the warm sender sends.
+          {conflicts.map((c) => (
+            <div key={c} className="mt-1">
+              ⚠ {c}
+            </div>
+          ))}
         </div>
 
         {/* timeline */}
@@ -661,7 +670,7 @@ export default function SequenceEditor({
                 <button
                   type="button"
                   onClick={() => {
-                    if (window.confirm("Put back the original signature and footer? Your edits in this browser are discarded."))
+                    if (window.confirm("Put back the original signature and footer? The shared edits are discarded for everyone."))
                       onBlocksReset();
                   }}
                   className="ml-auto text-[11px] text-slate-500 hover:text-slate-200"

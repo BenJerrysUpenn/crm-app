@@ -11,16 +11,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MetricsData } from "@/lib/metrics/load";
 import { METRICS, METRIC_IDS, PERIOD_LABEL, blurbFor, type MetricId, type WidgetConfig, type WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, STREAMS, type StreamFilter } from "@/lib/metrics/targets";
-import { monthLabel } from "@/lib/metrics/dates";
+import { monthChoiceFor, monthChoices, pickRange, rangeLabel, shownRange, weekOptionLabel } from "@/lib/metrics/weekRange";
 import {
   MAX_NAME, MAX_VIEWS, MAX_WIDGETS, addWidget, checkName, freeName, moveView, moveWidget, ordered, removeWidget,
   updateWidgetSettings, type View,
 } from "@/lib/metrics/views";
 import type { ViewsState } from "@/lib/metrics/viewsServer";
+import { serialSaves } from "@/lib/metrics/saveQueue";
 import { NotEnabled, applyPatch, localStore, readLocal, serverStore, writeLocal, type ViewPatch, type ViewStore } from "./viewStore";
 import {
-  ArWidget, ForwardWidget, LaborTargetWidget, LabourWidget, LeadsWidget, OutreachWidget, QuotesWidget, SalesWidget,
+  ArWidget, ForwardWidget, LaborPlanningWidget, LaborTargetWidget, LabourWidget, LeadsWidget, OutreachWidget, QuotesWidget, SalesWidget,
 } from "./widgets";
+import { PLANNING_WEEKS, planningWeekCount } from "@/lib/metrics/planningWeeks";
 import { CashWidget, ClosedMonthWidget, LerWidget } from "./feedWidgets";
 
 const BTN =
@@ -94,17 +96,36 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
     }
   }
 
+  // A view's saves go one at a time, in the order made, so two quick changes
+  // (a start week then an end week) can never land out of order and leave the
+  // older one saved (bj-finance #696). Every change to a view goes through it.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const savePatch = useRef(
+    serialSaves<ViewPatch, View | null | undefined>((id, patch) => saveRef.current((s) => s.patch(id, patch))),
+  ).current;
+  const lastEdit = useRef(new Map<string, number>());
+  const edits = useRef(0);
+
   async function patchView(view: View, patch: ViewPatch, message: string) {
-    const before = views;
-    setViews((vs) => vs.map((v) => (v.id === view.id ? applyPatch(v, patch) : v)));
-    const out = await save((s) => s.patch(view.id, patch));
-    if (out === undefined) setViews(before);
+    const prior = viewsRef.current.find((v) => v.id === view.id) ?? view;
+    const edit = ++edits.current;
+    lastEdit.current.set(view.id, edit);
+    const next = viewsRef.current.map((v) => (v.id === view.id ? applyPatch(v, patch) : v));
+    viewsRef.current = next;
+    setViews(next);
+    const out = await savePatch(view.id, patch);
+    // A later change to this view is saving its newer state: leave the screen and the message to it.
+    if (lastEdit.current.get(view.id) !== edit) return;
+    if (out === undefined) setViews((vs) => vs.map((v) => (v.id === view.id ? prior : v)));
     else say(message);
   }
 
-  function changeWidgets(next: View, message: string) {
+  /** Change the active view's widgets, starting from its latest state (not the last render's). */
+  function changeWidgets(edit: (v: View) => View, message: string) {
     if (!active) return;
-    void patchView(active, { widgets: next.widgets }, message);
+    const current = viewsRef.current.find((v) => v.id === active.id) ?? active;
+    void patchView(current, { widgets: edit(current).widgets }, message);
   }
 
   async function switchTo(id: string) {
@@ -136,7 +157,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
     const before = views;
     setViews(rest);
     setActiveId(rest[0].id);
-    const out = await save((s) => s.patch(active.id, { archived: true }));
+    const out = await savePatch(active.id, { archived: true });
     if (out === undefined) {
       setViews(before);
       setActiveId(active.id);
@@ -155,7 +176,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
     const before = views;
     setViews(next);
     for (const v of changed) {
-      const out = await save((s) => s.patch(v.id, { position: v.position }));
+      const out = await savePatch(v.id, { position: v.position });
       if (out === undefined) return setViews(before);
     }
     say(`Moved ${active.name} ${delta < 0 ? "left" : "right"}.`);
@@ -199,7 +220,7 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
           onMove={shiftView}
           onDuplicate={() => createView(freeName(list, `${active.name} copy`), active.widgets)}
           onDelete={archiveActive}
-          onAdd={(metric) => changeWidgets(addWidget(active, metric), `Added ${METRICS[metric].title}.`)}
+          onAdd={(metric) => changeWidgets((v) => addWidget(v, metric), `Added ${METRICS[metric].title}.`)}
         />
       )}
 
@@ -224,19 +245,19 @@ export default function MetricsBoard({ data, initial, userId }: { data: MetricsD
           last={i === active.widgets.length - 1}
           onSettings={(s) =>
             changeWidgets(
-              updateWidgetSettings(active, w.id, s),
-              `${METRICS[w.metric].title}: ${s.month ? monthLabel(s.month) : PERIOD_LABEL[s.period ?? w.settings.period]}.`,
+              (v) => updateWidgetSettings(v, w.id, s),
+              `${METRICS[w.metric].title}: ${settingsNote(w, s, data)}.`,
             )
           }
           onMove={(d) => {
             const atEnd = d < 0 ? i + d <= 0 : i + d >= active.widgets.length - 1;
-            changeWidgets(moveWidget(active, w.id, d), `Moved ${METRICS[w.metric].title} ${d < 0 ? "up" : "down"}.`);
+            changeWidgets((v) => moveWidget(v, w.id, d), `Moved ${METRICS[w.metric].title} ${d < 0 ? "up" : "down"}.`);
             // Keep focus on the arrow pressed, or on the other one once this end is reached.
             focusSoon(`${atEnd ? (d < 0 ? "down" : "up") : d < 0 ? "up" : "down"}-${w.id}`);
           }}
           onRemove={() => {
             const next = active.widgets[i + 1] ?? active.widgets[i - 1];
-            changeWidgets(removeWidget(active, w.id), `Removed ${METRICS[w.metric].title}.`);
+            changeWidgets((v) => removeWidget(v, w.id), `Removed ${METRICS[w.metric].title}.`);
             focusSoon(next ? `h-${next.id}` : "add-metric");
           }}
         />
@@ -488,7 +509,135 @@ function ViewEditor({
   );
 }
 
-function WidgetCard({
+/** What a settings change says in the status line: the new range, or the new period. */
+function settingsNote(w: WidgetConfig, s: Partial<WidgetSettings>, data: MetricsData): string {
+  if (METRICS[w.metric].weekRange && data.laborTarget && ("from" in s || "to" in s)) {
+    const lt = data.laborTarget;
+    const shown = shownRange(s, lt);
+    const month = monthChoiceFor(shown, lt);
+    const name = monthChoices(lt).find((m) => m.range && m.value === month)?.label;
+    return `${name ? `${name}, ` : ""}weeks of ${rangeLabel(shown)}`;
+  }
+  if (METRICS[w.metric].weeksAhead && "weeks" in s) return `${planningWeekCount(s.weeks)} weeks ahead`;
+  return PERIOD_LABEL[s.period ?? w.settings.period];
+}
+
+/**
+ * How many weeks ahead a card shows, 4 to 52 (bj-finance #742). The number
+ * beside the slider follows it as it moves; once it stops, the count is saved
+ * with the view and the chart redrawn, so a drag is one save, not fifty.
+ */
+function WeeksSlider({
+  widget, title, onSettings,
+}: {
+  widget: WidgetConfig;
+  title: string;
+  onSettings: (s: Partial<WidgetSettings>) => void;
+}) {
+  const saved = planningWeekCount(widget.settings.weeks);
+  const [weeks, setWeeks] = useState(saved);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => setWeeks(saved), [saved]);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  const change = (n: number) => {
+    setWeeks(n);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => onSettings({ weeks: n }), 400);
+  };
+  return (
+    <span className="flex items-center gap-2 min-h-[44px]">
+      <label htmlFor={`weeks-${widget.id}`} className="text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">
+        Weeks ahead
+        <span className="sr-only"> for {title}</span>
+      </label>
+      <input
+        id={`weeks-${widget.id}`}
+        type="range"
+        min={PLANNING_WEEKS.min}
+        max={PLANNING_WEEKS.max}
+        step={1}
+        value={weeks}
+        onChange={(e) => change(Number(e.target.value))}
+        className="w-36 accent-emerald-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
+      />
+      <output htmlFor={`weeks-${widget.id}`} className="text-sm tabular-nums text-slate-800 dark:text-slate-100 w-8 text-right">
+        {weeks}
+      </output>
+    </span>
+  );
+}
+
+/**
+ * A first and a last week, each named by its Sunday: the card covers every
+ * week from one to the other. Beside them, one month menu: choosing a month
+ * sets the range to that month's weeks, and it shows the month while the
+ * range is one ("Custom" otherwise). On one line at desktop width; on a phone
+ * the month menu wraps under the weeks.
+ */
+function WeekRangePicker({
+  widget, title, data, onSettings,
+}: {
+  widget: WidgetConfig;
+  title: string;
+  data: NonNullable<MetricsData["laborTarget"]>;
+  onSettings: (s: Partial<WidgetSettings>) => void;
+}) {
+  const starts = data.weeks.map((w) => w.start);
+  const range = shownRange(widget.settings, data);
+  const pick = (end: "from" | "to", week: string) => onSettings(pickRange(range, end, week, data.defaultRange));
+  const months = monthChoices(data);
+  const month = monthChoiceFor(range, data);
+  const pickMonth = (value: string) => {
+    const chosen = months.find((m) => m.value === value)?.range;
+    if (chosen) onSettings(chosen);
+  };
+  const options = starts.map((d) => (
+    <option key={d} value={d}>
+      {weekOptionLabel(d, starts)}
+    </option>
+  ));
+  return (
+    <>
+      <span className="flex items-center gap-2" role="group" aria-label={`Weeks for ${title}`}>
+        <label className="sr-only" htmlFor={`from-${widget.id}`}>
+          First week (by its Sunday) for {title}
+        </label>
+        <select id={`from-${widget.id}`} className={SELECT} value={range.from} onChange={(e) => pick("from", e.target.value)}>
+          {options}
+        </select>
+        <span aria-hidden="true" className="text-sm text-slate-600 dark:text-slate-400">
+          to
+        </span>
+        <label className="sr-only" htmlFor={`to-${widget.id}`}>
+          Last week (by its Sunday) for {title}
+        </label>
+        <select id={`to-${widget.id}`} className={SELECT} value={range.to} onChange={(e) => pick("to", e.target.value)}>
+          {options}
+        </select>
+      </span>
+      <span className="flex items-center gap-2">
+        {/* On a phone the month menu wraps to its own line, where a leading dot would dangle. */}
+        <span aria-hidden="true" className="hidden sm:inline text-sm text-slate-400 dark:text-slate-500">
+          ·
+        </span>
+        <label className="sr-only" htmlFor={`month-${widget.id}`}>
+          Month for {title}: sets the weeks whose Sunday is in it
+        </label>
+        <select id={`month-${widget.id}`} className={SELECT} value={month} onChange={(e) => pickMonth(e.target.value)}>
+          {months.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </span>
+    </>
+  );
+}
+
+export function WidgetCard({
   widget, data, editing, first, last, onSettings, onMove, onRemove,
 }: {
   widget: WidgetConfig;
@@ -526,25 +675,8 @@ function WidgetCard({
               </select>
             </>
           )}
-          {def.month && data.laborTarget && (
-            <>
-              <label className="sr-only" htmlFor={`month-${widget.id}`}>
-                Month for {def.title}
-              </label>
-              <select
-                id={`month-${widget.id}`}
-                className={SELECT}
-                value={data.laborTarget.months.some((m) => m.month === widget.settings.month) ? widget.settings.month : data.laborTarget.defaultMonth}
-                onChange={(e) => onSettings({ month: e.target.value })}
-              >
-                {data.laborTarget.months.map((m) => (
-                  <option key={m.month} value={m.month}>
-                    {monthLabel(m.month)}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
+          {def.weekRange && data.laborTarget && <WeekRangePicker widget={widget} title={def.title} data={data.laborTarget} onSettings={onSettings} />}
+          {def.weeksAhead && <WeeksSlider widget={widget} title={def.title} onSettings={onSettings} />}
           {def.streams && (
             <>
               <label className="sr-only" htmlFor={`stream-${widget.id}`}>
@@ -596,6 +728,8 @@ function WidgetBody({ widget, data }: { widget: WidgetConfig; data: MetricsData 
       return <LabourWidget data={data} settings={s} />;
     case "labor_vs_target":
       return <LaborTargetWidget data={data} settings={s} />;
+    case "labor_hours_planning":
+      return <LaborPlanningWidget data={data} settings={s} />;
     case "closed_month":
       return <ClosedMonthWidget data={data} settings={s} />;
     case "leads":
