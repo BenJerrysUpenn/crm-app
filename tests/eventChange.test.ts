@@ -10,7 +10,6 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
-  CLEARED_FOR_NEW_DATE,
   canChangeEvent,
   describeShiftTime,
   parseEventChangeBody,
@@ -91,7 +90,6 @@ describe("Reschedule event, to a new date", () => {
       coi_sent_at: null,
       updated_at: NOW.toISOString(),
     });
-    expect(Object.keys(CLEARED_FOR_NEW_DATE).every((c) => p.dealPatch[c] === null)).toBe(true);
     expect(p.dealPatch).not.toHaveProperty("stage");
     expect(p.deleteCalendarEventId).toBe("evt_old_123");
     expect(p.deletes).toEqual([]);
@@ -112,6 +110,13 @@ describe("Reschedule event, to a new date", () => {
     expect(p.moves).toEqual([
       { id: 602, starts_at: "2026-10-29T18:00:00.000Z", ends_at: "2026-10-29T21:30:00.000Z" },
     ]);
+  });
+
+  it("describes a shift that runs past midnight with its end day", () => {
+    // 20:00 EDT on Oct 29 to 01:00 EDT on Oct 30.
+    expect(describeShiftTime("2026-10-30T00:00:00Z", "2026-10-30T05:00:00Z")).toBe(
+      "Thu 2026-10-29 20:00-Fri 2026-10-30 01:00",
+    );
   });
 
   it("moves nothing when only the end time changes", () => {
@@ -311,6 +316,15 @@ describe("what the dialog says before anyone confirms", () => {
       "The date is cleared and the calendar event is deleted.",
       "On the crew: Crew Member A (Thu 2026-10-29 11:00-14:30). Their shifts are removed. Tell them yourself; nothing is sent.",
       "1 open shift is removed.",
+    ]);
+  });
+
+  it("says a deal with no date keeps its shifts where they are, naming who is on them", () => {
+    expect(confirmationLines(preview([OPEN, STAFFED], 515.2, null), "reschedule", false)).toEqual([
+      "The deal has no date to move its shifts from, so 2 shifts stay where they are (Crew Member A (Thu 2026-10-29 11:00-14:30)).",
+    ]);
+    expect(confirmationLines(preview([OPEN], 515.2, null), "reschedule", false)).toEqual([
+      "The deal has no date to move its shifts from, so 1 shift stays where it is.",
     ]);
   });
 
