@@ -431,6 +431,12 @@ export interface EventChangeStore {
   deleteShifts(dealId: number, ids: number[]): Promise<void>;
 }
 
+/**
+ * How a 500 starts when the deal was written but a later step was not: the
+ * dialog tells such an answer from a failed change by it.
+ */
+export const DEAL_SAVED_PREFIX = "The deal was saved";
+
 export type ApplyResult =
   | { ok: true; noteLine: string; moved: number; removed: number }
   | { ok: false; status: number; error: string };
@@ -518,7 +524,7 @@ export async function applyEventChange(
   }
 
   if (problems.length) {
-    return { ok: false, status: 500, error: `The deal was saved, but ${problems.join("; ")}.` };
+    return { ok: false, status: 500, error: `${DEAL_SAVED_PREFIX}, but ${problems.join("; ")}.` };
   }
   return { ok: true, noteLine: plan.noteLine, moved, removed };
 }

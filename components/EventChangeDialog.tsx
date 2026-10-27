@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { describeShiftTime, describeWhen, money, staffedShiftIds, type CrewShift } from "@/lib/eventChange";
+import {
+  DEAL_SAVED_PREFIX,
+  describeShiftTime,
+  describeWhen,
+  money,
+  staffedShiftIds,
+  type CrewShift,
+} from "@/lib/eventChange";
 
 // The Reschedule event / Cancel event dialog on the deal drawer. It reads the
 // event and its crew from GET /api/deals/:id/event-change, names everyone with
@@ -212,7 +219,7 @@ export default function EventChangeDialog({
       if (!res.ok) {
         // A partial failure still changed the deal: the drawer refreshes it
         // and keeps the message.
-        if (res.status === 500 && typeof out.error === "string" && out.error.startsWith("The deal was saved")) {
+        if (res.status === 500 && typeof out.error === "string" && out.error.startsWith(DEAL_SAVED_PREFIX)) {
           onDone({ error: out.error });
           return;
         }
