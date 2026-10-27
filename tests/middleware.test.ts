@@ -111,3 +111,31 @@ describe("the offers opt-in page (bj-finance #425)", () => {
     expect(gate.calls).toEqual([path]);
   });
 });
+
+describe("the open and click tracking endpoints", () => {
+  // The pixel is fetched by a mail client or an image proxy and the click by
+  // whoever opened the mail; neither is a CRM user, and the signed token is
+  // the authorisation. The gate would answer the pixel with a /login page and
+  // turn every tracked link into a login prompt.
+  it.each([
+    ["the open pixel", "/api/t/o/some-token"],
+    ["a tracked link", "/api/t/c/some-token?u=https%3A%2F%2Fexample.com%2F"],
+  ])("lets %s through without the login gate", async (_label, path) => {
+    const response = await middleware(get(path));
+
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(gate.calls).toEqual([]);
+  });
+
+  it.each([
+    ["the bare /api/t path", "/api/t"],
+    ["a path that only starts with /api/t", "/api/tracking-admin"],
+  ])("still gates %s", async (_label, path) => {
+    const response = await middleware(get(path));
+
+    expect(response.status).toBe(307);
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/login");
+    expect(gate.calls).toEqual([path]);
+  });
+});
