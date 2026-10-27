@@ -21,7 +21,9 @@ import { nowIso, todayIsoEastern } from "@/lib/callDesk/dealForm";
 //   * Crew shifts are `shifts` rows carrying `deal_id`. They move with the
 //     event, keeping their offset from its start, or are removed.
 //   * Stamps made against the old date are cleared so they do not stand in for
-//     the new one (CLEARED_FOR_NEW_DATE).
+//     the new one (CLEARED_FOR_NEW_DATE), and the logistics times derived from
+//     the old start time are cleared so they are derived again
+//     (CLEARED_FOR_NEW_START).
 //   * A line is appended to `deals.notes` saying what moved, from what to what.
 //
 // The rules are pure (planEventChange). The reads and writes go through an
@@ -40,9 +42,10 @@ export function canChangeEvent(stage: string | null | undefined): boolean {
 }
 
 // Catering-Manager modules/calendar_sync.py CALENDAR_STAGES: only these stages
-// get a calendar event. A Closed Marketing Event deal loses its old event on a
-// reschedule and is not given a new one.
-const CALENDAR_STAGES = ["Booked Unpaid", "Booked Paid"];
+// get a calendar event. Closed Marketing Event deals go on the catering
+// calendar too (Alina, 2026-10-27), so a rescheduled one is given a fresh event
+// on its new date like a booked deal.
+const CALENDAR_STAGES = ["Booked Unpaid", "Booked Paid", "Closed Marketing Event"];
 
 /**
  * Deal columns stamped against the event's date, cleared by a reschedule so the
@@ -62,6 +65,36 @@ export const CLEARED_FOR_NEW_DATE = {
 
 type ClearedColumn = keyof typeof CLEARED_FOR_NEW_DATE;
 
+/**
+ * The logistics times Catering-Manager derives from the event's start time
+ * (modules/logistics.py derive_logistics: arrival is the start less the setup
+ * pad, departure is the arrival less drive_minutes; neither reads event_date).
+ * Alina's ruling (2026-10-27): a reschedule clears them so they are derived
+ * again, whenever the start time changes and on Date not set yet. A date-only
+ * change keeps them: the same start time gives the same times on any day.
+ * The next picklist writes departure_time again, Recalculate writes both.
+ */
+export const CLEARED_FOR_NEW_START = {
+  departure_time: "departure",
+  arrival_time: "arrival",
+} as const;
+
+type LogisticsColumn = keyof typeof CLEARED_FOR_NEW_START;
+
+/**
+ * The `_derived` twins (Catering-Manager migration 016) record the value the
+ * system last derived; a live time that differs from its twin is read as the
+ * operator's override (logistics.manual_departure_override). They are cleared
+ * with the live columns, or a stale twin would outlive the time it describes.
+ * 016 is applied by hand, so the store drops them from the update when the
+ * database does not have them yet (isMissingTwinColumn).
+ */
+export const LOGISTICS_TWIN_COLUMNS = ["departure_time_derived", "arrival_time_derived"] as const;
+
+const LOGISTICS_CLEARS: Record<string, null> = Object.fromEntries(
+  [...Object.keys(CLEARED_FOR_NEW_START), ...LOGISTICS_TWIN_COLUMNS].map((c) => [c, null]),
+);
+
 /** What the two actions read off the deal. */
 export type EventDeal = {
   id: number;
@@ -75,10 +108,12 @@ export type EventDeal = {
   picklist_docx_path: string | null;
   day_before_draft_sent_at: string | null;
   coi_sent_at: string | null;
+  departure_time: string | null;
+  arrival_time: string | null;
 };
 
 export const EVENT_DEAL_COLUMNS =
-  "id, stage, event_date, event_start_time, event_end_time, calendar_event_id, amount_paid, notes, picklist_docx_path, day_before_draft_sent_at, coi_sent_at";
+  "id, stage, event_date, event_start_time, event_end_time, calendar_event_id, amount_paid, notes, picklist_docx_path, day_before_draft_sent_at, coi_sent_at, departure_time, arrival_time";
 
 /** A crew shift on the deal (shifts.deal_id), with the person's name when staffed. */
 export type CrewShift = {
@@ -273,6 +308,16 @@ export function planEventChange(
     : "";
   const picklistHint = deal.picklist_docx_path?.trim() ? " Regenerate the picklist." : "";
 
+  const timesSet = (Object.keys(CLEARED_FOR_NEW_START) as LogisticsColumn[]).filter((c) => {
+    const v = deal[c];
+    return typeof v === "string" && v.trim() !== "";
+  });
+  const logisticsSentence = timesSet.length
+    ? ` Logistics times cleared (were ${timesSet
+        .map((c) => `${CLEARED_FOR_NEW_START[c]} ${(deal[c] as string).trim()}`)
+        .join(", ")}); the next picklist or Recalculate derives them again.`
+    : "";
+
   const removedSentence = shifts.length
     ? ` Crew shifts removed: ${shifts
         .map((s) => `${shiftLabel(s)} ${describeShiftTime(s.starts_at, s.ends_at)}`)
@@ -309,6 +354,7 @@ export function planEventChange(
       calendarSentence +
       removedSentence +
       stampsSentence +
+      logisticsSentence +
       picklistHint;
     return {
       ok: true,
@@ -317,6 +363,7 @@ export function planEventChange(
           event_date: null,
           ...calendarCleared,
           ...clears,
+          ...LOGISTICS_CLEARS,
           updated_at: updatedAt,
           notes: appendNote(deal.notes, noteLine),
         },
@@ -337,6 +384,7 @@ export function planEventChange(
     return { ok: false, status: 400, error: "That is the date and time the event already has." };
   }
   const newWhen = describeWhen(date, start, end);
+  const startChanged = deal.event_start_time !== start;
 
   // Every shift keeps its offset from the event's start, so all of them move
   // by the distance between the old start and the new one. A deal with no old
@@ -378,6 +426,7 @@ export function planEventChange(
     calendarNext +
     shiftsSentence +
     stampsSentence +
+    (startChanged ? logisticsSentence : "") +
     picklistHint;
   return {
     ok: true,
@@ -388,6 +437,7 @@ export function planEventChange(
         event_end_time: end,
         ...calendarCleared,
         ...clears,
+        ...(startChanged ? LOGISTICS_CLEARS : {}),
         updated_at: updatedAt,
         notes: appendNote(deal.notes, noteLine),
       },
@@ -572,6 +622,16 @@ export async function applyEventChange(
 // outside the CRM user's RLS)
 // ---------------------------------------------------------------------------
 
+/**
+ * PostgREST's answer to an update naming a column the table does not have
+ * (PGRST204), when that column is one of the `_derived` twins: Catering-Manager
+ * migration 016 has not been applied to this database yet.
+ */
+export function isMissingTwinColumn(error: { code?: string; message?: string } | null): boolean {
+  if (!error || error.code !== "PGRST204") return false;
+  return LOGISTICS_TWIN_COLUMNS.some((c) => (error.message ?? "").includes(`'${c}'`));
+}
+
 /** The name given to a staffed shift whose person has no name on file. */
 export const UNNAMED_PERSON = "Unnamed person";
 
@@ -637,13 +697,24 @@ export function supabaseEventChangeStore(admin: SupabaseClient): EventChangeStor
     },
 
     async updateDealIfUnchanged(deal, patch) {
-      let q = admin.from("deals").update(patch).eq("id", deal.id).eq("stage", deal.stage);
-      q = deal.event_date == null ? q.is("event_date", null) : q.eq("event_date", deal.event_date);
-      q =
-        deal.calendar_event_id == null
-          ? q.is("calendar_event_id", null)
-          : q.eq("calendar_event_id", deal.calendar_event_id);
-      const { data, error } = await q.select("id");
+      const attempt = (p: Record<string, unknown>) => {
+        let q = admin.from("deals").update(p).eq("id", deal.id).eq("stage", deal.stage);
+        q = deal.event_date == null ? q.is("event_date", null) : q.eq("event_date", deal.event_date);
+        q =
+          deal.calendar_event_id == null
+            ? q.is("calendar_event_id", null)
+            : q.eq("calendar_event_id", deal.calendar_event_id);
+        return q.select("id");
+      };
+      let { data, error } = await attempt(patch);
+      // Before migration 016 the twins do not exist and there is nothing to
+      // clear: without a twin every stored time already reads as an override,
+      // and clearing the live column is enough for it to be derived again.
+      if (isMissingTwinColumn(error)) {
+        const withoutTwins = { ...patch };
+        for (const c of LOGISTICS_TWIN_COLUMNS) delete withoutTwins[c];
+        ({ data, error } = await attempt(withoutTwins));
+      }
       if (error) throw new Error(error.message);
       return (data ?? []).length > 0;
     },

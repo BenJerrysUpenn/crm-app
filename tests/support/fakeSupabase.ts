@@ -11,11 +11,18 @@ export type FakeDb = {
   tables: Record<string, Row[]>;
   /** table -> message: the next write to that table fails with it. */
   failWrites: Record<string, string>;
+  /**
+   * table -> columns it does not have: an update naming one is refused with
+   * PostgREST's PGRST204, as a database short of a migration answers.
+   */
+  missingColumns: Record<string, string[]>;
   nextId: Record<string, number>;
 };
 
+type FakeError = { message: string; code?: string };
+
 export function makeFakeDb(): FakeDb {
-  return { tables: {}, failWrites: {}, nextId: {} };
+  return { tables: {}, failWrites: {}, missingColumns: {}, nextId: {} };
 }
 
 function builder(db: FakeDb, table: string) {
@@ -28,7 +35,16 @@ function builder(db: FakeDb, table: string) {
 
   const rows = () => (db.tables[table] ??= []);
 
-  function run(): { data: unknown; error: { message: string } | null } {
+  function run(): { data: unknown; error: FakeError | null } {
+    if (op === "update") {
+      const missing = (db.missingColumns[table] ?? []).find((c) => c in patch);
+      if (missing) {
+        return {
+          data: null,
+          error: { code: "PGRST204", message: `Could not find the '${missing}' column of '${table}' in the schema cache` },
+        };
+      }
+    }
     if (op !== "select" && db.failWrites[table]) {
       const message = db.failWrites[table];
       delete db.failWrites[table];
@@ -102,7 +118,7 @@ function builder(db: FakeDb, table: string) {
       const { data, error } = run();
       return { data: Array.isArray(data) ? data[0] ?? null : null, error };
     },
-    then<T>(resolve: (v: { data: unknown; error: { message: string } | null }) => T, reject?: (e: unknown) => T) {
+    then<T>(resolve: (v: { data: unknown; error: FakeError | null }) => T, reject?: (e: unknown) => T) {
       try {
         return Promise.resolve(run()).then(resolve, reject);
       } catch (e) {

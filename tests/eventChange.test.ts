@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   canChangeEvent,
   describeShiftTime,
+  isMissingTwinColumn,
   parseEventChangeBody,
   planEventChange,
   type CrewShift,
@@ -40,6 +41,8 @@ function mkDeal(overrides: Partial<EventDeal> = {}): EventDeal {
     picklist_docx_path: "/drive/Catering/picklists/Synthetic_10_29_26_Checklist.docx",
     day_before_draft_sent_at: null,
     coi_sent_at: "2026-10-20T15:00:00",
+    departure_time: "10:45",
+    arrival_time: "11:15",
     ...overrides,
   };
 }
@@ -153,9 +156,12 @@ describe("Reschedule event, to a new date", () => {
     expect(p.dealPatch.notes).toBe(`[2026-10-09] Earlier line.\n${p.noteLine}`);
   });
 
-  it("says a Closed Marketing Event deal gets no new calendar event", () => {
+  it("gives a Closed Marketing Event deal a fresh calendar event on the new date, like a booked one", () => {
     const p = plan(mkDeal({ stage: "Closed Marketing Event" }), [], TO_NOV_5);
-    expect(p.noteLine).toContain("A Closed Marketing Event deal gets no calendar event.");
+    expect(p.noteLine).toContain(
+      "Calendar event queued for deletion and its link cleared. A fresh event is created on the new date by the calendar reconcile.",
+    );
+    expect(p.noteLine).not.toContain("gets no calendar event");
     expect(p.deleteCalendarEventId).toBe("evt_old_123");
   });
 
@@ -168,6 +174,74 @@ describe("Reschedule event, to a new date", () => {
   it("refuses the date and times the event already has", () => {
     const r = planEventChange(mkDeal(), [], { ...TO_NOV_5, event_date: "2026-10-29" }, CTX);
     expect(r).toEqual({ ok: false, status: 400, error: "That is the date and time the event already has." });
+  });
+});
+
+describe("Reschedule event, the logistics times derived from the start time", () => {
+  const LOGISTICS_CLEARED = {
+    departure_time: null,
+    arrival_time: null,
+    departure_time_derived: null,
+    arrival_time_derived: null,
+  };
+
+  it("clears departure, arrival and both _derived twins when the start time changes, and says so in the note", () => {
+    const p = plan(mkDeal(), [STAFFED], { ...TO_NOV_5, event_start_time: "15:00", event_end_time: "16:30" });
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+    expect(p.noteLine).toContain(
+      "Logistics times cleared (were departure 10:45, arrival 11:15); the next picklist or Recalculate derives them again.",
+    );
+    // The shift move does not read departure_time: it follows the start.
+    expect(p.moves).toEqual([
+      { id: 602, starts_at: "2026-11-05T19:00:00.000Z", ends_at: "2026-11-05T22:30:00.000Z" },
+    ]);
+  });
+
+  it("clears them on a start-time change on the same day", () => {
+    const p = plan(mkDeal(), [], { ...TO_NOV_5, event_date: "2026-10-29", event_start_time: "12:30" });
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+  });
+
+  it("clears them when the deal had no start time before", () => {
+    const p = plan(mkDeal({ event_start_time: null }), [], TO_NOV_5);
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+  });
+
+  it("keeps them on a date-only change: the same start time derives the same times on any day", () => {
+    const p = plan(mkDeal(), [], TO_NOV_5);
+    for (const c of Object.keys(LOGISTICS_CLEARED)) expect(p.dealPatch).not.toHaveProperty(c);
+    expect(p.noteLine).not.toContain("Logistics times");
+  });
+
+  it("keeps them when only the end time changes", () => {
+    const p = plan(mkDeal(), [], { ...TO_NOV_5, event_date: "2026-10-29", event_end_time: "14:00" });
+    for (const c of Object.keys(LOGISTICS_CLEARED)) expect(p.dealPatch).not.toHaveProperty(c);
+  });
+
+  it("clears all four on Date not set yet", () => {
+    const p = plan(mkDeal(), [], { kind: "reschedule_tbd" });
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+    expect(p.noteLine).toContain("Logistics times cleared (were departure 10:45, arrival 11:15)");
+  });
+
+  it("still clears the columns, saying nothing, when no time was set", () => {
+    const p = plan(mkDeal({ departure_time: null, arrival_time: "  " }), [], { kind: "reschedule_tbd" });
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+    expect(p.noteLine).not.toContain("Logistics times");
+  });
+
+  it("leaves them alone on a cancel", () => {
+    const p = plan(mkDeal(), [], { kind: "cancel" });
+    for (const c of Object.keys(LOGISTICS_CLEARED)) expect(p.dealPatch).not.toHaveProperty(c);
+  });
+
+  it("recognises PostgREST's missing-column answer for a twin, and only for a twin", () => {
+    const missing = (c: string) => ({ code: "PGRST204", message: `Could not find the '${c}' column of 'deals' in the schema cache` });
+    expect(isMissingTwinColumn(missing("departure_time_derived"))).toBe(true);
+    expect(isMissingTwinColumn(missing("arrival_time_derived"))).toBe(true);
+    expect(isMissingTwinColumn(missing("event_date"))).toBe(false);
+    expect(isMissingTwinColumn({ code: "42501", message: "permission denied for 'departure_time_derived'" })).toBe(false);
+    expect(isMissingTwinColumn(null)).toBe(false);
   });
 });
 
@@ -192,7 +266,9 @@ describe("Reschedule event, date not set yet", () => {
       "[2026-10-27] Rescheduled, new date not set (manager@example.com). Was Thu 2026-10-29 12:00-13:30. " +
         "Calendar event queued for deletion and its link cleared. " +
         "Crew shifts removed: open Thu 2026-10-29 11:00-14:30; Crew Member A Thu 2026-10-29 11:00-14:30. " +
-        "Cleared for the old date: picklist, COI sent stamp. Regenerate the picklist.",
+        "Cleared for the old date: picklist, COI sent stamp. " +
+        "Logistics times cleared (were departure 10:45, arrival 11:15); the next picklist or Recalculate derives them again. " +
+        "Regenerate the picklist.",
     );
   });
 });

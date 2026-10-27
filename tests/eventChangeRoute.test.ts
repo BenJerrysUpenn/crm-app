@@ -46,6 +46,10 @@ function seed() {
       picklist_docx_path: "/drive/Catering/picklists/Synthetic_10_29_26_Checklist.docx",
       day_before_draft_sent_at: "2026-10-28T14:00:00",
       coi_sent_at: null,
+      departure_time: "10:45",
+      departure_time_derived: "10:45",
+      arrival_time: "11:15",
+      arrival_time_derived: "11:15",
       updated_at: "2026-10-20T12:00:00",
     },
   ];
@@ -189,8 +193,14 @@ describe("POST reschedule to a new date", () => {
       picklist_docx_path: null,
       day_before_draft_sent_at: null,
       coi_sent_at: null,
+      // The start moved from 12:00 to 13:00: the times derived from it go.
+      departure_time: null,
+      departure_time_derived: null,
+      arrival_time: null,
+      arrival_time_derived: null,
     });
     expect(String(deal().notes)).toBe(`[2026-10-09] Earlier line.\n${out.noteLine}`);
+    expect(out.noteLine).toContain("Logistics times cleared (were departure 10:45, arrival 11:15)");
     expect(out.noteLine).toContain("Thu 2026-10-29 12:00-13:30 to Thu 2026-11-05 13:00-14:30");
 
     // An hour before 1 PM EST on Nov 5, both of them.
@@ -217,6 +227,30 @@ describe("POST reschedule to a new date", () => {
     expect(row(10).source).toBe("imap_idle (superseded)");
     expect(row(11).processed_at).toBeNull();
     expect(row(12).processed_at).toBeNull();
+  });
+
+  it("keeps the logistics times on a date-only change", async () => {
+    const res = await post({ ...body, event_start_time: "12:00", event_end_time: "13:30" });
+    expect(res.status).toBe(200);
+    expect(deal()).toMatchObject({
+      event_date: "2026-11-05",
+      departure_time: "10:45",
+      departure_time_derived: "10:45",
+      arrival_time: "11:15",
+      arrival_time_derived: "11:15",
+    });
+  });
+
+  it("clears the live times and still moves the shifts on a database without migration 016's twins", async () => {
+    delete deal().departure_time_derived;
+    delete deal().arrival_time_derived;
+    h.db.missingColumns.deals = ["departure_time_derived", "arrival_time_derived"];
+    const res = await post(body);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, moved: 2 });
+    expect(deal()).toMatchObject({ event_start_time: "13:00", departure_time: null, arrival_time: null });
+    expect(deal()).not.toHaveProperty("departure_time_derived");
+    expect(shift(601)!.starts_at).toBe("2026-11-05T17:00:00.000Z");
   });
 
   it("queues no calendar delete when the deal had no event", async () => {
@@ -283,6 +317,10 @@ describe("POST reschedule, date not set yet", () => {
       calendar_event_payload_hash: null,
       picklist_docx_path: null,
       day_before_draft_sent_at: null,
+      departure_time: null,
+      departure_time_derived: null,
+      arrival_time: null,
+      arrival_time_derived: null,
     });
     expect(String(deal().notes)).toContain("Rescheduled, new date not set (manager@example.com). Was Thu 2026-10-29 12:00-13:30.");
     expect(h.db.tables.shifts.map((s) => s.id)).toEqual([700]);

@@ -176,10 +176,20 @@ to anyone; Alina tells the crew.
   drained by the imap_idle daemon about once a minute; a delete of an event already gone counts
   as done). Open `create` and `patch` rows for the deal are superseded first, so a payload queued
   for the old date cannot run after the change. With the id cleared, the calendar reconcile (the
-  catering sweep, the daemon's backlog scan) creates a fresh event for a booked deal on its new
-  date. This app never calls Google. A Closed Marketing Event deal gets no calendar event.
+  catering sweep, the daemon's backlog scan) creates a fresh event on the new date. Closed
+  Marketing Event deals are on the catering calendar like booked ones (Alina, 2026-10-27), so the
+  mirror of Catering-Manager `CALENDAR_STAGES` lists all three stages. This app never calls Google.
 - A reschedule also clears the stamps made against the old date (`CLEARED_FOR_NEW_DATE`):
   `picklist_docx_path`, `day_before_draft_sent_at` and `coi_sent_at`.
+- A reschedule that changes the start time, and every Date not set yet, clears the logistics
+  times derived from the start (`CLEARED_FOR_NEW_START`, Alina 2026-10-27): `departure_time`,
+  `arrival_time` and their `_derived` twins, so the next picklist (departure) or Recalculate
+  (both) derives them again. Both halves go: in Catering-Manager a live time that differs from its
+  twin is read as a manual override. A date-only change keeps them, since `derive_logistics`
+  never reads `event_date`. The twins arrive with Catering-Manager migration 016, applied by hand;
+  on a database without them the update is retried without the twins. Moved shifts follow the
+  event start, not `departure_time`, and the catering-shifts cron skips a deal that already has
+  shifts, so a cleared departure does not move or duplicate any shift.
 - Every change appends one line to `deals.notes` saying what moved, from what to what.
 
 The deal is written first, in one update guarded on its stage, date and calendar event id (a
