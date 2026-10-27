@@ -85,6 +85,12 @@ replaces it). A repeat press by a dated `explicit_yes` or `signup_form` opt-in w
 opt-out since writes nothing and shows the stored `opt_in_at`; an undated one is
 re-recorded as `explicit_yes` dated now.
 
+### Open and click tracking (`/api/t/o/[token]`, `/api/t/c/[token]`)
+The open pixel and click redirect for the warm and wedding outreach lanes
+(owners' ruling 2026-10-27). Signed with `UNSUBSCRIBE_SECRET`; the middleware
+lets `/api/t/` past the login gate. Contract, caveats and pinned vectors:
+**`docs/tracking.md`**.
+
 ### Short links (`benjerryphilly.com`)
 When the Host is `benjerryphilly.com` or `www.benjerryphilly.com`, the
 middleware serves nothing but redirects and never reaches the login gate: a
