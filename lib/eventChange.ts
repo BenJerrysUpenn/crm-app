@@ -41,12 +41,6 @@ export function canChangeEvent(stage: string | null | undefined): boolean {
   return (EVENT_CHANGE_STAGES as readonly string[]).includes(stage ?? "");
 }
 
-// Catering-Manager modules/calendar_sync.py CALENDAR_STAGES: only these stages
-// get a calendar event. Closed Marketing Event deals go on the catering
-// calendar too (Alina, 2026-10-27), so a rescheduled one is given a fresh event
-// on its new date like a booked deal.
-const CALENDAR_STAGES = ["Booked Unpaid", "Booked Paid", "Closed Marketing Event"];
-
 /**
  * Deal columns stamped against the event's date, cleared by a reschedule so the
  * new date is not blocked by them:
@@ -416,9 +410,11 @@ export function planEventChange(
     shiftsSentence = ` ${shifts.length} crew shift${shifts.length === 1 ? "" : "s"} left where ${shifts.length === 1 ? "it was" : "they were"}: the deal had no date to move them from.`;
   }
 
-  const calendarNext = CALENDAR_STAGES.includes(deal.stage)
-    ? " A fresh event is created on the new date by the calendar reconcile."
-    : ` A ${deal.stage} deal gets no calendar event.`;
+  // Every stage that can be changed is one of Catering-Manager
+  // modules/calendar_sync.py CALENDAR_STAGES (Closed Marketing Event deals go on
+  // the catering calendar too, Alina 2026-10-27), so a rescheduled deal is
+  // always given a fresh event on its new date.
+  const calendarNext = " A fresh event is created on the new date by the calendar reconcile.";
 
   const noteLine =
     `${prefix} Rescheduled (${ctx.actor}): ${oldWhen} to ${newWhen}. ` +

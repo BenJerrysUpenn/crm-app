@@ -177,8 +177,8 @@ to anyone; Alina tells the crew.
   as done). Open `create` and `patch` rows for the deal are superseded first, so a payload queued
   for the old date cannot run after the change. With the id cleared, the calendar reconcile (the
   catering sweep, the daemon's backlog scan) creates a fresh event on the new date. Closed
-  Marketing Event deals are on the catering calendar like booked ones (Alina, 2026-10-27), so the
-  mirror of Catering-Manager `CALENDAR_STAGES` lists all three stages. This app never calls Google.
+  Marketing Event deals are on the catering calendar like booked ones (Alina, 2026-10-27), so all
+  three stages are in Catering-Manager `CALENDAR_STAGES`. This app never calls Google.
 - A reschedule also clears the stamps made against the old date (`CLEARED_FOR_NEW_DATE`):
   `picklist_docx_path`, `day_before_draft_sent_at` and `coi_sent_at`.
 - A reschedule that changes the start time, and every Date not set yet, clears the logistics
