@@ -91,7 +91,37 @@ describe("Email campaigns: archived people are left out of every number", () => 
 
   it("shows no archived count anywhere in the payload", () => {
     const { payload } = run([couple({ archived_at: "2026-10-27T09:00:00Z" }), couple({ event_date: YESTERDAY })]);
-    expect(JSON.stringify(payload)).not.toMatch(/archiv/i);
+    // Every field name in the payload, at any depth. Prose (notes, capacity
+    // sources) may mention archived people; no number may be keyed by them.
+    const keys: string[] = [];
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object")
+        for (const [k, x] of Object.entries(v)) {
+          keys.push(k);
+          walk(x);
+        }
+    };
+    walk(payload);
+    expect(keys).toContain("suppressed");
+    expect(keys.filter((k) => /archiv/i.test(k))).toEqual([]);
+  });
+
+  it("leaves archived people and past-date couples out of the Warm and Offer flows", () => {
+    const enquirer = prospect();
+    const goneEnquirer = prospect({ archived_at: "2026-10-27T09:00:00Z" });
+    const { payload } = run(
+      [
+        enquirer,
+        goneEnquirer,
+        prospect({ ever_booked: true, last_event_date: "2024-05-01" }),
+        prospect({ ever_booked: true, last_event_date: "2024-05-01", archived_at: "2026-10-27T09:00:00Z" }),
+        couple(),
+        couple({ event_date: YESTERDAY }),
+      ],
+      [deal(enquirer.email, "Corporate event"), deal(goneEnquirer.email, "Corporate event")],
+    );
+    expect(payload.flows).toMatchObject({ dealToWarm: 1, offerToWarm: 1, offerOptedIn: 1, offerBookedRecent: 0 });
   });
 
   it("still counts an archived person who is also suppressed as suppressed, as today", () => {
@@ -110,7 +140,7 @@ describe("Email campaigns: a prospect's own wedding category puts them in Weddin
 
   it("puts a Warm wedding prospect with no deal in the wedding card, not 'no deal on file'", () => {
     const { cat } = run([prospect({ category: "wedding" })]);
-    expect(cat("warm", "wedding")?.total).toBe(1);
+    expect(cat("warm", "wedding")).toMatchObject({ label: "Enquired: Weddings & showers", total: 1 });
     expect(cat("warm", "no_deal")).toBeUndefined();
   });
 
