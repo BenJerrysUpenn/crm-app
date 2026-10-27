@@ -172,6 +172,9 @@ export const SEED_LANE_BLOCKS: Record<TierKey, LaneBlocks> = {
 // send would carry. Cold Pilot A step 1 and the warm_sender email are the same
 // copy, so each counts as the other: nobody gets that email twice.
 export const WARM_TEMPLATE_KEY = "warm_holiday_2026";
+// The news.* mailboxes (jake@, jacob@, jakob@) send the same warm email
+// signed by the coordinator, logged under its own template key.
+export const WARM_COORDINATOR_TEMPLATE_KEY = "warm_holiday_2026_coordinator";
 export const COLD_TEMPLATE_KEY = "apollo:cold_pilot_a:1";
 
 // The wedding sender's sequence: Catering-Manager ebe2de7 (2026-10-27)
@@ -213,7 +216,7 @@ export const SEED_SEQUENCES: Record<string, SequenceDoc> = {
         waitDays: 0,
         subject: COLD_SUBJECT,
         body: COLD_BODY,
-        sentAs: [COLD_TEMPLATE_KEY, WARM_TEMPLATE_KEY],
+        sentAs: [COLD_TEMPLATE_KEY, WARM_TEMPLATE_KEY, WARM_COORDINATOR_TEMPLATE_KEY],
       },
     ],
   },
@@ -225,7 +228,7 @@ export const SEED_SEQUENCES: Record<string, SequenceDoc> = {
         waitDays: 0,
         subject: WARM_SUBJECT,
         body: WARM_BODY,
-        sentAs: [WARM_TEMPLATE_KEY, COLD_TEMPLATE_KEY],
+        sentAs: [WARM_TEMPLATE_KEY, WARM_COORDINATOR_TEMPLATE_KEY, COLD_TEMPLATE_KEY],
       },
     ],
   },
