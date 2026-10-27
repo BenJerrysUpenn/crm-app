@@ -40,6 +40,8 @@ import {
 import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
+import EventChangeDialog, { type EventChangeMode } from "./EventChangeDialog";
+import { canChangeEvent } from "@/lib/eventChange";
 import { missingRequiredFields } from "@/lib/required";
 import { positiveOrNull, winterMenuWarnings } from "@/lib/winterMenu";
 
@@ -134,14 +136,21 @@ export default function DealDetailDrawer({
   // The edit form's time when it opened: an unchanged time is not sent.
   const [editCallAtOpened, setEditCallAtOpened] = useState<string>("");
   const [editCallNotes, setEditCallNotes] = useState<string>("");
+  // Reschedule event / Cancel event (lib/eventChange.ts): which dialog is open,
+  // and the note line the last change appended.
+  const [eventDialog, setEventDialog] = useState<EventChangeMode | null>(null);
+  const [eventMessage, setEventMessage] = useState<string | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Escape closes the reschedule / cancel dialog first, not the drawer.
+      if (eventDialog) setEventDialog(null);
+      else onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, eventDialog]);
 
   // Reset local edits when the deal switches.
   useEffect(() => {
@@ -351,6 +360,33 @@ export default function DealDetailDrawer({
     }
   }
 
+  function openEventDialog(mode: EventChangeMode) {
+    if (hasChanges) {
+      setError("Save or discard your changes before rescheduling or cancelling the event.");
+      return;
+    }
+    setError(null);
+    setEventMessage(null);
+    setEventDialog(mode);
+  }
+
+  // The change wrote the deal on the server: re-read it so the drawer and the
+  // board show the new date, stage and note.
+  async function eventChanged(outcome: { noteLine?: string; error?: string }) {
+    setEventDialog(null);
+    if (outcome.error) setError(outcome.error);
+    else setEventMessage(outcome.noteLine || "Done.");
+    const { data } = await supabase
+      .from("deals")
+      .select("*")
+      .eq("id", deal.id)
+      .single();
+    if (data) {
+      setEdits({});
+      onDealUpdate?.(data as Deal);
+    }
+  }
+
   // Strip common formatting from a phone number for the tel: URL. Keeps
   // digits, leading +, and pause chars (,;). iOS handles the rest.
   function telHref(raw: string): string {
@@ -533,6 +569,26 @@ export default function DealDetailDrawer({
                 ? "Recalculated ✓"
                 : "Recalculate"}
             </button>
+            {canChangeEvent(current.stage) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => openEventDialog("reschedule")}
+                  className="text-xs sm:text-sm bg-sky-500/20 text-sky-200 border border-sky-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-sky-500/30"
+                  title="Move the event to a new date (or to no date yet); its crew shifts and calendar event follow"
+                >
+                  Reschedule event
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openEventDialog("cancel")}
+                  className="text-xs sm:text-sm bg-rose-500/20 text-rose-200 border border-rose-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-rose-500/30"
+                  title="Move the deal to Closed Lost, delete its calendar event and remove its crew shifts"
+                >
+                  Cancel event
+                </button>
+              </>
+            )}
             {current.stage === "Open" && (
               <>
                 <button
@@ -611,6 +667,19 @@ export default function DealDetailDrawer({
           <div className="px-5 py-2 bg-rose-950 border-b border-rose-900 text-sm text-rose-200">
             {error || quoteJob?.error_message}
           </div>
+        )}
+        {eventMessage && (
+          <div className="px-5 py-2 bg-emerald-950 border-b border-emerald-900 text-sm text-emerald-200">
+            {eventMessage}
+          </div>
+        )}
+        {eventDialog && (
+          <EventChangeDialog
+            dealId={deal.id}
+            mode={eventDialog}
+            onClose={() => setEventDialog(null)}
+            onDone={eventChanged}
+          />
         )}
         {quoteJob?.status === "done" && (
           <div className="px-5 py-2 bg-emerald-950 border-b border-emerald-900 text-sm text-emerald-200">

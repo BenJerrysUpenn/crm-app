@@ -159,6 +159,34 @@ submits to The Hartford; the human sends. Its only write is `coi_sent_at` plus
 required, unsent and the event is 0 to 14 days out (`COI_URGENT_WINDOW_DAYS`), the
 same window as Catering-Manager `revive.coi_required_unsent`.
 
+## Reschedule event and Cancel event (deal drawer)
+Two buttons on deals at Booked Unpaid, Booked Paid or Closed Marketing Event. The dialog reads
+the event and its crew from `GET /api/deals/:id/event-change`, names everyone with a shift (and,
+on a cancel, the amount paid with "any refund is done by hand in Square") before anything is
+confirmed, and `POST` makes the change. Rules and writes: `lib/eventChange.ts`. Nothing is sent
+to anyone; Alina tells the crew.
+
+- **Reschedule to a date** writes `event_date`, `event_start_time`, `event_end_time` and moves
+  every shift with `shifts.deal_id` by the distance between the old start and the new one, so
+  each keeps its offset from the event's start.
+- **Date not set yet** clears `event_date` (the times stay) and removes the deal's shifts.
+- **Cancel** writes the stage patch for Closed Lost (`buildStagePatch`) and removes the deal's shifts.
+- All three clear `calendar_event_id` and `calendar_event_payload_hash` and, when the deal had an
+  event, insert a `delete` row in `pending_calendar_actions` (Catering-Manager's calendar queue,
+  drained by the imap_idle daemon about once a minute; a delete of an event already gone counts
+  as done). Open `create` and `patch` rows for the deal are superseded first, so a payload queued
+  for the old date cannot run after the change. With the id cleared, the calendar reconcile (the
+  catering sweep, the daemon's backlog scan) creates a fresh event for a booked deal on its new
+  date. This app never calls Google. A Closed Marketing Event deal gets no calendar event.
+- A reschedule also clears the stamps made against the old date (`CLEARED_FOR_NEW_DATE`):
+  `picklist_docx_path`, `day_before_draft_sent_at` and `coi_sent_at`.
+- Every change appends one line to `deals.notes` saying what moved, from what to what.
+
+The deal is written first, in one update guarded on its stage, date and calendar event id (a
+deal changed since the dialog read it answers 409, as does a crew that changed). A failure after
+that answers 500 naming what is left to do by hand. Like the drawer's other writes, this one does
+not reach Catering-Manager's `deal_events` log.
+
 ## Winter menu (deal drawer)
 No winter package exists: a winter item is an existing package plus extras (bj-finance
 #717). `supabase/crm/012_winter_menu_extras.sql` adds the three Price Book extras (Belgian
