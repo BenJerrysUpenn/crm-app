@@ -455,9 +455,9 @@ export interface EventChangeStore {
    * Close the deal's open `create` and `patch` rows in pending_calendar_actions,
    * the way the daemon supersedes them, so a payload queued for the old date
    * cannot recreate or move the event after this change. Open `delete` rows
-   * are left to run. Returns how many it closed.
+   * are left to run.
    */
-  supersedeOpenCalendarWrites(dealId: number, nowNaiveUtc: string): Promise<number>;
+  supersedeOpenCalendarWrites(dealId: number, nowNaiveUtc: string): Promise<void>;
   /**
    * Update the deal only if its stage, event_date and calendar_event_id are
    * still what `deal` read. False when the row had changed (nothing written).
@@ -623,7 +623,6 @@ export function supabaseEventChangeStore(admin: SupabaseClient): EventChangeStor
         .is("processed_at", null)
         .in("action", ["create", "patch"]);
       if (error) throw new Error(error.message);
-      let closed = 0;
       for (const row of (data ?? []) as Array<{ id: number; source: string | null }>) {
         const { error: uErr } = await admin
           .from("pending_calendar_actions")
@@ -631,9 +630,7 @@ export function supabaseEventChangeStore(admin: SupabaseClient): EventChangeStor
           .eq("id", row.id)
           .is("processed_at", null);
         if (uErr) throw new Error(uErr.message);
-        closed += 1;
       }
-      return closed;
     },
 
     async updateDealIfUnchanged(deal, patch) {
