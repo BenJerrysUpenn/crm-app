@@ -89,6 +89,14 @@ export type CrewShift = {
   person: string | null;
 };
 
+/**
+ * The staffed shifts' ids: what the dialog sends as `staffed_shift_ids` and
+ * what the change compares them with before writing anything.
+ */
+export function staffedShiftIds(shifts: CrewShift[]): number[] {
+  return shifts.filter((s) => s.employee_id).map((s) => s.id);
+}
+
 export type EventChangeRequest =
   | {
       kind: "reschedule";
@@ -446,15 +454,14 @@ export async function applyEventChange(
   store: EventChangeStore,
   dealId: number,
   request: EventChangeRequest,
-  staffedShiftIds: number[],
+  staffedIdsShown: number[],
   ctx: { now: Date; actor: string },
 ): Promise<ApplyResult> {
   const deal = await store.readDeal(dealId);
   if (!deal) return { ok: false, status: 404, error: "Deal not found" };
 
   const shifts = await store.readCrewShifts(dealId);
-  const staffedNow = shifts.filter((s) => s.employee_id).map((s) => s.id);
-  if (!sameIds(staffedNow, staffedShiftIds)) {
+  if (!sameIds(staffedShiftIds(shifts), staffedIdsShown)) {
     return {
       ok: false,
       status: 409,

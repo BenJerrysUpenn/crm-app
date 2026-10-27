@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { describeShiftTime, describeWhen, money, type CrewShift } from "@/lib/eventChange";
+import { describeShiftTime, describeWhen, money, staffedShiftIds, type CrewShift } from "@/lib/eventChange";
 
 // The Reschedule event / Cancel event dialog on the deal drawer. It reads the
 // event and its crew from GET /api/deals/:id/event-change, names everyone with
@@ -189,7 +189,7 @@ export default function EventChangeDialog({
     if (!preview || submitting) return;
     setError(null);
     setSubmitting(true);
-    const staffed_shift_ids = preview.shifts.filter((s) => s.employee_id).map((s) => s.id);
+    const staffed_shift_ids = staffedShiftIds(preview.shifts);
     const body =
       mode === "cancel"
         ? { action: "cancel", staffed_shift_ids }
