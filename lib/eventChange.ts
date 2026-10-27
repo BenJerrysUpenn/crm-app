@@ -572,9 +572,12 @@ export async function applyEventChange(
 // outside the CRM user's RLS)
 // ---------------------------------------------------------------------------
 
+/** The name given to a staffed shift whose person has no name on file. */
+export const UNNAMED_PERSON = "Unnamed person";
+
 /** Who a staffed shift belongs to: the name the schedule shows. */
 export function personName(p: { full_name?: string | null; preferred_name?: string | null }): string {
-  return p.preferred_name?.trim() || p.full_name?.trim() || "Unnamed person";
+  return p.preferred_name?.trim() || p.full_name?.trim() || UNNAMED_PERSON;
 }
 
 export function supabaseEventChangeStore(admin: SupabaseClient): EventChangeStore {
@@ -611,7 +614,7 @@ export function supabaseEventChangeStore(admin: SupabaseClient): EventChangeStor
       }
       return rows.map((r) => ({
         ...r,
-        person: r.employee_id ? names.get(r.employee_id) ?? "Unnamed person" : null,
+        person: r.employee_id ? names.get(r.employee_id) ?? UNNAMED_PERSON : null,
       }));
     },
 

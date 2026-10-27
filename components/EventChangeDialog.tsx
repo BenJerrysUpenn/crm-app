@@ -7,6 +7,7 @@ import {
   describeWhen,
   money,
   staffedShiftIds,
+  UNNAMED_PERSON,
   type EventPreview,
 } from "@/lib/eventChange";
 
@@ -30,7 +31,7 @@ export function confirmationLines(
   const staffed = preview.shifts.filter((s) => s.employee_id);
   const open = preview.shifts.length - staffed.length;
   const people = staffed
-    .map((s) => `${s.person ?? "Unnamed person"} (${describeShiftTime(s.starts_at, s.ends_at)})`)
+    .map((s) => `${s.person ?? UNNAMED_PERSON} (${describeShiftTime(s.starts_at, s.ends_at)})`)
     .join(", ");
   const lines: string[] = [];
 
