@@ -110,6 +110,58 @@ describe("GET: what the dialog shows", () => {
     const res = await GET(new Request("https://crm.test"), { params: { id: String(DEAL_ID) } });
     expect(res.status).toBe(401);
   });
+
+  it("answers 404 for a deal that does not exist", async () => {
+    const res = await GET(new Request("https://crm.test"), { params: { id: "99999" } });
+    expect(res.status).toBe(404);
+  });
+
+  it("answers 400 for a deal id that is not a number", async () => {
+    const res = await GET(new Request("https://crm.test"), { params: { id: "abc" } });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST refusals before any write", () => {
+  it("answers 401 signed out, writing nothing", async () => {
+    h.user = null;
+    const before = JSON.stringify(h.db.tables);
+    const res = await post({ action: "cancel", staffed_shift_ids: [602] });
+    expect(res.status).toBe(401);
+    expect(JSON.stringify(h.db.tables)).toBe(before);
+  });
+
+  it("answers 400 with the reason for a body it cannot read, writing nothing", async () => {
+    const before = JSON.stringify(h.db.tables);
+    const res = await post({ action: "reschedule", event_date: "2026-02-30", event_start_time: "12:00", event_end_time: "13:30", staffed_shift_ids: [602] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Pick the new date, or tick Date not set yet.");
+    expect(JSON.stringify(h.db.tables)).toBe(before);
+  });
+
+  it("answers 400 for a deal id that is not a number, writing nothing", async () => {
+    const before = JSON.stringify(h.db.tables);
+    const res = await POST(
+      new Request("https://crm.test/api/deals/abc/event-change", {
+        method: "POST",
+        body: JSON.stringify({ action: "cancel", staffed_shift_ids: [602] }),
+      }),
+      { params: { id: "abc" } },
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(h.db.tables)).toBe(before);
+  });
+
+  it("answers 404 for a deal that does not exist", async () => {
+    const res = await POST(
+      new Request("https://crm.test/api/deals/99999/event-change", {
+        method: "POST",
+        body: JSON.stringify({ action: "cancel", staffed_shift_ids: [] }),
+      }),
+      { params: { id: "99999" } },
+    );
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("POST reschedule to a new date", () => {
@@ -202,6 +254,19 @@ describe("POST reschedule to a new date", () => {
     expect(deal().event_date).toBe("2026-11-05");
     expect(shift(601)!.starts_at).toBe("2026-11-05T17:00:00.000Z");
   });
+
+  it("says which shift to move by hand when one cannot be moved, and still moves the rest", async () => {
+    // The first write to shifts is the move of 601.
+    h.db.failWrites.shifts = "permission denied";
+    const res = await post(body);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe(
+      "The deal was saved, but shift 601 did not move (permission denied); move it on the Schedule page.",
+    );
+    expect(deal().event_date).toBe("2026-11-05");
+    expect(shift(601)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
+    expect(shift(602)!.starts_at).toBe("2026-11-05T17:00:00.000Z");
+  });
 });
 
 describe("POST reschedule, date not set yet", () => {
@@ -243,6 +308,17 @@ describe("POST cancel", () => {
     expect(queuedDeletes()).toHaveLength(1);
   });
 
+  it("says which shifts to remove by hand when they cannot be removed", async () => {
+    h.db.failWrites.shifts = "permission denied";
+    const res = await post({ action: "cancel", staffed_shift_ids: [602] });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe(
+      "The deal was saved, but the crew shifts (601, 602) were not removed (permission denied); remove them on the Schedule page.",
+    );
+    expect(deal().stage).toBe("Closed Lost");
+    expect(h.db.tables.shifts.map((s) => s.id)).toEqual([601, 602, 700]);
+  });
+
   it("refuses when someone was put on the crew after the dialog opened", async () => {
     const res = await post({ action: "cancel", staffed_shift_ids: [] });
     expect(res.status).toBe(409);
@@ -268,7 +344,7 @@ describe("the store's guarded deal update", () => {
     expect(deal().event_date).toBeNull();
   });
 
-  it("answers 409 through the route when the deal changed under it", async () => {
+  it("refuses with 409, removing no shifts and queuing no delete, when the deal changes between the read and the write", async () => {
     // A store whose read is stale: the row changes between the read and the write.
     const { applyEventChange } = await import("@/lib/eventChange");
     const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never);
