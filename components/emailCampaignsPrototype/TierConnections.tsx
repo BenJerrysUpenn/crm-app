@@ -91,7 +91,7 @@ export default function TierConnections({ flows, tiers }: { flows: Flows; tiers:
           <span className="ml-1 text-slate-500">(opt-out)</span>
         </>
       ),
-      note: "Suppressed people are left out of every number on this page.",
+      note: "Suppressed and archived people are left out of every number on this page.",
     },
   ];
   // v6: a plain disclosure row like "How the numbers are made", directly under

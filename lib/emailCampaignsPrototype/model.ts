@@ -49,6 +49,13 @@
 // does not fall back to the tier's Everyone sequence), and they are left out
 // of the Everyone card, Needed and capacity. isCakeOnly is that clause, line
 // for line.
+//
+// Wedding leads (owners' rulings 2026-10-27): archived people (archived_at
+// set) are dropped before counting, like suppressed people, with no archived
+// count shown. In Warm and Offer a prospect whose own category is 'wedding' is
+// in the wedding card even with no deal. A wedding contact whose event date
+// (the prospect's event_date, else the category-setting deal's) is before
+// today counts as archived, as the sender treats them.
 
 export type ProspectRow = {
   id: number;
@@ -70,6 +77,10 @@ export type ProspectRow = {
   // The Salesforce lead status in `notes` is 'Cake Order' (leadStatusOf).
   // Filled by the loader; absent counts as false.
   cake_lead_status?: boolean;
+  // The prospect's own event date (wedding imports), 'YYYY-MM-DD'.
+  event_date?: string | null;
+  // Set when the person is archived: out of every tier and every number.
+  archived_at?: string | null;
 };
 
 export type DealRow = {
@@ -238,6 +249,8 @@ const EVENT_BUCKETS: { key: string; label: string; re: RegExp }[] = [
   { key: "community", label: "Fundraisers & festivals", re: /fundraiser|festival|church|community|fair/ },
   { key: "cake", label: "Cake orders", re: /cake/ },
 ];
+
+const WEDDING = EVENT_BUCKETS.find((b) => b.key === "wedding")!;
 
 export function eventBucket(eventType: string | null | undefined): { key: string; label: string } {
   const t = (eventType ?? "").toLowerCase().trim();
@@ -517,6 +530,7 @@ export function compute(data: RawData, now: Date): Payload {
   const twelveMonthsAgo = new Date(now);
   twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
   const twelveMonthsAgoISO = twelveMonthsAgo.toISOString().slice(0, 10);
+  const todayISO = now.toISOString().slice(0, 10);
 
   const suppressed = new Set(data.suppressedEmails.map(lc));
   const blocked = new Set(data.blockedDomains.map(lc));
@@ -569,10 +583,11 @@ export function compute(data: RawData, now: Date): Payload {
     total: number;
     needsReveal: number;
     cats: Map<string, CatAcc>;
-    routed: number; // everyone who landed in this tier, suppressed included
+    routed: number; // everyone who landed in this tier, suppressed and archived included
     suppressed: number;
+    archived: number; // for the invariant only; never shown (owners, 2026-10-27)
   };
-  const mk = (): TierAcc => ({ total: 0, needsReveal: 0, cats: new Map(), routed: 0, suppressed: 0 });
+  const mk = (): TierAcc => ({ total: 0, needsReveal: 0, cats: new Map(), routed: 0, suppressed: 0, archived: 0 });
   const tiers: Record<TierKey, TierAcc> = { cold: mk(), warm: mk(), offer: mk() };
   // Seed cold categories so empty segments still show.
   for (const [k, l] of Object.entries(COLD_LABELS)) tiers.cold.cats.set(k, newCat(k, l));
@@ -612,41 +627,33 @@ export function compute(data: RawData, now: Date): Payload {
       if (email && dealEmails.has(email)) flows.coldToDeal++;
     }
 
-    // Suppressed people leave the system before anything is counted.
-    if (p.status === "suppressed" || p.status === "dead" || (email && suppressed.has(email))) {
-      acc.suppressed++;
-      continue;
-    }
-    acc.total++;
-
-    // Category
+    // Category. Warm/Offer flows are counted once the person is known to be in.
     let catKey: string;
     let catLabel: string;
+    // The deal the tier reads the event type from (none for cold).
+    const catDeal =
+      tier === "warm" ? latestDeal.get(email) : tier === "offer" ? (latestBooked.get(email) ?? latestDeal.get(email)) : undefined;
     if (tier === "cold") {
       catKey = p.category ?? "uncategorised";
       catLabel = COLD_LABELS[catKey] ?? "Uncategorised";
+    } else if (lc(p.category) === WEDDING.key) {
+      // Their own category: Weddings & showers even with no deal (2026-10-27).
+      catKey = WEDDING.key;
+      catLabel = tier === "warm" ? `Enquired: ${WEDDING.label}` : WEDDING.label;
     } else if (tier === "warm") {
       if (p.ever_booked) {
         catKey = "past_booker";
         catLabel = "Past bookers (12 mo+)";
-        flows.offerToWarm++;
+      } else if (!catDeal) {
+        catKey = "no_deal";
+        catLabel = "Salesforce lead, no deal on file";
       } else {
-        const d = latestDeal.get(email);
-        if (!d) {
-          catKey = "no_deal";
-          catLabel = "Salesforce lead, no deal on file";
-        } else {
-          const b = eventBucket(d.event_type);
-          catKey = b.key;
-          catLabel = `Enquired: ${b.label}`;
-          flows.dealToWarm++;
-        }
+        const b = eventBucket(catDeal.event_type);
+        catKey = b.key;
+        catLabel = `Enquired: ${b.label}`;
       }
     } else {
-      if (recentBooker) flows.offerBookedRecent++;
-      else flows.offerOptedIn++;
-      const d = latestBooked.get(email) ?? latestDeal.get(email);
-      const b = eventBucket(d?.event_type);
+      const b = eventBucket(catDeal?.event_type);
       catKey = b.key;
       catLabel = b.label;
     }
@@ -655,6 +662,29 @@ export function compute(data: RawData, now: Date): Payload {
       catKey = CAKE_ONLY.key;
       catLabel = CAKE_ONLY.label;
     }
+
+    // Suppressed people leave the system before anything is counted.
+    if (p.status === "suppressed" || p.status === "dead" || (email && suppressed.has(email))) {
+      acc.suppressed++;
+      continue;
+    }
+    // So do archived people, and wedding contacts whose date has passed (the
+    // sender's rule), whether or not archived_at is stamped yet.
+    const eventDate = (catKey === WEDDING.key && (p.event_date ?? catDeal?.event_date)) || "";
+    if (p.archived_at || (/^\d{4}-\d{2}-\d{2}/.test(eventDate) && eventDate.slice(0, 10) < todayISO)) {
+      acc.archived++;
+      continue;
+    }
+    acc.total++;
+
+    if (tier === "warm") {
+      if (p.ever_booked) flows.offerToWarm++;
+      else if (catDeal) flows.dealToWarm++;
+    } else if (tier === "offer") {
+      if (recentBooker) flows.offerBookedRecent++;
+      else flows.offerOptedIn++;
+    }
+
     let cat = acc.cats.get(catKey);
     if (!cat) {
       cat = newCat(catKey, catLabel);
@@ -772,13 +802,13 @@ export function compute(data: RawData, now: Date): Payload {
     const sources: TierPayload["sources"] =
       key === "cold" ? [{ label: "Apollo", n: acc.total }] : undefined;
 
-    // Invariant: routed = everyone + suppressed; everyone = sum of the
+    // Invariant: routed = everyone + suppressed + archived; everyone = sum of the
     // categories = sum of the groups; and (checked per card, cadence and
     // sequence in statesAt) everyone = Up next + Emailed + Held.
     const catSum = categories.reduce((s, c) => s + c.total, 0);
     const groupSum = categories.reduce((s, c) => s + c.groups.reduce((t, g) => t + groupSize(g), 0), 0);
     const unaccounted =
-      Math.abs(acc.total - groupSum) + Math.abs(acc.total - catSum) + Math.abs(acc.routed - acc.suppressed - acc.total);
+      Math.abs(acc.total - groupSum) + Math.abs(acc.total - catSum) + Math.abs(acc.routed - acc.suppressed - acc.archived - acc.total);
 
     let capacity: TierPayload["capacity"];
     if (key === "cold") {
@@ -803,7 +833,7 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: 0,
         perMailboxDay: warmPerMailbox,
         capDay: null,
-        source: `No offer lane yet, so 0 mailboxes. A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
+        source: `No offer lane yet, so 0 mailboxes. A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Wedding contacts in Offer are sent through the warm lane.`,
       };
     }
 
@@ -847,8 +877,8 @@ export function compute(data: RawData, now: Date): Payload {
     notes: [
       "Tiers and warm/offer categories are worked out by this page from existing columns; there are no tier or category columns yet.",
       "Cold categories are the Apollo segments stored on each prospect.",
-      "People who opted out, bounced or are on the suppression list are left out of every number.",
-      "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",
+      "People who opted out, bounced, are on the suppression list or are archived (wedding contacts past their date) are left out of every number.",
+      "The Offer tier is carved out of the warm list; only its wedding contacts are sent, through the warm lane.",
       "Who got which email comes from the send history, across every tier and every contact record with the same email. Nobody is sent an email they already had.",
       "Personal cake (Warm and Offer): never booked, only ever asked us about a cake (Salesforce lead status Cake Order or a Cake Order deal, and no deal of any other type), and on a personal mailbox such as Gmail or iCloud; a cake-only contact on a company, school or government domain is a catering prospect instead. They are held out of the catering email (bj-finance #286), are in no other category, have no sequence of their own, and are not counted in Everyone, Needed or capacity.",
     ],
