@@ -362,6 +362,16 @@ describe("the request body", () => {
     expect(parseEventChangeBody({ action: "cancel" }).ok).toBe(false);
     expect(parseEventChangeBody({ action: "delete", staffed_shift_ids: [] }).ok).toBe(false);
   });
+
+  it("refuses a body that is not an object, and a crew list that is not shift ids", () => {
+    expect(parseEventChangeBody(null)).toEqual({ ok: false, error: "Bad JSON" });
+    expect(parseEventChangeBody("cancel")).toEqual({ ok: false, error: "Bad JSON" });
+    expect(parseEventChangeBody({ action: "cancel", staffed_shift_ids: ["602"] })).toEqual({
+      ok: false,
+      error: "staffed_shift_ids must be a list of shift ids",
+    });
+    expect(parseEventChangeBody({ action: "cancel", staffed_shift_ids: [602.5] }).ok).toBe(false);
+  });
 });
 
 describe("what the dialog says before anyone confirms", () => {
