@@ -877,7 +877,7 @@ export function compute(data: RawData, now: Date): Payload {
     notes: [
       "Tiers and warm/offer categories are worked out by this page from existing columns; there are no tier or category columns yet.",
       "Cold categories are the Apollo segments stored on each prospect.",
-      "People who opted out, bounced or are on the suppression list are left out of every number.",
+      "People who opted out, bounced, are on the suppression list or are archived (wedding contacts past their date) are left out of every number.",
       "The Offer tier is carved out of the warm list; only its wedding contacts are sent, through the warm lane.",
       "Who got which email comes from the send history, across every tier and every contact record with the same email. Nobody is sent an email they already had.",
       "Personal cake (Warm and Offer): never booked, only ever asked us about a cake (Salesforce lead status Cake Order or a Cake Order deal, and no deal of any other type), and on a personal mailbox such as Gmail or iCloud; a cake-only contact on a company, school or government domain is a catering prospect instead. They are held out of the catering email (bj-finance #286), are in no other category, have no sequence of their own, and are not counted in Everyone, Needed or capacity.",

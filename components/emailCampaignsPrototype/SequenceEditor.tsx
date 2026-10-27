@@ -560,7 +560,7 @@ export default function SequenceEditor({
             <div className="mb-4 rounded-md border border-dashed border-slate-700 px-4 py-6 text-center text-sm text-slate-400">
               No emails in this sequence yet.
               {tier.key === "offer" ? (
-                <div className="mt-1 text-xs text-slate-500">There is no offer sending lane yet.</div>
+                <div className="mt-1 text-xs text-slate-500">Only wedding contacts in Offer are sent, through the warm lane.</div>
               ) : null}
             </div>
           ) : null}
