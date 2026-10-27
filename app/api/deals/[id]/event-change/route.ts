@@ -3,8 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   applyEventChange,
-  canChangeEvent,
   parseEventChangeBody,
+  readEventPreview,
   supabaseEventChangeStore,
 } from "@/lib/eventChange";
 
@@ -42,22 +42,9 @@ export async function GET(
 
   const store = supabaseEventChangeStore(createAdminClient());
   try {
-    const deal = await store.readDeal(dealId);
-    if (!deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
-    const shifts = await store.readCrewShifts(dealId);
-    return NextResponse.json({
-      deal: {
-        id: deal.id,
-        stage: deal.stage,
-        can_change: canChangeEvent(deal.stage),
-        event_date: deal.event_date,
-        event_start_time: deal.event_start_time,
-        event_end_time: deal.event_end_time,
-        amount_paid: deal.amount_paid,
-        has_calendar_event: Boolean(deal.calendar_event_id),
-      },
-      shifts,
-    });
+    const preview = await readEventPreview(store, dealId);
+    if (!preview) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
+    return NextResponse.json(preview);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Could not read the event" },

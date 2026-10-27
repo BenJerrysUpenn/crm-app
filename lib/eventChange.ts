@@ -408,6 +408,44 @@ export function appendNote(existing: string | null, line: string): string {
 // Applying it
 // ---------------------------------------------------------------------------
 
+/** What the dialog shows before anyone confirms (GET /api/deals/:id/event-change). */
+export type EventPreview = {
+  deal: {
+    id: number;
+    stage: string;
+    can_change: boolean;
+    event_date: string | null;
+    event_start_time: string | null;
+    event_end_time: string | null;
+    amount_paid: number | null;
+    has_calendar_event: boolean;
+  };
+  shifts: CrewShift[];
+};
+
+/** The deal's event and every crew shift with the person on it; null when there is no such deal. */
+export async function readEventPreview(
+  store: EventChangeStore,
+  dealId: number,
+): Promise<EventPreview | null> {
+  const deal = await store.readDeal(dealId);
+  if (!deal) return null;
+  const shifts = await store.readCrewShifts(dealId);
+  return {
+    deal: {
+      id: deal.id,
+      stage: deal.stage,
+      can_change: canChangeEvent(deal.stage),
+      event_date: deal.event_date,
+      event_start_time: deal.event_start_time,
+      event_end_time: deal.event_end_time,
+      amount_paid: deal.amount_paid,
+      has_calendar_event: Boolean(deal.calendar_event_id),
+    },
+    shifts,
+  };
+}
+
 /** The reads and writes, and nothing else. Every rule is above. */
 export interface EventChangeStore {
   readDeal(dealId: number): Promise<EventDeal | null>;

@@ -7,7 +7,7 @@ import {
   describeWhen,
   money,
   staffedShiftIds,
-  type CrewShift,
+  type EventPreview,
 } from "@/lib/eventChange";
 
 // The Reschedule event / Cancel event dialog on the deal drawer. It reads the
@@ -16,20 +16,6 @@ import {
 // lib/eventChange.ts; nothing is sent to anyone from here.
 
 export type EventChangeMode = "reschedule" | "cancel";
-
-export type EventPreview = {
-  deal: {
-    id: number;
-    stage: string;
-    can_change: boolean;
-    event_date: string | null;
-    event_start_time: string | null;
-    event_end_time: string | null;
-    amount_paid: number | null;
-    has_calendar_event: boolean;
-  };
-  shifts: CrewShift[];
-};
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;

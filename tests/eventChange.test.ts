@@ -16,8 +16,9 @@ import {
   planEventChange,
   type CrewShift,
   type EventDeal,
+  type EventPreview,
 } from "@/lib/eventChange";
-import { confirmationLines, type EventPreview } from "@/components/EventChangeDialog";
+import { confirmationLines } from "@/components/EventChangeDialog";
 import DealDetailDrawer from "@/components/DealDetailDrawer";
 import type { Deal } from "@/lib/types";
 
