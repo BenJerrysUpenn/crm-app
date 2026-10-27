@@ -76,6 +76,12 @@ Before the sender ships the headers, Alina must:
 
 Unset, the endpoint answers `503` rather than silently dropping opt-outs.
 
+### Open and click tracking (`/api/t/o/[token]`, `/api/t/c/[token]`)
+The open pixel and click redirect for the warm and wedding outreach lanes
+(owners' ruling 2026-10-27). Signed with `UNSUBSCRIBE_SECRET`; the middleware
+lets `/api/t/` past the login gate. Contract, caveats and pinned vectors:
+**`docs/tracking.md`**.
+
 ### Short links (`benjerryphilly.com`)
 When the Host is `benjerryphilly.com` or `www.benjerryphilly.com`, the
 middleware serves nothing but redirects and never reaches the login gate: a

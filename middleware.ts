@@ -35,6 +35,15 @@ export async function middleware(request: NextRequest, event?: NextFetchEvent) {
   if (pathname.startsWith("/offers/")) {
     return NextResponse.next();
   }
+  // Open and click tracking (docs/tracking.md) is public for the same reason:
+  // the pixel is fetched by a mail client or image proxy and the link by
+  // whoever got the mail, none of them CRM users; the signed token is the
+  // authorisation. The gate would answer the pixel with a login page and turn
+  // every tracked link into a /login prompt. Returned before updateSession so
+  // there is no Supabase round trip either.
+  if (pathname.startsWith("/api/t/")) {
+    return NextResponse.next();
+  }
 
   // The catering-shift sweep is hit by a scheduler, which has no session, so
   // the auth gate below would 307 it to /login and nothing would ever run
