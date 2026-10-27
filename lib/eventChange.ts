@@ -211,7 +211,8 @@ function shiftLabel(s: CrewShift): string {
   return s.person ?? (s.employee_id ? "someone" : "open");
 }
 
-function money(n: number): string {
+/** "$1,234.50": how the note and the dialog write an amount. */
+export function money(n: number): string {
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 

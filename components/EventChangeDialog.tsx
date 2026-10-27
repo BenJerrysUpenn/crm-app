@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { describeShiftTime, describeWhen, type CrewShift } from "@/lib/eventChange";
+import { describeShiftTime, describeWhen, money, type CrewShift } from "@/lib/eventChange";
 
 // The Reschedule event / Cancel event dialog on the deal drawer. It reads the
 // event and its crew from GET /api/deals/:id/event-change, names everyone with
@@ -23,10 +23,6 @@ export type EventPreview = {
   };
   shifts: CrewShift[];
 };
-
-function money(n: number): string {
-  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
