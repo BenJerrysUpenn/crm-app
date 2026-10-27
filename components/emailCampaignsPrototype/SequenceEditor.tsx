@@ -18,6 +18,7 @@ import {
   LANES,
   MERGE_TAGS,
   dayOffsets,
+  isWrittenStep,
   splitMerge,
   type Lane,
   type LaneBlocks,
@@ -579,6 +580,9 @@ export default function SequenceEditor({
                   </span>
                   {i > 0 ? <span className="text-[11px] text-slate-500">Day {offsets[i]}</span> : null}
                   <span className="text-[11px] text-slate-500">· Step {i + 1}: email</span>
+                  {!isWrittenStep(s) ? (
+                    <span className="text-[11px] text-amber-400/80">· copy not written yet, sent to nobody</span>
+                  ) : null}
                   {!preview && editingId !== s.id ? (
                     <span className="ml-auto flex items-center gap-0.5 text-[11px]">
                       <button

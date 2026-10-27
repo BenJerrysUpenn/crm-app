@@ -1,8 +1,9 @@
 // Email campaigns tab: the in-CRM sequence editor's data.
 //
 // One sequence per tier × category ("cold:everyone", "warm:corporate", ...).
-// A step is one email and one dot on the tile. Seeds exist only for the Cold
-// and Warm "Everyone" sequences; Offer and every category start empty.
+// A step is one email and one dot on the tile. Seeds exist for the Cold and
+// Warm "Everyone" sequences and Offer's Weddings & showers (the wedding
+// sender's sequence); every other sequence starts empty.
 //
 // v5: each lane (tier) has its own signature and footer, editable in the
 // editor. Merge tags are {{first_name}}, {{unsubscribe_link}}, {{offers_link}}
@@ -15,7 +16,7 @@
 // (supabase/crm/013, sharedSequences.ts); a sequence or lane with no row shows
 // its seed here. Nothing here is written to Apollo or warm_sender.
 
-import type { TierKey } from "./model";
+import type { StepSpec, TierKey } from "./model";
 
 export type SeqStep = {
   id: string;
@@ -173,6 +174,36 @@ export const SEED_LANE_BLOCKS: Record<TierKey, LaneBlocks> = {
 export const WARM_TEMPLATE_KEY = "warm_holiday_2026";
 export const COLD_TEMPLATE_KEY = "apollo:cold_pilot_a:1";
 
+// The wedding sender's sequence: Catering-Manager ebe2de7 (2026-10-27)
+// outreach/wedding_copy.py, and its outreach_wedding_schedule view, which
+// counts a send as touch N by detail.touch. Touch 1 is V2 (wedding_expo_v2);
+// the manual touch-1 sends to the Merion and Cherry Hill lists carry touch 1,
+// and V1 (wedding_expo_rivers_2026) was the Rivers touch 1 before V2. The
+// manual check-in and personal notes carry no touch and count as no step.
+// Touches 2 and 3 are sent 30 days after the person's last email and have no
+// copy yet (Alina is writing them), so they are unwritten steps here and the
+// sender's ready_touches() leaves them out there.
+export const WEDDING_TOUCH1_KEYS = [
+  "wedding_expo_v2",
+  "manual_wedding_t1_merion",
+  "manual_wedding_t1_cherry_hill",
+  "wedding_expo_rivers_2026",
+];
+export const WEDDING_T2_KEY = "wedding_t2";
+export const WEDDING_T3_KEY = "wedding_t3";
+
+// GENERATED VERBATIM COPY of WEDDING_V2_SUBJECT and WEDDING_V2_BODY at that
+// commit (a draft pending owner approval there). {first_name} is written as
+// the editor's {{first_name}} merge field; {expo_name}, {expo_when},
+// {wedding_phrase} and {season_paragraph} are filled per couple by the sender
+// (its expo, its wedding date, one of three season paragraphs) and are shown
+// as they are. The phone line of the signature is dropped (public repo, as
+// WARM_SIGNATURE). The body carries its own opt-out line and signature; the
+// Offer lane adds none. No other character differs.
+export const WEDDING_V2_SUBJECT = "Ben & Jerry’s at {expo_name} follow-up";
+
+export const WEDDING_V2_BODY = "Hi {{first_name}},\n\nNice to see you at the {expo_name} {expo_when}! I'm Alina, the owner of the Ben & Jerry's in Philadelphia. I took over the shop in May and run it as a woman-owned small business.\n\nCongratulations on your engagement! We'd love to be part of {wedding_phrase}.\n\n{season_paragraph}\n\nWe bring everything, scoop for your guests, and clean up. You tell us when, where, and how many.\n\nWe also cater bridal showers, rehearsal dinners, and engagement parties, and I can turn a quote around the same day.\n\nLooking forward to hearing from you!\n\nIf you'd rather not hear from me, reply \"no thanks\" and I'll take you off my list.\n\nBest,\n\nAlina Withers\nBen & Jerry’s Catering - Philadelphia\n218 S 40th St, Philadelphia, PA 19104\ncatering@benjerryphilly.com\n";
+
 export const SEED_SEQUENCES: Record<string, SequenceDoc> = {
   "cold:everyone": {
     name: "Cold Pilot A",
@@ -198,6 +229,14 @@ export const SEED_SEQUENCES: Record<string, SequenceDoc> = {
       },
     ],
   },
+  "offer:wedding": {
+    name: "Wedding expo sequence",
+    steps: [
+      { id: "seed-wedding-1", waitDays: 0, subject: WEDDING_V2_SUBJECT, body: WEDDING_V2_BODY, sentAs: WEDDING_TOUCH1_KEYS },
+      { id: "seed-wedding-2", waitDays: 30, subject: "", body: "", sentAs: [WEDDING_T2_KEY] },
+      { id: "seed-wedding-3", waitDays: 30, subject: "", body: "", sentAs: [WEDDING_T3_KEY] },
+    ],
+  },
 };
 
 const SEED_SENT_AS: Record<string, string[]> = Object.fromEntries(
@@ -208,6 +247,17 @@ const SEED_SENT_AS: Record<string, string[]> = Object.fromEntries(
  * in localStorage before the shared copy) have no sentAs, so seed ids fall back to the seed's keys. */
 export function stepKeys(s: SeqStep): string[] {
   return s.sentAs ?? SEED_SENT_AS[s.id] ?? [s.id];
+}
+
+/** A step with no copy at all (empty subject and body) is unwritten: nobody
+ * is sent it. A step with either has copy, as before. */
+export const isWrittenStep = (s: Pick<SeqStep, "subject" | "body">) => !!(s.subject.trim() || s.body.trim());
+
+/** A step as the model reads it (statesAt): its history keys, marked when it
+ * has no copy yet. */
+export function stepSpec(s: SeqStep): StepSpec {
+  const keys = stepKeys(s);
+  return isWrittenStep(s) ? keys : { keys, unwritten: true };
 }
 
 export const sequenceKey = (tier: TierKey, category: string) => `${tier}:${category}`;
