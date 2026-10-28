@@ -151,6 +151,21 @@ describe("applyEventChange over the in-memory store", () => {
     expect(stored(601)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
     expect(stored(602)!.starts_at).not.toBe("2026-10-29T15:00:00+00:00");
   });
+
+  it("names every step left to do by hand when several fail after a cancel is saved", async () => {
+    db.fail.enqueueCalendarDelete = "queue offline";
+    db.fail.deleteShifts = "permission denied";
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { kind: "cancel" }, [602], CTX);
+    expect(r).toEqual({
+      ok: false,
+      status: 500,
+      error:
+        "The deal was saved, but the old calendar event (evt_old_123) could not be queued for deletion (queue offline); delete it in Google Calendar by hand; " +
+        "the crew shifts (601, 602) were not removed (permission denied); remove them on the Schedule page.",
+    });
+    expect(db.deals[0]).toMatchObject({ stage: "Closed Lost", calendar_event_id: null });
+    expect(db.shifts.map((s) => s.id)).toEqual([601, 602, 700]);
+  });
 });
 
 describe("readEventPreview over the in-memory store", () => {
