@@ -20,25 +20,32 @@ import {
 // queue are outside the CRM user's RLS. The middleware's role gate keeps
 // everyone but managers and owners out.
 
-async function signedInEmail(): Promise<string | null | undefined> {
+/**
+ * The guards both handlers run first, in this order: a signed-in user (401),
+ * then a numeric deal id (400). The refusal is the response to return.
+ */
+async function signedInDealRequest(
+  id: string,
+): Promise<{ email: string | null; dealId: number } | NextResponse> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return undefined;
-  return user.email ?? null;
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
+  const dealId = Number(id);
+  if (!Number.isFinite(dealId))
+    return NextResponse.json({ error: "Bad deal id" }, { status: 400 });
+  return { email: user.email ?? null, dealId };
 }
 
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } },
 ) {
-  if ((await signedInEmail()) === undefined)
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-
-  const dealId = Number(params.id);
-  if (!Number.isFinite(dealId))
-    return NextResponse.json({ error: "Bad deal id" }, { status: 400 });
+  const caller = await signedInDealRequest(params.id);
+  if (caller instanceof NextResponse) return caller;
+  const { dealId } = caller;
 
   const store = supabaseEventChangeStore(createAdminClient());
   try {
@@ -57,13 +64,9 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } },
 ) {
-  const email = await signedInEmail();
-  if (email === undefined)
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-
-  const dealId = Number(params.id);
-  if (!Number.isFinite(dealId))
-    return NextResponse.json({ error: "Bad deal id" }, { status: 400 });
+  const caller = await signedInDealRequest(params.id);
+  if (caller instanceof NextResponse) return caller;
+  const { email, dealId } = caller;
 
   let body: unknown;
   try {
