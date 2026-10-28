@@ -168,7 +168,8 @@ to anyone; Alina tells the crew.
 
 - **Reschedule to a date** writes `event_date`, `event_start_time`, `event_end_time` and moves
   every shift with `shifts.deal_id` by the distance between the old start and the new one, so
-  each keeps its offset from the event's start.
+  each keeps its offset from the event's start. A deal with no date has nothing to measure from:
+  its shifts stay where they are and the note says so.
 - **Date not set yet** clears `event_date` (the times stay) and removes the deal's shifts.
 - **Cancel** writes the stage patch for Closed Lost (`buildStagePatch`) and removes the deal's shifts.
 - All three clear `calendar_event_id` and `calendar_event_payload_hash` and, when the deal had an
