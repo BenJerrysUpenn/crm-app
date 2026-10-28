@@ -4,15 +4,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Deal, QuoteJob } from "@/lib/types";
 import { STAGE_COLOURS, STAGES, type Stage } from "@/lib/stages";
 import {
+  easternInputValue,
   fmtEasternDate,
-  fmtEasternDateTime,
   fmtEasternTime,
+  fmtNaiveUtcDateTime,
 } from "@/lib/dateFormat";
+import { calledAtFormValue, callEditBody } from "@/lib/callLog";
 import { createClient } from "@/lib/supabase/client";
 import {
   FLAVOR_NAMES,
   EXTRA_LABELS,
-  TOPPING_NAMES,
+  DRAWER_TOPPING_OPTIONS,
   PACKAGES,
   PAYMENT_STATUSES,
   defaultExtraQuantity,
@@ -39,6 +41,7 @@ import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
 import { missingRequiredFields } from "@/lib/required";
+import { positiveOrNull, winterMenuWarnings } from "@/lib/winterMenu";
 
 function ReadOnlyRow({
   label,
@@ -73,6 +76,23 @@ function numericInput(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// A call's time (Eastern) and who logged it, at the top of its Calls entry.
+// called_at is naive UTC (lib/callLog.ts).
+export function CallLogHeading({
+  call,
+}: {
+  call: { called_at: string; created_by: string | null };
+}) {
+  return (
+    <div className="text-xs text-slate-400">
+      {fmtNaiveUtcDateTime(call.called_at)}
+      {call.created_by && (
+        <span className="ml-2 text-slate-500">· {call.created_by}</span>
+      )}
+    </div>
+  );
+}
+
 export default function DealDetailDrawer({
   deal,
   onClose,
@@ -92,8 +112,8 @@ export default function DealDetailDrawer({
   const [error, setError] = useState<string | null>(null);
   const [quoteJob, setQuoteJob] = useState<QuoteJob | null>(null);
   const [quoteRequesting, setQuoteRequesting] = useState(false);
-  // Log-a-call state. called_at is stored as an HTML datetime-local string
-  // ("YYYY-MM-DDTHH:MM"); the server parses it into a real timestamp.
+  // Log-a-call state. callAt is an HTML datetime-local string
+  // ("YYYY-MM-DDTHH:MM") in Eastern time; the server stores it as naive UTC.
   const [callAt, setCallAt] = useState<string>("");
   const [callNotes, setCallNotes] = useState<string>("");
   const [callSubmitting, setCallSubmitting] = useState(false);
@@ -111,6 +131,8 @@ export default function DealDetailDrawer({
   const [callsLoading, setCallsLoading] = useState(false);
   const [editingCallId, setEditingCallId] = useState<number | null>(null);
   const [editCallAt, setEditCallAt] = useState<string>("");
+  // The edit form's time when it opened: an unchanged time is not sent.
+  const [editCallAtOpened, setEditCallAtOpened] = useState<string>("");
   const [editCallNotes, setEditCallNotes] = useState<string>("");
 
   useEffect(() => {
@@ -269,23 +291,9 @@ export default function DealDetailDrawer({
     }
   }
 
-  // "Now" button: fill callAt with the current local time in the format
-  // <input type="datetime-local"> expects: "YYYY-MM-DDTHH:MM".
+  // "Now" button: fill callAt with the current Eastern time.
   function setCallAtNow() {
-    const d = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    setCallAt(
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
-    );
-  }
-
-  // Format an ISO timestamp as "YYYY-MM-DDTHH:MM" for the datetime-local
-  // input when editing an existing call log.
-  function toDatetimeLocalValue(iso: string): string {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    setCallAt(easternInputValue(new Date()));
   }
 
   // Fetch the list of past call_logs for this deal.
@@ -314,11 +322,14 @@ export default function DealDetailDrawer({
     const res = await fetch(`/api/deals/${deal.id}/calls/${callId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ called_at: editCallAt, notes: editCallNotes }),
+      body: JSON.stringify(
+        callEditBody(editCallAtOpened, editCallAt, editCallNotes),
+      ),
     });
     if (res.ok) {
       setEditingCallId(null);
       setEditCallAt("");
+      setEditCallAtOpened("");
       setEditCallNotes("");
       refreshCalls();
     } else {
@@ -388,6 +399,7 @@ export default function DealDetailDrawer({
   // Multi-select binding helpers.
   const flavorsSelected = parseFlavorsField(current.flavors);
   const extrasSelected = parseExtrasField(current.extras);
+  const winterWarnings = winterMenuWarnings(current);
   // Source of truth: mileage_charge_eligible (1 = we drove, charged mileage;
   // 0 = we ubered). transport_mode is the picklist-side derived cache.
   // Uber checked → mileage_charge_eligible = 0.
@@ -875,7 +887,7 @@ export default function DealDetailDrawer({
                 </FieldRow>
                 <FieldRow label="Toppings">
                   <MultiSelect
-                    options={TOPPING_NAMES}
+                    options={DRAWER_TOPPING_OPTIONS}
                     value={parseToppingsField(current.toppings)}
                     onChange={(next) =>
                       setField("toppings", serializeMultiselect(next))
@@ -897,6 +909,33 @@ export default function DealDetailDrawer({
                     }
                   />
                 </FieldRow>
+                <FieldRow label="Custom menu line">
+                  <TextInput
+                    value={current.custom_menu_line ?? ""}
+                    onChange={(v) => setField("custom_menu_line", v.trim() ? v : null)}
+                    placeholder="Printed on the quote instead of the package"
+                  />
+                </FieldRow>
+                <FieldRow label="Price override">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={
+                      current.price_override == null
+                        ? ""
+                        : String(current.price_override)
+                    }
+                    onChange={(v) => setField("price_override", positiveOrNull(v))}
+                    placeholder="Per guest, replaces the package price"
+                  />
+                </FieldRow>
+                {winterWarnings.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-[11px] text-amber-300">
+                    {winterWarnings.map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                )}
               </section>
 
               <section>
@@ -1075,7 +1114,8 @@ export default function DealDetailDrawer({
 
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                  Log a call
+                  Log a call{" "}
+                  <span className="normal-case font-normal">(times in ET)</span>
                 </h3>
                 <div className="space-y-2 bg-slate-800/40 rounded p-3 border border-slate-800">
                   <div className="flex gap-2 items-stretch">
@@ -1159,6 +1199,7 @@ export default function DealDetailDrawer({
                                   onClick={() => {
                                     setEditingCallId(null);
                                     setEditCallAt("");
+                                    setEditCallAtOpened("");
                                     setEditCallNotes("");
                                   }}
                                   className="text-xs bg-slate-700/60 text-slate-200 border border-slate-600 rounded px-3 py-1.5 hover:bg-slate-700"
@@ -1177,22 +1218,15 @@ export default function DealDetailDrawer({
                           ) : (
                             <div>
                               <div className="flex items-baseline justify-between gap-2 mb-1">
-                                <div className="text-xs text-slate-400">
-                                  {fmtEasternDateTime(c.called_at)}
-                                  {c.created_by && (
-                                    <span className="ml-2 text-slate-500">
-                                      · {c.created_by}
-                                    </span>
-                                  )}
-                                </div>
+                                <CallLogHeading call={c} />
                                 <div className="flex gap-2 shrink-0">
                                   <button
                                     type="button"
                                     onClick={() => {
+                                      const opened = calledAtFormValue(c.called_at);
                                       setEditingCallId(c.id);
-                                      setEditCallAt(
-                                        toDatetimeLocalValue(c.called_at),
-                                      );
+                                      setEditCallAt(opened);
+                                      setEditCallAtOpened(opened);
                                       setEditCallNotes(c.notes);
                                     }}
                                     className="text-[11px] text-slate-400 hover:text-slate-200 underline"
@@ -1241,7 +1275,7 @@ export default function DealDetailDrawer({
                 </h3>
                 <ReadOnlyRow
                   label="Last outbound"
-                  value={fmtEasternDateTime(current.last_outbound_at)}
+                  value={fmtNaiveUtcDateTime(current.last_outbound_at)}
                 />
                 <ReadOnlyRow label="Active" value={boolish(current.is_active)} />
                 <ReadOnlyRow label="Lead source" value={current.lead_source} />
@@ -1262,11 +1296,11 @@ export default function DealDetailDrawer({
                 />
                 <ReadOnlyRow
                   label="Created"
-                  value={fmtEasternDateTime(current.created_at)}
+                  value={fmtNaiveUtcDateTime(current.created_at)}
                 />
                 <ReadOnlyRow
                   label="Updated"
-                  value={fmtEasternDateTime(current.updated_at)}
+                  value={fmtNaiveUtcDateTime(current.updated_at)}
                 />
               </section>
             </div>

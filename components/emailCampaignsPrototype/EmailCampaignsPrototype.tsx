@@ -8,21 +8,37 @@
 // collapsed rows under the header; "Recipient pages" opens previews of the
 // warm opt-out page and the offers opt-in page.
 //
-// Read-only against the database. Client-side state only: the per-tier cadence
-// (useState), card notes and sequence edits (localStorage, this browser only).
-// Nothing is written to the database, Apollo or warm_sender.
+// Reads the outreach data only. The one database write is the sequence
+// editor's shared copy (steps, signature and footer; supabase/crm/013,
+// /api/email-campaigns/sequences), which Apollo and warm_sender do not read.
+// Client-side state: the per-tier cadence (useState) and card notes
+// (localStorage, this browser only). Nothing is sent to Apollo or warm_sender.
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import SequenceEditor, { type EditorTarget } from "./SequenceEditor";
 import TierConnections from "./TierConnections";
 import {
-  SEED_LANE_BLOCKS,
   SEED_SEQUENCES,
+  isWrittenStep,
   sequenceKey,
   stepKeys,
+  stepSpec,
   type LaneBlocks,
   type SequenceDoc,
 } from "@/lib/emailCampaignsPrototype/sequences";
+import {
+  applyRescue,
+  markUploaded,
+  pendingLocalCopies,
+  rescueMessage,
+  resolveLane,
+  resolveSequence,
+  type ConflictInfo,
+  type LocalCopy,
+  type RescueOutcome,
+  type SharedState,
+  type StoreKind,
+} from "@/lib/emailCampaignsPrototype/sharedSequences";
 import {
   CADENCES,
   HELD_REASON_LABEL,
@@ -33,6 +49,8 @@ import {
   everyoneOf,
   groupStanding,
   statesAt,
+  unsentSteps,
+  stepEngagement,
   volumeAt,
   type Cadence,
   type CategoryStat,
@@ -85,15 +103,15 @@ function stateHelp(state: StateKey, cadence: Cadence): string {
     case "upNext":
       return `Still have a step of their sequence they have not had, and not emailed ${periodPhrase(cadence)}. People talked to since May are listed last: lowest priority, still emailed.`;
     case "emailed":
-      return `Got a step ${periodPhrase(cadence)} and still have steps left. They move back to Up next when the period ends.`;
+      return `Got a step ${periodPhrase(cadence)} and still have steps left. They move back to Up next when the period ends, or to Held while their next step's copy is not written yet.`;
     case "held":
-      return "Not sent to: Yahoo/Microsoft addresses (blocked until warm mailboxes are ready), or they already had every step of their sequence and there is nothing new to send. Nobody gets the same email twice; adding a step they have not had moves them back to Up next.";
+      return "Not sent to: Yahoo/Microsoft addresses (blocked until warm mailboxes are ready), or they already had every step of their sequence and there is nothing new to send, or their next step's copy is not written yet. Nobody gets the same email twice; adding a step they have not had moves them back to Up next.";
     case "unaccounted":
       return "People in no state. This should never happen.";
   }
 }
 
-const HELD_ORDER: HeldReason[] = ["blocked", "finished", "noSequence", "moved"];
+const HELD_ORDER: HeldReason[] = ["blocked", "finished", "notWritten", "noSequence", "moved"];
 
 /** "1,904 blocked provider · 216 finished sequence" (non-zero reasons only). */
 function HeldReasons({ heldBy }: { heldBy: Record<HeldReason, number> }) {
@@ -262,10 +280,25 @@ function peopleIn(
   const bottom: Row[] = [];
   const dueOld: Row[] = [];
   const never: Row[] = [];
-  const held: Record<HeldReason, Row[]> = { blocked: [], finished: [], noSequence: [], moved: [] };
+  const held: Record<HeldReason, Row[]> = { blocked: [], finished: [], noSequence: [], moved: [], notWritten: [] };
   for (const g of cat.groups) {
     const steps = stepsFor(g.cat);
     const standing = groupStanding(g, steps);
+    if (standing === "waiting") {
+      // Next step has no copy: Emailed this period, else Held; never Up next.
+      const reason = HELD_REASON_LABEL.notWritten;
+      if (state === "emailed")
+        top.push(...g.sample.newest.filter((p) => !due(p)).map((p) => ({ ...p, reason, low: false })));
+      else if (state === "held") {
+        const seen = new Set<number>();
+        for (const p of [...g.sample.never, ...g.sample.oldest])
+          if (due(p) && !seen.has(p.id)) {
+            seen.add(p.id);
+            held.notWritten.push({ ...p, reason, low: false });
+          }
+      }
+      continue;
+    }
     if (standing !== "open") {
       if (state !== "held") continue;
       const seen = new Set<number>();
@@ -276,7 +309,7 @@ function peopleIn(
         }
       continue;
     }
-    const left = steps.filter((keys) => !keys.some((k) => g.received.includes(k))).length;
+    const left = unsentSteps(g, steps);
     const stepsLeft = `${left} ${plural(left, "step")} left`;
     if (state === "upNext") {
       const rows = [
@@ -445,9 +478,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-// --- sequences (localStorage, this browser only) ------------------------------
-
-const SEQ_PREFIX = "email-campaigns-proto:sequence:v1:";
+// --- sequences (the shared copy, supabase/crm/013) -----------------------------
 
 type SeqStore = {
   get: (key: string) => SequenceDoc | null;
@@ -465,89 +496,177 @@ const SeqCtx = createContext<SeqStore>({
   stepsFor: () => () => [],
 });
 
-/** Local edits override the seeds. A key present in `local` has been edited in
- * this browser (an emptied seed is stored as zero steps, so it stays empty). */
-function useSequenceStore() {
-  const [local, setLocal] = useState<Record<string, SequenceDoc>>({});
-  useEffect(() => {
-    try {
-      const found: Record<string, SequenceDoc> = {};
-      for (let i = 0; i < window.localStorage.length; i++) {
-        const k = window.localStorage.key(i);
-        if (!k || !k.startsWith(SEQ_PREFIX)) continue;
-        const raw = window.localStorage.getItem(k);
-        if (raw) found[k.slice(SEQ_PREFIX.length)] = JSON.parse(raw) as SequenceDoc;
-      }
-      setLocal(found);
-    } catch {
-      /* storage blocked: seeds only */
-    }
-  }, []);
-  const get = useCallback((key: string) => local[key] ?? SEED_SEQUENCES[key] ?? null, [local]);
-  const edited = useCallback((key: string) => key in local, [local]);
-  const save = useCallback((key: string, doc: SequenceDoc) => {
-    setLocal((l) => ({ ...l, [key]: doc }));
-    try {
-      window.localStorage.setItem(SEQ_PREFIX + key, JSON.stringify(doc));
-    } catch {
-      /* storage blocked: the edit lives until reload */
-    }
-  }, []);
-  const reset = useCallback((key: string) => {
-    setLocal((l) => {
-      const next = { ...l };
-      delete next[key];
-      return next;
-    });
-    try {
-      window.localStorage.removeItem(SEQ_PREFIX + key);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-  return { get, edited, save, reset };
-}
+const SAVE_DELAY_MS = 600;
 
-const LANE_PREFIX = "email-campaigns-proto:lane:v1:";
+/** Sequences and lane blocks: the shared row overrides the seed. A key with a
+ * row has been edited (an emptied seed is stored as zero steps, so it stays
+ * empty). Edits show at once and are written after a short pause; reset
+ * deletes the row. On first load, copies this browser saved before the shared
+ * copy existed are uploaded (see rescue in sharedSequences.ts); the
+ * localStorage keys are left in place as a backup. */
+function useSharedCopy(initial: SharedState, loadError: string | null) {
+  const [state, setState] = useState<SharedState>(initial);
+  const [saving, setSaving] = useState(0);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [queued, setQueued] = useState(0);
+  const [rescued, setRescued] = useState<string | null>(null);
+  const pending = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; body: string }>());
+  const chain = useRef(new Map<string, Promise<void>>());
 
-/** Each lane's signature and footer: seed, overridden by edits in this browser. */
-function useLaneBlocks() {
-  const [local, setLocal] = useState<Partial<Record<TierKey, LaneBlocks>>>({});
-  useEffect(() => {
-    try {
-      const found: Partial<Record<TierKey, LaneBlocks>> = {};
-      for (const t of ["cold", "warm", "offer"] as TierKey[]) {
-        const raw = window.localStorage.getItem(LANE_PREFIX + t);
-        if (raw) found[t] = JSON.parse(raw) as LaneBlocks;
+  // One request at a time per row, in the order the edits were made.
+  const send = useCallback((id: string, method: "PUT" | "DELETE", body: string, keepalive = false) => {
+    setSaving((n) => n + 1);
+    const run = async () => {
+      try {
+        const res = await fetch("/api/email-campaigns/sequences", {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive,
+        });
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(j.error ?? `HTTP ${res.status}`);
+        }
+        setSaveError(null);
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSaving((n) => n - 1);
       }
-      setLocal(found);
-    } catch {
-      /* storage blocked: seeds only */
-    }
+    };
+    const next = (chain.current.get(id) ?? Promise.resolve()).then(run);
+    chain.current.set(id, next);
   }, []);
-  const get = (t: TierKey) => local[t] ?? SEED_LANE_BLOCKS[t];
-  const edited = (t: TierKey) => t in local;
-  const save = (t: TierKey, b: LaneBlocks) => {
-    setLocal((l) => ({ ...l, [t]: b }));
+
+  const flush = useCallback(
+    (keepalive = false) => {
+      for (const [id, p] of pending.current) {
+        clearTimeout(p.timer);
+        send(id, "PUT", p.body, keepalive);
+      }
+      pending.current.clear();
+      setQueued(0);
+    },
+    [send],
+  );
+
+  useEffect(() => {
+    const onHide = () => flush(true);
+    window.addEventListener("pagehide", onHide);
+    return () => window.removeEventListener("pagehide", onHide);
+  }, [flush]);
+
+  const write = useCallback(
+    (kind: StoreKind, key: string, doc: SequenceDoc | LaneBlocks) => {
+      const id = `${kind}:${key}`;
+      const prev = pending.current.get(id);
+      if (prev) clearTimeout(prev.timer);
+      const body = JSON.stringify({ kind, key, doc });
+      const timer = setTimeout(() => {
+        pending.current.delete(id);
+        setQueued(pending.current.size);
+        send(id, "PUT", body);
+      }, SAVE_DELAY_MS);
+      pending.current.set(id, { timer, body });
+      setQueued(pending.current.size);
+    },
+    [send],
+  );
+
+  const remove = useCallback(
+    (kind: StoreKind, key: string) => {
+      const id = `${kind}:${key}`;
+      const prev = pending.current.get(id);
+      if (prev) clearTimeout(prev.timer);
+      pending.current.delete(id);
+      setQueued(pending.current.size);
+      send(id, "DELETE", JSON.stringify({ kind, key }));
+    },
+    [send],
+  );
+
+  // Rescue: upload what this browser saved before the shared copy existed.
+  // Once per page load (React may run an effect twice in development); the
+  // result is applied even if the effect was cleaned up in between.
+  const rescueStarted = useRef(false);
+  useEffect(() => {
+    if (loadError || rescueStarted.current) return;
+    rescueStarted.current = true;
+    let copies: LocalCopy[];
     try {
-      window.localStorage.setItem(LANE_PREFIX + t, JSON.stringify(b));
+      copies = pendingLocalCopies(window.localStorage);
     } catch {
-      /* storage blocked: the edit lives until reload */
+      return; /* storage blocked: nothing to upload */
     }
+    if (!copies.length) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/email-campaigns/sequences/rescue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: copies.map(({ kind, key, doc }) => ({ kind, key, doc })) }),
+        });
+        const j = (await res.json().catch(() => ({}))) as { outcomes?: RescueOutcome[]; error?: string };
+        if (!res.ok || !j.outcomes) throw new Error(j.error ?? `HTTP ${res.status}`);
+        const outcomes = j.outcomes;
+        try {
+          markUploaded(window.localStorage, copies, outcomes);
+        } catch {
+          /* storage blocked: the copies are sent again next load, which is harmless */
+        }
+        setState((s) => applyRescue(s, outcomes, new Date().toISOString()));
+        setRescued(rescueMessage(outcomes));
+      } catch (e) {
+        setSaveError(
+          `Could not upload this browser's saved sequences (they are still in this browser): ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    })();
+  }, [loadError]);
+
+  const get = useCallback((key: string) => resolveSequence(state, key), [state]);
+  const edited = useCallback((key: string) => key in state.sequences, [state]);
+  const save = useCallback(
+    (key: string, doc: SequenceDoc) => {
+      setState((s) => ({ ...s, sequences: { ...s.sequences, [key]: doc } }));
+      write("sequence", key, doc);
+    },
+    [write],
+  );
+  const reset = useCallback(
+    (key: string) => {
+      setState((s) => {
+        const sequences = { ...s.sequences };
+        delete sequences[key];
+        return { ...s, sequences };
+      });
+      remove("sequence", key);
+    },
+    [remove],
+  );
+  const lanes = {
+    get: (t: TierKey) => resolveLane(state, t),
+    edited: (t: TierKey) => t in state.lanes,
+    save: (t: TierKey, b: LaneBlocks) => {
+      setState((s) => ({ ...s, lanes: { ...s.lanes, [t]: b } }));
+      write("lane", t, b);
+    },
+    reset: (t: TierKey) => {
+      setState((s) => {
+        const next = { ...s.lanes };
+        delete next[t];
+        return { ...s, lanes: next };
+      });
+      remove("lane", t);
+    },
   };
-  const reset = (t: TierKey) => {
-    setLocal((l) => {
-      const next = { ...l };
-      delete next[t];
-      return next;
-    });
-    try {
-      window.localStorage.removeItem(LANE_PREFIX + t);
-    } catch {
-      /* ignore */
-    }
+  return {
+    seqs: { get, edited, save, reset },
+    lanes,
+    conflicts: state.conflicts,
+    status: { saving: saving > 0 || queued > 0, error: saveError, rescued },
   };
-  return { get, edited, save, reset };
 }
 
 function SequenceDots({ doc, edited, onClick }: { doc: SequenceDoc; edited: boolean; onClick: () => void }) {
@@ -559,19 +678,54 @@ function SequenceDots({ doc, edited, onClick }: { doc: SequenceDoc; edited: bool
       title="Open the sequence editor"
       className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 hover:bg-slate-800"
     >
-      {doc.steps.map((s) => (
-        <span key={s.id} className="h-2.5 w-2.5 shrink-0 rounded-full bg-sky-400" />
-      ))}
+      {doc.steps.map((s, i) =>
+        isWrittenStep(s) ? (
+          <span key={s.id} className="h-2.5 w-2.5 shrink-0 rounded-full bg-sky-400" />
+        ) : (
+          <span
+            key={s.id}
+            title={`Step ${i + 1}: copy not written yet`}
+            className="h-2.5 w-2.5 shrink-0 rounded-full border border-sky-400"
+          />
+        ),
+      )}
       <span className="ml-1 truncate text-[11px] text-slate-400">
         {n} {plural(n, "email")}
         {doc.name ? ` · ${doc.name}` : ""}
       </span>
       {edited ? (
-        <span title="Edited in this browser" className="ml-1 shrink-0 text-[9px] lowercase text-amber-400/80">
-          edited here
+        <span title="Edited (shared copy)" className="ml-1 shrink-0 text-[9px] lowercase text-amber-400/80">
+          edited
         </span>
       ) : null}
     </button>
+  );
+}
+
+/** One small line per step that has something to say: opens and clicks of
+ * its tracked sends on this card, or that its copy is not written yet. */
+function StepLines({ doc, cat }: { doc: SequenceDoc; cat: CategoryStat }) {
+  const lines = doc.steps.flatMap((s, i): { id: string; i: number; text: string; tracked?: number }[] => {
+    if (!isWrittenStep(s)) return [{ id: s.id, i, text: "copy not written yet" }];
+    const e = stepEngagement(cat, stepKeys(s));
+    return e ? [{ id: s.id, i, text: `opened ${fmt(e.opened)} · clicked ${fmt(e.clicked)}`, tracked: e.tracked }] : [];
+  });
+  if (!lines.length) return null;
+  return (
+    <div className="space-y-0.5 px-1.5 text-[10px] leading-tight text-slate-500">
+      {lines.map((l) => (
+        <div
+          key={l.id}
+          title={
+            l.tracked !== undefined
+              ? `Of ${fmt(l.tracked)} tracked sends. Mail privacy proxies open every image, so opens run high (docs/tracking.md).`
+              : undefined
+          }
+        >
+          <span className="text-slate-400">Step {l.i + 1}</span> · {l.text}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -579,11 +733,13 @@ function SequenceDots({ doc, edited, onClick }: { doc: SequenceDoc; edited: bool
  * sequence, otherwise a single "+ Add sequence" button. Both open the editor. */
 function SequenceControl({
   tier,
+  cat,
   catKey,
   catLabel,
   cadence,
 }: {
   tier: TierPayload;
+  cat: CategoryStat;
   catKey: string;
   catLabel: string;
   cadence: Cadence;
@@ -592,7 +748,13 @@ function SequenceControl({
   const key = sequenceKey(tier.key, catKey);
   const doc = store.get(key);
   const open = () => store.open({ tier, catKey, catLabel, cadence });
-  if (doc && doc.steps.length > 0) return <SequenceDots doc={doc} edited={store.edited(key)} onClick={open} />;
+  if (doc && doc.steps.length > 0)
+    return (
+      <div className="min-w-0">
+        <SequenceDots doc={doc} edited={store.edited(key)} onClick={open} />
+        <StepLines doc={doc} cat={cat} />
+      </div>
+    );
   return (
     <button
       type="button"
@@ -683,7 +845,7 @@ function EveryoneCard({
 
       <Unaccounted n={st.unaccounted} />
       <div className="flex items-center justify-between gap-2 border-t border-slate-800 pt-1.5">
-        <SequenceControl tier={tier} catKey="everyone" catLabel="Everyone" cadence={cadence} />
+        <SequenceControl tier={tier} cat={e} catKey="everyone" catLabel="Everyone" cadence={cadence} />
       </div>
       <NoteArea note={note} editing={editing} setEditing={setEditing} save={saveNote} />
     </div>
@@ -752,7 +914,7 @@ function CategoryCard({
       {cat.hold ? <HeldReasons heldBy={st.heldBy} /> : null}
       <Unaccounted n={st.unaccounted} />
       <div className="mt-auto pt-0.5">
-        <SequenceControl tier={tier} catKey={cat.key} catLabel={cat.label} cadence={cadence} />
+        <SequenceControl tier={tier} cat={cat} catKey={cat.key} catLabel={cat.label} cadence={cadence} />
       </div>
       <NoteArea note={note} editing={editing} setEditing={setEditing} save={saveNote} />
     </div>
@@ -906,17 +1068,41 @@ function TierColumn({ tier, open }: { tier: TierPayload; open: (d: Drill) => voi
 
 // --- shell --------------------------------------------------------------------
 
-export default function EmailCampaignsPrototype({ payload }: { payload: Payload }) {
+/** "Warm › Corporate & office" for a sequence, "Warm signature and footer" for a lane. */
+function conflictLabel(c: ConflictInfo, tiers: TierPayload[]): string {
+  const [tierKey, ...rest] = c.key.split(":");
+  const tier = tiers.find((t) => t.key === tierKey);
+  const tierLabel = tier?.label ?? tierKey;
+  if (c.kind === "lane") return `${tierLabel} signature and footer`;
+  const catKey = rest.join(":");
+  const cat = catKey === "everyone" ? "Everyone" : (tier?.categories.find((k) => k.key === catKey)?.label ?? catKey);
+  return `${tierLabel} › ${cat}`;
+}
+
+const EMPTY_SHARED: SharedState = { sequences: {}, lanes: {}, conflicts: [] };
+
+const CONFLICT_NOTE =
+  "a different copy saved in a browser was kept aside; the shared copy was not changed. An owner can compare the two (email_campaign_sequence_conflicts).";
+
+export default function EmailCampaignsPrototype({
+  payload,
+  shared = EMPTY_SHARED,
+  sharedError = null,
+}: {
+  payload: Payload;
+  /** The shared copy as the page read it (no rows = every seed). */
+  shared?: SharedState;
+  sharedError?: string | null;
+}) {
   const [drill, setDrill] = useState<Drill | null>(null);
   const close = useCallback(() => setDrill(null), []);
-  const seqs = useSequenceStore();
-  const lanes = useLaneBlocks();
+  const { seqs, lanes, conflicts, status } = useSharedCopy(shared, sharedError);
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   const closeEditor = useCallback(() => setEditor(null), []);
   const stepsFor = (tier: TierKey): StepsFor => {
-    const everyone = (seqs.get(sequenceKey(tier, "everyone"))?.steps ?? []).map(stepKeys);
+    const everyone = (seqs.get(sequenceKey(tier, "everyone"))?.steps ?? []).map(stepSpec);
     return (catKey: string) =>
-      categorySteps(catKey, (seqs.get(sequenceKey(tier, catKey))?.steps ?? []).map(stepKeys), everyone);
+      categorySteps(catKey, (seqs.get(sequenceKey(tier, catKey))?.steps ?? []).map(stepSpec), everyone);
   };
   const store: SeqStore = { get: seqs.get, edited: seqs.edited, open: setEditor, stepsFor };
   const editorKey = editor ? sequenceKey(editor.tier.key, editor.catKey) : null;
@@ -928,7 +1114,8 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
         <h2 className="text-xl font-semibold text-slate-100">Email campaigns</h2>
         <div className="text-[11px] text-slate-400">
           <span>
-            ✎ Notes and sequence edits are saved in this browser only · as of{" "}
+            ✎ Sequence edits are shared and saved for everyone; card notes stay in this browser ·{" "}
+            {status.saving ? "saving… · " : ""}as of{" "}
             {new Date(payload.generated_at).toLocaleString("en-US", {
               timeZone: "America/New_York",
               month: "short",
@@ -940,6 +1127,26 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
           </span>
         </div>
       </div>
+      {sharedError ? (
+        <div className="rounded-md border border-rose-700 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
+          Could not load the shared sequences, so the original copy is shown and edits cannot be saved: {sharedError}
+        </div>
+      ) : null}
+      {status.error ? (
+        <div className="rounded-md border border-rose-700 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
+          Not saved: {status.error}
+        </div>
+      ) : null}
+      {status.rescued ? <div className="text-xs text-emerald-300">✓ {status.rescued}</div> : null}
+      {conflicts.length ? (
+        <div className="rounded-md border border-amber-700/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          {conflicts.map((c) => (
+            <div key={`${c.kind}:${c.key}`}>
+              <span className="font-medium">{conflictLabel(c, payload.tiers)}</span>: {CONFLICT_NOTE}
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
         <span>Recipient pages</span>
         <a
@@ -972,8 +1179,9 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
             A tier&apos;s period is its &ldquo;Reach everyone&rdquo; cadence. Up next: still has a step they have not
             had, and not emailed this period. Emailed: got a step inside the period and still has steps left. Held:
             Yahoo/Microsoft addresses (until warm mailboxes are ready), or finished the sequence with nothing new to
-            send. Everyone is in exactly one of the three. Every sequence is a single email today, so anyone who got
-            it is Held until a new step is added.
+            send, or their next step&apos;s copy is not written yet. Everyone is in exactly one of the three. Every
+            sequence but Offer&apos;s wedding one is a single email today, so anyone who got it is Held until a new
+            step is added.
           </li>
           <li>
             People talked to since May are in Up next, at the bottom of the list: lowest priority, still emailed.
@@ -1007,6 +1215,12 @@ export default function EmailCampaignsPrototype({ payload }: { payload: Payload 
           blocksEdited={lanes.edited(editor.tier.key)}
           onBlocksChange={(b) => lanes.save(editor.tier.key, b)}
           onBlocksReset={() => lanes.reset(editor.tier.key)}
+          conflicts={conflicts
+            .filter(
+              (c) =>
+                (c.kind === "sequence" && c.key === editorKey) || (c.kind === "lane" && c.key === editor.tier.key),
+            )
+            .map((c) => `${conflictLabel(c, payload.tiers)}: ${CONFLICT_NOTE}`)}
           onClose={closeEditor}
         />
       ) : null}

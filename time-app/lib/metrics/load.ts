@@ -23,10 +23,14 @@ import { leadsByWeek, outreachByWeek, quoteToBooking, type LeadWeek, type Outrea
 import { MONTHS, MONTHS_AHEAD, WEEKS } from "./series.ts";
 import type { SalesTargetRow } from "./targets.ts";
 import { parseCash, parseClosedMonth, parseDaily, type ClosedMonth, type DailySnapshot } from "./feed.ts";
-import { defaultLaborMonth, laborMonths, laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs, type LaborTargetMonth, type SalesDayRow } from "./laborTarget.ts";
+import { laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs, type LaborTargetWeek, type SalesDayRow } from "./laborTarget.ts";
+import { defaultLaborRange, laborWeekStarts, type WeekRange } from "./weekRange.ts";
 import { loadBoard } from "@/lib/controlBoard/load";
 import { PROFILE_COLUMNS, laborPerson, loadCateringBookings } from "@/lib/controlBoard/scheduleLoad";
 import type { LaborShift } from "@/lib/controlBoard/schedule";
+import { laborHoursPlanning, type LaborPlanning } from "./laborPlanning";
+import { nyMidnight, paged } from "./supabaseReads";
+import { loadLaborPlanningRows, planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
 
 /** What the page's data spans on `today`: the weeks and months behind it, and the days from the first of those months to the end of the last month ahead. */
 function metricsWindow(today: string): { weeks: string[]; months: string[]; from: string; to: string } {
@@ -48,6 +52,8 @@ export type MetricsInputs = {
   targets: SalesTargetRow[] | null;
   /** Labor vs target's reads: the paid hourly actuals, the daily in-store sales and the control board. */
   laborTarget: Omit<LaborTargetInputs, "today"> | null;
+  /** Labor Hours Planning's reads (bj-finance #742); null when they failed (named in problems). */
+  laborPlanning: LaborPlanningRows | null;
   feed: FeedInputs;
   problems: string[];
 };
@@ -97,35 +103,15 @@ export type MetricsData = {
   leads: LeadWeek[] | null;
   outreach: OutreachWeek[] | null;
   quotes: QuoteCohort[] | null;
-  /** Labor vs target for each month on offer, newest first, and the month a card shows until one is chosen. */
-  laborTarget: null | { months: LaborTargetMonth[]; defaultMonth: string };
+  /** Labor vs target for each week on offer, oldest first, and the range a card shows until one is chosen. */
+  laborTarget: null | { weeks: LaborTargetWeek[]; defaultRange: WeekRange };
+  /** Labor Hours Planning: 52 weeks ahead from this one; a card shows its first `weeks`. */
+  laborPlanning: LaborPlanning | null;
   feed: FeedData;
   problems: string[];
 };
 
-const PAGE = 1000; // PostgREST's row cap per request
-const MAX_PAGES = 50;
-
-type Query = { range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string; code?: string } | null }> };
-
-async function paged<T>(make: () => Query): Promise<T[]> {
-  const out: T[] = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const { data, error } = await make().range(page * PAGE, (page + 1) * PAGE - 1);
-    if (error) throw error;
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < PAGE) break;
-  }
-  return out;
-}
-
 const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived";
-
-/** An ISO instant at New York midnight starting `day` (EDT or EST: the earlier, so nothing is missed). */
-function nyMidnight(day: string): string {
-  return `${day}T04:00:00Z`;
-}
 
 export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = new Date()): Promise<MetricsInputs> {
   const today = nyToday(now);
@@ -142,7 +128,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     }
   }
 
-  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, feed] = await Promise.all([
+  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed] = await Promise.all([
     attempt("catering deals", () =>
       paged<DealRow>(() =>
         supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", firstMonth).lte("event_date", `${lastDay}T23:59:59`).order("id"),
@@ -193,6 +179,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
       return ((data ?? []) as SalesTargetRow[]).map((r) => ({ ...r, amount: Number(r.amount) }));
     }),
     attempt("labor vs target", () => loadLaborTarget(supabase, today, problems)),
+    attempt("labor hours planning", () => loadLaborPlanningRows(supabase, today)),
     loadFeed(supabase, addDays(today, -95), addMonths(today, -13)),
   ]);
 
@@ -203,12 +190,14 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     deals = [...merged.values()];
   }
 
-  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, laborTarget, feed, problems };
+  if (laborPlanning) problems.push(...laborPlanning.problems);
+
+  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed, problems };
 }
 
 /**
  * Labor vs target (bj-finance #696): public.labor_daily_actuals (migration
- * 46) and public.sales_daily_in_store (migration 41) over the months on
+ * 46) and public.sales_daily_in_store (migration 41) over the weeks on
  * offer, the control board's settings, salaries and fixed-payroll people
  * (loadBoard, the same reads the Targets tab makes), and for the catering
  * offset the booked deals (loadCateringBookings, the Schedule page's read),
@@ -372,10 +361,11 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
     quotes,
     laborTarget: inputs.laborTarget
       ? {
-          months: laborMonths(today).map((m) => laborVsTarget(m, { today, ...inputs.laborTarget! })),
-          defaultMonth: defaultLaborMonth(today),
+          weeks: laborVsTarget(laborWeekStarts(today), { today, ...inputs.laborTarget! }),
+          defaultRange: defaultLaborRange(today),
         }
       : null,
+    laborPlanning: inputs.laborPlanning ? laborHoursPlanning(planningInputsFrom(inputs.laborPlanning)) : null,
     feed: buildFeed(inputs.feed),
     problems: inputs.problems,
   };

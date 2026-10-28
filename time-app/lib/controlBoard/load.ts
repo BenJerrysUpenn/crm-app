@@ -13,6 +13,7 @@ import type { SalaryRow, SettingRow } from "./settings";
 import { monthStart, trendMonths, type DailySalesRow, type MonthlySalesRow } from "./math";
 
 export const NEEDS_MIGRATION = "The control board needs migration 43. Run time-app/supabase/migration_43.sql in the Supabase SQL editor first.";
+export const NEEDS_MIGRATION_47 = "The planning inputs need migration 47. Run time-app/supabase/migration_47.sql in the Supabase SQL editor first.";
 
 /**
  * Someone who may be in fixed payroll: pay_type 'salaried' and not overhead,

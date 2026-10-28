@@ -8,11 +8,17 @@
 // having no availability at all.
 //
 // created_at is read because a weekly row only applies from the date it was
-// created (see resolveDay in lib/availabilityCheck.ts).
+// created, and repeat_until (migration 48) because it stops after that date
+// (see resolveDay in lib/availabilityCheck.ts).
+//
+// Every column ("*"), not a list naming repeat_until: before migration 48 is
+// applied a list naming it would fail the whole read, and every schedule check
+// would answer "availability unavailable". "*" simply comes back without it,
+// and a row without one is open-ended, as every row was.
 
 import type { AvailabilityRow } from "@/lib/availabilityCheck";
 
-const COLUMNS = "employee_id, weekday, specific_date, start_time, end_time, is_available, status, preference, created_at";
+const COLUMNS = "*";
 
 // Just the slice of the Supabase client this file uses, so both the cookie
 // client and the admin client fit.

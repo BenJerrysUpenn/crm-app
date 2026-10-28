@@ -1,7 +1,7 @@
 // The control board's content: its categories and their lines (bj-finance
 // #693, variant D accepted 2026-10-14). Categories are data: a new category is
 // a new entry in CATEGORIES with its lines, and the page's layout does not
-// change. Only the seven below exist today.
+// change. Only the eight below exist today.
 //
 // A line is either STORED (a value an owner sets and reviews: it has an as-of
 // date, a source, a history and a review-by chip) or COMPUTED (worked out from
@@ -13,6 +13,7 @@ import { computeBoard, type BoardInputs, type BoardResults, type Derived, type T
 import { capWords, money, monthName, pct, pctFixed, per100 } from "./format.ts";
 import { groupBy, inForce, settingsInForce, type SalaryRow, type SettingRow } from "./settings.ts";
 import type { SalariedProfile } from "./load.ts";
+import { CLOSE_DOWN_KEY, OPEN_UP_KEY } from "../coverage.ts";
 
 /** What a stored line's value is, as the board has it now (saved, or an owner's unsaved change). */
 export type Current = { value: number; detail: Record<string, number | string | null> };
@@ -101,6 +102,8 @@ function boardInputs(d: Pick<BoardData, "values" | "salaried">): BoardInputs {
 
 /** How a payroll tax reads: its rate, and the wage cap it stops at or "on all wages". */
 const taxWords = (c: Current) => `${pct(c.value, 3)} ${capWords(num(c, "wage_cap"))}`;
+
+const minutesWords = (n: number) => `${n} ${n === 1 ? "minute" : "minutes"}`;
 
 const ofSales = (r: BoardResults, n: number | null) =>
   n != null && r.salesTotal.value ? pctFixed(n / r.salesTotal.value) : "";
@@ -224,6 +227,19 @@ export const CATEGORIES: Category[] = [
         }),
       ];
     },
+  },
+  {
+    id: "staffed",
+    title: "Staffed hours",
+    intro: "Open hours are when customers can buy: the store hours on the Team page and the seasons below. Staffed hours add the time it takes to open up before opening and close down after closing. The Check week button, the coverage reminder and the coverage line on Labor Hours Planning measure cover against staffed hours.",
+    lines: ({ d }) => [
+      stored(d, OPEN_UP_KEY, "Open-up time", (c) => `${minutesWords(c.value)} before opening`, {
+        note: d.values.has(OPEN_UP_KEY) ? undefined : "Not set: coverage starts at opening time.",
+      }),
+      stored(d, CLOSE_DOWN_KEY, "Close-down time", (c) => `${minutesWords(c.value)} after closing`, {
+        note: d.values.has(CLOSE_DOWN_KEY) ? undefined : "Not set: coverage ends at closing time.",
+      }),
+    ],
   },
   {
     id: "trend",

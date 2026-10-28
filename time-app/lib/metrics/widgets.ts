@@ -31,6 +31,7 @@ export const METRIC_IDS = [
   "forward_cash",
   "labour",
   "labor_vs_target",
+  "labor_hours_planning",
   "closed_month",
   "leads",
   "outreach",
@@ -50,8 +51,10 @@ export type MetricDef = {
   defaultPeriod: Period;
   /** Whether the widget offers a stream filter. */
   streams: boolean;
-  /** Whether the widget is set to a chosen month (settings.month) instead of a period. */
-  month?: boolean;
+  /** Whether the widget is set to a chosen range of weeks (settings.from, settings.to) instead of a period. */
+  weekRange?: boolean;
+  /** Whether the widget shows a number of weeks ahead from this one (settings.weeks, a slider). */
+  weeksAhead?: boolean;
   source: "crm" | "feed" | "mixed";
 };
 
@@ -121,11 +124,22 @@ export const METRICS: Record<MetricId, MetricDef> = {
     id: "labor_vs_target",
     code: "W6",
     title: "Labor vs target",
-    blurb: "Each week of the month, Sunday to Saturday: in-store sales, hourly labor all-in (less the catering crew clients paid for), and how far it sits from the all-in target.",
+    blurb: "Each week of the chosen range, Sunday to Saturday: in-store sales, hourly labor all-in (less the catering crew clients paid for), and how far it sits from the all-in target.",
     periods: ["mtd"],
     defaultPeriod: "mtd",
     streams: false,
-    month: true,
+    weekRange: true,
+    source: "crm",
+  },
+  labor_hours_planning: {
+    id: "labor_hours_planning",
+    code: "W7",
+    title: "Labor Hours Planning",
+    blurb: "Target labor hours for each week ahead, Sunday to Saturday, from last year's sales: what in-store and concession sales afford, catering and marketing booked and still expected, against the hours the store is staffed.",
+    periods: ["mtd"],
+    defaultPeriod: "mtd",
+    streams: false,
+    weeksAhead: true,
     source: "crm",
   },
   closed_month: {
@@ -174,11 +188,10 @@ export function blurbFor(def: MetricDef, period: Period): string {
   return def.blurbs?.[period] ?? def.blurb;
 }
 
-/** A month setting: "YYYY-MM". */
-export function isMonthSetting(x: unknown): x is string {
-  return typeof x === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(x);
-}
-
-/** `month` is "YYYY-MM", for a metric with `month`; unset, it shows the last full month. */
-export type WidgetSettings = { period: Period; stream?: StreamFilter; month?: string };
+/**
+ * `from` and `to` are the Sundays of the first and last week shown, for a
+ * metric with `weekRange` (weekRange.ts); unset, it shows the default range.
+ * `weeks` is how many weeks ahead a `weeksAhead` metric shows (4 to 52).
+ */
+export type WidgetSettings = { period: Period; stream?: StreamFilter; from?: string; to?: string; weeks?: number };
 export type WidgetConfig = { id: string; metric: MetricId; settings: WidgetSettings };

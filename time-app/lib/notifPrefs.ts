@@ -15,7 +15,8 @@ const MANAGER_TYPES: NotifPrefItem[] = [
   { key: "shift_picked_up", label: "When an open shift is picked up" },
   { key: "drop_request", label: "Swap / drop requests" },
   { key: "time_off_request", label: "Time-off requests" },
-  { key: "availability_change", label: "When someone changes their availability" },
+  // Email in one summary at 8pm (lib/availabilityNotice.ts); the bell at once.
+  { key: "availability_change", label: "When someone changes their availability (email in the 8pm daily summary)" },
   { key: "timeoff_cancelled", label: "When approved time off is cancelled" },
   { key: "reimbursement_submitted", label: "When a Travel Reimbursement is submitted" },
   { key: "reimbursement_decision", label: "When my own Travel Reimbursement is rejected or adjusted" },
@@ -25,7 +26,7 @@ export const TYPES_BY_ROLE: Record<Role, NotifPrefItem[]> = {
   employee: [
     // Email and text for these two come in one summary at 8pm (lib/shiftNotice.ts).
     { key: "shift_published", label: "A new shift is posted for me (email and text in the 8pm daily summary)" },
-    { key: "schedule_change", label: "When my schedule changes (email and text in the 8pm daily summary)" },
+    { key: "schedule_change", label: "When my schedule changes or a shift is removed (email and text in the 8pm daily summary)" },
     { key: "shift_reminder", label: "Reminder before my shift starts" },
     { key: "missed_clockin", label: "Alert if I haven't clocked in" },
     { key: "clockout_reminder", label: "Reminder if I'm still clocked in after my shift ends" },
