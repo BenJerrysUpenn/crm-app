@@ -40,8 +40,8 @@ import {
 import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
-import EventChangeDialog, { type EventChangeMode, type EventChangeOutcome } from "./EventChangeDialog";
-import { canChangeEvent, eventChangedMessage } from "@/lib/eventChange";
+import EventChangeDialog, { type EventChangeMode } from "./EventChangeDialog";
+import { canChangeEvent, eventChangedMessage, type EventChangeOutcome } from "@/lib/eventChange";
 import { missingRequiredFields } from "@/lib/required";
 import { positiveOrNull, winterMenuWarnings } from "@/lib/winterMenu";
 

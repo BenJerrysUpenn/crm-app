@@ -20,11 +20,6 @@ import {
 
 export type EventChangeMode = "reschedule" | "cancel";
 
-// EventChangeOutcome is defined once in lib/eventChange.ts (what
-// interpretChangeResponse hands back); re-exported so the drawer keeps
-// importing it from here.
-export type { EventChangeOutcome };
-
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
