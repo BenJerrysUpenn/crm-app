@@ -41,7 +41,7 @@ import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
 import EventChangeDialog, { type EventChangeMode } from "./EventChangeDialog";
-import { canChangeEvent } from "@/lib/eventChange";
+import { canChangeEvent, eventChangedMessage } from "@/lib/eventChange";
 import { missingRequiredFields } from "@/lib/required";
 import { positiveOrNull, winterMenuWarnings } from "@/lib/winterMenu";
 
@@ -371,12 +371,11 @@ export default function DealDetailDrawer({
   }
 
   // The change wrote the deal on the server: re-read it so the drawer and the
-  // board show the new date, stage and note.
+  // board show the new date, stage and note. A failed re-read is surfaced, not
+  // hidden behind the success note (the view is then stale).
   async function eventChanged(outcome: { noteLine?: string; error?: string }) {
     setEventDialog(null);
-    if (outcome.error) setError(outcome.error);
-    else setEventMessage(outcome.noteLine || "Done.");
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("deals")
       .select("*")
       .eq("id", deal.id)
@@ -385,6 +384,9 @@ export default function DealDetailDrawer({
       setEdits({});
       onDealUpdate?.(data as Deal);
     }
+    const shown = eventChangedMessage(outcome, Boolean(data), error?.message);
+    if ("error" in shown) setError(shown.error);
+    else setEventMessage(shown.message);
   }
 
   // Strip common formatting from a phone number for the tel: URL. Keeps

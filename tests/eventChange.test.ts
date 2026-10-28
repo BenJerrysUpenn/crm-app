@@ -13,6 +13,7 @@ import {
   canChangeEvent,
   DEAL_SAVED_PREFIX,
   describeShiftTime,
+  eventChangedMessage,
   interpretChangeResponse,
   isMissingTwinColumn,
   linkedCalendarEventId,
@@ -497,5 +498,30 @@ describe("what the dialog does with the change POST's answer", () => {
     // No error body falls back to the status.
     expect(interpretChangeResponse(false, 500, {})).toEqual({ done: false, error: "HTTP 500" });
     expect(interpretChangeResponse(false, 502, { error: "" })).toEqual({ done: false, error: "HTTP 502" });
+  });
+});
+
+describe("what the drawer shows after the change, once it re-reads the deal", () => {
+  it("shows the note line when the re-read succeeded", () => {
+    expect(eventChangedMessage({ noteLine: "[2026-10-27] Rescheduled." }, true)).toEqual({
+      message: "[2026-10-27] Rescheduled.",
+    });
+    // A finished change with no note line still shows a message.
+    expect(eventChangedMessage({}, true)).toEqual({ message: "Done." });
+  });
+
+  it("shows the partial-failure error when the re-read succeeded", () => {
+    const error = `${DEAL_SAVED_PREFIX}, but shift 601 did not move (permission denied); move it on the Schedule page.`;
+    expect(eventChangedMessage({ error }, true)).toEqual({ error });
+  });
+
+  it("surfaces a failed re-read instead of the success note, so a stale view is not shown as done", () => {
+    expect(eventChangedMessage({ noteLine: "[2026-10-27] Rescheduled." }, false, "network error")).toEqual({
+      error: "The change was saved, but reloading the deal failed (network error). Refresh to see the new date and stage.",
+    });
+    // The re-read failure wins even over a partial-failure outcome.
+    expect(eventChangedMessage({ error: `${DEAL_SAVED_PREFIX}, but …` }, false)).toEqual({
+      error: "The change was saved, but reloading the deal failed. Refresh to see the new date and stage.",
+    });
   });
 });

@@ -8,6 +8,7 @@ import {
   money,
   staffedShiftIds,
   UNNAMED_PERSON,
+  type EventChangeBody,
   type EventPreview,
 } from "@/lib/eventChange";
 
@@ -130,7 +131,7 @@ export default function EventChangeDialog({
     setError(null);
     setSubmitting(true);
     const staffed_shift_ids = staffedShiftIds(preview.shifts);
-    const body =
+    const body: EventChangeBody =
       mode === "cancel"
         ? { action: "cancel", staffed_shift_ids }
         : dateNotSet

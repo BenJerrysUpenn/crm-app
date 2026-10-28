@@ -200,11 +200,32 @@ function isYmd(value: string): boolean {
 }
 
 /**
+ * The POST wire body — the one source of truth for its key names. The dialog
+ * builds a value of this type and `parseEventChangeBody` reads the same keys, so
+ * renaming one is a compile error on both sides, not a 400 at runtime.
+ */
+export type EventChangeBody =
+  | { action: "cancel"; staffed_shift_ids: number[] }
+  | { action: "reschedule"; date_not_set: true; staffed_shift_ids: number[] }
+  | {
+      action: "reschedule";
+      event_date: string;
+      event_start_time: string;
+      event_end_time: string;
+      staffed_shift_ids: number[];
+    };
+
+/** Every key any `EventChangeBody` variant carries (distributive `keyof`). */
+type KeysOfUnion<T> = T extends T ? keyof T : never;
+type EventChangeBodyKey = KeysOfUnion<EventChangeBody>;
+
+/**
  * The POST body: `{ action: "reschedule", event_date, event_start_time,
  * event_end_time, staffed_shift_ids }`, `{ action: "reschedule", date_not_set:
  * true, staffed_shift_ids }` or `{ action: "cancel", staffed_shift_ids }`.
  * `staffed_shift_ids` are the staffed shifts the dialog showed; the change is
- * refused when the crew no longer matches them.
+ * refused when the crew no longer matches them. Reads are keyed to
+ * `EventChangeBody`, so a renamed key fails to compile here too.
  */
 export function parseEventChangeBody(
   body: unknown,
@@ -212,7 +233,7 @@ export function parseEventChangeBody(
   | { ok: true; request: EventChangeRequest; staffedShiftIds: number[] }
   | { ok: false; error: string } {
   if (!body || typeof body !== "object") return { ok: false, error: "Bad JSON" };
-  const b = body as Record<string, unknown>;
+  const b = body as Partial<Record<EventChangeBodyKey, unknown>>;
   const ids = b.staffed_shift_ids;
   if (!Array.isArray(ids) || !ids.every((x) => Number.isInteger(x))) {
     return { ok: false, error: "staffed_shift_ids must be a list of shift ids" };
@@ -577,6 +598,31 @@ export function interpretChangeResponse(
     return { done: true, outcome: { error: body.error } };
   }
   return { done: false, error };
+}
+
+/** What the drawer shows after an event change: a message, or an error to flag. */
+export type ChangeOutcomeMessage = { error: string } | { message: string };
+
+/**
+ * What the drawer shows once the change finished, given its outcome and whether
+ * the follow-up deal re-read succeeded. Split out of the component so it is
+ * tested without a DOM. A failed re-read is surfaced (the drawer and the board
+ * still show the old date and stage) rather than hidden behind the success note.
+ */
+export function eventChangedMessage(
+  outcome: { noteLine?: string; error?: string },
+  reloaded: boolean,
+  reloadError?: string | null,
+): ChangeOutcomeMessage {
+  if (!reloaded) {
+    return {
+      error: `The change was saved, but reloading the deal failed${
+        reloadError ? ` (${reloadError})` : ""
+      }. Refresh to see the new date and stage.`,
+    };
+  }
+  if (outcome.error) return { error: outcome.error };
+  return { message: outcome.noteLine || "Done." };
 }
 
 export type ApplyResult =
