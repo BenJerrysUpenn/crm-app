@@ -322,6 +322,16 @@ describe("POST reschedule to a new date", () => {
     expect(shift(601)!.starts_at).toBe("2026-11-05T17:00:00.000Z");
   });
 
+  it("answers 500, writing nothing, when the retry without the twins fails too", async () => {
+    h.db.missingColumns.deals = ["departure_time_derived", "arrival_time_derived"];
+    h.db.failWrites.deals = "permission denied for table deals";
+    const before = JSON.stringify(h.db.tables);
+    const res = await post(body);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("permission denied for table deals");
+    expect(JSON.stringify(h.db.tables)).toBe(before);
+  });
+
   it("queues no calendar delete when the deal had no event", async () => {
     deal().calendar_event_id = null;
     const res = await post(body);
@@ -515,6 +525,12 @@ describe("the store's guards against a row that changed or is not the deal's", (
       store.moveShift(DEAL_ID, { id: 700, starts_at: "2026-11-05T17:00:00.000Z", ends_at: "2026-11-05T20:30:00.000Z" }, "2026-10-27T16:00:00.000Z"),
     ).rejects.toThrow("the shift is no longer on this deal");
     expect(shift(700)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
+  });
+
+  it("removes only the deal's own shifts, even when handed another deal's shift id", async () => {
+    const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never);
+    await store.deleteShifts(DEAL_ID, [601, 700]);
+    expect(h.db.tables.shifts.map((s) => s.id)).toEqual([602, 700]);
   });
 
   it("refuses with 409, removing no shifts and queuing no delete, when the deal changes between the read and the write", async () => {
