@@ -40,7 +40,7 @@ import {
 import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
-import EventChangeDialog, { type EventChangeMode } from "./EventChangeDialog";
+import EventChangeDialog, { type EventChangeMode, type EventChangeOutcome } from "./EventChangeDialog";
 import { canChangeEvent, eventChangedMessage } from "@/lib/eventChange";
 import { missingRequiredFields } from "@/lib/required";
 import { positiveOrNull, winterMenuWarnings } from "@/lib/winterMenu";
@@ -373,7 +373,7 @@ export default function DealDetailDrawer({
   // The change wrote the deal on the server: re-read it so the drawer and the
   // board show the new date, stage and note. A failed re-read is surfaced, not
   // hidden behind the success note (the view is then stale).
-  async function eventChanged(outcome: { noteLine?: string; error?: string }) {
+  async function eventChanged(outcome: EventChangeOutcome) {
     setEventDialog(null);
     const { data, error } = await supabase
       .from("deals")

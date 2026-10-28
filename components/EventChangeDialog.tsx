@@ -8,6 +8,7 @@ import {
   money,
   staffedShiftIds,
   UNNAMED_PERSON,
+  type ChangeResponse,
   type EventChangeBody,
   type EventPreview,
 } from "@/lib/eventChange";
@@ -18,6 +19,9 @@ import {
 // lib/eventChange.ts; nothing is sent to anyone from here.
 
 export type EventChangeMode = "reschedule" | "cancel";
+
+/** What a finished change hands the drawer: the shape interpretChangeResponse decides. */
+export type EventChangeOutcome = Extract<ChangeResponse, { done: true }>["outcome"];
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -91,7 +95,7 @@ export default function EventChangeDialog({
    * Called once the deal has changed: with the note line it appended, or with
    * the error when the deal was saved but a later step was not.
    */
-  onDone: (outcome: { noteLine?: string; error?: string }) => void;
+  onDone: (outcome: EventChangeOutcome) => void;
 }) {
   const [preview, setPreview] = useState<EventPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
