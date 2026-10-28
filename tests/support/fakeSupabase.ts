@@ -11,6 +11,8 @@ export type FakeDb = {
   tables: Record<string, Row[]>;
   /** table -> message: the next write to that table fails with it. */
   failWrites: Record<string, string>;
+  /** table -> message: the next read of that table fails with it. */
+  failReads: Record<string, string>;
   /**
    * table -> columns it does not have: an update naming one is refused with
    * PostgREST's PGRST204, as a database short of a migration answers.
@@ -22,7 +24,7 @@ export type FakeDb = {
 type FakeError = { message: string; code?: string };
 
 export function makeFakeDb(): FakeDb {
-  return { tables: {}, failWrites: {}, missingColumns: {}, nextId: {} };
+  return { tables: {}, failWrites: {}, failReads: {}, missingColumns: {}, nextId: {} };
 }
 
 function builder(db: FakeDb, table: string) {
@@ -44,6 +46,11 @@ function builder(db: FakeDb, table: string) {
           error: { code: "PGRST204", message: `Could not find the '${missing}' column of '${table}' in the schema cache` },
         };
       }
+    }
+    if (op === "select" && db.failReads[table]) {
+      const message = db.failReads[table];
+      delete db.failReads[table];
+      return { data: null, error: { message } };
     }
     if (op !== "select" && db.failWrites[table]) {
       const message = db.failWrites[table];

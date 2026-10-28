@@ -136,6 +136,13 @@ describe("GET: what the dialog shows", () => {
     const res = await GET(new Request("https://crm.test"), { params: { id: "abc" } });
     expect(res.status).toBe(400);
   });
+
+  it("answers 500 with the database's message when the crew cannot be read", async () => {
+    h.db.failReads.shifts = "permission denied for table shifts";
+    const res = await GET(new Request("https://crm.test"), { params: { id: String(DEAL_ID) } });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("permission denied for table shifts");
+  });
 });
 
 describe("POST refusals before any write", () => {
@@ -288,6 +295,16 @@ describe("POST reschedule to a new date", () => {
     const before = JSON.stringify(h.db.tables);
     const res = await post(body);
     expect(res.status).toBe(409);
+    expect(JSON.stringify(h.db.tables)).toBe(before);
+  });
+
+  it("answers 500 with the database's message, writing nothing, when the deal update itself fails", async () => {
+    // Not a "The deal was saved" answer: the dialog stays open on it.
+    h.db.failWrites.deals = "permission denied for table deals";
+    const before = JSON.stringify(h.db.tables);
+    const res = await post(body);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("permission denied for table deals");
     expect(JSON.stringify(h.db.tables)).toBe(before);
   });
 
