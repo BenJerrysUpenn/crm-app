@@ -318,6 +318,16 @@ describe("Cancel event", () => {
     expect(p.noteLine).not.toContain("refund");
   });
 
+  it("writes a paid amount of a thousand or more with its thousands separator", () => {
+    const p = plan(mkDeal({ amount_paid: 1234.5 }), [], { kind: "cancel" });
+    expect(p.noteLine).toContain("Paid $1,234.50; any refund is done by hand in Square.");
+  });
+
+  it("writes an event with a start and no end time as its start alone", () => {
+    const p = plan(mkDeal({ event_end_time: null, amount_paid: 0 }), [], { kind: "cancel" });
+    expect(p.noteLine).toContain("Event cancelled (manager@example.com): Thu 2026-10-29 12:00, Booked Paid to Closed Lost.");
+  });
+
   it("labels a staffed shift with no name on file as Unnamed person, as the dialog does", () => {
     const p = plan(mkDeal({ amount_paid: 0 }), [{ ...STAFFED, person: null }], { kind: "cancel" });
     expect(p.noteLine).toContain("Unnamed person");
@@ -498,6 +508,11 @@ describe("what the dialog does with the change POST's answer", () => {
     // No error body falls back to the status.
     expect(interpretChangeResponse(false, 500, {})).toEqual({ done: false, error: "HTTP 500" });
     expect(interpretChangeResponse(false, 502, { error: "" })).toEqual({ done: false, error: "HTTP 502" });
+  });
+
+  it("stays open on a non-500 failure even when its message starts like a saved deal's", () => {
+    const error = `${DEAL_SAVED_PREFIX}, but not by this request.`;
+    expect(interpretChangeResponse(false, 409, { error })).toEqual({ done: false, error });
   });
 });
 
