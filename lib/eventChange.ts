@@ -44,6 +44,16 @@ export function canChangeEvent(stage: string | null | undefined): boolean {
 }
 
 /**
+ * Whether the deal has a Google Calendar event, decided once: the linked event
+ * id, or null when none is set. A blank or whitespace id is none. The preview
+ * (readEventPreview) and the plan (planEventChange) both read through this, so
+ * the dialog and the note never disagree about whether there is an event.
+ */
+export function linkedCalendarEventId(deal: { calendar_event_id: string | null }): string | null {
+  return deal.calendar_event_id?.trim() ? deal.calendar_event_id : null;
+}
+
+/**
  * Deal columns stamped against the event's date, cleared by a reschedule so the
  * new date is not blocked by them:
  *   picklist_docx_path       the printed picklist carries the old date; the
@@ -310,7 +320,7 @@ export function planEventChange(
   const prefix = `[${todayIsoEastern(ctx.now)}]`;
   const oldWhen = describeWhen(deal.event_date, deal.event_start_time, deal.event_end_time);
   const calendarCleared = { calendar_event_id: null, calendar_event_payload_hash: null };
-  const deleteCalendarEventId = deal.calendar_event_id?.trim() ? deal.calendar_event_id : null;
+  const deleteCalendarEventId = linkedCalendarEventId(deal);
   const calendarSentence = deleteCalendarEventId
     ? "Calendar event queued for deletion and its link cleared."
     : "No calendar event was linked.";
@@ -504,7 +514,7 @@ export async function readEventPreview(
       event_start_time: deal.event_start_time,
       event_end_time: deal.event_end_time,
       amount_paid: deal.amount_paid,
-      has_calendar_event: Boolean(deal.calendar_event_id),
+      has_calendar_event: linkedCalendarEventId(deal) !== null,
     },
     shifts,
   };

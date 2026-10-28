@@ -162,6 +162,10 @@ describe("readEventPreview over the in-memory store", () => {
     });
     expect(preview!.shifts.map((s) => s.id)).toEqual([601, 602]);
     expect(await readEventPreview(store, 99999)).toBeNull();
+
+    // A blank calendar id is no event, the same call the plan uses.
+    db.deals[0].calendar_event_id = "   ";
+    expect((await readEventPreview(store, DEAL_ID))!.deal.has_calendar_event).toBe(false);
   });
 
   it("says a deal past booking cannot be changed and has no calendar event when none is linked", async () => {

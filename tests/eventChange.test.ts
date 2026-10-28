@@ -15,6 +15,7 @@ import {
   describeShiftTime,
   interpretChangeResponse,
   isMissingTwinColumn,
+  linkedCalendarEventId,
   parseEventChangeBody,
   planEventChange,
   type CrewShift,
@@ -169,6 +170,15 @@ describe("Reschedule event, to a new date", () => {
 
   it("queues no calendar delete when no event was linked", () => {
     const p = plan(mkDeal({ calendar_event_id: null }), [], TO_NOV_5);
+    expect(p.deleteCalendarEventId).toBeNull();
+    expect(p.noteLine).toContain("No calendar event was linked.");
+  });
+
+  it("decides 'has a calendar event' once: a blank id is no event, for the plan and the preview alike", () => {
+    expect(linkedCalendarEventId({ calendar_event_id: "   " })).toBeNull();
+    expect(linkedCalendarEventId({ calendar_event_id: null })).toBeNull();
+    expect(linkedCalendarEventId({ calendar_event_id: "evt_1" })).toBe("evt_1");
+    const p = plan(mkDeal({ calendar_event_id: "  " }), [], TO_NOV_5);
     expect(p.deleteCalendarEventId).toBeNull();
     expect(p.noteLine).toContain("No calendar event was linked.");
   });
