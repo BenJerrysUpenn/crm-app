@@ -101,7 +101,9 @@ function builder(db: FakeDb, table: string) {
       return b;
     },
     eq(col: string, v: unknown) {
-      filters.push((r) => r[col] === v);
+      // SQL's `col = NULL` is never true: a store that means "is null" has to
+      // say is(), as PostgREST requires. Matching null here would hide that.
+      filters.push((r) => v !== null && r[col] === v);
       return b;
     },
     is(col: string, v: null) {

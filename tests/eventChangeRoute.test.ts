@@ -359,6 +359,26 @@ describe("POST reschedule to a new date", () => {
   });
 });
 
+describe("POST reschedule of a deal whose date was not set", () => {
+  it("gives it the new date and leaves its shifts where they were", async () => {
+    deal().event_date = null;
+    deal().calendar_event_id = null;
+    const res = await post({
+      action: "reschedule",
+      event_date: "2026-11-05",
+      event_start_time: "13:00",
+      event_end_time: "14:30",
+      staffed_shift_ids: [602],
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, moved: 0, removed: 0 });
+    expect(deal()).toMatchObject({ event_date: "2026-11-05", event_start_time: "13:00", event_end_time: "14:30" });
+    expect(String(deal().notes)).toContain("2 crew shifts left where they were: the deal had no date to move them from.");
+    expect(shift(601)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
+    expect(queuedDeletes()).toEqual([]);
+  });
+});
+
 describe("POST reschedule, date not set yet", () => {
   it("clears the date, keeps the times, removes the deal's shifts and queues the old event's delete", async () => {
     const res = await post({ action: "reschedule", date_not_set: true, staffed_shift_ids: [602] });
