@@ -83,7 +83,8 @@ describe("applyEventChange over the in-memory store", () => {
     expect(r).toMatchObject({ ok: true, moved: 2, removed: 0 });
     expect(db.deals[0]).toMatchObject({ event_date: "2026-11-05", event_start_time: "13:00", calendar_event_id: null });
     expect(db.queue.find((q) => q.action === "delete" && q.event_id === "evt_old_123")).toBeTruthy();
-    expect(row(10).processed_at).toBeTruthy();
+    // Stamped with the change's time as naive UTC, the way the daemon stamps a row it processes.
+    expect(row(10).processed_at).toBe("2026-10-27T16:00:00");
     expect(row(10).source).toBe("imap_idle (superseded)");
     // Another deal's shift is not touched.
     expect(stored(700)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
@@ -161,5 +162,11 @@ describe("readEventPreview over the in-memory store", () => {
     });
     expect(preview!.shifts.map((s) => s.id)).toEqual([601, 602]);
     expect(await readEventPreview(store, 99999)).toBeNull();
+  });
+
+  it("says a deal past booking cannot be changed and has no calendar event when none is linked", async () => {
+    db.deals = [deal({ stage: "Closed Lost", calendar_event_id: null })];
+    const preview = await readEventPreview(memoryEventChangeStore(db), DEAL_ID);
+    expect(preview!.deal).toMatchObject({ stage: "Closed Lost", can_change: false, has_calendar_event: false });
   });
 });
