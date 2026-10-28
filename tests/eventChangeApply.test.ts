@@ -105,7 +105,7 @@ describe("applyEventChange over the in-memory store", () => {
 
   it("refuses with 409 and supersedes nothing when the deal changed under the guarded update", async () => {
     // The deal's calendar event is set by the daemon between the read and the
-    // write: the guarded update refuses, and because superseding now runs only
+    // write: the guarded update refuses, and because superseding runs only
     // after a successful update, the open patch (row 10) is left to run.
     const store = memoryEventChangeStore(db);
     const realRead = store.readDeal.bind(store);
