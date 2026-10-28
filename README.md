@@ -174,8 +174,8 @@ to anyone; Alina tells the crew.
 - All three clear `calendar_event_id` and `calendar_event_payload_hash` and, when the deal had an
   event, insert a `delete` row in `pending_calendar_actions` (Catering-Manager's calendar queue,
   drained by the imap_idle daemon about once a minute; a delete of an event already gone counts
-  as done). Open `create` and `patch` rows for the deal are superseded first, so a payload queued
-  for the old date cannot run after the change. With the id cleared, the calendar reconcile (the
+  as done). Open `create` and `patch` rows for the deal are superseded once the deal is written, so a
+  payload queued for the old date cannot run after the change. With the id cleared, the calendar reconcile (the
   catering sweep, the daemon's backlog scan) creates a fresh event on the new date. Closed
   Marketing Event deals are on the catering calendar like booked ones (Alina, 2026-10-27), so all
   three stages are in Catering-Manager `CALENDAR_STAGES`. This app never calls Google.
