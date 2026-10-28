@@ -29,8 +29,8 @@ import {
 } from "@/lib/emailCampaignsPrototype/console/facts";
 import { SCENARIOS, type ScenarioKey } from "@/lib/emailCampaignsPrototype/console/scenarios";
 import { businessMinutesBetween, dateEt, dowEt, etDay as etDayOf, fmtAge, timeEt } from "@/lib/emailCampaignsPrototype/console/time";
-import { HELD_REASON_SHORT, type HeldReason } from "@/lib/emailCampaignsPrototype/model";
-import { Badge, Bullet, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
+import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCampaignsPrototype/model";
+import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 
 type Props = {
   facts: Facts;
@@ -42,8 +42,8 @@ type Props = {
 
 // --- URL state ----------------------------------------------------------------
 
-type Nav = { panel?: string; sel?: string; layer?: string; modal?: string; tab?: string; dim?: string };
-const NAV_KEYS: (keyof Nav)[] = ["panel", "sel", "layer", "modal", "tab", "dim"];
+type Nav = { panel?: string; sel?: string; layer?: string; add?: string; modal?: string; tab?: string; dim?: string };
+const NAV_KEYS: (keyof Nav)[] = ["panel", "sel", "layer", "add", "modal", "tab", "dim"];
 
 function homeToNav(h: Home): Nav {
   switch (h.kind) {
@@ -60,9 +60,10 @@ function homeToNav(h: Home): Nav {
   }
 }
 
-/** One level up: modal, then layer, then crumb, then panel closed. */
+/** One level up: modal, then the add-step form, then layer, then crumb, then panel closed. */
 function parentOf(n: Nav): Nav {
   if (n.modal) return { ...n, modal: undefined };
+  if (n.add) return { ...n, add: undefined };
   if (n.layer) return { ...n, layer: undefined };
   if (n.sel) return { ...n, sel: undefined };
   return { dim: n.dim };
@@ -80,6 +81,8 @@ function useNav() {
   const href = useCallback(
     (n: Nav) => {
       const q = new URLSearchParams(sp.toString());
+      // The add-step form only lives inside Edit lane.
+      if (n.layer !== "editlane") n = { ...n, add: undefined };
       for (const k of NAV_KEYS) q.delete(k);
       for (const k of NAV_KEYS) if (n[k]) q.set(k, n[k]!);
       const s = q.toString();
@@ -206,8 +209,9 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
   const escape = useCallback(() => {
     if (popover) return setPopover(null);
     if (palette) return setPalette(false);
-    if (nav.layer && !nav.modal && dirty.current && !window.confirm("Discard what you typed?")) return;
-    if (nav.layer && !nav.modal) dirty.current = false;
+    const inForm = !nav.modal && (!!nav.layer || nav.panel === "newlane");
+    if (inForm && dirty.current && !window.confirm("Discard what you typed?")) return;
+    if (inForm) dirty.current = false;
     if (nav.panel || nav.modal) pop();
   }, [popover, palette, nav, pop]);
 
@@ -305,69 +309,13 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
     </button>
   );
 
-  const sendingBoxes = f.mailboxes.filter((m) => !m.frozen && m.cap > 0);
-  const sentBoxes = sendingBoxes.filter((m) => (m.sentToday ?? 0) > 0).length;
-  const stopped = f.mailboxes.filter((m) => m.frozen);
-  const sentToday = f.mailboxes.reduce((s, m) => s + (m.sentToday ?? 0), 0);
-  const silent = items.some((i) => i.rule === "mailbox_silent");
-  const running = f.lanes.filter((l) => l.status === "running").length;
-
-  const sentence = (
-    <p className="text-sm text-slate-400">
-      {all.count === 0 ? <span className="text-slate-300">All quiet. </span> : null}
-      {running} lanes running · <span className={silent ? "font-semibold text-amber-300" : ""}>{sentBoxes} of {sendingBoxes.length} sending mailboxes sent today</span>
-      {stopped.length ? (
-        <>
-          {" · "}
-          <span className={stopped.some((m) => m.frozenBy === "rules") ? "font-semibold text-red-400" : ""}>
-            {stopped.length} stopped ({Array.from(new Set(stopped.map((m) => dom(m.domainId)?.domain))).join(", ")})
-          </span>
-        </>
-      ) : null}
-      {" · "}
-      {sentToday} sent today · cold sends <span className="text-slate-500">not stored (Apollo)</span>
-    </p>
-  );
-
-  // Tick strip: the last two hours, one slot a minute; tall = reply.
   const nowMs = new Date(f.now).getTime();
-  const ticks = (
-    <button
-      type="button"
-      className="flex h-5 w-full items-end gap-px overflow-hidden"
-      aria-label={`${f.ticks.filter((t) => t.kind === "send").length} sends and ${f.ticks.filter((t) => t.kind === "reply").length} replies in the last 2 hours`}
-      onClick={(e) =>
-        openPop(
-          e,
-          "ticks",
-          "Last 2 hours",
-          <p>
-            {f.ticks.filter((t) => t.kind === "send").length} sends, {f.ticks.filter((t) => t.kind === "reply").length} replies. Each send is a
-            tick that fades with age; a reply is a tall tick. An empty strip on a sending afternoon is the first sign of a stalled sender.
-          </p>,
-        )
-      }
-    >
-      {Array.from({ length: 120 }, (_, i) => {
-        const from = nowMs - (120 - i) * 60_000;
-        const inSlot = f.ticks.filter((t) => {
-          const ms = new Date(t.at).getTime();
-          return ms >= from && ms < from + 60_000;
-        });
-        const reply = inSlot.some((t) => t.kind === "reply");
-        const op = 0.25 + (0.75 * i) / 120;
-        return (
-          <span
-            key={i}
-            className={inSlot.length ? (reply ? "bg-slate-200" : "bg-slate-400") : "bg-transparent"}
-            style={{ width: "100%", height: reply ? 18 : inSlot.length ? 8 : 0, opacity: op }}
-          />
-        );
-      })}
-    </button>
-  );
 
   // --- lanes ----------------------------------------------------------------
+  // Lane name: the Edit lane layer (Add step lives only in there).
+  const editLane = (l: LaneFact) => () => go({ ...nav, panel: `lane:${l.key}`, sel: undefined, layer: "editlane", modal: undefined });
+  const lanesByTier = [...f.lanes].sort((a, b) => TIER_ORDER.indexOf(LANE_TIER[a.key]) - TIER_ORDER.indexOf(LANE_TIER[b.key]));
+
   const laneRow = (l: LaneFact) => {
     const r = rollup(items, ["lanes", l.key]);
     const affected = affectedBy(items, { kind: "lane", lane: l.key });
@@ -376,7 +324,8 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
     if (l.status !== "running")
       return (
         <div key={l.key} className={`border-t border-slate-800 py-2 ${fade(has)}`}>
-          <button type="button" onClick={() => go({ ...nav, panel: `lane:${l.key}`, sel: undefined, layer: undefined })} className="flex flex-wrap items-center gap-x-2 text-left text-sm text-slate-400 hover:text-slate-200">
+          <button type="button" onClick={editLane(l)} className="flex flex-wrap items-center gap-x-2 text-left text-sm text-slate-400 hover:text-slate-200">
+            <FunnelIcon tier={LANE_TIER[l.key]} />
             <Glyph mark="off" />
             <span className="font-semibold text-slate-300">{l.label}</span>
             <span className="text-slate-500">{l.who}</span>
@@ -396,7 +345,8 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
     return (
       <div key={l.key} className={`border-t border-slate-800 py-2 ${fade(has)}`}>
         <div className="grid grid-cols-[1fr_auto] items-baseline gap-2 sm:grid-cols-[minmax(0,1fr)_64px_64px_64px_120px]">
-          <button type="button" onClick={() => go({ ...nav, panel: `lane:${l.key}`, sel: undefined, layer: undefined })} className="flex items-baseline gap-2 text-left hover:text-white">
+          <button type="button" onClick={editLane(l)} className="flex items-baseline gap-2 text-left hover:text-white">
+            <FunnelIcon tier={LANE_TIER[l.key]} />
             <span className="text-sm font-semibold text-slate-100">{l.label}</span>
             <Badge r={r} label={`${l.label} lane`} />
             <span className="hidden text-xs text-slate-500 sm:inline">{l.who}</span>
@@ -408,7 +358,7 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
             <button
               key={k}
               type="button"
-              onClick={() => go({ ...nav, panel: `lane:${l.key}`, sel: undefined })}
+              onClick={() => go({ ...nav, panel: `lane:${l.key}`, sel: undefined, layer: undefined })}
               className="hidden text-right text-sm tabular-nums text-slate-300 hover:text-white sm:block"
             >
               {l[k]}
@@ -604,7 +554,12 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
               Idle{idle.length ? ` ${idle.length}` : ""}
             </button>
             <span className="ml-auto flex items-center gap-3 text-xs text-slate-500">
-              <button type="button" onClick={(e) => openPop(e, "memo", "MEMO", <MemoList f={f} say={say} />)} className="hover:text-slate-300">
+              <button
+                type="button"
+                onClick={(e) => openPop(e, "memo", "MEMO: overrides in effect", <MemoList f={f} say={say} />)}
+                title="Overrides in effect"
+                className="hover:text-slate-300"
+              >
                 MEMO {f.memo.length}
               </button>
               <button
@@ -626,24 +581,6 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
               </button>
             </span>
           </div>
-          {sentence}
-          {f.memo.length ? (
-            <p className="line-clamp-1 text-xs text-slate-500 sm:line-clamp-none">
-              MEMO{" "}
-              {f.memo.map((m, i) => (
-                <span key={m.id}>
-                  {i > 0 ? " · " : ""}
-                  {m.text} · {m.who} · since {m.since ? dateEt(m.since) : "not recorded"} · {m.ends ? `ends ${dateEt(m.ends)}` : "no end set"}
-                </span>
-              ))}
-            </p>
-          ) : (
-            <p className="text-xs text-slate-600">MEMO none</p>
-          )}
-          <div className="flex items-center gap-2">
-            {ticks}
-            <span className="hidden shrink-0 text-[10px] text-slate-600 sm:inline">sends in the last 2 h, tall = reply</span>
-          </div>
         </section>
 
         {/* ② LANES */}
@@ -651,6 +588,7 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
           <div className="grid grid-cols-[1fr_auto] items-baseline gap-2 text-[11px] uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_64px_64px_64px_120px]">
             <span className="flex items-center gap-2">
               Lanes <Badge r={lanesR} label="Lanes" />
+              <PlusButton label="Add lane" onClick={() => go({ panel: "newlane", dim: nav.dim })} />
             </span>
             <span className="text-right sm:hidden">next · emailed · held</span>
             <span className="hidden text-right sm:block">Up next</span>
@@ -658,7 +596,7 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
             <span className="hidden text-right sm:block">Held</span>
             <span className="hidden text-right normal-case sm:block">7 days: rep · quote · book</span>
           </div>
-          {f.lanes.map(laneRow)}
+          {lanesByTier.map(laneRow)}
         </section>
 
         {/* ③ SENDING */}
@@ -716,6 +654,33 @@ function AffectedLine({ text, onClick }: { text: string; onClick: () => void }) 
     </button>
   );
 }
+
+/** Prototype "+" (owner review 2026-10-28): opens a form that saves nothing. */
+function PlusButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`${label} (prototype)`}
+      title={`${label}. Prototype: changes nothing.`}
+      className="inline-flex items-center gap-1 rounded border border-dashed border-slate-600 px-1.5 py-0.5 text-xs normal-case text-slate-400 hover:border-slate-400 hover:text-slate-100"
+    >
+      <span aria-hidden className="text-sm font-semibold leading-none">+</span>
+      <span className="text-[9px] uppercase tracking-wide text-fuchsia-300">proto</span>
+    </button>
+  );
+}
+
+// Prototype only: the funnel tier each lane sits in, and what puts a person in
+// it (read off laneOf in facts.ts). Wedding is an offer-tier lane (owner, 2026-10-28).
+const TIER_ORDER: TierKey[] = ["cold", "warm", "offer"];
+const LANE_TIER: Record<LaneKey, TierKey> = { cold: "cold", warm: "warm", wedding: "offer", offer: "offer" };
+const LANE_TRIGGER: Record<LaneKey, string> = {
+  cold: "Added to the cold engine as an Apollo prospect.",
+  warm: "In the warm engine (past customer or enquirer), not booked in the last 12 months, not opted in to offers, not a wedding contact.",
+  wedding: "In the warm engine with category wedding (expo leads).",
+  offer: "Booked in the last 12 months, or opted in to offers (wedding contacts excepted).",
+};
 
 function StepBox({ lane, s, items, onClick }: { lane: LaneFact; s: StepFact; items: AttentionItem[]; onClick: () => void }) {
   const r = rollup(items, ["lanes", lane.key, `step:${s.n}`]);
@@ -935,11 +900,18 @@ function SidePanel(p: PanelProps) {
       crumbs.push({ label: "Lanes", nav: null }, { label: l.label, nav: base });
       const [sk, sid] = (nav.sel ?? "").split(":");
       const s = sk === "step" ? l.steps.find((x) => x.n === Number(sid)) : undefined;
-      if (s) {
+      if (nav.layer === "editlane") {
+        crumbs.push({ label: "Edit lane", nav: { ...base, layer: "editlane" } });
+        if (nav.add === "step") crumbs.push({ label: "Add step", nav: null });
+        body = <EditLaneBody {...p} l={l} />;
+      } else if (s) {
         crumbs.push({ label: `Step ${s.n}`, nav: { ...base, sel: nav.sel } });
         body = <StepBody {...p} l={l} s={s} />;
       } else body = <LaneBody {...p} l={l} />;
     }
+  } else if (kind === "newlane") {
+    crumbs.push({ label: "Lanes", nav: null }, { label: "Add lane", nav: null });
+    body = <AddLaneBody {...p} />;
   } else if (kind === "replies") {
     crumbs.push({ label: "Replies", nav: base });
     const [sk, sid] = (nav.sel ?? "").split(":");
@@ -950,7 +922,7 @@ function SidePanel(p: PanelProps) {
     } else body = <RepliesBody {...p} />;
   }
   if (!body) body = <p className="text-sm text-slate-400">Nothing here (the link points at something that is not on the screen).</p>;
-  if (nav.layer) crumbs.push({ label: nav.layer === "record" ? "Record result" : nav.layer === "reply" ? "Compose" : "Edit", nav: null });
+  if (nav.layer && nav.layer !== "editlane") crumbs.push({ label: nav.layer === "record" ? "Record result" : nav.layer === "reply" ? "Compose" : "Edit", nav: null });
 
   return (
     <aside
@@ -1211,6 +1183,142 @@ function LaneBody(p: PanelProps & { l: LaneFact }) {
         <ProtoButton label="Daily cap…" say={say} />
         <ProtoButton label="Mute (Ready only)" say={say} />
       </div>
+    </div>
+  );
+}
+
+function ProtoNote({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded border border-fuchsia-800 bg-fuchsia-950/40 px-2 py-1 text-[11px] text-fuchsia-200">
+      <span className="mr-1 font-bold uppercase tracking-wide">Proto</span>
+      {children}
+    </p>
+  );
+}
+
+function TierPicker({ value, onChange }: { value: TierKey; onChange: (t: TierKey) => void }) {
+  return (
+    <div role="radiogroup" aria-label="Tier" className="flex gap-1">
+      {TIER_ORDER.map((t) => (
+        <button
+          key={t}
+          type="button"
+          role="radio"
+          aria-checked={value === t}
+          onClick={() => onChange(t)}
+          className={`flex items-center gap-1.5 rounded border px-2 py-1 text-xs capitalize ${
+            value === t ? "border-slate-300 bg-slate-800 text-slate-100" : "border-slate-700 text-slate-400 hover:bg-slate-800"
+          }`}
+        >
+          <FunnelIcon tier={t} /> {t}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AddLaneBody(p: PanelProps) {
+  const { f, say } = p;
+  const [tier, setTier] = useState<TierKey>("warm");
+  return (
+    <TaskLayer p={p} title="Add lane" saveLabel="Add lane" onSave={() => say("Add lane")}>
+      <ProtoNote>Nothing is saved: no lane is created and nobody is enrolled.</ProtoNote>
+      <label className="block text-xs text-slate-300">
+        Trigger <span className="text-slate-500">(what puts a person into this lane)</span>
+        <textarea autoFocus rows={3} className={input} placeholder="e.g. category is wedding, or booked in the last 12 months" />
+      </label>
+      <div className="text-[11px] text-slate-500">
+        <p>Triggers of the lanes now:</p>
+        {[...f.lanes]
+          .sort((a, b) => TIER_ORDER.indexOf(LANE_TIER[a.key]) - TIER_ORDER.indexOf(LANE_TIER[b.key]))
+          .map((l) => (
+            <p key={l.key}>
+              <span className="text-slate-400">{l.label}:</span> {LANE_TRIGGER[l.key]}
+            </p>
+          ))}
+      </div>
+      <label className="block text-xs text-slate-300">
+        Name
+        <input className={input} placeholder="e.g. Holiday parties" />
+      </label>
+      <div className="text-xs text-slate-300">
+        <p className="mb-1">Tier</p>
+        <TierPicker value={tier} onChange={setTier} />
+      </div>
+    </TaskLayer>
+  );
+}
+
+function EditLaneBody(p: PanelProps & { l: LaneFact }) {
+  const { l, say, go, nav, dirty } = p;
+  const adding = nav.add === "step";
+  const next = (l.steps.at(-1)?.n ?? 0) + 1;
+  const addRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (adding) addRef.current?.focus();
+  }, [adding]);
+  return (
+    <div className="space-y-4 text-xs">
+      <p className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+        <FunnelIcon tier={LANE_TIER[l.key]} /> Edit lane · {l.label}
+        <span className="text-xs font-normal text-slate-500">{LANE_TIER[l.key]} tier</span>
+      </p>
+      <ProtoNote>Nothing here changes the lane. Every button only shows a note.</ProtoNote>
+
+      <section aria-label="Trigger">
+        <p className="mb-1 text-slate-500">Trigger (what puts a person into this lane)</p>
+        <p className="text-slate-200">{LANE_TRIGGER[l.key]}</p>
+        <div className="mt-1.5">
+          <ProtoButton label="Change trigger…" say={say} />
+        </div>
+      </section>
+
+      <section aria-label="Steps">
+        <p className="mb-1 text-slate-500">Steps{l.sequenceName ? ` · ${l.sequenceName}` : ""}</p>
+        {l.steps.length === 0 ? <p className="text-slate-500">No steps yet.</p> : null}
+        {l.steps.map((s) => (
+          <button
+            key={s.n}
+            type="button"
+            onClick={() => go({ ...nav, sel: `step:${s.n}`, layer: undefined })}
+            className="flex w-full gap-2 rounded px-1 py-1 text-left hover:bg-slate-800"
+          >
+            <span className="w-4 text-slate-500">{s.n}</span>
+            <span className={`flex-1 ${s.written ? "text-slate-200" : "text-slate-500"}`}>{s.written ? s.label : "no copy"}</span>
+            <span className="text-slate-400">{s.n === 1 ? "on enrolment" : `wait ${s.waitDays} days`}</span>
+          </button>
+        ))}
+        {adding ? (
+          <div className="mt-2 space-y-2 rounded border border-slate-600 p-2" onInput={() => (dirty.current = true)}>
+            <p className="font-semibold text-slate-100">Add step {next}</p>
+            <label className="block text-slate-500">
+              Subject
+              <input ref={addRef} className={input} />
+            </label>
+            <label className="block text-slate-500">
+              Wait (days after the last email)
+              <input type="number" min={0} defaultValue={next === 1 ? 0 : 7} className={input} />
+            </label>
+            <div className="flex gap-2">
+              <ProtoButton label="Add step" say={say} primary proto onClick={() => { dirty.current = false; say("Add step"); }} />
+              <ProtoButton label="Cancel" say={say} onClick={() => p.escape()} />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-1">
+            <ProtoButton label="+ Add step" say={say} proto onClick={() => go({ ...nav, add: "step" })} />
+          </div>
+        )}
+      </section>
+
+      <section aria-label="Lane controls">
+        <p className="mb-1 text-slate-500">Lane</p>
+        <div className="flex flex-wrap gap-2">
+          <ProtoButton label="Stop" say={say} />
+          <ProtoButton label="Mute" say={say} />
+          <ProtoButton label="Archive" say={say} />
+        </div>
+      </section>
     </div>
   );
 }

@@ -6,6 +6,7 @@
 
 import type { ReactNode } from "react";
 import type { AttentionItem, Level, Rollup } from "@/lib/emailCampaignsPrototype/console/attention";
+import type { TierKey } from "@/lib/emailCampaignsPrototype/model";
 
 export type Mark = Level | "nodata" | "off" | "affected";
 
@@ -131,6 +132,25 @@ export function Rate({ k, n, min }: { k: number; n: number; min: number }) {
     <span>
       {k} of {n} · {((k / n) * 100).toFixed(1)}%
     </span>
+  );
+}
+
+/** Where a lane sits in the funnel: a V split in three bands, top = cold,
+ * middle = warm, bottom = offer. The lane's band is lit, the others dim. */
+const FUNNEL_BANDS: [TierKey, string][] = [
+  ["cold", "0,0 14,0 11.9,4.2 2.1,4.2"],
+  ["warm", "2.4,4.8 11.6,4.8 9.5,9 4.5,9"],
+  ["offer", "4.8,9.6 9.2,9.6 7,14"],
+];
+
+export function FunnelIcon({ tier, size = 16 }: { tier: TierKey; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" role="img" aria-label={`Funnel: ${tier}`} className="shrink-0 self-center">
+      <title>{`Funnel: ${tier}`}</title>
+      {FUNNEL_BANDS.map(([t, points]) => (
+        <polygon key={t} points={points} className={t === tier ? "fill-slate-200" : "fill-slate-600"} />
+      ))}
+    </svg>
   );
 }
 
