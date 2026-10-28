@@ -108,8 +108,25 @@ export type EventDeal = {
   arrival_time: string | null;
 };
 
-export const EVENT_DEAL_COLUMNS =
-  "id, stage, event_date, event_start_time, event_end_time, calendar_event_id, amount_paid, notes, picklist_docx_path, day_before_draft_sent_at, coi_sent_at, departure_time, arrival_time";
+// Every EventDeal field, once: a field added to the type and not here (or the
+// reverse) fails to compile instead of reading back undefined.
+const EVENT_DEAL_FIELDS: Record<keyof EventDeal, true> = {
+  id: true,
+  stage: true,
+  event_date: true,
+  event_start_time: true,
+  event_end_time: true,
+  calendar_event_id: true,
+  amount_paid: true,
+  notes: true,
+  picklist_docx_path: true,
+  day_before_draft_sent_at: true,
+  coi_sent_at: true,
+  departure_time: true,
+  arrival_time: true,
+};
+
+export const EVENT_DEAL_COLUMNS = Object.keys(EVENT_DEAL_FIELDS).join(", ");
 
 /** A crew shift on the deal (shifts.deal_id), with the person's name when staffed. */
 export type CrewShift = {
