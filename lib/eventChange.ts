@@ -570,9 +570,15 @@ export interface EventChangeStore {
  */
 export const DEAL_SAVED_PREFIX = "The deal was saved";
 
+/**
+ * What a finished change hands the drawer: the note line it appended, or the
+ * error when the deal was saved but a later step was not.
+ */
+export type EventChangeOutcome = { noteLine?: string; error?: string };
+
 /** What the dialog does with the POST answer: finish (closing the dialog) or stay. */
 export type ChangeResponse =
-  | { done: true; outcome: { noteLine?: string; error?: string } }
+  | { done: true; outcome: EventChangeOutcome }
   | { done: false; error: string };
 
 /**
@@ -610,7 +616,7 @@ export type ChangeOutcomeMessage = { error: string } | { message: string };
  * still show the old date and stage) rather than hidden behind the success note.
  */
 export function eventChangedMessage(
-  outcome: { noteLine?: string; error?: string },
+  outcome: EventChangeOutcome,
   reloaded: boolean,
   reloadError?: string | null,
 ): ChangeOutcomeMessage {

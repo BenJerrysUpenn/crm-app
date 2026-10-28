@@ -8,8 +8,8 @@ import {
   money,
   staffedShiftIds,
   UNNAMED_PERSON,
-  type ChangeResponse,
   type EventChangeBody,
+  type EventChangeOutcome,
   type EventPreview,
 } from "@/lib/eventChange";
 
@@ -20,8 +20,10 @@ import {
 
 export type EventChangeMode = "reschedule" | "cancel";
 
-/** What a finished change hands the drawer: the shape interpretChangeResponse decides. */
-export type EventChangeOutcome = Extract<ChangeResponse, { done: true }>["outcome"];
+// EventChangeOutcome is defined once in lib/eventChange.ts (what
+// interpretChangeResponse hands back); re-exported so the drawer keeps
+// importing it from here.
+export type { EventChangeOutcome };
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
