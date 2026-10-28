@@ -259,6 +259,21 @@ describe("POST reschedule to a new date", () => {
     expect(row(12).processed_at).toBeNull();
   });
 
+  it("supersedes the deal's open create too, and leaves a row the daemon already processed as it was", async () => {
+    queue().push(
+      // A create queued from the old date's payload: it would recreate the old event.
+      { id: 13, deal_id: DEAL_ID, action: "create", event_id: null, processed_at: null, source: "sweep" },
+      // A patch the daemon already ran: not re-stamped.
+      { id: 14, deal_id: DEAL_ID, action: "patch", event_id: "evt_old_123", processed_at: "2026-10-01T09:00:00", source: "imap_idle" },
+    );
+    const res = await post(body);
+    expect(res.status).toBe(200);
+    const row = (id: number) => queue().find((r) => r.id === id)!;
+    expect(row(13).processed_at).not.toBeNull();
+    expect(row(13).source).toBe("sweep (superseded)");
+    expect(row(14)).toMatchObject({ processed_at: "2026-10-01T09:00:00", source: "imap_idle" });
+  });
+
   it("keeps the logistics times on a date-only change", async () => {
     const res = await post({ ...body, event_start_time: "12:00", event_end_time: "13:30" });
     expect(res.status).toBe(200);
