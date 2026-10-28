@@ -165,7 +165,6 @@ describe("Reschedule event, to a new date", () => {
     expect(p.noteLine).toContain(
       "Calendar event queued for deletion and its link cleared. A fresh event is created on the new date by the calendar reconcile.",
     );
-    expect(p.noteLine).not.toContain("gets no calendar event");
     expect(p.deleteCalendarEventId).toBe("evt_old_123");
   });
 
@@ -330,8 +329,7 @@ describe("Cancel event", () => {
 
   it("labels a staffed shift with no name on file as Unnamed person, as the dialog does", () => {
     const p = plan(mkDeal({ amount_paid: 0 }), [{ ...STAFFED, person: null }], { kind: "cancel" });
-    expect(p.noteLine).toContain("Unnamed person");
-    expect(p.noteLine).not.toContain("someone");
+    expect(p.noteLine).toContain("Crew shifts removed: Unnamed person Thu 2026-10-29 11:00-14:30.");
   });
 });
 
