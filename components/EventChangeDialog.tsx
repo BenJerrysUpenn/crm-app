@@ -8,6 +8,7 @@ import {
   staffedShiftIds,
   type EventChangeBody,
   type EventChangeOutcome,
+  type EventChangeRequest,
   type EventPreview,
 } from "@/lib/eventChange";
 
@@ -18,6 +19,12 @@ import {
 
 // Which dialog is open is the action it POSTs.
 export type EventChangeMode = EventChangeBody["action"];
+
+const CONFIRM_LABEL: Record<EventChangeRequest["kind"], string> = {
+  cancel: "Cancel the event",
+  reschedule_tbd: "Clear the date",
+  reschedule: "Reschedule",
+};
 
 const INPUT =
   "bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:opacity-40";
@@ -70,15 +77,19 @@ export default function EventChangeDialog({
     };
   }, [dealId]);
 
+  // The change being made, decided once from the mode and the checkbox.
+  const kind: EventChangeRequest["kind"] =
+    mode === "cancel" ? "cancel" : dateNotSet ? "reschedule_tbd" : "reschedule";
+
   async function confirm() {
     if (!preview || submitting) return;
     setError(null);
     setSubmitting(true);
     const staffed_shift_ids = staffedShiftIds(preview.shifts);
     const body: EventChangeBody =
-      mode === "cancel"
+      kind === "cancel"
         ? { action: "cancel", staffed_shift_ids }
-        : dateNotSet
+        : kind === "reschedule_tbd"
         ? { action: "reschedule", date_not_set: true, staffed_shift_ids }
         : {
             action: "reschedule",
@@ -110,12 +121,12 @@ export default function EventChangeDialog({
   }
 
   const title = mode === "cancel" ? "Cancel event" : "Reschedule event";
-  const confirmLabel = mode === "cancel" ? "Cancel the event" : dateNotSet ? "Clear the date" : "Reschedule";
+  const confirmLabel = CONFIRM_LABEL[kind];
   const lines = preview ? confirmationLines(preview, mode, dateNotSet) : [];
   const ready =
     preview !== null &&
     preview.deal.can_change &&
-    (mode === "cancel" || dateNotSet || (date !== "" && start !== "" && end !== ""));
+    (kind !== "reschedule" || (date !== "" && start !== "" && end !== ""));
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
