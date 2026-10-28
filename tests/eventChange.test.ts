@@ -11,6 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   canChangeEvent,
+  confirmationLines,
   DEAL_SAVED_PREFIX,
   describeShiftTime,
   eventChangedMessage,
@@ -23,7 +24,6 @@ import {
   type EventDeal,
   type EventPreview,
 } from "@/lib/eventChange";
-import { confirmationLines } from "@/components/EventChangeDialog";
 import DealDetailDrawer from "@/components/DealDetailDrawer";
 import type { Deal } from "@/lib/types";
 

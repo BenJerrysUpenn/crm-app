@@ -79,7 +79,7 @@ const stored = (id: number) => db.shifts.find((s) => s.id === id);
 describe("applyEventChange over the in-memory store", () => {
   it("writes the deal, moves the deal's shifts, queues the delete and supersedes the open patch", async () => {
     const store = memoryEventChangeStore(db);
-    const r = await applyEventChange(store, DEAL_ID, RESCHEDULE, [602], CTX);
+    const r = await applyEventChange(store, DEAL_ID, { request: RESCHEDULE, staffedShiftIds: [602] }, CTX);
     expect(r).toMatchObject({ ok: true, moved: 2, removed: 0 });
     expect(db.deals[0]).toMatchObject({ event_date: "2026-11-05", event_start_time: "13:00", calendar_event_id: null });
     expect(db.queue.find((q) => q.action === "delete" && q.event_id === "evt_old_123")).toBeTruthy();
@@ -92,12 +92,12 @@ describe("applyEventChange over the in-memory store", () => {
 
   it("answers 404 for a deal that is not there", async () => {
     db.deals = [];
-    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, RESCHEDULE, [], CTX);
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { request: RESCHEDULE, staffedShiftIds: [] }, CTX);
     expect(r).toMatchObject({ ok: false, status: 404 });
   });
 
   it("answers 409 when the crew changed since the dialog read it, writing nothing", async () => {
-    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, RESCHEDULE, [], CTX);
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { request: RESCHEDULE, staffedShiftIds: [] }, CTX);
     expect(r).toMatchObject({ ok: false, status: 409 });
     expect(db.deals[0].event_date).toBe("2026-10-29");
     expect(row(10).processed_at).toBeNull();
@@ -114,7 +114,7 @@ describe("applyEventChange over the in-memory store", () => {
       db.deals[0].calendar_event_id = "evt_made_by_the_daemon";
       return d;
     };
-    const r = await applyEventChange(store, DEAL_ID, { kind: "reschedule_tbd" }, [602], CTX);
+    const r = await applyEventChange(store, DEAL_ID, { request: { kind: "reschedule_tbd" }, staffedShiftIds: [602] }, CTX);
     expect(r).toMatchObject({ ok: false, status: 409 });
     expect(db.deals[0].event_date).toBe("2026-10-29");
     expect(row(10).processed_at).toBeNull();
@@ -124,7 +124,7 @@ describe("applyEventChange over the in-memory store", () => {
 
   it("saves the deal and says to clear the old date's queued writes by hand when superseding throws", async () => {
     db.fail.supersedeOpenCalendarWrites = "permission denied";
-    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, RESCHEDULE, [602], CTX);
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { request: RESCHEDULE, staffedShiftIds: [602] }, CTX);
     expect(r).toMatchObject({ ok: false, status: 500 });
     if (!r.ok) {
       expect(r.error).toBe(
@@ -140,7 +140,7 @@ describe("applyEventChange over the in-memory store", () => {
 
   it("saves the deal and names the shift to move by hand when a move throws", async () => {
     db.fail.moveShift = "permission denied";
-    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, RESCHEDULE, [602], CTX);
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { request: RESCHEDULE, staffedShiftIds: [602] }, CTX);
     expect(r).toMatchObject({ ok: false, status: 500 });
     if (!r.ok) {
       expect(r.error).toBe(
@@ -155,13 +155,13 @@ describe("applyEventChange over the in-memory store", () => {
 
   it("accepts the dialog's crew list in any order and with repeats", async () => {
     db.shifts.find((s) => s.id === 601)!.employee_id = "user-b";
-    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, RESCHEDULE, [602, 601, 602], CTX);
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { request: RESCHEDULE, staffedShiftIds: [602, 601, 602] }, CTX);
     expect(r).toMatchObject({ ok: true, moved: 2 });
     expect(db.deals[0].event_date).toBe("2026-11-05");
   });
 
   it("answers 409 when someone left the crew since the dialog read it, writing nothing", async () => {
-    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, RESCHEDULE, [602, 603], CTX);
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { request: RESCHEDULE, staffedShiftIds: [602, 603] }, CTX);
     expect(r).toMatchObject({ ok: false, status: 409 });
     expect(db.deals[0].event_date).toBe("2026-10-29");
     expect(stored(602)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
@@ -170,7 +170,7 @@ describe("applyEventChange over the in-memory store", () => {
   it("names every step left to do by hand when several fail after a cancel is saved", async () => {
     db.fail.enqueueCalendarDelete = "queue offline";
     db.fail.deleteShifts = "permission denied";
-    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { kind: "cancel" }, [602], CTX);
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { request: { kind: "cancel" }, staffedShiftIds: [602] }, CTX);
     expect(r).toEqual({
       ok: false,
       status: 500,

@@ -2,12 +2,10 @@
 
 import { useEffect, useState } from "react";
 import {
-  describeShiftTime,
+  confirmationLines,
   describeWhen,
   interpretChangeResponse,
-  money,
   staffedShiftIds,
-  UNNAMED_PERSON,
   type EventChangeBody,
   type EventChangeOutcome,
   type EventPreview,
@@ -16,66 +14,10 @@ import {
 // The Reschedule event / Cancel event dialog on the deal drawer. It reads the
 // event and its crew from GET /api/deals/:id/event-change, names everyone with
 // a shift before anything is confirmed, and POSTs the change. Every rule is in
-// lib/eventChange.ts; nothing is sent to anyone from here.
+// lib/eventChange.ts (confirmationLines included); nothing is sent from here.
 
 // Which dialog is open is the action it POSTs.
 export type EventChangeMode = EventChangeBody["action"];
-
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
-
-/** What the dialog says will happen to the crew and the money. Pure. */
-export function confirmationLines(
-  preview: EventPreview,
-  mode: EventChangeMode,
-  dateNotSet: boolean,
-): string[] {
-  const staffed = preview.shifts.filter((s) => s.employee_id);
-  const open = preview.shifts.length - staffed.length;
-  const people = staffed
-    .map((s) => `${s.person ?? UNNAMED_PERSON} (${describeShiftTime(s.starts_at, s.ends_at)})`)
-    .join(", ");
-  const lines: string[] = [];
-  // Cancel and Date not set yet both remove every shift, and say so alike.
-  const removed: string[] = [];
-  if (staffed.length) removed.push(`On the crew: ${people}. Their shifts are removed. Tell them yourself; nothing is sent.`);
-  if (open) removed.push(`${plural(open, "open shift is", "open shifts are")} removed.`);
-
-  if (mode === "cancel") {
-    lines.push(
-      preview.deal.has_calendar_event
-        ? "The deal moves to Closed Lost and its calendar event is deleted."
-        : "The deal moves to Closed Lost.",
-    );
-    lines.push(...removed);
-    const paid = preview.deal.amount_paid;
-    if (typeof paid === "number" && paid > 0) {
-      lines.push(`Paid ${money(paid)}. Any refund is done by hand in Square.`);
-    }
-    return lines;
-  }
-
-  if (dateNotSet) {
-    lines.push(
-      preview.deal.has_calendar_event
-        ? "The date is cleared and the calendar event is deleted."
-        : "The date is cleared.",
-    );
-    lines.push(...removed);
-    return lines;
-  }
-
-  if (!preview.deal.event_date && preview.shifts.length) {
-    lines.push(
-      `The deal has no date to move its shifts from, so ${plural(preview.shifts.length, "shift stays", "shifts stay")} where ${preview.shifts.length === 1 ? "it is" : "they are"}${staffed.length ? ` (${people})` : ""}.`,
-    );
-    return lines;
-  }
-  if (staffed.length) lines.push(`On the crew: ${people}. Their shifts move with the event. Tell them yourself; nothing is sent.`);
-  if (open) lines.push(`${plural(open, "open shift moves", "open shifts move")} with it.`);
-  return lines;
-}
 
 const INPUT =
   "bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:opacity-40";

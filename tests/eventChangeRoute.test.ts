@@ -543,7 +543,7 @@ describe("the store's guards against a row that changed or is not the deal's", (
       deal().calendar_event_id = "evt_made_by_the_daemon";
       return d;
     };
-    const r = await applyEventChange(store, DEAL_ID, { kind: "reschedule_tbd" }, [602], {
+    const r = await applyEventChange(store, DEAL_ID, { request: { kind: "reschedule_tbd" }, staffedShiftIds: [602] }, {
       now: new Date("2026-10-27T16:00:00Z"),
       actor: "manager@example.com",
     });

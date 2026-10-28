@@ -165,6 +165,16 @@ export type EventChangeRequest =
   | { kind: "reschedule_tbd" }
   | { kind: "cancel" };
 
+/**
+ * A parsed change and the staffed-shift ids the dialog showed. The two always
+ * travel together — from `parseEventChangeBody` through the route to
+ * `applyEventChange` — so they are one value (CODING_STANDARDS.md:2).
+ */
+export type ParsedEventChange = {
+  request: EventChangeRequest;
+  staffedShiftIds: number[];
+};
+
 export type ShiftMove = {
   id: number;
   starts_at: string;
@@ -229,9 +239,7 @@ type EventChangeBodyKey = KeysOfUnion<EventChangeBody>;
  */
 export function parseEventChangeBody(
   body: unknown,
-):
-  | { ok: true; request: EventChangeRequest; staffedShiftIds: number[] }
-  | { ok: false; error: string } {
+): ({ ok: true } & ParsedEventChange) | { ok: false; error: string } {
   if (!body || typeof body !== "object") return { ok: false, error: "Bad JSON" };
   const b = body as Partial<Record<EventChangeBodyKey, unknown>>;
   const ids = b.staffed_shift_ids;
@@ -317,6 +325,78 @@ function eventStart(date: string, time: string): Date | null {
   return parseEasternInput(`${date}T${time}`);
 }
 
+/** A positive amount was paid, so a refund must be handled by hand. */
+function hasPaidAmount(amount: number | null | undefined): amount is number {
+  return typeof amount === "number" && amount > 0;
+}
+
+/** A deal with no event date has nothing to move its shifts from. */
+function canMoveShifts(eventDate: string | null): eventDate is string {
+  return Boolean(eventDate);
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * What the dialog says will happen to the crew and the money before anyone
+ * confirms. Pure. It lives here beside `planEventChange` so the two cannot
+ * drift on the shared decisions — a paid amount means a by-hand refund
+ * (`hasPaidAmount`), and a dateless deal cannot move its shifts
+ * (`canMoveShifts`).
+ */
+export function confirmationLines(
+  preview: EventPreview,
+  mode: EventChangeBody["action"],
+  dateNotSet: boolean,
+): string[] {
+  const staffed = preview.shifts.filter((s) => s.employee_id);
+  const open = preview.shifts.length - staffed.length;
+  const people = staffed
+    .map((s) => `${s.person ?? UNNAMED_PERSON} (${describeShiftTime(s.starts_at, s.ends_at)})`)
+    .join(", ");
+  const lines: string[] = [];
+  // Cancel and Date not set yet both remove every shift, and say so alike.
+  const removed: string[] = [];
+  if (staffed.length) removed.push(`On the crew: ${people}. Their shifts are removed. Tell them yourself; nothing is sent.`);
+  if (open) removed.push(`${plural(open, "open shift is", "open shifts are")} removed.`);
+
+  if (mode === "cancel") {
+    lines.push(
+      preview.deal.has_calendar_event
+        ? "The deal moves to Closed Lost and its calendar event is deleted."
+        : "The deal moves to Closed Lost.",
+    );
+    lines.push(...removed);
+    const paid = preview.deal.amount_paid;
+    if (hasPaidAmount(paid)) {
+      lines.push(`Paid ${money(paid)}. Any refund is done by hand in Square.`);
+    }
+    return lines;
+  }
+
+  if (dateNotSet) {
+    lines.push(
+      preview.deal.has_calendar_event
+        ? "The date is cleared and the calendar event is deleted."
+        : "The date is cleared.",
+    );
+    lines.push(...removed);
+    return lines;
+  }
+
+  if (!canMoveShifts(preview.deal.event_date) && preview.shifts.length) {
+    lines.push(
+      `The deal has no date to move its shifts from, so ${plural(preview.shifts.length, "shift stays", "shifts stay")} where ${preview.shifts.length === 1 ? "it is" : "they are"}${staffed.length ? ` (${people})` : ""}.`,
+    );
+    return lines;
+  }
+  if (staffed.length) lines.push(`On the crew: ${people}. Their shifts move with the event. Tell them yourself; nothing is sent.`);
+  if (open) lines.push(`${plural(open, "open shift moves", "open shifts move")} with it.`);
+  return lines;
+}
+
 /**
  * Work out every write a reschedule or cancel makes. Pure.
  *
@@ -368,12 +448,12 @@ export function planEventChange(
     : "";
 
   if (request.kind === "cancel") {
-    const paid = typeof deal.amount_paid === "number" && deal.amount_paid > 0;
+    const paidAmount = deal.amount_paid;
     const noteLine =
       `${prefix} Event cancelled (${ctx.actor}): ${oldWhen}, ${deal.stage} to Closed Lost. ` +
       calendarSentence +
       removedSentence +
-      (paid ? ` Paid ${money(deal.amount_paid as number)}; any refund is done by hand in Square.` : "");
+      (hasPaidAmount(paidAmount) ? ` Paid ${money(paidAmount)}; any refund is done by hand in Square.` : "");
     return {
       ok: true,
       plan: {
@@ -436,7 +516,7 @@ export function planEventChange(
   // has nothing to measure from, and its shifts stay where they are.
   const moves: ShiftMove[] = [];
   let shiftsSentence = "";
-  if (shifts.length && deal.event_date) {
+  if (shifts.length && canMoveShifts(deal.event_date)) {
     const from = eventStart(deal.event_date, deal.event_start_time || start);
     const to = eventStart(date, start);
     if (!from || !to) {
@@ -653,10 +733,10 @@ function message(e: unknown): string {
 export async function applyEventChange(
   store: EventChangeStore,
   dealId: number,
-  request: EventChangeRequest,
-  staffedIdsShown: number[],
+  change: ParsedEventChange,
   ctx: { now: Date; actor: string },
 ): Promise<ApplyResult> {
+  const { request, staffedShiftIds: staffedIdsShown } = change;
   const deal = await store.readDeal(dealId);
   if (!deal) return { ok: false, status: 404, error: "Deal not found" };
 

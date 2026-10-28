@@ -78,8 +78,7 @@ export async function POST(
     const result = await applyEventChange(
       supabaseEventChangeStore(createAdminClient()),
       dealId,
-      parsed.request,
-      parsed.staffedShiftIds,
+      parsed,
       { now: new Date(), actor: email ?? "unknown" },
     );
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
