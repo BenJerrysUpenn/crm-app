@@ -18,7 +18,8 @@ import {
 // a shift before anything is confirmed, and POSTs the change. Every rule is in
 // lib/eventChange.ts; nothing is sent to anyone from here.
 
-export type EventChangeMode = "reschedule" | "cancel";
+// Which dialog is open is the action it POSTs.
+export type EventChangeMode = EventChangeBody["action"];
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
