@@ -156,6 +156,13 @@ describe("GET: what the dialog shows", () => {
     expect((await res.json()).error).toBe("permission denied for table shifts");
   });
 
+  it("answers 500 with the database's message, not 404, when the deal cannot be read", async () => {
+    h.db.failReads.deals = "permission denied for table deals";
+    const res = await GET(new Request("https://crm.test"), { params: { id: String(DEAL_ID) } });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("permission denied for table deals");
+  });
+
   it("answers 500 rather than showing the crew unnamed when their names cannot be read", async () => {
     h.db.failReads.profiles = "permission denied for table profiles";
     const res = await GET(new Request("https://crm.test"), { params: { id: String(DEAL_ID) } });
@@ -202,6 +209,15 @@ describe("POST refusals before any write", () => {
       { params: { id: "abc" } },
     );
     expect(res.status).toBe(400);
+    expect(JSON.stringify(h.db.tables)).toBe(before);
+  });
+
+  it("answers 500 with the database's message, not 404, when the deal cannot be read, writing nothing", async () => {
+    h.db.failReads.deals = "permission denied for table deals";
+    const before = JSON.stringify(h.db.tables);
+    const res = await post({ action: "cancel", staffed_shift_ids: [602] });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("permission denied for table deals");
     expect(JSON.stringify(h.db.tables)).toBe(before);
   });
 
@@ -403,6 +419,17 @@ describe("POST reschedule to a new date", () => {
     expect(deal()).toMatchObject({ event_date: "2026-11-05", event_start_time: "13:00", calendar_event_id: null });
     expect(shift(601)!.starts_at).toBe("2026-11-05T17:00:00.000Z");
     // The supersede UPDATE failed, so the open patch is left unprocessed.
+    expect(queue().find((r) => r.id === 10)!.processed_at).toBeNull();
+  });
+
+  it("saves the deal and says the old date's queued calendar writes must be cleared by hand when they cannot be read", async () => {
+    h.db.failReads.pending_calendar_actions = "permission denied";
+    const res = await post(body);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe(
+      "The deal was saved, but the old date's queued calendar writes could not be superseded (permission denied); they may recreate the old event — mark them done in pending_calendar_actions by hand.",
+    );
+    expect(deal().event_date).toBe("2026-11-05");
     expect(queue().find((r) => r.id === 10)!.processed_at).toBeNull();
   });
 
