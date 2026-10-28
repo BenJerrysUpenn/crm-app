@@ -183,6 +183,11 @@ describe("Reschedule event, to a new date", () => {
     expect(p.noteLine).toContain("No calendar event was linked.");
   });
 
+  it("refuses to move the crew when the stored start time cannot be read", () => {
+    const r = planEventChange(mkDeal({ event_start_time: "noon" }), [OPEN], TO_NOV_5, CTX);
+    expect(r).toEqual({ ok: false, status: 400, error: "Could not read the event's start time." });
+  });
+
   it("refuses the date and times the event already has", () => {
     const r = planEventChange(mkDeal(), [], { ...TO_NOV_5, event_date: "2026-10-29" }, CTX);
     expect(r).toEqual({ ok: false, status: 400, error: "That is the date and time the event already has." });
