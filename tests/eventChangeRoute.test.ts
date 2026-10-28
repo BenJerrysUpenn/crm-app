@@ -143,6 +143,13 @@ describe("GET: what the dialog shows", () => {
     expect(res.status).toBe(500);
     expect((await res.json()).error).toBe("permission denied for table shifts");
   });
+
+  it("answers 500 rather than showing the crew unnamed when their names cannot be read", async () => {
+    h.db.failReads.profiles = "permission denied for table profiles";
+    const res = await GET(new Request("https://crm.test"), { params: { id: String(DEAL_ID) } });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("permission denied for table profiles");
+  });
 });
 
 describe("POST refusals before any write", () => {
