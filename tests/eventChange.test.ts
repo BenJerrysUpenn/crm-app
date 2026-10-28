@@ -354,15 +354,16 @@ describe("the request body", () => {
     });
   });
 
-  it("refuses a missing or impossible date or time, equal times, and no crew list", () => {
+  it("refuses a missing or impossible date or time, equal times, and no crew list, telling the dialog which", () => {
     const base = { action: "reschedule", event_date: "2026-11-05", event_start_time: "12:00", event_end_time: "13:30", staffed_shift_ids: [] };
-    expect(parseEventChangeBody({ ...base, event_date: "2026-02-30" }).ok).toBe(false);
-    expect(parseEventChangeBody({ ...base, event_date: "" }).ok).toBe(false);
-    expect(parseEventChangeBody({ ...base, event_start_time: "25:00" }).ok).toBe(false);
-    expect(parseEventChangeBody({ ...base, event_end_time: "" }).ok).toBe(false);
-    expect(parseEventChangeBody({ ...base, event_end_time: "12:00" }).ok).toBe(false);
-    expect(parseEventChangeBody({ action: "cancel" }).ok).toBe(false);
-    expect(parseEventChangeBody({ action: "delete", staffed_shift_ids: [] }).ok).toBe(false);
+    const refusal = (error: string) => ({ ok: false, error });
+    expect(parseEventChangeBody({ ...base, event_date: "2026-02-30" })).toEqual(refusal("Pick the new date, or tick Date not set yet."));
+    expect(parseEventChangeBody({ ...base, event_date: "" })).toEqual(refusal("Pick the new date, or tick Date not set yet."));
+    expect(parseEventChangeBody({ ...base, event_start_time: "25:00" })).toEqual(refusal("Pick a start time (HH:MM)."));
+    expect(parseEventChangeBody({ ...base, event_end_time: "" })).toEqual(refusal("Pick an end time (HH:MM)."));
+    expect(parseEventChangeBody({ ...base, event_end_time: "12:00" })).toEqual(refusal("The end time must differ from the start time."));
+    expect(parseEventChangeBody({ action: "cancel" })).toEqual(refusal("staffed_shift_ids must be a list of shift ids"));
+    expect(parseEventChangeBody({ action: "delete", staffed_shift_ids: [] })).toEqual(refusal("action must be reschedule or cancel"));
   });
 
   it("refuses a body that is not an object, and a crew list that is not shift ids", () => {
@@ -372,7 +373,10 @@ describe("the request body", () => {
       ok: false,
       error: "staffed_shift_ids must be a list of shift ids",
     });
-    expect(parseEventChangeBody({ action: "cancel", staffed_shift_ids: [602.5] }).ok).toBe(false);
+    expect(parseEventChangeBody({ action: "cancel", staffed_shift_ids: [602.5] })).toEqual({
+      ok: false,
+      error: "staffed_shift_ids must be a list of shift ids",
+    });
   });
 });
 
