@@ -133,7 +133,8 @@ describe("applyEventChange over the in-memory store", () => {
     }
     // The deal is written first and stays written; the shifts still move.
     expect(db.deals[0].event_date).toBe("2026-11-05");
-    expect(stored(601)!.starts_at).not.toBe("2026-10-29T15:00:00+00:00");
+    // An hour before 1 PM EST on Nov 5, as the plan moves it.
+    expect(stored(601)).toMatchObject({ starts_at: "2026-11-05T17:00:00.000Z", ends_at: "2026-11-05T20:30:00.000Z" });
     expect(row(10).processed_at).toBeNull();
   });
 
@@ -149,7 +150,21 @@ describe("applyEventChange over the in-memory store", () => {
     expect(db.deals[0].event_date).toBe("2026-11-05");
     // The first move threw; the second still ran.
     expect(stored(601)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
-    expect(stored(602)!.starts_at).not.toBe("2026-10-29T15:00:00+00:00");
+    expect(stored(602)).toMatchObject({ starts_at: "2026-11-05T17:00:00.000Z", ends_at: "2026-11-05T20:30:00.000Z" });
+  });
+
+  it("accepts the dialog's crew list in any order and with repeats", async () => {
+    db.shifts.find((s) => s.id === 601)!.employee_id = "user-b";
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, RESCHEDULE, [602, 601, 602], CTX);
+    expect(r).toMatchObject({ ok: true, moved: 2 });
+    expect(db.deals[0].event_date).toBe("2026-11-05");
+  });
+
+  it("answers 409 when someone left the crew since the dialog read it, writing nothing", async () => {
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, RESCHEDULE, [602, 603], CTX);
+    expect(r).toMatchObject({ ok: false, status: 409 });
+    expect(db.deals[0].event_date).toBe("2026-10-29");
+    expect(stored(602)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
   });
 
   it("names every step left to do by hand when several fail after a cancel is saved", async () => {
