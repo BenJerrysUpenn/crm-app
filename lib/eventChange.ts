@@ -259,6 +259,11 @@ export function money(n: number): string {
 // The rules
 // ---------------------------------------------------------------------------
 
+/** A stamp or time the note reports as cleared: a non-blank string. */
+function isFilled(v: string | null): boolean {
+  return typeof v === "string" && v.trim() !== "";
+}
+
 /** The instant an event starts: its Eastern date and time. */
 function eventStart(date: string, time: string): Date | null {
   return parseEasternInput(`${date}T${time}`);
@@ -293,21 +298,15 @@ export function planEventChange(
     ? "Calendar event queued for deletion and its link cleared."
     : "No calendar event was linked.";
 
-  const stampsSet = (Object.keys(CLEARED_FOR_NEW_DATE) as ClearedColumn[]).filter((c) => {
-    const v = deal[c];
-    return typeof v === "string" && v.trim() !== "";
-  });
+  const stampsSet = (Object.keys(CLEARED_FOR_NEW_DATE) as ClearedColumn[]).filter((c) => isFilled(deal[c]));
   const clears: Record<string, null> = {};
   for (const c of Object.keys(CLEARED_FOR_NEW_DATE)) clears[c] = null;
   const stampsSentence = stampsSet.length
     ? ` Cleared for the old date: ${stampsSet.map((c) => CLEARED_FOR_NEW_DATE[c]).join(", ")}.`
     : "";
-  const picklistHint = deal.picklist_docx_path?.trim() ? " Regenerate the picklist." : "";
+  const picklistHint = stampsSet.includes("picklist_docx_path") ? " Regenerate the picklist." : "";
 
-  const timesSet = (Object.keys(CLEARED_FOR_NEW_START) as LogisticsColumn[]).filter((c) => {
-    const v = deal[c];
-    return typeof v === "string" && v.trim() !== "";
-  });
+  const timesSet = (Object.keys(CLEARED_FOR_NEW_START) as LogisticsColumn[]).filter((c) => isFilled(deal[c]));
   const logisticsSentence = timesSet.length
     ? ` Logistics times cleared (were ${timesSet
         .map((c) => `${CLEARED_FOR_NEW_START[c]} ${(deal[c] as string).trim()}`)
