@@ -11,7 +11,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   canChangeEvent,
+  DEAL_SAVED_PREFIX,
   describeShiftTime,
+  interpretChangeResponse,
   isMissingTwinColumn,
   parseEventChangeBody,
   planEventChange,
@@ -424,5 +426,36 @@ describe("what the dialog says before anyone confirms", () => {
     expect(confirmationLines(preview([], 0), "cancel", false)).toEqual([
       "The deal moves to Closed Lost and its calendar event is deleted.",
     ]);
+  });
+});
+
+describe("what the dialog does with the change POST's answer", () => {
+  it("finishes with the note line on a 2xx", () => {
+    expect(interpretChangeResponse(true, 200, { noteLine: "[2026-10-27] Rescheduled." })).toEqual({
+      done: true,
+      outcome: { noteLine: "[2026-10-27] Rescheduled." },
+    });
+    // A 2xx with no note line still finishes.
+    expect(interpretChangeResponse(true, 200, {})).toEqual({ done: true, outcome: { noteLine: undefined } });
+  });
+
+  it("finishes carrying the error on a partial-failure 500 (the deal was saved), so the drawer re-reads it", () => {
+    const error = `${DEAL_SAVED_PREFIX}, but shift 601 did not move (permission denied); move it on the Schedule page.`;
+    expect(interpretChangeResponse(false, 500, { error })).toEqual({ done: true, outcome: { error } });
+  });
+
+  it("stays open with the message on any other failure", () => {
+    expect(interpretChangeResponse(false, 409, { error: "The deal changed while the dialog was open. Close it and try again." })).toEqual({
+      done: false,
+      error: "The deal changed while the dialog was open. Close it and try again.",
+    });
+    // A 500 that is not the deal-was-saved kind stays open too.
+    expect(interpretChangeResponse(false, 500, { error: "permission denied" })).toEqual({
+      done: false,
+      error: "permission denied",
+    });
+    // No error body falls back to the status.
+    expect(interpretChangeResponse(false, 500, {})).toEqual({ done: false, error: "HTTP 500" });
+    expect(interpretChangeResponse(false, 502, { error: "" })).toEqual({ done: false, error: "HTTP 502" });
   });
 });

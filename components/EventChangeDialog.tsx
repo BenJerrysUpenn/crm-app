@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import {
-  DEAL_SAVED_PREFIX,
   describeShiftTime,
   describeWhen,
+  interpretChangeResponse,
   money,
   staffedShiftIds,
   UNNAMED_PERSON,
@@ -203,17 +203,14 @@ export default function EventChangeDialog({
         body: JSON.stringify(body),
       });
       const out = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // A partial failure still changed the deal: the drawer refreshes it
-        // and keeps the message.
-        if (res.status === 500 && typeof out.error === "string" && out.error.startsWith(DEAL_SAVED_PREFIX)) {
-          onDone({ error: out.error });
-          return;
-        }
-        setError(out.error || `HTTP ${res.status}`);
+      // A 2xx, or a partial failure that still changed the deal, closes the
+      // dialog and lets the drawer re-read it; any other failure stays here.
+      const result = interpretChangeResponse(res.ok, res.status, out);
+      if (result.done) {
+        onDone(result.outcome);
         return;
       }
-      onDone({ noteLine: typeof out.noteLine === "string" ? out.noteLine : undefined });
+      setError(result.error);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error");
     } finally {

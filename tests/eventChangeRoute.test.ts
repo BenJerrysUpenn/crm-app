@@ -312,15 +312,20 @@ describe("POST reschedule to a new date", () => {
     expect(shift(601)!.starts_at).toBe("2026-11-05T17:00:00.000Z");
   });
 
-  it("answers 500 without saying the deal was saved, and leaves the deal and shifts as they were, when the stale calendar writes cannot be superseded", async () => {
-    // The open patch (row 10) is there, so the first write is its supersede.
+  it("saves the deal and says the old date's queued calendar writes must be cleared by hand when superseding them fails", async () => {
+    // The open patch (row 10) is there; superseding runs after the deal is
+    // saved, so its failure is reported, not fatal, and the deal is already
+    // written (the source of truth).
     h.db.failWrites.pending_calendar_actions = "permission denied";
     const res = await post(body);
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toBe("permission denied");
-    expect(deal()).toMatchObject({ event_date: "2026-10-29", event_start_time: "12:00", calendar_event_id: "evt_old_123" });
-    expect(shift(601)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
-    expect(queuedDeletes()).toEqual([]);
+    expect((await res.json()).error).toBe(
+      "The deal was saved, but the old date's queued calendar writes could not be superseded (permission denied); they may recreate the old event — mark them done in pending_calendar_actions by hand.",
+    );
+    expect(deal()).toMatchObject({ event_date: "2026-11-05", event_start_time: "13:00", calendar_event_id: null });
+    expect(shift(601)!.starts_at).toBe("2026-11-05T17:00:00.000Z");
+    // The supersede UPDATE failed, so the open patch is left unprocessed.
+    expect(queue().find((r) => r.id === 10)!.processed_at).toBeNull();
   });
 
   it("says which shift to move by hand when one cannot be moved, and still moves the rest", async () => {
@@ -454,5 +459,9 @@ describe("the store's guards against a row that changed or is not the deal's", (
     expect(deal().event_date).toBe("2026-10-29");
     expect(h.db.tables.shifts).toHaveLength(3);
     expect(queuedDeletes()).toEqual([]);
+    // Superseding runs only after a successful update, so a refused change
+    // leaves the deal's open calendar patch (row 10) to run: the 409 is
+    // write-free.
+    expect(queue().find((r) => r.id === 10)!.processed_at).toBeNull();
   });
 });

@@ -27,8 +27,10 @@ import { nowIso, todayIsoEastern } from "@/lib/callDesk/dealForm";
 //   * A line is appended to `deals.notes` saying what moved, from what to what.
 //
 // The rules are pure (planEventChange). The reads and writes go through an
-// EventChangeStore, the seam the tests drive; the web route passes the
-// service-role supabase-js store at the bottom of this file.
+// EventChangeStore: the web route passes the service-role supabase-js store at
+// the bottom of this file, and tests/support/memoryEventChangeStore.ts gives
+// applyEventChange and readEventPreview an in-memory adapter the orchestration
+// tests drive without a database (the two implementations that earn the seam).
 
 /** The stages that show the two buttons. */
 export const EVENT_CHANGE_STAGES = [
@@ -521,6 +523,36 @@ export interface EventChangeStore {
  */
 export const DEAL_SAVED_PREFIX = "The deal was saved";
 
+/** What the dialog does with the POST answer: finish (closing the dialog) or stay. */
+export type ChangeResponse =
+  | { done: true; outcome: { noteLine?: string; error?: string } }
+  | { done: false; error: string };
+
+/**
+ * Read the change POST's answer, split out of the dialog so the one
+ * caller-visible branch is tested without a DOM. A 2xx is done, carrying the
+ * note line. A 500 whose error starts with DEAL_SAVED_PREFIX is also done — the
+ * deal changed, so the drawer re-reads it — carrying that error. Anything else
+ * keeps the dialog open with the message (or the status when there is none).
+ */
+export function interpretChangeResponse(
+  ok: boolean,
+  status: number,
+  body: { error?: unknown; noteLine?: unknown },
+): ChangeResponse {
+  if (ok) {
+    return {
+      done: true,
+      outcome: { noteLine: typeof body.noteLine === "string" ? body.noteLine : undefined },
+    };
+  }
+  const error = typeof body.error === "string" && body.error ? body.error : `HTTP ${status}`;
+  if (status === 500 && typeof body.error === "string" && body.error.startsWith(DEAL_SAVED_PREFIX)) {
+    return { done: true, outcome: { error: body.error } };
+  }
+  return { done: false, error };
+}
+
 export type ApplyResult =
   | { ok: true; noteLine: string; moved: number; removed: number }
   | { ok: false; status: number; error: string };
@@ -563,8 +595,13 @@ export async function applyEventChange(
   if (!planned.ok) return planned;
   const { plan } = planned;
 
-  await store.supersedeOpenCalendarWrites(dealId, nowIso(ctx.now));
-
+  // The deal is the source of truth and is written first, in one guarded
+  // update. Everything downstream — superseding the old date's queued calendar
+  // writes, queuing the delete, moving or removing shifts — is best-effort and
+  // reported. So a refused update (409 "the deal changed") writes nothing at
+  // all, and a failure after it leaves the deal right and says what to finish
+  // by hand. Superseding ran before this guard until 2026-10-28, which marked a
+  // queued create/patch processed even on a refused change (factory-review #121).
   const written = await store.updateDealIfUnchanged(deal, plan.dealPatch);
   if (!written) {
     return {
@@ -575,6 +612,13 @@ export async function applyEventChange(
   }
 
   const problems: string[] = [];
+  try {
+    await store.supersedeOpenCalendarWrites(dealId, nowIso(ctx.now));
+  } catch (e) {
+    problems.push(
+      `the old date's queued calendar writes could not be superseded (${message(e)}); they may recreate the old event — mark them done in pending_calendar_actions by hand`,
+    );
+  }
   if (plan.deleteCalendarEventId) {
     try {
       await store.enqueueCalendarDelete(dealId, plan.deleteCalendarEventId);
