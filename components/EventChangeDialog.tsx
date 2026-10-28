@@ -36,7 +36,11 @@ export function confirmationLines(
   const lines: string[] = [];
 
   if (mode === "cancel") {
-    lines.push("The deal moves to Closed Lost and its calendar event is deleted.");
+    lines.push(
+      preview.deal.has_calendar_event
+        ? "The deal moves to Closed Lost and its calendar event is deleted."
+        : "The deal moves to Closed Lost.",
+    );
     if (staffed.length) lines.push(`On the crew: ${people}. Their shifts are removed. Tell them yourself; nothing is sent.`);
     if (open) lines.push(`${plural(open, "open shift is", "open shifts are")} removed.`);
     const paid = preview.deal.amount_paid;
@@ -47,7 +51,11 @@ export function confirmationLines(
   }
 
   if (dateNotSet) {
-    lines.push("The date is cleared and the calendar event is deleted.");
+    lines.push(
+      preview.deal.has_calendar_event
+        ? "The date is cleared and the calendar event is deleted."
+        : "The date is cleared.",
+    );
     if (staffed.length) lines.push(`On the crew: ${people}. Their shifts are removed. Tell them yourself; nothing is sent.`);
     if (open) lines.push(`${plural(open, "open shift is", "open shifts are")} removed.`);
     return lines;

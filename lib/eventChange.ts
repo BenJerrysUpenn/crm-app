@@ -264,7 +264,7 @@ export function describeShiftTime(startsAt: string, endsAt: string): string {
 }
 
 function shiftLabel(s: CrewShift): string {
-  return s.person ?? (s.employee_id ? "someone" : "open");
+  return s.person ?? (s.employee_id ? UNNAMED_PERSON : "open");
 }
 
 /** "$1,234.50": how the note and the dialog write an amount. */
@@ -615,9 +615,8 @@ export async function applyEventChange(
   // update. Everything downstream — superseding the old date's queued calendar
   // writes, queuing the delete, moving or removing shifts — is best-effort and
   // reported. So a refused update (409 "the deal changed") writes nothing at
-  // all, and a failure after it leaves the deal right and says what to finish
-  // by hand. Superseding ran before this guard until 2026-10-28, which marked a
-  // queued create/patch processed even on a refused change (factory-review #121).
+  // all, including the supersede, and a failure after it leaves the deal right
+  // and says what to finish by hand.
   const written = await store.updateDealIfUnchanged(deal, plan.dealPatch);
   if (!written) {
     return {

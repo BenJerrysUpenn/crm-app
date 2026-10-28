@@ -301,6 +301,12 @@ describe("Cancel event", () => {
     const p = plan(mkDeal({ amount_paid: 0 }), [], { kind: "cancel" });
     expect(p.noteLine).not.toContain("refund");
   });
+
+  it("labels a staffed shift with no name on file as Unnamed person, as the dialog does", () => {
+    const p = plan(mkDeal({ amount_paid: 0 }), [{ ...STAFFED, person: null }], { kind: "cancel" });
+    expect(p.noteLine).toContain("Unnamed person");
+    expect(p.noteLine).not.toContain("someone");
+  });
 });
 
 describe("which deals can be changed", () => {
@@ -381,7 +387,12 @@ describe("the request body", () => {
 });
 
 describe("what the dialog says before anyone confirms", () => {
-  function preview(shifts: CrewShift[], amountPaid: number | null = 515.2, eventDate: string | null = "2026-10-29"): EventPreview {
+  function preview(
+    shifts: CrewShift[],
+    amountPaid: number | null = 515.2,
+    eventDate: string | null = "2026-10-29",
+    hasEvent = true,
+  ): EventPreview {
     return {
       deal: {
         id: 30001,
@@ -391,7 +402,7 @@ describe("what the dialog says before anyone confirms", () => {
         event_start_time: "12:00",
         event_end_time: "13:30",
         amount_paid: amountPaid,
-        has_calendar_event: true,
+        has_calendar_event: hasEvent,
       },
       shifts,
     };
@@ -429,6 +440,16 @@ describe("what the dialog says before anyone confirms", () => {
     ]);
     expect(confirmationLines(preview([], 0), "cancel", false)).toEqual([
       "The deal moves to Closed Lost and its calendar event is deleted.",
+    ]);
+  });
+
+  it("drops the calendar-deletion line when the deal has no linked event", () => {
+    expect(confirmationLines(preview([], 0, "2026-10-29", false), "cancel", false)).toEqual([
+      "The deal moves to Closed Lost.",
+    ]);
+    expect(confirmationLines(preview([OPEN], 515.2, "2026-10-29", false), "reschedule", true)).toEqual([
+      "The date is cleared.",
+      "1 open shift is removed.",
     ]);
   });
 });
