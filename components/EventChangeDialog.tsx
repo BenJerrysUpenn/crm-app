@@ -122,7 +122,7 @@ export default function EventChangeDialog({
 
   const title = mode === "cancel" ? "Cancel event" : "Reschedule event";
   const confirmLabel = CONFIRM_LABEL[kind];
-  const lines = preview ? confirmationLines(preview, mode, dateNotSet) : [];
+  const lines = preview ? confirmationLines(preview, kind) : [];
   const ready =
     preview !== null &&
     preview.deal.can_change &&

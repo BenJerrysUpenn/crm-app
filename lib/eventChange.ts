@@ -348,8 +348,7 @@ function plural(n: number, one: string, many: string): string {
  */
 export function confirmationLines(
   preview: EventPreview,
-  mode: EventChangeBody["action"],
-  dateNotSet: boolean,
+  kind: EventChangeRequest["kind"],
 ): string[] {
   const staffed = preview.shifts.filter((s) => s.employee_id);
   const open = preview.shifts.length - staffed.length;
@@ -362,7 +361,7 @@ export function confirmationLines(
   if (staffed.length) removed.push(`On the crew: ${people}. Their shifts are removed. Tell them yourself; nothing is sent.`);
   if (open) removed.push(`${plural(open, "open shift is", "open shifts are")} removed.`);
 
-  if (mode === "cancel") {
+  if (kind === "cancel") {
     lines.push(
       preview.deal.has_calendar_event
         ? "The deal moves to Closed Lost and its calendar event is deleted."
@@ -376,7 +375,7 @@ export function confirmationLines(
     return lines;
   }
 
-  if (dateNotSet) {
+  if (kind === "reschedule_tbd") {
     lines.push(
       preview.deal.has_calendar_event
         ? "The date is cleared and the calendar event is deleted."

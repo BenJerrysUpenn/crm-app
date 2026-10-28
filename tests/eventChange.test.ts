@@ -435,14 +435,14 @@ describe("what the dialog says before anyone confirms", () => {
   }
 
   it("names each person and their shift on a reschedule, and says the shifts move", () => {
-    expect(confirmationLines(preview([OPEN, STAFFED]), "reschedule", false)).toEqual([
+    expect(confirmationLines(preview([OPEN, STAFFED]), "reschedule")).toEqual([
       "On the crew: Crew Member A (Thu 2026-10-29 11:00-14:30). Their shifts move with the event. Tell them yourself; nothing is sent.",
       "1 open shift moves with it.",
     ]);
   });
 
   it("says the shifts are removed when the date is not set", () => {
-    expect(confirmationLines(preview([OPEN, STAFFED]), "reschedule", true)).toEqual([
+    expect(confirmationLines(preview([OPEN, STAFFED]), "reschedule_tbd")).toEqual([
       "The date is cleared and the calendar event is deleted.",
       "On the crew: Crew Member A (Thu 2026-10-29 11:00-14:30). Their shifts are removed. Tell them yourself; nothing is sent.",
       "1 open shift is removed.",
@@ -450,30 +450,30 @@ describe("what the dialog says before anyone confirms", () => {
   });
 
   it("says a deal with no date keeps its shifts where they are, naming who is on them", () => {
-    expect(confirmationLines(preview([OPEN, STAFFED], 515.2, null), "reschedule", false)).toEqual([
+    expect(confirmationLines(preview([OPEN, STAFFED], 515.2, null), "reschedule")).toEqual([
       "The deal has no date to move its shifts from, so 2 shifts stay where they are (Crew Member A (Thu 2026-10-29 11:00-14:30)).",
     ]);
-    expect(confirmationLines(preview([OPEN], 515.2, null), "reschedule", false)).toEqual([
+    expect(confirmationLines(preview([OPEN], 515.2, null), "reschedule")).toEqual([
       "The deal has no date to move its shifts from, so 1 shift stays where it is.",
     ]);
   });
 
   it("names everyone on a cancel and shows the amount paid with the refund line and nothing more", () => {
-    expect(confirmationLines(preview([STAFFED]), "cancel", false)).toEqual([
+    expect(confirmationLines(preview([STAFFED]), "cancel")).toEqual([
       "The deal moves to Closed Lost and its calendar event is deleted.",
       "On the crew: Crew Member A (Thu 2026-10-29 11:00-14:30). Their shifts are removed. Tell them yourself; nothing is sent.",
       "Paid $515.20. Any refund is done by hand in Square.",
     ]);
-    expect(confirmationLines(preview([], 0), "cancel", false)).toEqual([
+    expect(confirmationLines(preview([], 0), "cancel")).toEqual([
       "The deal moves to Closed Lost and its calendar event is deleted.",
     ]);
   });
 
   it("drops the calendar-deletion line when the deal has no linked event", () => {
-    expect(confirmationLines(preview([], 0, "2026-10-29", false), "cancel", false)).toEqual([
+    expect(confirmationLines(preview([], 0, "2026-10-29", false), "cancel")).toEqual([
       "The deal moves to Closed Lost.",
     ]);
-    expect(confirmationLines(preview([OPEN], 515.2, "2026-10-29", false), "reschedule", true)).toEqual([
+    expect(confirmationLines(preview([OPEN], 515.2, "2026-10-29", false), "reschedule_tbd")).toEqual([
       "The date is cleared.",
       "1 open shift is removed.",
     ]);
