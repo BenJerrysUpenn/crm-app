@@ -452,6 +452,15 @@ describe("POST reschedule, date not set yet", () => {
     expect(queuedDeletes()).toHaveLength(1);
     expect(queuedDeletes()[0].event_id).toBe("evt_old_123");
   });
+
+  it("supersedes the deal's open calendar patch, so the old date's payload cannot recreate the event", async () => {
+    const res = await post({ action: "reschedule", date_not_set: true, staffed_shift_ids: [602] });
+    expect(res.status).toBe(200);
+    const row = (id: number) => queue().find((r) => r.id === id)!;
+    expect(row(10)).toMatchObject({ source: "imap_idle (superseded)" });
+    expect(row(10).processed_at).not.toBeNull();
+    expect(row(11).processed_at).toBeNull();
+  });
 });
 
 describe("POST cancel", () => {
@@ -469,6 +478,18 @@ describe("POST cancel", () => {
     expect(String(deal().notes)).toContain("Paid $515.20; any refund is done by hand in Square.");
     expect(h.db.tables.shifts.map((s) => s.id)).toEqual([700]);
     expect(queuedDeletes()).toHaveLength(1);
+  });
+
+  it("supersedes the deal's open calendar create, so a cancelled event is not recreated", async () => {
+    queue().push({ id: 13, deal_id: DEAL_ID, action: "create", event_id: null, processed_at: null, source: "sweep" });
+    const res = await post({ action: "cancel", staffed_shift_ids: [602] });
+    expect(res.status).toBe(200);
+    const row = (id: number) => queue().find((r) => r.id === id)!;
+    expect(row(13)).toMatchObject({ source: "sweep (superseded)" });
+    expect(row(13).processed_at).not.toBeNull();
+    expect(row(10)).toMatchObject({ source: "imap_idle (superseded)" });
+    // Another deal's open create is not touched.
+    expect(row(12)).toMatchObject({ processed_at: null, source: "imap_idle" });
   });
 
   it("names the actor as unknown in the note when the signed-in user has no email", async () => {
@@ -525,6 +546,28 @@ describe("the store's guards against a row that changed or is not the deal's", (
       store.moveShift(DEAL_ID, { id: 700, starts_at: "2026-11-05T17:00:00.000Z", ends_at: "2026-11-05T20:30:00.000Z" }, "2026-10-27T16:00:00.000Z"),
     ).rejects.toThrow("the shift is no longer on this deal");
     expect(shift(700)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
+  });
+
+  it("leaves a calendar row the daemon processed after the read as the daemon stamped it", async () => {
+    // The daemon drains row 10 between the store's read of the open rows and
+    // its update of them: the daemon's stamp stands, not "(superseded)".
+    const base = fakeClient(h.db, () => h.user);
+    const racing = {
+      ...base,
+      from(table: string) {
+        const b = base.from(table);
+        if (table !== "pending_calendar_actions") return b;
+        const update = b.update.bind(b);
+        b.update = (p) => {
+          Object.assign(queue().find((r) => r.id === 10)!, { processed_at: "2026-10-27T15:59:00" });
+          return update(p);
+        };
+        return b;
+      },
+    };
+    const store = supabaseEventChangeStore(racing as never);
+    await store.supersedeOpenCalendarWrites(DEAL_ID, "2026-10-27T16:00:00");
+    expect(queue().find((r) => r.id === 10)).toMatchObject({ processed_at: "2026-10-27T15:59:00", source: "imap_idle" });
   });
 
   it("removes only the deal's own shifts, even when handed another deal's shift id", async () => {
