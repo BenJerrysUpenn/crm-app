@@ -96,7 +96,7 @@ describe("Reschedule event, to a new date", () => {
       picklist_docx_path: null,
       day_before_draft_sent_at: null,
       coi_sent_at: null,
-      updated_at: NOW.toISOString(),
+      updated_at: "2026-10-27T16:00:00.000Z",
     });
     expect(p.dealPatch).not.toHaveProperty("stage");
     expect(p.deleteCalendarEventId).toBe("evt_old_123");
