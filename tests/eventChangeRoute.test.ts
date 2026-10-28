@@ -274,6 +274,23 @@ describe("POST reschedule to a new date", () => {
     expect(row(14)).toMatchObject({ processed_at: "2026-10-01T09:00:00", source: "imap_idle" });
   });
 
+  it("stamps the deal, the shifts it moves and the rows it supersedes with the change's time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-27T16:00:00Z"));
+    try {
+      const res = await post(body);
+      expect(res.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(deal().updated_at).toBe("2026-10-27T16:00:00.000Z");
+    expect(shift(601)!.updated_at).toBe("2026-10-27T16:00:00.000Z");
+    expect(shift(602)!.updated_at).toBe("2026-10-27T16:00:00.000Z");
+    // Naive UTC, the way the daemon stamps a row it processes.
+    expect(queue().find((r) => r.id === 10)!.processed_at).toBe("2026-10-27T16:00:00");
+    expect(String(deal().notes)).toContain("[2026-10-27] Rescheduled (manager@example.com)");
+  });
+
   it("keeps the logistics times on a date-only change", async () => {
     const res = await post({ ...body, event_start_time: "12:00", event_end_time: "13:30" });
     expect(res.status).toBe(200);
