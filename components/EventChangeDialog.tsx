@@ -75,70 +75,6 @@ export function confirmationLines(
 const INPUT =
   "bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:opacity-40";
 
-/** The dialog's body for a loaded preview. Presentational: the container owns the state. */
-export function EventChangeForm({
-  preview,
-  mode,
-  date,
-  start,
-  end,
-  dateNotSet,
-  onDate,
-  onStart,
-  onEnd,
-  onDateNotSet,
-}: {
-  preview: EventPreview;
-  mode: EventChangeMode;
-  date: string;
-  start: string;
-  end: string;
-  dateNotSet: boolean;
-  onDate: (v: string) => void;
-  onStart: (v: string) => void;
-  onEnd: (v: string) => void;
-  onDateNotSet: (v: boolean) => void;
-}) {
-  const d = preview.deal;
-  const lines = confirmationLines(preview, mode, dateNotSet);
-  return (
-    <div className="space-y-3 text-sm text-slate-200">
-      <div className="text-slate-400">
-        Now: <span className="text-slate-200">{describeWhen(d.event_date, d.event_start_time, d.event_end_time)}</span>
-      </div>
-      {mode === "reschedule" && (
-        <div className="space-y-2">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">New date</span>
-              <input type="date" className={INPUT} value={date} disabled={dateNotSet} onChange={(e) => onDate(e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">Start time</span>
-              <input type="time" className={INPUT} value={start} disabled={dateNotSet} onChange={(e) => onStart(e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">End time</span>
-              <input type="time" className={INPUT} value={end} disabled={dateNotSet} onChange={(e) => onEnd(e.target.value)} />
-            </label>
-          </div>
-          <label className="flex items-center gap-2 text-slate-300">
-            <input type="checkbox" checked={dateNotSet} onChange={(e) => onDateNotSet(e.target.checked)} />
-            Date not set yet
-          </label>
-        </div>
-      )}
-      {lines.length > 0 && (
-        <ul className="list-disc pl-5 space-y-1 text-slate-300">
-          {lines.map((l) => (
-            <li key={l}>{l}</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 export default function EventChangeDialog({
   dealId,
   mode,
@@ -228,6 +164,7 @@ export default function EventChangeDialog({
 
   const title = mode === "cancel" ? "Cancel event" : "Reschedule event";
   const confirmLabel = mode === "cancel" ? "Cancel the event" : dateNotSet ? "Clear the date" : "Reschedule";
+  const lines = preview ? confirmationLines(preview, mode, dateNotSet) : [];
   const ready =
     preview !== null &&
     preview.deal.can_change &&
@@ -247,18 +184,43 @@ export default function EventChangeDialog({
           <div className="text-sm text-amber-200">This deal is at {preview.deal.stage}; only booked events can be changed here.</div>
         )}
         {preview && (
-          <EventChangeForm
-            preview={preview}
-            mode={mode}
-            date={date}
-            start={start}
-            end={end}
-            dateNotSet={dateNotSet}
-            onDate={setDate}
-            onStart={setStart}
-            onEnd={setEnd}
-            onDateNotSet={setDateNotSet}
-          />
+          <div className="space-y-3 text-sm text-slate-200">
+            <div className="text-slate-400">
+              Now:{" "}
+              <span className="text-slate-200">
+                {describeWhen(preview.deal.event_date, preview.deal.event_start_time, preview.deal.event_end_time)}
+              </span>
+            </div>
+            {mode === "reschedule" && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-slate-500">New date</span>
+                    <input type="date" className={INPUT} value={date} disabled={dateNotSet} onChange={(e) => setDate(e.target.value)} />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-slate-500">Start time</span>
+                    <input type="time" className={INPUT} value={start} disabled={dateNotSet} onChange={(e) => setStart(e.target.value)} />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-slate-500">End time</span>
+                    <input type="time" className={INPUT} value={end} disabled={dateNotSet} onChange={(e) => setEnd(e.target.value)} />
+                  </label>
+                </div>
+                <label className="flex items-center gap-2 text-slate-300">
+                  <input type="checkbox" checked={dateNotSet} onChange={(e) => setDateNotSet(e.target.checked)} />
+                  Date not set yet
+                </label>
+              </div>
+            )}
+            {lines.length > 0 && (
+              <ul className="list-disc pl-5 space-y-1 text-slate-300">
+                {lines.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
         {error && <div className="text-sm text-rose-200 bg-rose-950 border border-rose-900 rounded px-3 py-2">{error}</div>}
         <div className="flex justify-end gap-2">
