@@ -34,6 +34,10 @@ export function confirmationLines(
     .map((s) => `${s.person ?? UNNAMED_PERSON} (${describeShiftTime(s.starts_at, s.ends_at)})`)
     .join(", ");
   const lines: string[] = [];
+  // Cancel and Date not set yet both remove every shift, and say so alike.
+  const removed: string[] = [];
+  if (staffed.length) removed.push(`On the crew: ${people}. Their shifts are removed. Tell them yourself; nothing is sent.`);
+  if (open) removed.push(`${plural(open, "open shift is", "open shifts are")} removed.`);
 
   if (mode === "cancel") {
     lines.push(
@@ -41,8 +45,7 @@ export function confirmationLines(
         ? "The deal moves to Closed Lost and its calendar event is deleted."
         : "The deal moves to Closed Lost.",
     );
-    if (staffed.length) lines.push(`On the crew: ${people}. Their shifts are removed. Tell them yourself; nothing is sent.`);
-    if (open) lines.push(`${plural(open, "open shift is", "open shifts are")} removed.`);
+    lines.push(...removed);
     const paid = preview.deal.amount_paid;
     if (typeof paid === "number" && paid > 0) {
       lines.push(`Paid ${money(paid)}. Any refund is done by hand in Square.`);
@@ -56,8 +59,7 @@ export function confirmationLines(
         ? "The date is cleared and the calendar event is deleted."
         : "The date is cleared.",
     );
-    if (staffed.length) lines.push(`On the crew: ${people}. Their shifts are removed. Tell them yourself; nothing is sent.`);
-    if (open) lines.push(`${plural(open, "open shift is", "open shifts are")} removed.`);
+    lines.push(...removed);
     return lines;
   }
 
