@@ -121,6 +121,18 @@ describe("GET: what the dialog shows", () => {
     ]);
   });
 
+  it("lists the crew earliest shift first, whatever order the rows are stored in", async () => {
+    // Stored last, starts first: 10:00 EDT, an hour before the others.
+    h.db.tables.shifts.push({ id: 604, deal_id: DEAL_ID, employee_id: null, starts_at: "2026-10-29T14:00:00+00:00", ends_at: "2026-10-29T18:30:00+00:00" });
+    const res = await GET(new Request("https://crm.test"), { params: { id: String(DEAL_ID) } });
+    const body = await res.json();
+    expect(body.shifts.map((s: { starts_at: string }) => s.starts_at)).toEqual([
+      "2026-10-29T14:00:00+00:00",
+      "2026-10-29T15:00:00+00:00",
+      "2026-10-29T15:00:00+00:00",
+    ]);
+  });
+
   it("answers 401 signed out", async () => {
     h.user = null;
     const res = await GET(new Request("https://crm.test"), { params: { id: String(DEAL_ID) } });

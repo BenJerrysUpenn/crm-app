@@ -327,6 +327,11 @@ describe("Cancel event", () => {
     expect(p.noteLine).toContain("Event cancelled (manager@example.com): Thu 2026-10-29 12:00, Booked Paid to Closed Lost.");
   });
 
+  it("writes a deal whose date was not set as no date", () => {
+    const p = plan(mkDeal({ event_date: null, amount_paid: 0 }), [], { kind: "cancel" });
+    expect(p.noteLine).toContain("Event cancelled (manager@example.com): no date, Booked Paid to Closed Lost.");
+  });
+
   it("labels a staffed shift with no name on file as Unnamed person, as the dialog does", () => {
     const p = plan(mkDeal({ amount_paid: 0 }), [{ ...STAFFED, person: null }], { kind: "cancel" });
     expect(p.noteLine).toContain("Crew shifts removed: Unnamed person Thu 2026-10-29 11:00-14:30.");
@@ -394,6 +399,25 @@ describe("the request body", () => {
     expect(parseEventChangeBody({ ...base, event_end_time: "12:00" })).toEqual(refusal("The end time must differ from the start time."));
     expect(parseEventChangeBody({ action: "cancel" })).toEqual(refusal("staffed_shift_ids must be a list of shift ids"));
     expect(parseEventChangeBody({ action: "delete", staffed_shift_ids: [] })).toEqual(refusal("action must be reschedule or cancel"));
+  });
+
+  it("reads a date and times padded with spaces as the date and times", () => {
+    expect(
+      parseEventChangeBody({
+        action: "reschedule",
+        event_date: " 2026-11-05 ",
+        event_start_time: " 12:00",
+        event_end_time: "13:30 ",
+        staffed_shift_ids: [],
+      }),
+    ).toEqual({ ok: true, request: TO_NOV_5, staffedShiftIds: [] });
+  });
+
+  it("reads Date not set yet only from a literal true, so a stray value never clears the date", () => {
+    expect(parseEventChangeBody({ action: "reschedule", date_not_set: "false", staffed_shift_ids: [] })).toEqual({
+      ok: false,
+      error: "Pick the new date, or tick Date not set yet.",
+    });
   });
 
   it("refuses a body that is not an object, and a crew list that is not shift ids", () => {
