@@ -123,10 +123,6 @@ function builder(db: FakeDb, table: string) {
       const { data, error } = run();
       return { data: Array.isArray(data) ? data[0] ?? null : null, error };
     },
-    async single() {
-      const { data, error } = run();
-      return { data: Array.isArray(data) ? data[0] ?? null : null, error };
-    },
     then<T>(resolve: (v: { data: unknown; error: FakeError | null }) => T, reject?: (e: unknown) => T) {
       try {
         return Promise.resolve(run()).then(resolve, reject);
