@@ -160,6 +160,13 @@ describe("Reschedule event, to a new date", () => {
     expect(p.dealPatch.notes).toBe(`[2026-10-09] Earlier line.\n${p.noteLine}`);
   });
 
+  it("names every stamp it clears for the old date, the day-before draft included", () => {
+    const p = plan(mkDeal({ day_before_draft_sent_at: "2026-10-28T14:00:00" }), [], TO_NOV_5);
+    expect(p.noteLine).toContain(
+      "Cleared for the old date: picklist, day-before draft stamp, COI sent stamp. Regenerate the picklist.",
+    );
+  });
+
   it("gives a Closed Marketing Event deal a fresh calendar event on the new date, like a booked one", () => {
     const p = plan(mkDeal({ stage: "Closed Marketing Event" }), [], TO_NOV_5);
     expect(p.noteLine).toContain(
@@ -460,6 +467,15 @@ describe("what the dialog says before anyone confirms", () => {
     expect(confirmationLines(preview([OPEN, STAFFED]), "reschedule")).toEqual([
       "On the crew: Crew Member A (Thu 2026-10-29 11:00-14:30). Their shifts move with the event. Tell them yourself; nothing is sent.",
       "1 open shift moves with it.",
+    ]);
+  });
+
+  it("counts several open shifts in the plural, moving or removed", () => {
+    const OPEN_2: CrewShift = { ...OPEN, id: 603 };
+    expect(confirmationLines(preview([OPEN, OPEN_2]), "reschedule")).toEqual(["2 open shifts move with it."]);
+    expect(confirmationLines(preview([OPEN, OPEN_2], 0), "cancel")).toEqual([
+      "The deal moves to Closed Lost and its calendar event is deleted.",
+      "2 open shifts are removed.",
     ]);
   });
 
