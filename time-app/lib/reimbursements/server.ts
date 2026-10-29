@@ -124,7 +124,7 @@ type LoadedCaps = { ok: true; caps: MileageCaps } | { ok: false; error: string }
  * Each deal's cap per mile: the most a staff mile on its Catering Event pays,
  * from what its quote charged the customer (event_mileage_caps(), migration
  * 49, which reads the quotes staff cannot). Before migration 49 there is no
- * such function and no cap, so every trip is at the IRS rate, as it was.
+ * such function and no cap, so every trip is paid the IRS rate.
  */
 async function capsByDeal(db: Db, dealIds: (number | null)[]): Promise<LoadedCaps> {
   const ids = Array.from(new Set(dealIds.filter((d): d is number => d != null)));
