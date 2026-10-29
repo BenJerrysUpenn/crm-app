@@ -133,7 +133,7 @@ test("routeMiles: a request per leg (a) and one whole-trip request (b), each leg
 test("routeMiles: each leg pays the lower of its shortest alternative (a) and its whole-trip distance (b)", async () => {
   // A short city trip. Outbound: the default takes the expressway (4.0), an alternative stays on the
   // surface streets (3.3), the whole-trip route says 3.5: pays 3.3 from (a). Return: (a) has a single
-  // route of 2.6, the whole-trip route says 2.4: pays 2.4 from (b), never more than before.
+  // route of 2.6, the whole-trip route says 2.4: pays 2.4 from (b), never more than (b).
   const g = fakeGoogle({ trip: tripLegs(3.5, 2.4), legs: [[4.0 * MI, 3.3 * MI, 3.6 * MI], [2.6 * MI]] });
   const r = await routeMiles(["Venue"], BOTH, { apiKey: "k", fetchImpl: g.fetchImpl });
   assert.deepEqual(r, {
