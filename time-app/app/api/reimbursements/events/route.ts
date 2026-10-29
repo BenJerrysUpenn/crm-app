@@ -11,8 +11,10 @@ export const fetchCache = "force-no-store";
 // The Catering Event picker (bj-finance #210, rulings 16, 17): every booked
 // Catering Event in the last 365 days up to today, newest first, searchable by
 // venue, company or address. Staff cannot read public.deals, so it is read
-// here with the service role and only the label's fields leave. `id` is the
-// deal id, which the form sends back to record the Reason; it is never shown.
+// here with the service role and only the label's fields leave, with the
+// event's cap per mile for the form's estimate (what its quote charged the
+// customer, migration 49). `id` is the deal id, which the form sends back to
+// record the Reason; it is never shown.
 export async function GET(request: Request) {
   const me = await getProfile();
   if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -20,6 +22,6 @@ export async function GET(request: Request) {
   const listed = await listCateringEvents(dayKey(new Date().toISOString()));
   if (!listed.ok) return NextResponse.json({ error: listed.error }, { status: 500 });
   return NextResponse.json({
-    events: searchEvents(listed.events, q).map((e) => ({ id: e.id, date: e.date, address: e.address, label: eventLabel(e) })),
+    events: searchEvents(listed.events, q).map((e) => ({ id: e.id, date: e.date, address: e.address, label: eventLabel(e), mileage_cap: e.mileage_cap })),
   });
 }

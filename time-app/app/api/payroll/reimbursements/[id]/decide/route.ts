@@ -39,7 +39,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const ctx = await approverContext(params.id);
   if (ctx.res) return ctx.res;
-  const { row, subject, rates, supabase } = ctx;
+  const { row, subject, rates, caps, supabase } = ctx;
 
   const step = approverAction(action, row.status, { subject, actor: me });
   if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.forbidden ? 403 : 409 });
@@ -70,7 +70,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 409 });
   if (!data) return NextResponse.json({ error: CHANGED }, { status: 409 });
-  const [updated] = withAmounts([data as ReimbursementRow], rates, row.adjustments);
+  const [updated] = withAmounts([data as ReimbursementRow], rates, row.adjustments, caps);
 
   const receipts: ReceiptsEmailed =
     action === "approve" ? await emailReceiptsOnApproval(updated, subject.full_name ?? "A staff member") : { emailed: false, error: null };

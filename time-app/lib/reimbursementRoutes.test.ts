@@ -167,6 +167,54 @@ test("submit: a Catering Event records how staff saw it, and the trip date is th
   assert.match(String(r.event_label), /Acme at Houston Hall, 3417 Spruce St$/);
 });
 
+test("events and submit: each Catering Event carries its cap a mile, and the Approvers' notice is at it (migration 49)", async () => {
+  db.rpc.event_mileage_caps = (args) =>
+    ((args.p_deal_ids as number[]) ?? []).map((id) => ({ deal_id: id, cap_cents_per_mile: id === 501 ? 72.5 : null, basis: id === 501 ? "quote_derived" : "uber_flat_fee" }));
+  db.signIn(DONTE);
+  const listed = await (await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events"))).json();
+  assert.deepEqual(listed.events.map((e: { id: number; mileage_cap: unknown }) => [e.id, e.mileage_cap]), [
+    [501, { cap_cents_per_mile: 72.5, basis: "quote_derived" }],
+    [505, { cap_cents_per_mile: null, basis: "uber_flat_fee" }],
+  ]);
+  const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
+  assert.equal(res.status, 200);
+  const notices = db.rows("notifications").filter((n) => n.title === "Travel Reimbursement submitted");
+  assert.ok(notices.length > 0);
+  for (const n of notices) assert.match(String(n.body), /\$7\.25\./, "10 mi at the quote's 72.5c");
+});
+
+test("events: before migration 49 every Catering Event has no cap", async () => {
+  db.signIn(DONTE);
+  const listed = await (await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events"))).json();
+  for (const e of listed.events) assert.equal(e.mileage_cap, null);
+});
+
+test("events: when the caps cannot be read the picker says so, rather than offer uncapped events", async () => {
+  db.rpc.event_mileage_caps = () => {
+    throw new Error("connection reset");
+  };
+  db.signIn(DONTE);
+  const res = await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events"));
+  assert.equal(res.status, 500);
+  assert.match((await res.json()).error, /could not be read/);
+});
+
+test("submit: when the cap cannot be read it is still saved, and the Approvers' notice gives no amount rather than the IRS one", async () => {
+  db.rpc.event_mileage_caps = () => {
+    throw new Error("connection reset");
+  };
+  db.signIn(DONTE);
+  const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
+  assert.equal(res.status, 200);
+  assert.equal(db.rows("travel_reimbursements").length, 1);
+  const notices = db.rows("notifications").filter((n) => n.title === "Travel Reimbursement submitted");
+  assert.ok(notices.length > 0);
+  for (const n of notices) {
+    assert.doesNotMatch(String(n.body), /\$7\.60/, "not 10 mi at the uncapped IRS 76c");
+    assert.match(String(n.body), /, —\. Approve/);
+  }
+});
+
 test("submit: a Catering Event outside the picker (future, too old, not booked) is refused", async () => {
   db.signIn(DONTE);
   for (const id of [502, 503, 504, 999]) {
