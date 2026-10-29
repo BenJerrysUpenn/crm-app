@@ -250,6 +250,11 @@ them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. 
 in a private Supabase Storage bucket). The lifecycle is enforced twice, in
 `time-app/lib/reimbursements/lifecycle.ts` and in the database trigger of migration 37.
 
+"Compute miles from stops" makes one traffic-unaware Routes API call per trip (the stops as
+intermediates) and sums the legs, each rounded to 0.1 mi. Every call stays on the Compute Routes
+Essentials SKU: no traffic-aware routing and at most 10 intermediates. Rules and the billing
+triggers: the header of `time-app/lib/reimbursements/routeMiles.ts`.
+
 Setup, in the `time` Vercel project:
 
 | Name | Value |
