@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 // staff member says yes to "Are you sure there is no receipt?". Destination
 // miles are computed here (Routes API), never taken from the browser. A
 // Catering Event whose quote charged mileage but whose deal has no round-trip
-// miles gets one Recalculate queued for that deal (afterSubmit; the owner,
+// miles gets one miles recalculation queued for that deal (afterSubmit; the owner,
 // 2026-10-29), at most one an hour.
 export async function POST(request: Request) {
   const me = await getProfile();

@@ -2,10 +2,10 @@
 // takes the request's Supabase client, so every read runs under the viewer's
 // own RLS (staff their own rows; Approvers everything). Before migration 37 a
 // missing table answers { ok: false } and the page says so. One write: the
-// Approver's queue queues a Recalculate, with the service role, for each deal
+// Approver's queue queues a miles recalculation, with the service role, for each deal
 // with no round-trip miles that an unpaid trip on it is waiting on
 // (./milesRecalc.ts; the owner, 2026-10-29). Both pages read, with the service
-// role, whether that deal's last Recalculate failed, for the words they show.
+// role, whether that deal's last miles recalculation failed, for the words they show.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MileageRate } from "./money";
@@ -139,7 +139,7 @@ export async function loadQueue(
   const caps = await loadMileageCaps(db, capDealIds([...rows, ...decidedRows]));
   if (!caps.ok) return caps;
 
-  // Every unpaid trip waiting on a deal with no round-trip miles: one Recalculate per deal, at most one an hour.
+  // Every unpaid trip waiting on a deal with no round-trip miles: one miles recalculation per deal, at most one an hour.
   const onQueue = withAmounts(rows, rates.rates, (adj.data ?? []) as AdjustmentRow[], caps.caps);
   const recalc = await recalculateMissingMiles(noMilesDeals(onQueue), { queue: true });
   const items: QueueItem[] = withRecalcState(onQueue, recalcFailed(recalc)).map((r) => {

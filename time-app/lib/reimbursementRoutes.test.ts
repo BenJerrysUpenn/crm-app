@@ -197,7 +197,7 @@ function noMilesOn501() {
 }
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 
-test("submit: a Catering Event whose deal has no round-trip miles queues one Recalculate for the deal, the row the CRM's button inserts", async () => {
+test("submit: a Catering Event whose deal has no round-trip miles queues one miles-only recalculation for the deal (kind 'miles', not the CRM's Recalculate)", async () => {
   noMilesOn501();
   db.signIn(DONTE);
   const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
@@ -205,7 +205,7 @@ test("submit: a Catering Event whose deal has no round-trip miles queues one Rec
   const jobs = db.rows("quote_jobs");
   assert.deepEqual(
     jobs.map(({ deal_id, status, kind, requested_by }) => ({ deal_id, status, kind, requested_by })),
-    [{ deal_id: 501, status: "pending", kind: "retriage", requested_by: "withers-time:no-miles-on-deal" }],
+    [{ deal_id: 501, status: "pending", kind: "miles", requested_by: "withers-time:no-miles-on-deal" }],
   );
   // Written with the service role: staff cannot touch quote_jobs (lib/testing/fakeSupabase.ts).
   const { createClient } = await loadAppModule<typeof import("./supabase/server.ts")>("lib/supabase/server.ts");
@@ -215,7 +215,7 @@ test("submit: a Catering Event whose deal has no round-trip miles queues one Rec
   assert.equal(db.rows("quote_jobs").length, 1);
 });
 
-test("submit: once a Recalculate has finished without miles, the next is queued only an hour after it", async () => {
+test("submit: once a miles recalculation has finished without miles, the next is queued only an hour after it", async () => {
   noMilesOn501();
   db.tables.quote_jobs = [{ id: 7, deal_id: 501, status: "error", kind: "retriage", created_at: minutesAgo(20), requested_by: null }];
   db.signIn(DONTE);
@@ -227,7 +227,7 @@ test("submit: once a Recalculate has finished without miles, the next is queued 
   assert.deepEqual(db.rows("quote_jobs").map((j) => [j.id, j.status]), [[7, "error"], [8, "pending"]]);
 });
 
-test("submit: errands, or a Catering Event whose deal has its miles, queue no Recalculate", async () => {
+test("submit: errands, or a Catering Event whose deal has its miles, queue no miles recalculation", async () => {
   noMilesOn501();
   db.signIn(DONTE);
   assert.equal((await create.POST(req("POST", errands))).status, 200);
@@ -235,7 +235,7 @@ test("submit: errands, or a Catering Event whose deal has its miles, queue no Re
   assert.equal(db.rows("quote_jobs").length, 0);
 });
 
-test("submit: when the Recalculate cannot be queued the trip is still Submitted and the Approvers told", async () => {
+test("submit: when the miles recalculation cannot be queued the trip is still Submitted and the Approvers told", async () => {
   noMilesOn501();
   db.missingTables = ["quote_jobs"];
   db.signIn(DONTE);

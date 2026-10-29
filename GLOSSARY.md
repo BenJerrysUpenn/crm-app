@@ -26,7 +26,7 @@ _Avoid_: Deal (in staff-facing language), job, gig
 Miles driven in a staff member's own car for a Reason, either typed by them or computed from the stops they enter.
 
 **Mileage rate**:
-The IRS business standard mileage rate in effect on the trip date. For a Catering Event, never more per mile than the event's quote charged the customer: a quote that charged mileage caps it at its per-mile rate; a quote that charged no mileage caps it at 0c, as does one that charged mileage on a deal with no round-trip miles until the miles land (the time app queues the CRM's Recalculate for that deal); no quote and the Uber flat fee do not cap it (time-app migrations 49 and 50).
+The IRS business standard mileage rate in effect on the trip date. For a Catering Event, never more per mile than the event's quote charged the customer: a quote that charged mileage caps it at its per-mile rate; a quote that charged no mileage caps it at 0c, as does one that charged mileage on a deal with no round-trip miles until the miles land (the time app queues a miles-only recalculation for that deal, `quote_jobs` kind `miles`); no quote and the Uber flat fee do not cap it (time-app migrations 49 and 50).
 _Avoid_: House rate
 
 **Adjustment**:

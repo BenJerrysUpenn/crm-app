@@ -26,7 +26,7 @@ const MAX_REASON = 500;
 //                         Mileage rate for the trip date: no total (42); and
 //                         for a Catering Event whose quote charged mileage but
 //                         whose deal has no round-trip miles, until the
-//                         automatic Recalculate fills them (its miles would
+//                         automatic miles recalculation fills them (its miles would
 //                         pay 0c; the owner, 2026-10-29). A quote that charged
 //                         no mileage is 0c on purpose and is approved as usual.
 //   reject                Submitted -> Rejected, with a reason the employee is told.

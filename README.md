@@ -269,15 +269,20 @@ deal's round-trip miles to the half cent), and the payable view and `lib/reimbur
 of the two. A quote that is not the Uber flat fee and charged $0 mileage, or has no mileage line, caps at 0c:
 it charged the customer nothing (owner's ruling 2026-10-29). A quote that charged mileage on a deal with no
 round-trip miles also caps at 0c, never more than charged, until the miles land; the trip is
-priced when read, so it reprices until paid. Submitting such a trip, or loading the Approver's queue, queues the
-CRM's Recalculate for that deal (the same `quote_jobs` row the button inserts, kind `retriage`, with the service
-role; `lib/reimbursements/milesRecalc.ts`): none while one is pending or running, and at most one per deal an
+priced when read, so it reprices until paid. Submitting such a trip, or loading the Approver's queue, queues a
+miles recalculation for that deal: a `quote_jobs` row of kind `miles`, with the service role
+(`lib/reimbursements/milesRecalc.ts`). Catering-Manager's quote worker writes the deal's round-trip miles from the
+venue address and changes nothing else on the deal (owner's ruling 2026-10-29), unlike the CRM's Recalculate
+(`retriage`), which also redoes drive time, staffing and times. The dedupe counts both kinds, since a manager's
+Recalculate fills the miles too: none while one is pending or running, and at most one per deal an
 hour. When the last one did not find the miles, staff and the Approver are told a manager should check the venue
 address. Meanwhile the decide route refuses Approve and Paid outside payroll
 on that trip (`decideRefusal` in `lib/reimbursements/money.ts`; the queue disables the same buttons), unless the
 trip has no miles or carries a Mileage Adjustment; Send back, Reject and Adjust are never refused. Staff and the Approver see why a trip's miles pay $0, and tolls
 and parking are paid either way. Deploy the app, then apply migration 49 and then 50 (each has `_verify.sql` and
-`_down.sql` beside it).
+`_down.sql` beside it). The `miles` kind needs Catering-Manager's quote worker with `_process_miles_job`
+pulled first and its migration 027 applied, before this app deploys: an older worker would treat `miles` as a quote
+job, and before 027 the insert fails its CHECK (logged; the trip stays refused).
 
 Setup, in the `time` Vercel project:
 

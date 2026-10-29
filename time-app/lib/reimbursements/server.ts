@@ -27,7 +27,7 @@ import { FIELD_LABEL, approversToNotify, type AdjustmentField, type Person, type
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
 import { BUCKET, type ReasonValue, type ReimbursementValue } from "./submission";
 import { routeEnds, routeMiles, type RouteEnds, type RouteResult } from "./routeMiles";
-import { RECALC_KIND, RECALC_REQUESTED_BY, noMilesDeals, planRecalc, type RecalcJob, type RecalcPlan } from "./milesRecalc";
+import { MILES_JOB_KINDS, RECALC_KIND, RECALC_REQUESTED_BY, noMilesDeals, planRecalc, type RecalcJob, type RecalcPlan } from "./milesRecalc";
 
 export const NEEDS_MIGRATION = "Travel Reimbursements need migration 37 in Supabase.";
 
@@ -174,7 +174,7 @@ export function withAmounts(rows: ReimbursementRow[], rates: MileageRate[], adju
 /**
  * After a submit or resubmit: one row's total for the Approvers' notice, at
  * its Catering Event's cap (null when the cap could not be read); and when
- * that deal has no round-trip miles, one Recalculate queued for it
+ * that deal has no round-trip miles, one miles recalculation queued for it
  * (recalculateMissingMiles).
  */
 export async function afterSubmit(db: Db, row: ReimbursementRow, rates: MileageRate[]): Promise<number | null> {
@@ -185,15 +185,15 @@ export async function afterSubmit(db: Db, row: ReimbursementRow, rates: MileageR
   return priced.amounts.total_cents;
 }
 
-// ---------- Recalculate for a deal with no round-trip miles (./milesRecalc.ts) -------------
+// ---------- miles recalculation for a deal with no round-trip miles (./milesRecalc.ts) -------------
 
 /** One deal's plan, and what queueing did: the new job's id, or why it was not queued. */
 export type RecalcOutcome = RecalcPlan & { queued_job_id: number | null; error: string | null };
 
 /**
  * For each deal (none of which has round-trip miles), the plan from its
- * Recalculate jobs, and with `queue`, the job queued where the plan says so:
- * the same quote_jobs row the CRM's Recalculate button inserts. Service role:
+ * miles jobs ('miles' or the CRM's 'retriage'), and with `queue`, a 'miles'
+ * job queued where the plan says so: round-trip miles only. Service role:
  * staff cannot read deals or quote_jobs. Never throws, and a failure leaves
  * the trip as it is (still refused, still repriced on every read): a deal
  * whose jobs could not be read is left out, one whose insert failed carries
@@ -207,9 +207,9 @@ export async function recalculateMissingMiles(
   if (!dealIds.length) return out;
   try {
     const admin = createAdminClient();
-    const { data, error } = await admin.from("quote_jobs").select("id, deal_id, status, created_at").eq("kind", RECALC_KIND).in("deal_id", dealIds);
+    const { data, error } = await admin.from("quote_jobs").select("id, deal_id, status, created_at").in("kind", [...MILES_JOB_KINDS]).in("deal_id", dealIds);
     if (error) {
-      console.error(`Recalculate jobs could not be read: ${error.message}`);
+      console.error(`Miles jobs could not be read: ${error.message}`);
       return out;
     }
     const jobs = ((data ?? []) as RecalcJob[]).map((j) => ({ ...j, id: Number(j.id), deal_id: Number(j.deal_id) }));
@@ -223,19 +223,19 @@ export async function recalculateMissingMiles(
           .insert({ deal_id: dealId, status: "pending", kind: RECALC_KIND, requested_by: RECALC_REQUESTED_BY })
           .select("id")
           .single();
-        if (insertError || !job) outcome.error = `Recalculate for deal ${dealId} was not queued: ${insertError?.message ?? "no row returned"}`;
+        if (insertError || !job) outcome.error = `Miles recalculation for deal ${dealId} was not queued: ${insertError?.message ?? "no row returned"}`;
         else outcome.queued_job_id = Number((job as { id: number }).id);
         if (outcome.error) console.error(outcome.error);
       }
       out.set(dealId, outcome);
     }
   } catch (e) {
-    console.error(`Recalculate was not queued: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`Miles recalculation was not queued: ${e instanceof Error ? e.message : String(e)}`);
   }
   return out;
 }
 
-/** The deals among `outcomes` whose last Recalculate finished without finding miles. */
+/** The deals among `outcomes` whose last miles job finished without finding miles. */
 export function recalcFailed(outcomes: ReadonlyMap<number, RecalcOutcome>): Set<number> {
   return new Set(Array.from(outcomes).filter(([, o]) => o.failed).map(([id]) => id));
 }

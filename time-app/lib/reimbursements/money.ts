@@ -55,7 +55,7 @@ export type CapBasis = "no_quote" | "uber_flat_fee" | "quoted_rate" | "quote_der
 
 /**
  * A Catering Event's cap, as the database answers it. recalc_failed: for
- * 'no_miles_on_deal', the deal's last automatic Recalculate finished without
+ * 'no_miles_on_deal', the deal's last automatic miles recalculation finished without
  * finding miles (lib/reimbursements/milesRecalc.ts); absent when unknown.
  */
 export type MileageCap = { cap_cents_per_mile: number | null; basis: CapBasis; recalc_failed?: boolean };

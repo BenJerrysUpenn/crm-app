@@ -34,7 +34,7 @@ async function own(params: Params["params"]) {
 // which resubmits it (bj-finance #210, ruling 20). Changing the miles drops an
 // Adjustment's mileage amount: the new miles need deciding again. A
 // resubmission tells the Approvers, as a new submission does. Either queues a
-// Recalculate for a Catering Event whose deal has no round-trip miles, as
+// Miles recalculation for a Catering Event whose deal has no round-trip miles, as
 // POST does.
 export async function PATCH(request: Request, { params }: Params) {
   const found = await own(params);
@@ -67,7 +67,7 @@ export async function PATCH(request: Request, { params }: Params) {
   if (error) return NextResponse.json({ error: error.message }, { status: 409 });
   if (!data) return NextResponse.json({ error: LOCKED }, { status: 409 });
 
-  // Its total for the notice; a deal with no round-trip miles gets a Recalculate queued (afterSubmit).
+  // Its total for the notice; a deal with no round-trip miles gets a miles recalculation queued (afterSubmit).
   const total = await afterSubmit(supabase, data as ReimbursementRow, rates.rates);
   if (row.status === "rejected") await notifyApprovers(me, data, total);
   return NextResponse.json({ reimbursement: data });

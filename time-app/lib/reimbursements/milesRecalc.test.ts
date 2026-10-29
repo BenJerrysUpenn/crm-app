@@ -1,5 +1,6 @@
-// When a deal with no round-trip miles gets a Recalculate (./milesRecalc.ts;
-// the owner, 2026-10-29): the dedupe on deal_id + kind 'retriage', at most one
+// When a deal with no round-trip miles gets a miles recalculation
+// (./milesRecalc.ts; the owner, 2026-10-29): the dedupe per deal over its
+// miles jobs (kind 'miles' or 'retriage'; server.ts reads both), at most one
 // an hour, and whether the last one failed.
 //
 //   npm test
