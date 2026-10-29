@@ -234,10 +234,22 @@ test("routeMiles: one stop with neither end at the store is refused without call
   assert.equal(g.calls.length, 0);
 });
 
-test("routeMiles: a leg with no distance (same place twice) is 0 mi", async () => {
-  const g = fakeGoogle({ trip: [undefined, 1 * MI], legs: [[undefined], [1 * MI]] });
-  const r = await routeMiles(["218 S 40th St", "Venue"], { start_at_store: true, end_at_store: false }, { apiKey: "k", fetchImpl: g.fetchImpl });
-  assert.equal(r.ok && r.miles, 1);
+test("routeMiles: a leg with no distance (same place twice) is 0 mi, from either request", async () => {
+  const oneWay = { start_at_store: true, end_at_store: false };
+  const want = {
+    ok: true,
+    miles: 1,
+    legs: [
+      { from: STORE_ADDRESS, to: "218 S 40th St", miles: 0 },
+      { from: "218 S 40th St", to: "Venue", miles: 1 },
+    ],
+  };
+  // Only (a) answers the first leg (the whole-trip request fails), and leaves its distance out.
+  const a = fakeGoogle({ trip: 500, legs: [[undefined], [1 * MI]] });
+  assert.deepEqual(await routeMiles(["218 S 40th St", "Venue"], oneWay, { apiKey: "k", fetchImpl: a.fetchImpl }), want);
+  // Only (b) answers the first leg (its own request is down), and leaves its distance out.
+  const b = fakeGoogle({ trip: [undefined, 1 * MI], legs: ["down", [1 * MI]] });
+  assert.deepEqual(await routeMiles(["218 S 40th St", "Venue"], oneWay, { apiKey: "k", fetchImpl: b.fetchImpl }), want);
 });
 
 test("routeMiles: no key says so without calling Google", async () => {
