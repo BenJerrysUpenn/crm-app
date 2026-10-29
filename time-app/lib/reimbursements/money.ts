@@ -238,15 +238,38 @@ export function amountsBeforeAdjustments(
   return { before: reimbursementCents({ ...r, tolls_cents: tolls, parking_cents: parking, mileage_cents_override: null }, rates), adjusted };
 }
 
+/** What approveRefusal and noMilesRefusal read of a reimbursement: its amounts, miles and cap. */
+export type Approvable = Pick<Priceable, "trip_date" | "miles" | "mileage_cents_override"> & {
+  amounts: Pick<Amounts, "total_cents">;
+  mileage_cap?: MileageCap | null;
+};
+
+/**
+ * Why a Catering Event trip may not be approved or paid yet, or null: its
+ * quote charged mileage but its deal has no round-trip miles
+ * ('no_miles_on_deal'), so its miles price at 0c until a manager enters them
+ * (the owner, 2026-10-29: never pay a 0c trip by mistake). `next` is the step
+ * after entering them, e.g. "approve it". Not refused: no miles on the trip
+ * (only tolls or parking, which the cap does not touch), or a Mileage
+ * Adjustment, which an Approver made with evidence and which replaces the
+ * capped amount. 'no_rate_on_quote' (the quote charged no mileage, 0c on
+ * purpose) is never refused.
+ */
+export function noMilesRefusal(r: Approvable, next: string): string | null {
+  if (r.mileage_cap?.basis !== "no_miles_on_deal" || r.mileage_cents_override != null || !(Number(r.miles) > 0)) return null;
+  return `Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. Enter the event's round-trip miles on the deal, then ${next}.`;
+}
+
 /**
  * Why a reimbursement cannot be approved, or null when it can: with no
- * Mileage rate for its trip date it has no total (ruling 42). The decide
- * route refuses the same.
+ * Mileage rate for its trip date it has no total (ruling 42); a Catering
+ * Event whose deal has no round-trip miles prices its miles at 0c until they
+ * are entered (noMilesRefusal). The decide route refuses the same.
  */
-export function approveRefusal(amounts: Pick<Amounts, "total_cents">, tripDate: string): string | null {
-  return amounts.total_cents == null
-    ? `There is no Mileage rate for ${tripDate}, so it has no total and cannot be approved. Add the IRS rate for that date first.`
-    : null;
+export function approveRefusal(r: Approvable): string | null {
+  if (r.amounts.total_cents == null)
+    return `There is no Mileage rate for ${r.trip_date}, so it has no total and cannot be approved. Add the IRS rate for that date first.`;
+  return noMilesRefusal(r, "approve it");
 }
 
 /** One of the amounts, by Adjustment field: as it stands, or as it was before (rulings 40, 43). Null: Mileage with no rate. */

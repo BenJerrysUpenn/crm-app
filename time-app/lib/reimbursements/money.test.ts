@@ -14,6 +14,7 @@ import {
   amountText,
   amountsBeforeAdjustments,
   approveRefusal,
+  noMilesRefusal,
   centsFromDollars,
   fieldCents,
   dollarsText,
@@ -26,6 +27,7 @@ import {
   reimbursementCents,
   totalText,
   zeroCapText,
+  type MileageCap,
   type MileageRate,
 } from "./money.ts";
 
@@ -278,11 +280,45 @@ test("amountText and totalText: nothing adjusted reads each amount and the total
 
 test("approveRefusal: no Mileage rate for the trip date means no total, so no Approve (ruling 42)", () => {
   const none = reimbursementCents({ ...base, trip_date: "2025-06-01" }, RATES_2026);
-  assert.match(approveRefusal(none, "2025-06-01") ?? "", /no Mileage rate for 2025-06-01/);
-  assert.equal(approveRefusal(reimbursementCents(base, RATES_2026), base.trip_date), null);
+  assert.match(approveRefusal({ ...base, trip_date: "2025-06-01", amounts: none }) ?? "", /no Mileage rate for 2025-06-01/);
+  assert.equal(approveRefusal({ ...base, amounts: reimbursementCents(base, RATES_2026) }), null);
   // An Adjustment to the Mileage gives it a total.
-  const adjusted = reimbursementCents({ ...base, trip_date: "2025-06-01", mileage_cents_override: 1000 }, RATES_2026);
-  assert.equal(approveRefusal(adjusted, "2025-06-01"), null);
+  const overridden = { ...base, trip_date: "2025-06-01", mileage_cents_override: 1000 };
+  assert.equal(approveRefusal({ ...overridden, amounts: reimbursementCents(overridden, RATES_2026) }), null);
+});
+
+test("approveRefusal: a Catering Event whose quote charged mileage but whose deal has no round-trip miles is refused until they are entered (the owner, 2026-10-29)", () => {
+  const noMiles = { cap_cents_per_mile: 0, basis: "no_miles_on_deal" } as const;
+  const priced = (over: { miles?: number; trip_date?: string; mileage_cents_override?: number } = {}, cap: MileageCap | null = noMiles) => {
+    const r = { ...base, ...over, cap_cents_per_mile: cap?.cap_cents_per_mile ?? null };
+    return { ...r, mileage_cap: cap, amounts: reimbursementCents(r, RATES_2026) };
+  };
+  const refused = approveRefusal(priced());
+  assert.equal(
+    refused,
+    "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. Enter the event's round-trip miles on the deal, then approve it.",
+  );
+  assert.equal(priced().amounts.mileage_cents, 0, "it is refused because its miles price at 0c");
+  // Once a manager enters the deal's miles the cap is the quote's rate and it is approved.
+  assert.equal(approveRefusal(priced({}, { cap_cents_per_mile: 72, basis: "quote_derived" })), null);
+  // A quote that charged no mileage is 0c on purpose: approved, tolls and parking pay.
+  const walkable = priced({}, { cap_cents_per_mile: 0, basis: "no_rate_on_quote" });
+  assert.equal(approveRefusal(walkable), null);
+  assert.equal(walkable.amounts.total_cents, 1200);
+  // No miles on the trip: the cap prices nothing, so tolls and parking are approved.
+  assert.equal(approveRefusal(priced({ miles: 0 })), null);
+  // A Mileage Adjustment replaces the capped amount: the Approver set it, with evidence.
+  assert.equal(approveRefusal(priced({ mileage_cents_override: 1500 })), null);
+  // No rate for the trip date is said first: there is no total at all.
+  assert.match(approveRefusal(priced({ trip_date: "2025-06-01" })) ?? "", /no Mileage rate for 2025-06-01/);
+  // Errands and deals without a cap are never refused for it.
+  assert.equal(approveRefusal(priced({}, null)), null);
+});
+
+test("noMilesRefusal: names the step after entering the deal's miles", () => {
+  const r = { ...base, mileage_cap: { cap_cents_per_mile: 0, basis: "no_miles_on_deal" as const }, amounts: { total_cents: 1200 } };
+  assert.match(noMilesRefusal(r, "mark it Paid outside payroll") ?? "", /Enter the event's round-trip miles on the deal, then mark it Paid outside payroll\.$/);
+  assert.equal(noMilesRefusal({ ...r, mileage_cap: { cap_cents_per_mile: 0, basis: "no_rate_on_quote" } }, "approve it"), null);
 });
 
 test("fieldCents and dollarsText: the Adjust panel shows and pre-fills the current amount (ruling 43)", () => {

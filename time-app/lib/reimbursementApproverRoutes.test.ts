@@ -435,3 +435,64 @@ test("approve: when the cap cannot be read nothing is written and the route says
   assert.equal(res.status, 503);
   assert.equal(r1().status, "submitted");
 });
+
+// ---------- no round-trip miles on the deal: not approved until a manager enters them (the owner, 2026-10-29) ----------
+
+const NO_MILES = "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. Enter the event's round-trip miles on the deal, then approve it.";
+
+test("approve: a quote that charged mileage on a deal with no round-trip miles is refused and stays Submitted; once the miles are entered it is approved", async () => {
+  let basis = "no_miles_on_deal";
+  db.rpc.event_mileage_caps = () => [{ deal_id: 501, cap_cents_per_mile: basis === "no_miles_on_deal" ? 0 : 72, basis }];
+  db.signIn(MANAGER);
+  const res = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal(res.status, 409);
+  assert.equal((await res.json()).error, NO_MILES);
+  assert.equal(r1().status, "submitted");
+  assert.equal(r1().decided_by, null);
+  assert.equal(resendMails().length, 0, "no Receipts go to receipts@ for a refused approval");
+  // A manager enters the deal's round-trip miles: the cap is the quote's rate.
+  basis = "quote_derived";
+  const ok = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal(ok.status, 200);
+  assert.equal(r1().status, "approved");
+  assert.equal((await ok.json()).reimbursement.amounts.mileage_cents, 720);
+});
+
+test("approve: a quote that charged no mileage is 0c on purpose and is approved, tolls and parking paid", async () => {
+  db.rpc.event_mileage_caps = () => [{ deal_id: 501, cap_cents_per_mile: 0, basis: "no_rate_on_quote" }];
+  db.signIn(MANAGER);
+  const res = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal(res.status, 200);
+  assert.equal(r1().status, "approved");
+  const { reimbursement } = await res.json();
+  assert.equal(reimbursement.amounts.mileage_cents, 0);
+  assert.equal(reimbursement.amounts.total_cents, 1250);
+});
+
+test("approve: no round-trip miles on the deal does not refuse a trip with no miles, nor one whose Mileage an Approver adjusted", async () => {
+  db.rpc.event_mileage_caps = () => [{ deal_id: 501, cap_cents_per_mile: 0, basis: "no_miles_on_deal" }];
+  db.tables.travel_reimbursements = [row({ miles: 0 }), row({ id: 2, mileage_cents_override: 650 })];
+  db.signIn(MANAGER);
+  assert.equal((await decide.POST(post({ action: "approve" }), ID)).status, 200);
+  const adjusted = await decide.POST(post({ action: "approve" }), { params: { id: "2" } });
+  assert.equal(adjusted.status, 200);
+  assert.equal((await adjusted.json()).reimbursement.amounts.mileage_cents, 650);
+});
+
+test("no round-trip miles on the deal: reject, send back and Adjust still work; an owner's Approved one is not marked Paid outside payroll", async () => {
+  db.rpc.event_mileage_caps = () => [{ deal_id: 501, cap_cents_per_mile: 0, basis: "no_miles_on_deal" }];
+  db.tables.travel_reimbursements = [row({ profile_id: OWNER, status: "approved" }), row({ id: 2, status: "approved" }), row({ id: 3 })];
+  db.signIn(OWNER2);
+  const paid = await decide.POST(post({ action: "paid_outside_payroll" }), ID);
+  assert.equal(paid.status, 409);
+  assert.match((await paid.json()).error, /Enter the event's round-trip miles on the deal, then mark it Paid outside payroll\.$/);
+  assert.equal(r1().status, "approved");
+  assert.equal(r1().paid_on, null);
+  assert.equal((await decide.POST(post({ action: "send_back" }), { params: { id: "2" } })).status, 200);
+  assert.equal((await decide.POST(post({ action: "reject", reason: "Wrong event." }), { params: { id: "3" } })).status, 200);
+  db.storage["travel-reimbursements/adjustments/1/9-e.png"] = new TextEncoder().encode("evidence");
+  const adj = await adjust.POST(post({ ...adjustment, field: "mileage", amount: "7.20" }), ID);
+  assert.equal(adj.status, 200);
+  assert.equal((await decide.POST(post({ action: "paid_outside_payroll" }), ID)).status, 200, "a Mileage Adjustment replaces the 0c amount");
+  assert.equal(r1().status, "paid_outside_payroll");
+});
