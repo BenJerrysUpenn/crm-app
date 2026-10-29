@@ -245,10 +245,11 @@ describe("the cart storage hour on a DST changeover day", () => {
   it("keeps the cart hour exactly an hour even in the small hours of a changeover", () => {
     // Pinned as an invariant rather than as absolute instants. A departure at
     // 04:00 on a changeover morning never happens for catering, and in that
-    // window nyWallTimeToUTCISO resolves the wall time an hour off (a
-    // pre-existing single-pass-offset quirk, unrelated to the cart). Whatever
-    // instant it picks, the cart start must sit exactly one hour before the
-    // non-cart start and the end must not move.
+    // window the Eastern wall-time helper (easternWallTimeToUTCISO in
+    // lib/dateFormat.ts) resolves the wall time an hour off (a pre-existing
+    // single-pass-offset quirk, unrelated to the cart). Whatever instant it
+    // picks, the cart start must sit exactly one hour before the non-cart
+    // start and the end must not move.
     for (const event_date of ["2027-03-14", "2026-11-01"]) {
       const deal = { ...GARDEN, event_date, departure_time: "04:00", labor_hours: 6 };
       const plain = computeShiftWindow({ ...deal, cart_service: 0 })!;
