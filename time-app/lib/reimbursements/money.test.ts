@@ -174,6 +174,13 @@ test("mileageRateText: says whether the rate is the IRS rate or what the quote c
   assert.match(mileageRateText({ rate: 0, capped: true }, { cap_cents_per_mile: 0, basis: "no_rate_on_quote" }), /^0¢\/mi: the Catering Event's quote charged the customer no mileage/);
 });
 
+test("mileageRateText: the form's estimate, given the event's cap, gives the 0c reason only for a 0c cap", () => {
+  // The form passes the event's cap whatever it is; only a 0c cap changes the wording.
+  assert.match(mileageRateText({ rate: 0, capped: true }, { cap_cents_per_mile: 0, basis: "no_miles_on_deal" }), /^0¢\/mi: the Catering Event's quote charged mileage, but its deal has no round-trip miles/);
+  assert.equal(mileageRateText({ rate: 72.5, capped: true }, { cap_cents_per_mile: 72.5, basis: "quote_derived" }), "72.5¢/mi, what the Catering Event's quote charged per mile (below the IRS rate)");
+  assert.equal(mileageRateText({ rate: 76, capped: false }, { cap_cents_per_mile: 90.5, basis: "quote_derived" }), "76¢/mi, the IRS rate for the trip date");
+});
+
 test("centsFromDollars: typed amounts become integer cents", () => {
   assert.equal(centsFromDollars("12.50"), 1250);
   assert.equal(centsFromDollars("$4"), 400);
