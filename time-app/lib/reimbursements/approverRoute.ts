@@ -5,7 +5,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { isMissingTable } from "@/lib/storeHours";
 import { NextResponse } from "next/server";
-import { NEEDS_MIGRATION, capDealIds, loadMileageCaps, loadRates, profileLite, readError, withAmounts, type AdjustmentRow, type MileageCaps, type ReimbursementRow, type WithAmounts } from "./server";
+import { NEEDS_MIGRATION, loadMileageCaps, loadRates, profileLite, readError, withAmounts, type AdjustmentRow, type MileageCaps, type ReimbursementRow, type WithAmounts } from "./server";
 import type { MileageRate } from "./money";
 
 /** A write that found the reimbursement no longer as the Approver read it (409). */
@@ -36,7 +36,7 @@ export async function approverContext(idParam: string): Promise<Ok | { res: Next
   const subject = await profileLite((data as ReimbursementRow).profile_id);
   if (!subject) return { res: NextResponse.json({ error: "Its staff member was not found" }, { status: 404 }) };
   const found = data as ReimbursementRow;
-  const caps = await loadMileageCaps(supabase, capDealIds([found]));
+  const caps = await loadMileageCaps(supabase, [found]);
   if (!caps.ok) return { res: NextResponse.json({ error: caps.error }, { status: 503 }) };
   const [row] = withAmounts([data as ReimbursementRow], rates.rates, (adj ?? []) as AdjustmentRow[], caps.caps);
   return { row, subject, rates: rates.rates, caps: caps.caps, supabase };

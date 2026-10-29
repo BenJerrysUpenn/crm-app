@@ -118,13 +118,15 @@ export async function loadRates(db: Db): Promise<{ ok: true; rates: MileageRate[
 /** The caps, by deal id (event_mileage_caps()). */
 export type MileageCaps = ReadonlyMap<number, MileageCap>;
 
+type LoadedCaps = { ok: true; caps: MileageCaps } | { ok: false; error: string };
+
 /**
  * Each deal's cap per mile: the most a staff mile on its Catering Event pays,
  * from what its quote charged the customer (event_mileage_caps(), migration
  * 49, which reads the quotes staff cannot). Before migration 49 there is no
  * such function and no cap, so every trip is at the IRS rate, as it was.
  */
-export async function loadMileageCaps(db: Db, dealIds: (number | null)[]): Promise<{ ok: true; caps: MileageCaps } | { ok: false; error: string }> {
+async function capsByDeal(db: Db, dealIds: (number | null)[]): Promise<LoadedCaps> {
   const ids = Array.from(new Set(dealIds.filter((d): d is number => d != null)));
   if (!ids.length) return { ok: true, caps: new Map() };
   const { data, error } = await db.rpc("event_mileage_caps", { p_deal_ids: ids });
@@ -146,9 +148,9 @@ function capDeal(r: CapKey): number | null {
   return r.reason_kind === "catering_event" ? r.deal_id : null;
 }
 
-/** The deals whose caps these rows are priced under, for loadMileageCaps. */
-export function capDealIds(rows: CapKey[]): (number | null)[] {
-  return rows.map(capDeal);
+/** The caps these rows are priced under, by deal id: their Catering Events' (errands have none). */
+export function loadMileageCaps(db: Db, rows: CapKey[]): Promise<LoadedCaps> {
+  return capsByDeal(db, rows.map(capDeal));
 }
 
 /** A row's cap: its Catering Event's, or null for errands or a deal the database did not answer for. */
@@ -172,7 +174,7 @@ export function withAmounts(rows: ReimbursementRow[], rates: MileageRate[], adju
 
 /** One row's total for a notice, at its Catering Event's cap; null when the cap could not be read. */
 export async function totalForNotice(db: Db, row: ReimbursementRow, rates: MileageRate[]): Promise<number | null> {
-  const caps = await loadMileageCaps(db, capDealIds([row]));
+  const caps = await loadMileageCaps(db, [row]);
   if (!caps.ok) return null;
   return withAmounts([row], rates, [], caps.caps)[0].amounts.total_cents;
 }
@@ -197,7 +199,7 @@ export async function listCateringEvents(
     .order("event_date", { ascending: false });
   if (error) return { ok: false, error: error.message };
   const events = cateringEventsFromDeals((data ?? []) as EventDeal[], today);
-  const caps = await loadMileageCaps(admin, events.map((e) => e.id));
+  const caps = await capsByDeal(admin, events.map((e) => e.id));
   if (!caps.ok) return caps;
   return { ok: true, events: events.map((e) => ({ ...e, mileage_cap: caps.caps.get(e.id) ?? null })) };
 }
