@@ -114,10 +114,11 @@ test("routeMiles: each leg pays the shortest of Google's routes, not the default
       { from: "Venue", to: STORE_ADDRESS, miles: 2.3 },
     ],
   });
-  // Rounding comes after the choice: 24.34 and 24.26 both round to 24.3, but the shorter is 24.26.
-  const close = fakeRoutes([[24.34 * MI, 24.26 * MI, 24.31 * MI]]);
+  // Routes that straddle a 0.1 mi rounding step: the default (24.36) would pay 24.4 and the last
+  // alternative (24.31) 24.3; the leg pays the shortest, 24.24, rounded: 24.2.
+  const close = fakeRoutes([[24.36 * MI, 24.24 * MI, 24.31 * MI]]);
   const one = await routeMiles(["Far venue"], { start_at_store: true, end_at_store: false }, { apiKey: "k", fetchImpl: close.fetchImpl });
-  assert.equal(one.ok && one.miles, 24.3);
+  assert.equal(one.ok && one.miles, 24.2);
 });
 
 test("routeMiles: a one-way trip is one call, store to the stop", async () => {
