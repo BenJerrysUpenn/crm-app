@@ -10,7 +10,7 @@ const FAKE_PROSPECT: CallDeskProspect = {
   prospect_id: 0,
   name: "Jordan Sample",
   company: "Example Square Partners",
-  email: "dana.whitfield@example.com",
+  email: "jordan.sample@example.com",
   phone: "(215) 555-0142",
 };
 

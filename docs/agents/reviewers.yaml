@@ -128,6 +128,14 @@ documentation_map:
     docs: [docs/call-desk.md, docs/manual-deal-intake.md]
   - paths: ["lib/dateFormat.ts", "lib/boomerang.ts", "components/MessageTimeline.tsx", "lib/callLog.ts", "app/api/deals/*/calls/**"]
     docs: [README.md]
+  - paths: ["app/api/unsubscribe/**", "lib/outreach/unsubscribeToken.ts", "lib/outreach/unsubscribePage.ts", "supabase/crm/005_unsubscribe.sql"]
+    docs: [docs/unsubscribe.md, README.md]
+  - paths: ["lib/callDesk/compliance.ts", "app/api/call-desk/prospects/*/calls/**", "app/call-desk/dnc-import/**", "components/callDesk/DncImportForm.tsx", "app/api/call-desk/dnc/import/**", "components/callDesk/DispositionSheet.tsx", "app/api/call-desk/calls/*/recording-url/**", "components/callDesk/RecordingUploader.tsx", "supabase/crm/003_*.sql"]
+    docs: [docs/call-desk-do-not-call-policy.md]
+  - paths: ["indeed-cv-downloader/indeed_downloader.py", "indeed-cv-downloader/requirements.txt", "indeed-cv-downloader/.env.example"]
+    docs: [indeed-cv-downloader/README.md]
+  - paths: ["supabase/crm/backfills/*.py"]
+    docs: [supabase/crm/backfills/README.md]
 
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
@@ -164,8 +172,6 @@ exclusions:
       ground truth, since one-click unsubscribe is a legal obligation — but #496 named
       three documents and a reviewer never widens its own closed set. Promoting it is a
       human's edit to this file.
-  - path: CATERING-CRON-SETUP.md
-    why: A one-time operator setup guide.
   - path: time-app/SETUP-GUIDE.md
     why: A one-time operator setup guide for a separate application in this repo.
   - path: time-app/ALEX-CRON-SETUP.md
