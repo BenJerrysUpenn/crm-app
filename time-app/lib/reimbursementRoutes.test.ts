@@ -188,6 +188,75 @@ test("events and submit: each Catering Event carries its cap a mile, and the App
   for (const n of notices) assert.match(String(n.body), /\$7\.25\./, "10 mi at the quote's 72.5c");
 });
 
+// ---------- a deal with no round-trip miles gets a Recalculate (the owner, 2026-10-29) ----------
+
+/** 501's quote charged mileage but the deal has no round-trip miles; every other deal is capped at its quote's rate. */
+function noMilesOn501() {
+  db.rpc.event_mileage_caps = (args) =>
+    ((args.p_deal_ids as number[]) ?? []).map((id) => (id === 501 ? { deal_id: id, cap_cents_per_mile: 0, basis: "no_miles_on_deal" } : { deal_id: id, cap_cents_per_mile: 72.5, basis: "quote_derived" }));
+}
+const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+
+test("submit: a Catering Event whose deal has no round-trip miles queues one Recalculate for the deal, the row the CRM's button inserts", async () => {
+  noMilesOn501();
+  db.signIn(DONTE);
+  const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
+  assert.equal(res.status, 200);
+  const jobs = db.rows("quote_jobs");
+  assert.deepEqual(
+    jobs.map(({ deal_id, status, kind, requested_by }) => ({ deal_id, status, kind, requested_by })),
+    [{ deal_id: 501, status: "pending", kind: "retriage", requested_by: "withers-time:no-miles-on-deal" }],
+  );
+  // Written with the service role: staff cannot touch quote_jobs (lib/testing/fakeSupabase.ts).
+  const { createClient } = await loadAppModule<typeof import("./supabase/server.ts")>("lib/supabase/server.ts");
+  assert.deepEqual((await createClient().from("quote_jobs").select("*")).data, []);
+  // A second trip on the same event while it is pending queues none.
+  assert.equal((await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }))).status, 200);
+  assert.equal(db.rows("quote_jobs").length, 1);
+});
+
+test("submit: once a Recalculate has finished without miles, the next is queued only an hour after it", async () => {
+  noMilesOn501();
+  db.tables.quote_jobs = [{ id: 7, deal_id: 501, status: "error", kind: "retriage", created_at: minutesAgo(20), requested_by: null }];
+  db.signIn(DONTE);
+  const trip = { ...errands, reason: { kind: "catering_event", event_id: 501 } };
+  assert.equal((await create.POST(req("POST", trip))).status, 200);
+  assert.equal(db.rows("quote_jobs").length, 1, "20 minutes since the last");
+  db.tables.quote_jobs[0].created_at = minutesAgo(60);
+  assert.equal((await create.POST(req("POST", trip))).status, 200);
+  assert.deepEqual(db.rows("quote_jobs").map((j) => [j.id, j.status]), [[7, "error"], [8, "pending"]]);
+});
+
+test("submit: errands, or a Catering Event whose deal has its miles, queue no Recalculate", async () => {
+  noMilesOn501();
+  db.signIn(DONTE);
+  assert.equal((await create.POST(req("POST", errands))).status, 200);
+  assert.equal((await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 505 } }))).status, 200);
+  assert.equal(db.rows("quote_jobs").length, 0);
+});
+
+test("submit: when the Recalculate cannot be queued the trip is still Submitted and the Approvers told", async () => {
+  noMilesOn501();
+  db.missingTables = ["quote_jobs"];
+  db.signIn(DONTE);
+  const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
+  assert.equal(res.status, 200);
+  assert.equal(db.rows("travel_reimbursements")[0].status, "submitted");
+  assert.ok(db.rows("notifications").some((n) => n.title === "Travel Reimbursement submitted"));
+});
+
+test("edit: moving a trip onto, or resubmitting one on, a deal with no round-trip miles queues its Recalculate", async () => {
+  noMilesOn501();
+  db.tables.travel_reimbursements.push(row(), row({ id: 2, status: "rejected", rejection_reason: "Which event?" }));
+  db.signIn(DONTE);
+  const onto501 = { ...errands, reason: { kind: "catering_event", event_id: 501 } };
+  assert.equal((await one.PATCH(req("PATCH", onto501), { params: { id: "1" } })).status, 200);
+  assert.deepEqual(db.rows("quote_jobs").map((j) => j.deal_id), [501]);
+  db.tables.quote_jobs = [];
+  assert.equal((await one.PATCH(req("PATCH", onto501), { params: { id: "2" } })).status, 200);
+  assert.deepEqual(db.rows("quote_jobs").map((j) => j.deal_id), [501]);
+});
+
 test("events: before migration 49 every Catering Event has no cap", async () => {
   db.signIn(DONTE);
   const listed = await (await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events"))).json();

@@ -28,7 +28,8 @@
 // (migration 37) are read as their policies say: your own, or all for a
 // manager. shift_notices and shift_digests (migration 38), and
 // availability_notices and availability_digests (migration 48), are the service
-// role's alone. metric_views and metric_preferences (migration 39) are a
+// role's alone, and so, for the time app, is quote_jobs. metric_views and
+// metric_preferences (migration 39) are a
 // manager's own rows only, and two live views of one person cannot share a
 // name (23505). control_settings and profile_salaries (migration 43): a
 // manager reads, only an owner adds a row, nobody changes or removes one, and
@@ -245,7 +246,10 @@ const OWN_ROWS: Record<string, string> = {
 
 // Migration 38: no API role but the service role touches these.
 // Migration 48: availability_notices and availability_digests likewise.
-const SERVICE_ONLY = ["shift_notices", "shift_digests", "availability_notices", "availability_digests"];
+// quote_jobs (Catering-Manager's job queue, where the CRM's Recalculate goes):
+// no time-app session reads or writes it; the app uses the service role
+// (lib/reimbursements/milesRecalc.ts), so a test proves it did.
+const SERVICE_ONLY = ["shift_notices", "shift_digests", "availability_notices", "availability_digests", "quote_jobs"];
 
 // Migration 39: a manager's own rows, and only a manager's.
 const MANAGER_OWN_ROWS: Record<string, string> = { metric_views: "owner_id", metric_preferences: "owner_id" };

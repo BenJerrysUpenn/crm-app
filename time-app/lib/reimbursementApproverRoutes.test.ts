@@ -436,11 +436,11 @@ test("approve: when the cap cannot be read nothing is written and the route says
   assert.equal(r1().status, "submitted");
 });
 
-// ---------- no round-trip miles on the deal: not approved until a manager enters them (the owner, 2026-10-29) ----------
+// ---------- no round-trip miles on the deal: not approved until the recalculated miles land (the owner, 2026-10-29) ----------
 
-const NO_MILES = "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. Enter the event's round-trip miles on the deal, then approve it.";
+const NO_MILES = "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. They are being recalculated automatically; once they are in, approve it.";
 
-test("approve: a quote that charged mileage on a deal with no round-trip miles is refused and stays Submitted; once the miles are entered it is approved", async () => {
+test("approve: a quote that charged mileage on a deal with no round-trip miles is refused and stays Submitted; once the miles land it is approved", async () => {
   let basis = "no_miles_on_deal";
   db.rpc.event_mileage_caps = () => [{ deal_id: 501, cap_cents_per_mile: basis === "no_miles_on_deal" ? 0 : 72, basis }];
   db.signIn(MANAGER);
@@ -450,7 +450,7 @@ test("approve: a quote that charged mileage on a deal with no round-trip miles i
   assert.equal(r1().status, "submitted");
   assert.equal(r1().decided_by, null);
   assert.equal(resendMails().length, 0, "no Receipts go to receipts@ for a refused approval");
-  // A manager enters the deal's round-trip miles: the cap is the quote's rate.
+  // The Recalculate fills the deal's round-trip miles: the cap is the quote's rate.
   basis = "quote_derived";
   const ok = await decide.POST(post({ action: "approve" }), ID);
   assert.equal(ok.status, 200);
@@ -485,7 +485,7 @@ test("no round-trip miles on the deal: reject, send back and Adjust still work; 
   db.signIn(OWNER2);
   const paid = await decide.POST(post({ action: "paid_outside_payroll" }), ID);
   assert.equal(paid.status, 409);
-  assert.match((await paid.json()).error, /Enter the event's round-trip miles on the deal, then mark it Paid outside payroll\.$/);
+  assert.match((await paid.json()).error, /recalculated automatically; once they are in, mark it Paid outside payroll\.$/);
   assert.equal(r1().status, "approved");
   assert.equal(r1().paid_on, null);
   assert.equal((await decide.POST(post({ action: "send_back" }), { params: { id: "2" } })).status, 200);

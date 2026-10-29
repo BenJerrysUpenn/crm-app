@@ -53,8 +53,12 @@ export type MileageRate = {
  */
 export type CapBasis = "no_quote" | "uber_flat_fee" | "quoted_rate" | "quote_derived" | "no_miles_on_deal" | "no_rate_on_quote" | "none";
 
-/** A Catering Event's cap, as the database answers it. */
-export type MileageCap = { cap_cents_per_mile: number | null; basis: CapBasis };
+/**
+ * A Catering Event's cap, as the database answers it. recalc_failed: for
+ * 'no_miles_on_deal', the deal's last automatic Recalculate finished without
+ * finding miles (lib/reimbursements/milesRecalc.ts); absent when unknown.
+ */
+export type MileageCap = { cap_cents_per_mile: number | null; basis: CapBasis; recalc_failed?: boolean };
 
 /** The longest single trip anyone may type, in miles. */
 export const MAX_MILES = 2000;
@@ -97,9 +101,10 @@ export function rateForTrip(
  */
 export function zeroCapText(cap: MileageCap | null | undefined): string | null {
   if (cap?.cap_cents_per_mile == null || Number(cap.cap_cents_per_mile) !== 0) return null;
-  return cap.basis === "no_miles_on_deal"
-    ? "the Catering Event's quote charged mileage, but its deal has no round-trip miles to price it by; a manager can add them, and the trip is repriced until it is paid"
-    : "the Catering Event's quote charged the customer no mileage, so its miles are not reimbursed";
+  if (cap.basis !== "no_miles_on_deal") return "the Catering Event's quote charged the customer no mileage, so its miles are not reimbursed";
+  return cap.recalc_failed
+    ? "the Catering Event's quote charged mileage, but its deal has no round-trip miles to price it by; the automatic recalculation did not find them, so a manager should check the event's venue address, and the trip is repriced until it is paid"
+    : "the Catering Event's quote charged mileage, but its deal has no round-trip miles to price it by yet; they are being recalculated automatically, and the trip is repriced until it is paid";
 }
 
 /**
@@ -247,9 +252,11 @@ export type Approvable = Pick<Priceable, "trip_date" | "miles" | "mileage_cents_
 /**
  * Why a Catering Event trip may not be approved or paid yet, or null: its
  * quote charged mileage but its deal has no round-trip miles
- * ('no_miles_on_deal'), so its miles price at 0c until a manager enters them
- * (the owner, 2026-10-29: never pay a 0c trip by mistake). `next` is the step
- * after entering them, e.g. "approve it". Not refused: no miles on the trip
+ * ('no_miles_on_deal'), so its miles price at 0c until they land (the owner,
+ * 2026-10-29: never pay a 0c trip by mistake; "just recalculate miles"). The
+ * miles are recalculated automatically (./milesRecalc.ts); when the last
+ * recalculation did not find them, a manager should check the venue address.
+ * `next` is the step once they are in, e.g. "approve it". Not refused: no miles on the trip
  * (only tolls or parking, which the cap does not touch), or a Mileage
  * Adjustment, which an Approver made with evidence and which replaces the
  * capped amount. 'no_rate_on_quote' (the quote charged no mileage, 0c on
@@ -257,14 +264,17 @@ export type Approvable = Pick<Priceable, "trip_date" | "miles" | "mileage_cents_
  */
 export function noMilesRefusal(r: Approvable, next: string): string | null {
   if (r.mileage_cap?.basis !== "no_miles_on_deal" || r.mileage_cents_override != null || !(Number(r.miles) > 0)) return null;
-  return `Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. Enter the event's round-trip miles on the deal, then ${next}.`;
+  const why = "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢.";
+  return r.mileage_cap.recalc_failed
+    ? `${why} The automatic recalculation did not find them, so a manager should check the venue address on the deal; once the miles are in, ${next}.`
+    : `${why} They are being recalculated automatically; once they are in, ${next}.`;
 }
 
 /**
  * Why the decide route refuses this action on a reimbursement, or null when
  * it does not. approve: with no Mileage rate for its trip date it has no
  * total (ruling 42); and a Catering Event whose deal has no round-trip miles
- * prices its miles at 0c until they are entered (noMilesRefusal), which also
+ * prices its miles at 0c until they are recalculated (noMilesRefusal), which also
  * refuses paid_outside_payroll. The other actions are never refused here.
  * The queue disables the same buttons with the same words.
  */

@@ -268,8 +268,12 @@ or the Uber flat fee: no cap; else the quote's stored `mileage_rate`, else its t
 deal's round-trip miles to the half cent), and the payable view and `lib/reimbursements/money.ts` pay the lower
 of the two. A quote that is not the Uber flat fee and charged $0 mileage, or has no mileage line, caps at 0c:
 it charged the customer nothing (owner's ruling 2026-10-29). A quote that charged mileage on a deal with no
-round-trip miles also caps at 0c, never more than charged, until a manager enters the miles; the trip is
-priced when read, so it reprices until paid. Meanwhile the decide route refuses Approve and Paid outside payroll
+round-trip miles also caps at 0c, never more than charged, until the miles land; the trip is
+priced when read, so it reprices until paid. Submitting such a trip, or loading the Approver's queue, queues the
+CRM's Recalculate for that deal (the same `quote_jobs` row the button inserts, kind `retriage`, with the service
+role; `lib/reimbursements/milesRecalc.ts`): none while one is pending or running, and at most one per deal an
+hour. When the last one did not find the miles, staff and the Approver are told a manager should check the venue
+address. Meanwhile the decide route refuses Approve and Paid outside payroll
 on that trip (`decideRefusal` in `lib/reimbursements/money.ts`; the queue disables the same buttons), unless the
 trip has no miles or carries a Mileage Adjustment; Send back, Reject and Adjust are never refused. Staff and the Approver see why a trip's miles pay $0, and tolls
 and parking are paid either way. Deploy the app, then apply migration 49 and then 50 (each has `_verify.sql` and

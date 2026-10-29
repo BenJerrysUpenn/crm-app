@@ -9,7 +9,10 @@
 // One with no Mileage rate for its trip date has no total, and a Catering
 // Event whose quote charged mileage but whose deal has no round-trip miles
 // would pay its miles 0c (the owner, 2026-10-29): either shows Approve
-// disabled, with the reason, as the decide route refuses it. An Approved one
+// disabled, with the reason, as the decide route refuses it. Loading the
+// queue queues a Recalculate for that deal (lib/reimbursements/milesRecalc.ts);
+// the reason says so, or that a manager should check the venue address when
+// the last one did not find the miles. An Approved one
 // in the second state says so, and an owner's offers Paid outside payroll
 // disabled the same way. The Adjust panel shows the amount as it stands,
 // pre-filled (43). What leaves the queue (Rejected, Paid, Paid outside

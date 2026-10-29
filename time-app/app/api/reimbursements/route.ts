@@ -3,7 +3,7 @@ import { getProfile } from "@/lib/auth";
 import { dayKey } from "@/lib/format";
 import { isMissingTable } from "@/lib/storeHours";
 import { parseReimbursement } from "@/lib/reimbursements/submission";
-import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission, totalForNotice, type ReimbursementRow } from "@/lib/reimbursements/server";
+import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission, afterSubmit, type ReimbursementRow } from "@/lib/reimbursements/server";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,10 @@ export const dynamic = "force-dynamic";
 // #210). It is Submitted; every Approver who may decide it is told. Tolls or
 // parking with no Receipt answers 409 { confirm: "no_receipt" } until the
 // staff member says yes to "Are you sure there is no receipt?". Destination
-// miles are computed here (Routes API), never taken from the browser.
+// miles are computed here (Routes API), never taken from the browser. A
+// Catering Event whose quote charged mileage but whose deal has no round-trip
+// miles gets one Recalculate queued for that deal (afterSubmit; the owner,
+// 2026-10-29), at most one an hour.
 export async function POST(request: Request) {
   const me = await getProfile();
   if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -43,6 +46,6 @@ export async function POST(request: Request) {
   if (isMissingTable(error)) return NextResponse.json({ error: NEEDS_MIGRATION }, { status: 503 });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  await notifyApprovers(me, data, await totalForNotice(supabase, data as ReimbursementRow, rates.rates));
+  await notifyApprovers(me, data, await afterSubmit(supabase, data as ReimbursementRow, rates.rates));
   return NextResponse.json({ reimbursement: data });
 }

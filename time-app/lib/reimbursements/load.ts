@@ -1,13 +1,30 @@
 // What the two Reimbursements pages read (bj-finance #210). Server-only: each
 // takes the request's Supabase client, so every read runs under the viewer's
-// own RLS (staff their own rows; Approvers everything). Read-only. Before
-// migration 37 a missing table answers { ok: false } and the page says so.
+// own RLS (staff their own rows; Approvers everything). Before migration 37 a
+// missing table answers { ok: false } and the page says so. One write: the
+// Approver's queue queues a Recalculate, with the service role, for each deal
+// with no round-trip miles that an unpaid trip on it is waiting on
+// (./milesRecalc.ts; the owner, 2026-10-29). Both pages read, with the service
+// role, whether that deal's last Recalculate failed, for the words they show.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MileageRate } from "./money";
 import { alsoOnSameEvent } from "./events";
 import { DECIDED_SHOWN, LEFT_QUEUE, ON_QUEUE, decisionOf, isOwner, mayDecide, type Person } from "./lifecycle";
-import { capDealIds, loadMileageCaps, loadRates, readError, withAmounts, type AdjustmentRow, type LyftRow, type ReimbursementRow, type WithAmounts } from "./server";
+import { noMilesDeals, withRecalcState } from "./milesRecalc";
+import {
+  capDealIds,
+  loadMileageCaps,
+  loadRates,
+  readError,
+  recalcFailed,
+  recalculateMissingMiles,
+  withAmounts,
+  type AdjustmentRow,
+  type LyftRow,
+  type ReimbursementRow,
+  type WithAmounts,
+} from "./server";
 
 type Failed = { ok: false; error: string };
 
@@ -37,7 +54,10 @@ export async function loadMine(
   if (badAdj) return badAdj;
   const caps = await loadMileageCaps(db, capDealIds(rows));
   if (!caps.ok) return caps;
-  return { ok: true, reimbursements: withAmounts(rows, rates.rates, (adj.data ?? []) as AdjustmentRow[], caps.caps), lyft: (lyft.data ?? []) as LyftRow[], rates: rates.rates };
+  const priced = withAmounts(rows, rates.rates, (adj.data ?? []) as AdjustmentRow[], caps.caps);
+  // Read only: staff loading their page queue nothing.
+  const recalc = await recalculateMissingMiles(noMilesDeals(priced), { queue: false });
+  return { ok: true, reimbursements: withRecalcState(priced, recalcFailed(recalc)), lyft: (lyft.data ?? []) as LyftRow[], rates: rates.rates };
 }
 
 export type QueueItem = WithAmounts & {
@@ -119,7 +139,10 @@ export async function loadQueue(
   const caps = await loadMileageCaps(db, capDealIds([...rows, ...decidedRows]));
   if (!caps.ok) return caps;
 
-  const items: QueueItem[] = withAmounts(rows, rates.rates, (adj.data ?? []) as AdjustmentRow[], caps.caps).map((r) => {
+  // Every unpaid trip waiting on a deal with no round-trip miles: one Recalculate per deal, at most one an hour.
+  const onQueue = withAmounts(rows, rates.rates, (adj.data ?? []) as AdjustmentRow[], caps.caps);
+  const recalc = await recalculateMissingMiles(noMilesDeals(onQueue), { queue: true });
+  const items: QueueItem[] = withRecalcState(onQueue, recalcFailed(recalc)).map((r) => {
     const subject = byId.get(r.profile_id) ?? { id: r.profile_id, role: "employee", active: true, full_name: null };
     return { ...r, full_name: subject.full_name, owner: isOwner(subject), also: also.get(r.id) ?? [], refused: mayDecide(viewer, subject) };
   });

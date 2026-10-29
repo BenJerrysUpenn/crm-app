@@ -3,8 +3,10 @@
 // DOM (happy-dom) and its buttons clicked, fetch answered here. Pins the
 // owner's rule of 2026-10-29: a Catering Event whose quote charged mileage
 // but whose deal has no round-trip miles shows Approve disabled, with the
-// reason the decide route gives, until a manager enters them; a quote that
-// charged no mileage (0c on purpose) is approved as usual. Invented people.
+// reason the decide route gives, while the miles are recalculated
+// automatically (and, when that failed, says a manager should check the venue
+// address); a quote that charged no mileage (0c on purpose) is approved as
+// usual. Invented people.
 //
 //   npm test
 
@@ -49,7 +51,9 @@ const RATES: MileageRate[] = [{ starts_on: "2030-01-01", cents_per_mile: 76 }];
 const NO_MILES: MileageCap = { cap_cents_per_mile: 0, basis: "no_miles_on_deal" };
 const WALKABLE: MileageCap = { cap_cents_per_mile: 0, basis: "no_rate_on_quote" };
 const REFUSED =
-  "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. Enter the event's round-trip miles on the deal, then approve it.";
+  "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. They are being recalculated automatically; once they are in, approve it.";
+const REFUSED_FAILED =
+  "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. The automatic recalculation did not find them, so a manager should check the venue address on the deal; once the miles are in, approve it.";
 
 /** One queue item on a Catering Event under `cap`, priced as the server prices it. */
 function item(cap: MileageCap | null, over: Partial<QueueItem> = {}): QueueItem {
@@ -126,11 +130,24 @@ test("queue: no round-trip miles on the deal shows Approve disabled with the rea
   }
 });
 
+test("queue: when the deal's last Recalculate did not find miles, Approve stays disabled and the card says a manager should check the venue address", async () => {
+  const q = await mount({ submitted: [item({ ...NO_MILES, recalc_failed: true })] });
+  try {
+    const approve = q.button("Approve");
+    assert.equal(approve.disabled, true);
+    assert.equal(approve.getAttribute("title"), REFUSED_FAILED);
+    assert.ok(q.text().includes(REFUSED_FAILED));
+    assert.ok(!q.text().includes("They are being recalculated automatically"));
+  } finally {
+    await q.unmount();
+  }
+});
+
 test("queue: a quote that charged no mileage is approved as usual", async () => {
   const q = await mount({ submitted: [item(WALKABLE)] });
   try {
     assert.equal(q.button("Approve").disabled, false);
-    assert.ok(!q.text().includes("Enter the event's round-trip miles"));
+    assert.ok(!q.text().includes("once they are in, approve it"));
     await q.click("Approve");
     assert.deepEqual(sent, [{ url: "/api/payroll/reimbursements/1/decide", body: { action: "approve" } }]);
   } finally {
@@ -144,7 +161,7 @@ test("queue: with the deal's miles entered, or the Mileage adjusted, Approve is 
   });
   try {
     assert.deepEqual(q.buttons("Approve").map((b) => b.disabled), [false, false]);
-    assert.equal(q.text().includes("Enter the event's round-trip miles"), false);
+    assert.equal(q.text().includes("once they are in, approve it"), false, "no refusal; the detail may still say why the miles price at 0c");
   } finally {
     await q.unmount();
   }
@@ -166,8 +183,8 @@ test("queue: an Approved one whose deal has no round-trip miles says so; an owne
     viewerIsOwner: true,
   });
   try {
-    assert.ok(q.text().includes("Enter the event's round-trip miles on the deal, then payroll pays it on the next pay table."));
-    assert.ok(q.text().includes("Enter the event's round-trip miles on the deal, then mark it Paid outside payroll."));
+    assert.ok(q.text().includes("They are being recalculated automatically; once they are in, payroll pays it on the next pay table."));
+    assert.ok(q.text().includes("They are being recalculated automatically; once they are in, mark it Paid outside payroll."));
     const paid = q.button("Paid outside payroll");
     assert.equal(paid.disabled, true);
     await q.click("Paid outside payroll");
