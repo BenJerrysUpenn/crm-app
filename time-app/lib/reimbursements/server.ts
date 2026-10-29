@@ -27,7 +27,7 @@ import { FIELD_LABEL, approversToNotify, type AdjustmentField, type Person, type
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
 import { BUCKET, type ReasonValue, type ReimbursementValue } from "./submission";
 import { routeEnds, routeMiles, type RouteEnds, type RouteResult } from "./routeMiles";
-import { MILES_JOB_KINDS, RECALC_KIND, RECALC_REQUESTED_BY, noMilesDeals, planRecalc, type RecalcJob, type RecalcPlan } from "./milesRecalc";
+import { MILES_JOB_KINDS, RECALC_KIND, RECALC_REQUESTED_BY, noMilesDeals, planRecalc, withRecalcState, type RecalcJob } from "./milesRecalc";
 
 export const NEEDS_MIGRATION = "Travel Reimbursements need migration 37 in Supabase.";
 
@@ -181,63 +181,55 @@ export async function afterSubmit(db: Db, row: ReimbursementRow, rates: MileageR
   const caps = await loadMileageCaps(db, capDealIds([row]));
   if (!caps.ok) return null;
   const priced = withAmounts([row], rates, [], caps.caps)[0];
-  await recalculateMissingMiles(noMilesDeals([priced]), { queue: true });
+  await recalculateMissingMiles([priced], { queue: true });
   return priced.amounts.total_cents;
 }
 
 // ---------- miles recalculation for a deal with no round-trip miles (./milesRecalc.ts) -------------
 
-/** One deal's plan, and what queueing did: the new job's id, or why it was not queued. */
-export type RecalcOutcome = RecalcPlan & { queued_job_id: number | null; error: string | null };
-
 /**
- * For each deal (none of which has round-trip miles), the plan from its
- * miles jobs ('miles' or the CRM's 'retriage'), and with `queue`, a 'miles'
- * job queued where the plan says so: round-trip miles only. Service role:
- * staff cannot read deals or quote_jobs. Never throws, and a failure leaves
- * the trip as it is (still refused, still repriced on every read): a deal
- * whose jobs could not be read is left out, one whose insert failed carries
- * the error.
+ * The priced rows, with `recalc_failed` on the cap of each trip whose deal
+ * has no round-trip miles and whose last miles job ('miles' or the CRM's
+ * 'retriage') finished without finding them (withRecalcState); and with
+ * `queue`, a 'miles' job queued for each such deal where planRecalc says so:
+ * round-trip miles only. Service role: staff cannot read deals or
+ * quote_jobs. Never throws, and a failure leaves the trip as it is (still
+ * refused, still repriced on every read), logged: when the jobs could not
+ * be read no deal is marked; a failed insert is logged and changes nothing.
  */
-export async function recalculateMissingMiles(
-  dealIds: number[],
-  opts: { queue: boolean },
-): Promise<Map<number, RecalcOutcome>> {
-  const out = new Map<number, RecalcOutcome>();
-  if (!dealIds.length) return out;
+export async function recalculateMissingMiles<T extends WithAmounts>(rows: T[], opts: { queue: boolean }): Promise<T[]> {
+  return withRecalcState(rows, await failedMilesJobs(noMilesDeals(rows), opts.queue));
+}
+
+/** recalculateMissingMiles's I/O: the deals among `dealIds` whose last miles job failed, queueing where the plan says. */
+async function failedMilesJobs(dealIds: number[], queue: boolean): Promise<Set<number>> {
+  const failed = new Set<number>();
+  if (!dealIds.length) return failed;
   try {
     const admin = createAdminClient();
     const { data, error } = await admin.from("quote_jobs").select("id, deal_id, status, created_at").in("kind", [...MILES_JOB_KINDS]).in("deal_id", dealIds);
     if (error) {
       console.error(`Miles jobs could not be read: ${error.message}`);
-      return out;
+      return failed;
     }
     const jobs = ((data ?? []) as RecalcJob[]).map((j) => ({ ...j, id: Number(j.id), deal_id: Number(j.deal_id) }));
     const now = Date.now();
     for (const dealId of dealIds) {
       const plan = planRecalc(jobs.filter((j) => j.deal_id === dealId), now);
-      const outcome: RecalcOutcome = { ...plan, queued_job_id: null, error: null };
-      if (plan.queue && opts.queue) {
+      if (plan.queue && queue) {
         const { data: job, error: insertError } = await admin
           .from("quote_jobs")
           .insert({ deal_id: dealId, status: "pending", kind: RECALC_KIND, requested_by: RECALC_REQUESTED_BY })
           .select("id")
           .single();
-        if (insertError || !job) outcome.error = `Miles recalculation for deal ${dealId} was not queued: ${insertError?.message ?? "no row returned"}`;
-        else outcome.queued_job_id = Number((job as { id: number }).id);
-        if (outcome.error) console.error(outcome.error);
+        if (insertError || !job) console.error(`Miles recalculation for deal ${dealId} was not queued: ${insertError?.message ?? "no row returned"}`);
       }
-      out.set(dealId, outcome);
+      if (plan.failed) failed.add(dealId);
     }
   } catch (e) {
     console.error(`Miles recalculation was not queued: ${e instanceof Error ? e.message : String(e)}`);
   }
-  return out;
-}
-
-/** The deals among `outcomes` whose last miles job finished without finding miles. */
-export function recalcFailed(outcomes: ReadonlyMap<number, RecalcOutcome>): Set<number> {
-  return new Set(Array.from(outcomes).filter(([, o]) => o.failed).map(([id]) => id));
+  return failed;
 }
 
 // ---------- Catering Events (staff cannot read deals) ------------------------------

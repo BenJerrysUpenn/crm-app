@@ -11,13 +11,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MileageRate } from "./money";
 import { alsoOnSameEvent } from "./events";
 import { DECIDED_SHOWN, LEFT_QUEUE, ON_QUEUE, decisionOf, isOwner, mayDecide, type Person } from "./lifecycle";
-import { noMilesDeals, withRecalcState } from "./milesRecalc";
 import {
   capDealIds,
   loadMileageCaps,
   loadRates,
   readError,
-  recalcFailed,
   recalculateMissingMiles,
   withAmounts,
   type AdjustmentRow,
@@ -56,8 +54,7 @@ export async function loadMine(
   if (!caps.ok) return caps;
   const priced = withAmounts(rows, rates.rates, (adj.data ?? []) as AdjustmentRow[], caps.caps);
   // Read only: staff loading their page queue nothing.
-  const recalc = await recalculateMissingMiles(noMilesDeals(priced), { queue: false });
-  return { ok: true, reimbursements: withRecalcState(priced, recalcFailed(recalc)), lyft: (lyft.data ?? []) as LyftRow[], rates: rates.rates };
+  return { ok: true, reimbursements: await recalculateMissingMiles(priced, { queue: false }), lyft: (lyft.data ?? []) as LyftRow[], rates: rates.rates };
 }
 
 export type QueueItem = WithAmounts & {
@@ -141,8 +138,7 @@ export async function loadQueue(
 
   // Every unpaid trip waiting on a deal with no round-trip miles: one miles recalculation per deal, at most one an hour.
   const onQueue = withAmounts(rows, rates.rates, (adj.data ?? []) as AdjustmentRow[], caps.caps);
-  const recalc = await recalculateMissingMiles(noMilesDeals(onQueue), { queue: true });
-  const items: QueueItem[] = withRecalcState(onQueue, recalcFailed(recalc)).map((r) => {
+  const items: QueueItem[] = (await recalculateMissingMiles(onQueue, { queue: true })).map((r) => {
     const subject = byId.get(r.profile_id) ?? { id: r.profile_id, role: "employee", active: true, full_name: null };
     return { ...r, full_name: subject.full_name, owner: isOwner(subject), also: also.get(r.id) ?? [], refused: mayDecide(viewer, subject) };
   });
