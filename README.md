@@ -250,6 +250,11 @@ them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. 
 in a private Supabase Storage bucket). The lifecycle is enforced twice, in
 `time-app/lib/reimbursements/lifecycle.ts` and in the database trigger of migration 37.
 
+"Compute miles from stops" routes each leg separately through the Routes API, traffic-aware, at the
+trip's hour (the way out leaves 45 minutes before a Catering Event starts, the way back at its end),
+and sums the legs rounded to 0.1 mi; the preview and submit use the same timing. Rules and the
+departure-date logic: the header of `time-app/lib/reimbursements/routeMiles.ts`.
+
 Setup, in the `time` Vercel project:
 
 | Name | Value |
