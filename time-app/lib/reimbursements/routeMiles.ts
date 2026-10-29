@@ -4,23 +4,32 @@
 // store" off (then it starts at the first stop: home -> Restaurant Depot ->
 // store is entered as Restaurant Depot, then the store, and only that is
 // paid), visits the stops in order, and ends at the store unless "End at the
-// store" is off. With both off it is just the stops. Two points at least. Google's
-// Routes API (computeRoutes, DRIVE) gives each leg's driving distance in one
-// call; each leg is rounded to 0.1 mi half-up (lib/reimbursements/money.ts) and
-// the miles are their sum. The reference is catering-automations
-// modules/maps.py, which prices a deal's delivery the same way.
+// store" is off. With both off it is just the stops. Two points at least. Each
+// leg (store -> first stop, stop -> stop, last stop -> store) is its own
+// Google Routes API call (computeRoutes, DRIVE, computeAlternativeRoutes on),
+// and the leg pays the shortest driving distance among the routes Google
+// returns: its default route plus up to three alternatives. Google's default
+// favors time, so on short city trips it takes the expressway and runs long;
+// the shortest route keeps staff payouts from running high (Alina, 2026-10-29:
+// as accurate as possible, lean low rather than high; typed miles stay and are
+// preferred when staff have them). Each leg is rounded to 0.1 mi half-up
+// (lib/reimbursements/money.ts) and the miles are their sum. Alternatives are
+// a call per leg because Google returns none for a request with intermediates
+// (developers.google.com/maps/documentation/routes/alternative-routes, and the
+// computeAlternativeRoutes field in the computeRoutes REST reference).
 //
 // Billing (Alina's ruling, 2026-10-29): every call stays on the Compute Routes
-// Essentials SKU. Google bills each request once, and moves it to Pro for 11 to
-// 25 intermediates, optimizeWaypointOrder, routingPreference TRAFFIC_AWARE or
+// Essentials SKU. Google moves a request to Pro for 11 to 25 intermediates,
+// optimizeWaypointOrder, routingPreference TRAFFIC_AWARE or
 // TRAFFIC_AWARE_OPTIMAL, or a side of road, heading or vehicle stopover
 // modifier; to Enterprise for toll calculation, traffic on polylines,
-// two-wheeler or large vehicle routing (developers.google.com/maps/billing-and-pricing/sku-details).
-// So the request sets none of those: no routingPreference (the default is
-// traffic-unaware), no departureTime, a field mask of routes.legs.distanceMeters
-// only, and at most 10 stops between the ends, which MAX_STOPS keeps. One
-// call through the stops is one billable request for the whole trip; a call
-// per leg would bill once per leg for the same per-leg distances.
+// two-wheeler or large vehicle routing
+// (developers.google.com/maps/billing-and-pricing/sku-details).
+// computeAlternativeRoutes is not on either list. So each request sets none of
+// those: an origin and a destination only (no intermediates), no
+// routingPreference (the default is traffic-unaware), no departureTime, and a
+// field mask of routes.distanceMeters only. A trip bills one Essentials
+// request per leg, at most MAX_STOPS + 1.
 //
 // Server-only in practice: the key is GOOGLE_MAPS_API_KEY, read by the route
 // that calls this, and never sent to a browser. Pure apart from the injected
@@ -30,7 +39,7 @@ import { legMiles, sumMiles } from "./money.ts";
 
 export const STORE_ADDRESS = "218 S 40th St, Philadelphia, PA 19104";
 export const ROUTES_ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes";
-/** The most stops a trip may carry: Google's Essentials ceiling of 10 intermediates (11 to 25 bill at Pro). */
+/** The most stops a trip may carry, so a trip makes at most 11 calls, one per leg. */
 export const MAX_STOPS = 10;
 const MAX_STOP_LENGTH = 300;
 
@@ -78,6 +87,42 @@ export function routeText(stops: string[], ends: RouteEnds): string {
   return routePoints(stops, ends).map(placeLabel).join(" → ");
 }
 
+/** One leg's driving distance in meters: the shortest of Google's routes from `from` to `to`. */
+async function legMeters(
+  from: string,
+  to: string,
+  apiKey: string,
+  fetchImpl: typeof fetch,
+): Promise<{ ok: true; meters: number } | { ok: false; error: string }> {
+  let payload: { routes?: { distanceMeters?: number }[] };
+  try {
+    const res = await fetchImpl(ROUTES_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "routes.distanceMeters",
+      },
+      body: JSON.stringify({
+        origin: { address: from },
+        destination: { address: to },
+        travelMode: "DRIVE",
+        computeAlternativeRoutes: true,
+      }),
+      cache: "no-store",
+    });
+    if (!res.ok) return { ok: false, error: `Google could not route that trip (HTTP ${res.status}). Check the addresses, or type the miles.` };
+    payload = await res.json();
+  } catch {
+    return { ok: false, error: "Google Maps could not be reached. Try again, or type the miles." };
+  }
+  const routes = payload.routes;
+  if (!routes || routes.length === 0)
+    return { ok: false, error: "Google found no driving route through those stops. Check the addresses, or type the miles." };
+  // A route with no distanceMeters is 0 m: the JSON leaves a zero out (same place twice).
+  return { ok: true, meters: Math.min(...routes.map((r) => r.distanceMeters ?? 0)) };
+}
+
 export async function routeMiles(
   stops: string[],
   ends: RouteEnds,
@@ -86,35 +131,14 @@ export async function routeMiles(
   if (!opts.apiKey) return { ok: false, error: "Computing miles from destinations is not set up yet (no Maps key). Type the miles instead." };
   const points = routePoints(stops, ends);
   if (points.length < 2) return { ok: false, error: "A trip needs at least two points." };
-  const body: Record<string, unknown> = {
-    origin: { address: points[0] },
-    destination: { address: points[points.length - 1] },
-    travelMode: "DRIVE",
-    computeAlternativeRoutes: false,
-  };
-  const middle = points.slice(1, -1);
-  if (middle.length) body.intermediates = middle.map((address) => ({ address }));
-
-  let payload: { routes?: { legs?: { distanceMeters?: number }[] }[] };
-  try {
-    const res = await (opts.fetchImpl ?? fetch)(ROUTES_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": opts.apiKey,
-        "X-Goog-FieldMask": "routes.legs.distanceMeters",
-      },
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
-    if (!res.ok) return { ok: false, error: `Google could not route that trip (HTTP ${res.status}). Check the addresses, or type the miles.` };
-    payload = await res.json();
-  } catch {
-    return { ok: false, error: "Google Maps could not be reached. Try again, or type the miles." };
+  const apiKey = opts.apiKey;
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const pairs = points.slice(1).map((to, i) => ({ from: points[i], to }));
+  const results = await Promise.all(pairs.map((p) => legMeters(p.from, p.to, apiKey, fetchImpl)));
+  const out: Leg[] = [];
+  for (const [i, r] of results.entries()) {
+    if (!r.ok) return r;
+    out.push({ ...pairs[i], miles: legMiles(r.meters) });
   }
-  const legs = payload.routes?.[0]?.legs;
-  if (!legs || legs.length !== points.length - 1)
-    return { ok: false, error: "Google found no driving route through those stops. Check the addresses, or type the miles." };
-  const out = legs.map((l, i) => ({ from: points[i], to: points[i + 1], miles: legMiles(l.distanceMeters ?? 0) }));
   return { ok: true, miles: sumMiles(out.map((l) => l.miles)), legs: out };
 }

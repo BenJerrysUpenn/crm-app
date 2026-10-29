@@ -92,8 +92,8 @@ beforeEach(() => {
     sent.push({ url: request.url, body });
     if (request.url.startsWith("https://routes.googleapis.com/")) {
       if (googleStatus !== 200) return new Response(JSON.stringify({ error: { message: "API key not valid" } }), { status: googleStatus });
-      const legs = 1 + (body.intermediates?.length ?? 0);
-      return new Response(JSON.stringify({ routes: [{ legs: Array.from({ length: legs }, () => ({ distanceMeters: 1609.344 * 2.04 })) }] }));
+      // One call per leg: Google's default route and a longer alternative; the leg pays the shorter, 2.04 mi.
+      return new Response(JSON.stringify({ routes: [{ distanceMeters: 1609.344 * 2.04 }, { distanceMeters: 1609.344 * 2.6 }] }));
     }
     return new Response("{}", { status: resendStatus });
   };
@@ -209,11 +209,16 @@ test("submit: destinations mode computes the miles on the server, from the store
   assert.equal(r.start_at_store, true);
   assert.equal(r.end_at_store, true);
   assert.equal((r.route_legs as unknown[]).length, 2);
-  const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
-  assert.deepEqual(google?.body.destination, { address: "218 S 40th St, Philadelphia, PA 19104" });
-  // Essentials only (Alina, 2026-10-29): traffic-unaware and untimed.
-  assert.equal(google?.body.routingPreference, undefined);
-  assert.equal(google?.body.departureTime, undefined);
+  const google = sent.filter((s) => s.url.startsWith("https://routes.googleapis.com/"));
+  const store = { address: "218 S 40th St, Philadelphia, PA 19104" };
+  const depot = { address: "Restaurant Depot" };
+  assert.deepEqual(google.map((g) => [g.body.origin, g.body.destination]), [[store, depot], [depot, store]], "one call per leg");
+  // Essentials only (Alina, 2026-10-29): traffic-unaware, untimed, no intermediates.
+  for (const g of google) {
+    assert.equal(g.body.routingPreference, undefined);
+    assert.equal(g.body.departureTime, undefined);
+    assert.equal(g.body.intermediates, undefined);
+  }
 });
 
 test("submit: destinations mode when Google cannot route the trip is refused, with nothing written and nobody told", async () => {
