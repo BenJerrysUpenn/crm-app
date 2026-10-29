@@ -103,6 +103,13 @@ test("nyInstant: Philadelphia wall clock to UTC, either side of DST, and minutes
   assert.equal(nyInstant("2026-11-03", 24 * 60 + 30), "2026-11-04T05:30:00.000Z");
 });
 
+test("nyInstant: on the day the clocks change, a time after the change takes the new offset", () => {
+  // Clocks go back at 02:00 EDT on Sun 2026-11-01: 03:00 that morning is EST.
+  assert.equal(nyInstant("2026-11-01", 3 * 60), "2026-11-01T08:00:00.000Z");
+  // Clocks go forward at 02:00 EST on Sun 2027-03-14: 03:00 that morning is EDT.
+  assert.equal(nyInstant("2027-03-14", 3 * 60), "2027-03-14T07:00:00.000Z");
+});
+
 test("legDepartures: errands leave at noon on the next date with the trip's weekday", () => {
   assert.equal(NO_TIME_DEPARTURE, "12:00");
   assert.deepEqual(legDepartures(2, BOTH, ERRANDS, NOW), ["2026-11-03T17:00:00.000Z", "2026-11-03T17:00:00.000Z"]);
@@ -119,6 +126,15 @@ test("legDepartures: a Catering Event goes out 45 minutes before it starts and c
   assert.deepEqual(legDepartures(1, { start_at_store: true, end_at_store: false }, ev, NOW), ["2026-10-31T17:15:00.000Z"]);
   // Depot -> store before the event (ruling 45): out, not back.
   assert.deepEqual(legDepartures(1, { start_at_store: false, end_at_store: true }, ev, NOW), ["2026-10-31T17:15:00.000Z"]);
+});
+
+test("legDepartures: only a trip that left from the store and ends there has a way back", () => {
+  const ev: TripTiming = { trip_date: "2026-10-24", event: { date: "2026-10-24", start_time: "14:00", end_time: "16:30" } };
+  const allOut = ["2026-10-31T17:15:00.000Z", "2026-10-31T17:15:00.000Z"];
+  // Store -> Depot -> venue, not back to the store.
+  assert.deepEqual(legDepartures(2, { start_at_store: true, end_at_store: false }, ev, NOW), allOut);
+  // Depot -> venue -> store, not from the store.
+  assert.deepEqual(legDepartures(2, { start_at_store: false, end_at_store: true }, ev, NOW), allOut);
 });
 
 test("legDepartures: no end time comes back at the start; an end after midnight comes back the next day", () => {
