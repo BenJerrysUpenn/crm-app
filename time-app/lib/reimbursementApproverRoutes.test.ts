@@ -404,3 +404,31 @@ test("file: an Approver opens any reimbursement file on the finance site", async
   const res = await financeFile.GET(new Request(`http://finance.test/api/payroll/reimbursements/file?path=${DONTE}/receipts/1-a.jpg`));
   assert.equal(res.status, 307);
 });
+
+// ---------- a Catering Event pays no more a mile than its quote charged (migration 49) ----------
+
+test("approve and adjust: a Catering Event is priced at what its quote charged a mile, below the IRS rate", async () => {
+  db.rpc.event_mileage_caps = () => [{ deal_id: 501, cap_cents_per_mile: 72.5, basis: "quote_derived" }];
+  db.signIn(MANAGER);
+  const approved = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal(approved.status, 200);
+  const { reimbursement } = await approved.json();
+  // 10 mi at 72.5c = $7.25, plus $4.50 tolls and $8.00 parking.
+  assert.equal(reimbursement.amounts.mileage_cents, 725);
+  assert.equal(reimbursement.amounts.total_cents, 1975);
+  assert.equal(reimbursement.amounts.capped, true);
+
+  const res = await adjust.POST(post({ ...adjustment, field: "mileage", amount: "7.00" }), ID);
+  assert.equal(res.status, 200);
+  assert.equal(db.rows("travel_reimbursement_adjustments")[0].old_cents, 725, "the Adjustment's old amount is the capped one");
+});
+
+test("approve: when the cap cannot be read nothing is written and the route says so", async () => {
+  db.rpc.event_mileage_caps = () => {
+    throw new Error("connection reset");
+  };
+  db.signIn(MANAGER);
+  const res = await decide.POST(post({ action: "approve" }), ID);
+  assert.equal(res.status, 503);
+  assert.equal(r1().status, "submitted");
+});

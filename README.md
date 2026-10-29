@@ -250,6 +250,13 @@ them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. 
 in a private Supabase Storage bucket). The lifecycle is enforced twice, in
 `time-app/lib/reimbursements/lifecycle.ts` and in the database trigger of migration 37.
 
+Mileage is paid at the IRS rate for the trip date (`mileage_rates`), and for a Catering Event at no more
+a mile than its quote charged the customer (owner's ruling 2026-10-29): `deal_mileage_cap()` in
+`time-app/supabase/migration_49.sql` reads the deal's latest quote (the Uber flat fee: no cap; else the
+quote's stored `mileage_rate`, else its transportation subtotal over the deal's round-trip miles to the
+half cent, else the price list's `MILEAGE_RATE`), and the payable view and `lib/reimbursements/money.ts`
+pay the lower of the two. Deploy the app, then apply migration 49 (`_verify.sql` and `_down.sql` beside it).
+
 Setup, in the `time` Vercel project:
 
 | Name | Value |

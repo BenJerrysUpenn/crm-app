@@ -17,14 +17,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { money } from "@/lib/payroll/paySheet";
-import { centsFromDollars, milesFromInput, reimbursementCents, type MileageRate } from "@/lib/reimbursements/money";
+import { centsFromDollars, mileageRateText, milesFromInput, reimbursementCents, type MileageCap, type MileageRate } from "@/lib/reimbursements/money";
 import { placeLabel, routeEnds } from "@/lib/reimbursements/routeMiles";
 import type { ReasonKind } from "@/lib/reimbursements/events";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 import { contentTypeOf } from "@/lib/reimbursements/submission";
 import { BUTTON, FilePreviews, INPUT, PRIMARY, staffFileHref, uploadFile, type PickedFile } from "./shared";
 
-type PickedEvent = { id: number; date: string; label: string; address: string | null };
+type PickedEvent = { id: number; date: string; label: string; address: string | null; mileage_cap?: MileageCap | null };
 
 const CONFIRM_NO_RECEIPT = "Are you sure there is no receipt?";
 
@@ -54,7 +54,7 @@ export default function ReimbursementForm({
   const [reasonKind, setReasonKind] = useState<"" | ReasonKind>(editing?.reason_kind ?? "");
   const [event, setEvent] = useState<PickedEvent | null>(
     editing?.deal_id && editing.event_label
-      ? { id: editing.deal_id, date: editing.event_date ?? editing.trip_date, label: editing.event_label, address: null }
+      ? { id: editing.deal_id, date: editing.event_date ?? editing.trip_date, label: editing.event_label, address: null, mileage_cap: editing.mileage_cap }
       : null,
   );
   const [query, setQuery] = useState("");
@@ -115,8 +115,10 @@ export default function ReimbursementForm({
     const t = centsFromDollars(tolls);
     const p = centsFromDollars(parking);
     if (m == null || t == null || p == null) return null;
-    return reimbursementCents({ trip_date: tripDate, miles: m, tolls_cents: t, parking_cents: p, mileage_cents_override: null }, rates);
-  }, [mileageMode, miles, route, tolls, parking, tripDate, rates]);
+    // A Catering Event pays no more a mile than its quote charged (migration 49).
+    const cap = reasonKind === "catering_event" ? event?.mileage_cap?.cap_cents_per_mile ?? null : null;
+    return reimbursementCents({ trip_date: tripDate, miles: m, tolls_cents: t, parking_cents: p, mileage_cents_override: null, cap_cents_per_mile: cap }, rates);
+  }, [mileageMode, miles, route, tolls, parking, tripDate, rates, reasonKind, event]);
 
   function reasonBody() {
     return reasonKind === "errands" ? { kind: "errands", note } : { kind: "catering_event", event_id: event?.id, note };
@@ -386,7 +388,7 @@ export default function ReimbursementForm({
               ? "Amount: fill in the miles and amounts."
               : estimate.total_cents == null
                 ? `There is no Mileage rate for ${tripDate}.`
-                : `Amount: ${money(estimate.total_cents)}${estimate.rate != null && estimate.mileage_cents ? ` (Mileage at ${estimate.rate}¢/mi, the IRS rate for the trip date)` : ""}`}
+                : `Amount: ${money(estimate.total_cents)}${estimate.rate != null && estimate.mileage_cents ? ` (Mileage at ${mileageRateText(estimate)})` : ""}`}
           </div>
         </>
       )}

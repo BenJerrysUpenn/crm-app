@@ -1,7 +1,9 @@
 // The money rules of a Travel Reimbursement (bj-finance #210, rulings 27, 33,
 // 38): the Mileage rate is the IRS business standard rate in effect on the
-// trip date, read from public.mileage_rates; money is integer cents, rounded
-// half-up; each leg of a computed route is rounded to 0.1 mi half-up.
+// trip date, read from public.mileage_rates, and for a Catering Event never
+// more a mile than its quote charged the customer (the owner, 2026-10-29);
+// money is integer cents, rounded half-up; each leg of a computed route is
+// rounded to 0.1 mi half-up.
 //
 //   npm test
 
@@ -17,8 +19,10 @@ import {
   dollarsText,
   legMiles,
   mileageCents,
+  mileageRateText,
   milesFromInput,
   rateForDate,
+  rateForTrip,
   reimbursementCents,
   totalText,
   type MileageRate,
@@ -72,9 +76,9 @@ test("mileageCents: exactly half a cent rounds up, without floating-point drift"
 
 test("reimbursementCents: mileage at the trip date's rate plus tolls and parking", () => {
   const before = reimbursementCents({ trip_date: "2026-06-30", miles: 10, tolls_cents: 450, parking_cents: 1200, mileage_cents_override: null }, RATES);
-  assert.deepEqual(before, { rate: 72.5, mileage_cents: 725, tolls_cents: 450, parking_cents: 1200, total_cents: 2375 });
+  assert.deepEqual(before, { rate: 72.5, capped: false, mileage_cents: 725, tolls_cents: 450, parking_cents: 1200, total_cents: 2375 });
   const after = reimbursementCents({ trip_date: "2026-07-01", miles: 10, tolls_cents: 0, parking_cents: 0, mileage_cents_override: null }, RATES);
-  assert.deepEqual(after, { rate: 76, mileage_cents: 760, tolls_cents: 0, parking_cents: 0, total_cents: 760 });
+  assert.deepEqual(after, { rate: 76, capped: false, mileage_cents: 760, tolls_cents: 0, parking_cents: 0, total_cents: 760 });
 });
 
 test("reimbursementCents: an Adjustment to the mileage amount replaces the computed one", () => {
@@ -88,6 +92,60 @@ test("reimbursementCents: no rate for the trip date means no mileage amount, not
   assert.equal(r.rate, null);
   assert.equal(r.mileage_cents, null);
   assert.equal(r.total_cents, null);
+});
+
+// ---------- a Catering Event's cap: what its quote charged (the owner, 2026-10-29) ----------
+// The same cases as supabase/migration_49_verify.sql section 4.
+
+const trip = { trip_date: "2026-10-07", miles: 10, tolls_cents: 0, parking_cents: 0, mileage_cents_override: null };
+
+test("rateForTrip: the lower of the IRS rate and the cap; no cap is the IRS rate", () => {
+  assert.deepEqual(rateForTrip(RATES, "2026-10-07", 72.5), { cents_per_mile: 72.5, capped: true });
+  assert.deepEqual(rateForTrip(RATES, "2026-10-07", null), { cents_per_mile: 76, capped: false });
+  assert.deepEqual(rateForTrip(RATES, "2026-10-07", undefined), { cents_per_mile: 76, capped: false });
+  // A quote that charged more than the IRS rate pays the IRS rate.
+  assert.deepEqual(rateForTrip(RATES, "2026-10-07", 90.5), { cents_per_mile: 76, capped: false });
+  // Equal to the IRS rate is not capped.
+  assert.deepEqual(rateForTrip(RATES, "2026-06-30", 72.5), { cents_per_mile: 72.5, capped: false });
+  // A cap from Postgres numeric may arrive as a string.
+  assert.deepEqual(rateForTrip(RATES, "2026-10-07", "72.50" as unknown as number), { cents_per_mile: 72.5, capped: true });
+});
+
+test("rateForTrip: a cap alone does not price a trip with no IRS rate", () => {
+  assert.equal(rateForTrip(RATES, "2024-06-01", 72.5), null);
+});
+
+test("reimbursementCents: a Catering Event whose quote charged 72.5c a mile pays 72.5c, not the IRS 76c", () => {
+  // 46.3 mi x 72.5c = 3356.75 -> 3357, plus tolls.
+  const r = reimbursementCents({ ...trip, miles: 46.3, tolls_cents: 450, cap_cents_per_mile: 72.5 }, RATES);
+  assert.deepEqual(r, { rate: 72.5, capped: true, mileage_cents: 3357, tolls_cents: 450, parking_cents: 0, total_cents: 3807 });
+});
+
+test("reimbursementCents: the Uber flat fee and errands have no cap: the IRS rate", () => {
+  assert.equal(reimbursementCents({ ...trip, cap_cents_per_mile: null }, RATES).mileage_cents, 760);
+  assert.equal(reimbursementCents(trip, RATES).mileage_cents, 760);
+});
+
+test("reimbursementCents: a price-list cap of 70c in June is below the IRS 72.5c", () => {
+  const r = reimbursementCents({ ...trip, trip_date: "2026-06-30", cap_cents_per_mile: 70 }, RATES);
+  assert.equal(r.rate, 70);
+  assert.equal(r.mileage_cents, 700);
+});
+
+test("reimbursementCents: an Adjustment's mileage still replaces the capped amount", () => {
+  assert.equal(reimbursementCents({ ...trip, mileage_cents_override: 500, cap_cents_per_mile: 72.5 }, RATES).total_cents, 500);
+});
+
+test("amountsBeforeAdjustments: the amount before an Adjustment is at the capped rate", () => {
+  const r = { ...trip, mileage_cents_override: 500, cap_cents_per_mile: 72.5 };
+  const b = amountsBeforeAdjustments(r, [{ field: "mileage", old_cents: 725, new_cents: 500, adjusted_at: "2026-10-08T00:00:00Z" }], RATES)!;
+  assert.equal(b.before.mileage_cents, 725);
+});
+
+test("mileageRateText: says whether the rate is the IRS rate or what the quote charged", () => {
+  assert.equal(mileageRateText({ rate: 76, capped: false }), "76¢/mi, the IRS rate for the trip date");
+  assert.match(mileageRateText({ rate: 72.5, capped: true }), /^72\.5¢\/mi, what the Catering Event's quote charged per mile/);
+  assert.equal(mileageRateText({ rate: null, capped: false }), "no Mileage rate");
 });
 
 test("centsFromDollars: typed amounts become integer cents", () => {

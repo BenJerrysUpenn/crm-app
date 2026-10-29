@@ -146,7 +146,8 @@ export function ReimbursementDetail({
             ? ` (${routeText(r.stops, routeEnds(r))})`
             : ""}
           {" × "}
-          {rateText(a.rate)} = {amountText(r, "mileage")}
+          {rateText(a.rate)}
+          {a.capped ? " (the event's quoted rate)" : ""} = {amountText(r, "mileage")}
         </div>
       )}
       {(a.tolls_cents > 0 || adjusted.includes("tolls")) && <div>Tolls: {amountText(r, "tolls")}</div>}

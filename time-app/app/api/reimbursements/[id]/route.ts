@@ -3,9 +3,8 @@ import { getProfile } from "@/lib/auth";
 import { dayKey } from "@/lib/format";
 import { isMissingTable } from "@/lib/storeHours";
 import { parseReimbursement } from "@/lib/reimbursements/submission";
-import { reimbursementCents } from "@/lib/reimbursements/money";
 import { staffMayChange } from "@/lib/reimbursements/lifecycle";
-import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission, type ReimbursementRow } from "@/lib/reimbursements/server";
+import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission, totalForNotice, type ReimbursementRow } from "@/lib/reimbursements/server";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +65,7 @@ export async function PATCH(request: Request, { params }: Params) {
   if (error) return NextResponse.json({ error: error.message }, { status: 409 });
   if (!data) return NextResponse.json({ error: LOCKED }, { status: 409 });
 
-  if (row.status === "rejected") await notifyApprovers(me, data, reimbursementCents(data, rates.rates).total_cents);
+  if (row.status === "rejected") await notifyApprovers(me, data, await totalForNotice(supabase, data as ReimbursementRow, rates.rates));
   return NextResponse.json({ reimbursement: data });
 }
 
