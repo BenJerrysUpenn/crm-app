@@ -88,6 +88,10 @@ documentation_map:
     docs:
       - README.md
       - GLOSSARY.md
+  - paths:
+      - time-app/app/api/reimbursements/route-miles/route.ts
+    docs:
+      - README.md
   - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
     docs: [README.md]
   - paths: ["time-app/lib/hosts.ts", "time-app/middleware.ts"]
