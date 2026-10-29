@@ -252,9 +252,9 @@ in a private Supabase Storage bucket). The lifecycle is enforced twice, in
 
 "Compute miles from stops" pays each leg the lower of two Routes API answers, asked for in parallel:
 (a) the leg on its own with alternative routes on, the shortest route Google returns, and (b) the leg's
-distance on Google's default route through every stop in one request (the stops as intermediates, as
-miles were paid before). Google's default route favors time and on short city trips takes the
-expressway, so (a) is often shorter; on some legs (b) is, so no leg pays more than before. If (b)
+distance on Google's default route through every stop in one request (the stops as intermediates).
+Google's default route favors time and on short city trips takes the expressway, so (a) is often
+shorter; on some legs (b) is, so no leg pays more than (b). If (b)
 fails every leg pays (a); if a leg's (a) fails that leg pays (b); if both fail for a leg, staff type the
 miles. Each leg is rounded to 0.1 mi after the choice and the legs are summed. Typed miles stay and are
 preferred when staff have them. Every request stays on the Compute Routes Essentials SKU: at most 10
