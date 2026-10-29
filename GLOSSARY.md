@@ -26,7 +26,7 @@ _Avoid_: Deal (in staff-facing language), job, gig
 Miles driven in a staff member's own car for a Reason, either typed by them or computed from the stops they enter.
 
 **Mileage rate**:
-The IRS business standard mileage rate in effect on the trip date. For a Catering Event, never more per mile than the event's quote charged the customer: a quote that charged mileage caps it at its per-mile rate; the Uber flat fee does not cap it (time-app migration 49).
+The IRS business standard mileage rate in effect on the trip date. For a Catering Event, never more per mile than the event's quote charged the customer: a quote that charged mileage caps it at its per-mile rate (with no quote, at the price list's); the Uber flat fee does not cap it (time-app migration 49).
 _Avoid_: House rate
 
 **Adjustment**:
