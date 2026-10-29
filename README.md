@@ -250,6 +250,17 @@ them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. 
 in a private Supabase Storage bucket). The lifecycle is enforced twice, in
 `time-app/lib/reimbursements/lifecycle.ts` and in the database trigger of migration 37.
 
+"Compute miles from stops" pays each leg the lower of two Routes API answers, asked for in parallel:
+(a) the leg on its own with alternative routes on, the shortest route Google returns, and (b) the leg's
+distance on Google's default route through every stop in one request (the stops as intermediates).
+Google's default route favors time and on short city trips takes the expressway, so (a) is often
+shorter; on some legs (b) is, so no leg pays more than (b). If (b)
+fails every leg pays (a); if a leg's (a) fails that leg pays (b); if both fail for a leg, staff type the
+miles. Each leg is rounded to 0.1 mi after the choice and the legs are summed. Typed miles stay and are
+preferred when staff have them. Every request stays on the Compute Routes Essentials SKU: at most 10
+intermediates, no traffic-aware routing, no departure time. Rules, sources and the billing triggers:
+the header of `time-app/lib/reimbursements/routeMiles.ts`.
+
 Mileage is paid at the IRS rate for the trip date (`mileage_rates`), and for a Catering Event at no more
 a mile than its quote charged the customer (owner's ruling 2026-10-29): `deal_mileage_cap()` in
 `time-app/supabase/migration_49.sql` reads the deal's latest quote (no quote, or the Uber flat fee: no cap;

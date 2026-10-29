@@ -92,8 +92,13 @@ beforeEach(() => {
     sent.push({ url: request.url, body });
     if (request.url.startsWith("https://routes.googleapis.com/")) {
       if (googleStatus !== 200) return new Response(JSON.stringify({ error: { message: "API key not valid" } }), { status: googleStatus });
-      const legs = 1 + (body.intermediates?.length ?? 0);
-      return new Response(JSON.stringify({ routes: [{ legs: Array.from({ length: legs }, () => ({ distanceMeters: 1609.344 * 2.04 })) }] }));
+      // The whole-trip request (no alternatives): every leg 2.2 mi on the default route.
+      if (body.computeAlternativeRoutes === false) {
+        const legs = 1 + (body.intermediates?.length ?? 0);
+        return new Response(JSON.stringify({ routes: [{ legs: Array.from({ length: legs }, () => ({ distanceMeters: 1609.344 * 2.2 })) }] }));
+      }
+      // A leg's own request: Google's default route and a longer alternative. The leg pays the lowest, 2.04 mi.
+      return new Response(JSON.stringify({ routes: [{ distanceMeters: 1609.344 * 2.04 }, { distanceMeters: 1609.344 * 2.6 }] }));
     }
     return new Response("{}", { status: resendStatus });
   };
@@ -257,8 +262,24 @@ test("submit: destinations mode computes the miles on the server, from the store
   assert.equal(r.start_at_store, true);
   assert.equal(r.end_at_store, true);
   assert.equal((r.route_legs as unknown[]).length, 2);
-  const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
-  assert.deepEqual(google?.body.destination, { address: "218 S 40th St, Philadelphia, PA 19104" });
+  const google = sent.filter((s) => s.url.startsWith("https://routes.googleapis.com/"));
+  const store = { address: "218 S 40th St, Philadelphia, PA 19104" };
+  const depot = { address: "Restaurant Depot" };
+  const legCalls = google.filter((g) => g.body.computeAlternativeRoutes === true);
+  const tripCalls = google.filter((g) => g.body.computeAlternativeRoutes === false);
+  assert.equal(google.length, 3, "a request per leg and one for the whole trip");
+  assert.deepEqual(legCalls.map((g) => [g.body.origin, g.body.destination]), [[store, depot], [depot, store]], "one request per leg");
+  assert.deepEqual(
+    tripCalls.map((g) => [g.body.origin, g.body.intermediates, g.body.destination]),
+    [[store, [depot], store]],
+    "one request through every stop",
+  );
+  // Essentials only (Alina, 2026-10-29): traffic-unaware, untimed; intermediates only on the whole-trip request.
+  for (const g of google) {
+    assert.equal(g.body.routingPreference, undefined);
+    assert.equal(g.body.departureTime, undefined);
+  }
+  for (const g of legCalls) assert.equal(g.body.intermediates, undefined);
 });
 
 test("submit: destinations mode when Google cannot route the trip is refused, with nothing written and nobody told", async () => {
@@ -282,8 +303,9 @@ test("submit: Start at the store off pays only from the first stop (home -> Depo
   assert.equal(r.start_at_store, false);
   assert.equal(r.end_at_store, true);
   assert.deepEqual(r.route_legs, [{ from: "Restaurant Depot", to: "218 S 40th St, Philadelphia, PA 19104", miles: 2 }]);
-  const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
-  assert.deepEqual(google?.body.origin, { address: "Restaurant Depot" });
+  const google = sent.filter((s) => s.url.startsWith("https://routes.googleapis.com/"));
+  assert.equal(google.length, 2);
+  for (const g of google) assert.deepEqual(g.body.origin, { address: "Restaurant Depot" });
 });
 
 test("submit and route-miles: with neither end at the store, one stop is refused", async () => {
