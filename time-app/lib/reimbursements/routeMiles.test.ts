@@ -171,6 +171,10 @@ test("routeMiles: no key, an API error, or no route on any leg says so instead o
   assert.match(!bad.ok ? bad.error : "", /HTTP 403/);
   const none = (async () => new Response(JSON.stringify({}), { status: 200 })) as unknown as typeof fetch;
   assert.equal((await routeMiles(["Nowhere"], BOTH, { apiKey: "k", fetchImpl: none })).ok, false);
+  // An explicit empty list is no route too, not a leg of some made-up length.
+  const empty = (async () => new Response(JSON.stringify({ routes: [] }), { status: 200 })) as unknown as typeof fetch;
+  const emptyResult = await routeMiles(["Nowhere"], BOTH, { apiKey: "k", fetchImpl: empty });
+  assert.match(!emptyResult.ok ? emptyResult.error : "", /no driving route/);
   // The outbound routes, the return does not: the trip is refused, not paid one way.
   const halfway = await routeMiles(["A"], BOTH, { apiKey: "k", fetchImpl: fakeRoutes([[1 * MI], []]).fetchImpl });
   assert.equal(halfway.ok, false);
