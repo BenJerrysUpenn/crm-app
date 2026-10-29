@@ -184,6 +184,25 @@ test("loadMine: a Catering Event with no quote, or a quote that charged no milea
   }
 });
 
+test("loadQueue: a Decided Catering Event is shown at its cap too", async () => {
+  caps({ 900: [72.5, "quoted_rate"] });
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  const rejected = q.decided.find((i) => i.id === 6)!;
+  assert.equal(rejected.amounts.total_cents, 725, "10 mi at the quote's 72.5c, not the IRS 76c");
+  assert.equal(rejected.amounts.capped, true);
+});
+
+test("loadMine: a cap Postgres answers as a numeric string still caps the trip", async () => {
+  db.rpc.event_mileage_caps = () => [{ deal_id: "501", cap_cents_per_mile: "72.50", basis: "quoted_rate" }];
+  db.signIn(DONTE.id);
+  const mine = await loadMine(createClient(), DONTE.id);
+  assert.ok(mine.ok);
+  assert.equal(mine.reimbursements[0].amounts.total_cents, 725);
+  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 72.5, basis: "quoted_rate" });
+});
+
 test("loadMine: before migration 49 (no event_mileage_caps) every trip is at the IRS rate, as before", async () => {
   db.signIn(DONTE.id);
   const mine = await loadMine(createClient(), DONTE.id);

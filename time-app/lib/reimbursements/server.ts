@@ -139,9 +139,22 @@ export async function loadMileageCaps(db: Db, dealIds: (number | null)[]): Promi
   return { ok: true, caps };
 }
 
+type CapKey = Pick<ReimbursementRow, "reason_kind" | "deal_id">;
+
+/** The deal whose cap a row is paid under: its Catering Event's; null for errands. */
+function capDeal(r: CapKey): number | null {
+  return r.reason_kind === "catering_event" ? r.deal_id : null;
+}
+
+/** The deals whose caps these rows are priced under, for loadMileageCaps. */
+export function capDealIds(rows: CapKey[]): (number | null)[] {
+  return rows.map(capDeal);
+}
+
 /** A row's cap: its Catering Event's, or null for errands or a deal the database did not answer for. */
-export function capFor(r: Pick<ReimbursementRow, "reason_kind" | "deal_id">, caps: MileageCaps): MileageCap | null {
-  return r.reason_kind === "catering_event" && r.deal_id != null ? caps.get(r.deal_id) ?? null : null;
+export function capFor(r: CapKey, caps: MileageCaps): MileageCap | null {
+  const deal = capDeal(r);
+  return deal != null ? caps.get(deal) ?? null : null;
 }
 
 /**
@@ -159,7 +172,7 @@ export function withAmounts(rows: ReimbursementRow[], rates: MileageRate[], adju
 
 /** One row's total for a notice, at its Catering Event's cap; null when the cap could not be read. */
 export async function totalForNotice(db: Db, row: ReimbursementRow, rates: MileageRate[]): Promise<number | null> {
-  const caps = await loadMileageCaps(db, row.reason_kind === "catering_event" ? [row.deal_id] : []);
+  const caps = await loadMileageCaps(db, capDealIds([row]));
   if (!caps.ok) return null;
   return withAmounts([row], rates, [], caps.caps)[0].amounts.total_cents;
 }

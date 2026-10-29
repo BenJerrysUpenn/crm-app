@@ -421,6 +421,9 @@ test("approve and adjust: a Catering Event is priced at what its quote charged a
   const res = await adjust.POST(post({ ...adjustment, field: "mileage", amount: "7.00" }), ID);
   assert.equal(res.status, 200);
   assert.equal(db.rows("travel_reimbursement_adjustments")[0].old_cents, 725, "the Adjustment's old amount is the capped one");
+  const adjusted = (await res.json()).reimbursement;
+  assert.equal(adjusted.amounts.mileage_cents, 700);
+  assert.equal(adjusted.before_adjustments.before.mileage_cents, 725, "old -> new reads $7.25 -> $7.00, not the IRS $7.60");
 });
 
 test("approve: when the cap cannot be read nothing is written and the route says so", async () => {

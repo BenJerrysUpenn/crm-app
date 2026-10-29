@@ -321,12 +321,13 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_42.sql` | the `owner` role: `is_manager()` is now true for owners, so every manager policy here (rulings, submittals, sheets) admits them, and migration 37's travel-reimbursement guard and payroll views read the owner role; `is_owner()` and a profile guard keep the owner role and owners' rows to owners |
 | `time-app/supabase/migration_46.sql` | `labor_paycheck_actuals`: one row per hourly paycheck as QBO Payroll paid it, written from the saved paystub PDFs by bj-finance (`modules.labor_actuals`), and `labor_daily_actuals`: a tied pay period's labor placed on its days (When I Work timesheets before the time app, punches after). Both read by managers only. Nothing in the verify reads them; see README, "Hourly payroll actuals" |
 | `time-app/supabase/migration_47.sql` | `store_hours_seasons`: opening hours from a first day until the next season's, which 1.8 and 1.9 now read beside `store_hours`; also `concession_events` and `catering_hours_history`, which the verify does not read. See README, "Labor Hours Planning" |
+| `time-app/supabase/migration_49.sql` | redefines `travel_reimbursements_payable`, the view payroll pays travel reimbursements from: a Catering Event trip is paid at the lower of the IRS rate and `deal_mileage_cap()`, what its deal's quote charged a mile; every other trip at the IRS rate. Nothing in the verify reads it; see README, "Travel Reimbursements" |
 
 All of these are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_N_verify.sql` to run afterwards (in a
 transaction that rolls back) and a `migration_N_down.sql` that reverses it;
 the header of each down script says what data it loses. Roll back in reverse
-order: 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
+order: 49, 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
 not payroll; see README) rolls back before 42, whose `is_owner()` its policies call. Until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 
