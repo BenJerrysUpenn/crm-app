@@ -1,5 +1,5 @@
 import { approverAction, type ApproverAction } from "@/lib/reimbursements/lifecycle";
-import { approveRefusal, noMilesRefusal } from "@/lib/reimbursements/money";
+import { decideRefusal } from "@/lib/reimbursements/money";
 import { CHANGED, approverContext } from "@/lib/reimbursements/approverRoute";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { emailReceiptsOnApproval, notifyEmployee, withAmounts, type ReceiptsEmailed, type ReimbursementRow } from "@/lib/reimbursements/server";
@@ -50,12 +50,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const step = approverAction(action, row.status, { subject, actor: me });
   if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.forbidden ? 403 : 409 });
-  const refused =
-    action === "approve"
-      ? approveRefusal(row)
-      : action === "paid_outside_payroll"
-        ? noMilesRefusal(row, "mark it Paid outside payroll")
-        : null;
+  const refused = decideRefusal(action, row);
   if (refused) return NextResponse.json({ error: refused }, { status: 409 });
 
   const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, MAX_REASON) : "";

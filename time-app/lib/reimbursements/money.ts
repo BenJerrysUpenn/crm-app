@@ -25,7 +25,7 @@
 // Pure (money() for the text is too), so `node --test` runs it and the browser
 // can use it.
 
-import type { AdjustmentField } from "./lifecycle.ts";
+import type { AdjustmentField, ApproverAction } from "./lifecycle.ts";
 import { money } from "../payroll/paySheet.ts";
 
 export type MileageRate = {
@@ -238,7 +238,7 @@ export function amountsBeforeAdjustments(
   return { before: reimbursementCents({ ...r, tolls_cents: tolls, parking_cents: parking, mileage_cents_override: null }, rates), adjusted };
 }
 
-/** What approveRefusal and noMilesRefusal read of a reimbursement: its amounts, miles and cap. */
+/** What decideRefusal and noMilesRefusal read of a reimbursement: its amounts, miles and cap. */
 export type Approvable = Pick<Priceable, "trip_date" | "miles" | "mileage_cents_override"> & {
   amounts: Pick<Amounts, "total_cents">;
   mileage_cap?: MileageCap | null;
@@ -261,12 +261,16 @@ export function noMilesRefusal(r: Approvable, next: string): string | null {
 }
 
 /**
- * Why a reimbursement cannot be approved, or null when it can: with no
- * Mileage rate for its trip date it has no total (ruling 42); a Catering
- * Event whose deal has no round-trip miles prices its miles at 0c until they
- * are entered (noMilesRefusal). The decide route refuses the same.
+ * Why the decide route refuses this action on a reimbursement, or null when
+ * it does not. approve: with no Mileage rate for its trip date it has no
+ * total (ruling 42); and a Catering Event whose deal has no round-trip miles
+ * prices its miles at 0c until they are entered (noMilesRefusal), which also
+ * refuses paid_outside_payroll. The other actions are never refused here.
+ * The queue disables the same buttons with the same words.
  */
-export function approveRefusal(r: Approvable): string | null {
+export function decideRefusal(action: ApproverAction, r: Approvable): string | null {
+  if (action === "paid_outside_payroll") return noMilesRefusal(r, "mark it Paid outside payroll");
+  if (action !== "approve") return null;
   if (r.amounts.total_cents == null)
     return `There is no Mileage rate for ${r.trip_date}, so it has no total and cannot be approved. Add the IRS rate for that date first.`;
   return noMilesRefusal(r, "approve it");

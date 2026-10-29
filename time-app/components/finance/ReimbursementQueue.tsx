@@ -21,7 +21,7 @@ import { useRouter } from "next/navigation";
 import type { DecidedItem, QueueItem } from "@/lib/reimbursements/load";
 import { ADJUSTMENT_FIELDS, DECIDED_SHOWN, FIELD_LABEL, type AdjustmentField } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
-import { approveRefusal, noMilesRefusal, fieldCents, dollarsText } from "@/lib/reimbursements/money";
+import { decideRefusal, noMilesRefusal, fieldCents, dollarsText } from "@/lib/reimbursements/money";
 import { money } from "@/lib/payroll/paySheet";
 import { ReimbursementDetail, StatusBadge, BUTTON, PRIMARY, INPUT, uploadFile } from "@/components/reimbursements/shared";
 
@@ -105,11 +105,13 @@ export default function ReimbursementQueue({
 
   function card(item: QueueItem) {
     const mine = busy === item.id;
-    const noApprove = item.status === "submitted" ? approveRefusal(item) : null;
+    const noApprove = item.status === "submitted" ? decideRefusal("approve", item) : null;
     // Approved before its deal lost its miles (or before this check): said before it is paid.
     const zeroPay =
       item.status === "approved"
-        ? noMilesRefusal(item, item.owner ? "mark it Paid outside payroll" : "payroll pays it on the next pay table")
+        ? item.owner
+          ? decideRefusal("paid_outside_payroll", item)
+          : noMilesRefusal(item, "payroll pays it on the next pay table")
         : null;
     return (
       <li key={item.id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4 space-y-3">
