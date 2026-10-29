@@ -27,6 +27,7 @@ import { FIELD_LABEL, approversToNotify, type AdjustmentField, type Person, type
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
 import { BUCKET, type ReasonValue, type ReimbursementValue } from "./submission";
 import { routeEnds, routeMiles, type RouteEnds, type RouteResult } from "./routeMiles";
+import { MILES_JOB_KINDS, RECALC_KIND, RECALC_REQUESTED_BY, noMilesDeals, planRecalc, withRecalcState, type RecalcJob } from "./milesRecalc";
 
 export const NEEDS_MIGRATION = "Travel Reimbursements need migration 37 in Supabase.";
 
@@ -170,11 +171,65 @@ export function withAmounts(rows: ReimbursementRow[], rates: MileageRate[], adju
   });
 }
 
-/** One row's total for a notice, at its Catering Event's cap; null when the cap could not be read. */
-export async function totalForNotice(db: Db, row: ReimbursementRow, rates: MileageRate[]): Promise<number | null> {
+/**
+ * After a submit or resubmit: one row's total for the Approvers' notice, at
+ * its Catering Event's cap (null when the cap could not be read); and when
+ * that deal has no round-trip miles, one miles recalculation queued for it
+ * (recalculateMissingMiles).
+ */
+export async function afterSubmit(db: Db, row: ReimbursementRow, rates: MileageRate[]): Promise<number | null> {
   const caps = await loadMileageCaps(db, capDealIds([row]));
   if (!caps.ok) return null;
-  return withAmounts([row], rates, [], caps.caps)[0].amounts.total_cents;
+  const priced = withAmounts([row], rates, [], caps.caps)[0];
+  await recalculateMissingMiles([priced], { queue: true });
+  return priced.amounts.total_cents;
+}
+
+// ---------- miles recalculation for a deal with no round-trip miles (./milesRecalc.ts) -------------
+
+/**
+ * The priced rows, with `recalc_failed` on the cap of each trip whose deal
+ * has no round-trip miles and for which a miles job ('miles' or the CRM's
+ * 'retriage') has finished and the miles are still missing (withRecalcState); and with
+ * `queue`, a 'miles' job queued for each such deal where planRecalc says so:
+ * round-trip miles only. Service role: staff cannot read deals or
+ * quote_jobs. Never throws, and a failure leaves the trip as it is (still
+ * refused, still repriced on every read), logged: when the jobs could not
+ * be read no deal is marked; a failed insert is logged and changes nothing.
+ */
+export async function recalculateMissingMiles<T extends WithAmounts>(rows: T[], opts: { queue: boolean }): Promise<T[]> {
+  return withRecalcState(rows, await failedMilesJobs(noMilesDeals(rows), opts.queue));
+}
+
+/** recalculateMissingMiles's I/O: the deals among `dealIds` with a finished miles job and still no miles, queueing where the plan says. */
+async function failedMilesJobs(dealIds: number[], queue: boolean): Promise<Set<number>> {
+  const failed = new Set<number>();
+  if (!dealIds.length) return failed;
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin.from("quote_jobs").select("id, deal_id, status, created_at").in("kind", [...MILES_JOB_KINDS]).in("deal_id", dealIds);
+    if (error) {
+      console.error(`Miles jobs could not be read: ${error.message}`);
+      return failed;
+    }
+    const jobs = ((data ?? []) as RecalcJob[]).map((j) => ({ ...j, id: Number(j.id), deal_id: Number(j.deal_id) }));
+    const now = Date.now();
+    for (const dealId of dealIds) {
+      const plan = planRecalc(jobs.filter((j) => j.deal_id === dealId), now);
+      if (plan.queue && queue) {
+        const { data: job, error: insertError } = await admin
+          .from("quote_jobs")
+          .insert({ deal_id: dealId, status: "pending", kind: RECALC_KIND, requested_by: RECALC_REQUESTED_BY })
+          .select("id")
+          .single();
+        if (insertError || !job) console.error(`Miles recalculation for deal ${dealId} was not queued: ${insertError?.message ?? "no row returned"}`);
+      }
+      if (plan.failed) failed.add(dealId);
+    }
+  } catch (e) {
+    console.error(`Miles recalculation was not queued: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  return failed;
 }
 
 // ---------- Catering Events (staff cannot read deals) ------------------------------

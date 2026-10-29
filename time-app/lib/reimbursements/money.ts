@@ -25,7 +25,7 @@
 // Pure (money() for the text is too), so `node --test` runs it and the browser
 // can use it.
 
-import type { AdjustmentField } from "./lifecycle.ts";
+import type { AdjustmentField, ApproverAction } from "./lifecycle.ts";
 import { money } from "../payroll/paySheet.ts";
 
 export type MileageRate = {
@@ -45,16 +45,20 @@ export type MileageRate = {
  *                     round-trip miles, to the half cent (quotes before the
  *                     rate was stored);
  *   no_miles_on_deal  the quote charged mileage but the deal has no
- *                     round-trip miles to divide it by: 0c until a manager
- *                     enters them (never more than the quote charged);
+ *                     round-trip miles to divide it by: 0c until the miles
+ *                     land (milesRecalc.ts; never more than the quote charged);
  *   no_rate_on_quote  the quote charged no mileage ($0, or no mileage line):
  *                     0c (the owner, 2026-10-29);
  *   none              no deal: no cap.
  */
 export type CapBasis = "no_quote" | "uber_flat_fee" | "quoted_rate" | "quote_derived" | "no_miles_on_deal" | "no_rate_on_quote" | "none";
 
-/** A Catering Event's cap, as the database answers it. */
-export type MileageCap = { cap_cents_per_mile: number | null; basis: CapBasis };
+/**
+ * A Catering Event's cap, as the database answers it. recalc_failed: for
+ * 'no_miles_on_deal', a miles recalculation has finished and the deal still has
+ * no miles (lib/reimbursements/milesRecalc.ts); absent when unknown.
+ */
+export type MileageCap = { cap_cents_per_mile: number | null; basis: CapBasis; recalc_failed?: boolean };
 
 /** The longest single trip anyone may type, in miles. */
 export const MAX_MILES = 2000;
@@ -97,9 +101,10 @@ export function rateForTrip(
  */
 export function zeroCapText(cap: MileageCap | null | undefined): string | null {
   if (cap?.cap_cents_per_mile == null || Number(cap.cap_cents_per_mile) !== 0) return null;
-  return cap.basis === "no_miles_on_deal"
-    ? "the Catering Event's quote charged mileage, but its deal has no round-trip miles to price it by; a manager can add them, and the trip is repriced until it is paid"
-    : "the Catering Event's quote charged the customer no mileage, so its miles are not reimbursed";
+  if (cap.basis !== "no_miles_on_deal") return "the Catering Event's quote charged the customer no mileage, so its miles are not reimbursed";
+  return cap.recalc_failed
+    ? "the Catering Event's quote charged mileage, but its deal has no round-trip miles to price it by; the automatic recalculation did not find them, so a manager should check the event's venue address, and the trip is repriced until it is paid"
+    : "the Catering Event's quote charged mileage, but its deal has no round-trip miles to price it by yet; they are being recalculated automatically, and the trip is repriced until it is paid";
 }
 
 /**
@@ -238,15 +243,47 @@ export function amountsBeforeAdjustments(
   return { before: reimbursementCents({ ...r, tolls_cents: tolls, parking_cents: parking, mileage_cents_override: null }, rates), adjusted };
 }
 
+/** What decideRefusal and noMilesRefusal read of a reimbursement: its amounts, miles and cap. */
+export type Approvable = Pick<Priceable, "trip_date" | "miles" | "mileage_cents_override"> & {
+  amounts: Pick<Amounts, "total_cents">;
+  mileage_cap?: MileageCap | null;
+};
+
 /**
- * Why a reimbursement cannot be approved, or null when it can: with no
- * Mileage rate for its trip date it has no total (ruling 42). The decide
- * route refuses the same.
+ * Why a Catering Event trip may not be approved or paid yet, or null: its
+ * quote charged mileage but its deal has no round-trip miles
+ * ('no_miles_on_deal'), so its miles price at 0c until they land (the owner,
+ * 2026-10-29: never pay a 0c trip by mistake; "just recalculate miles"). The
+ * miles are recalculated automatically (./milesRecalc.ts); when one has
+ * finished without finding them, a manager should check the venue address.
+ * `next` is the step once they are in, e.g. "approve it". Not refused: no miles on the trip
+ * (only tolls or parking, which the cap does not touch), or a Mileage
+ * Adjustment, which an Approver made with evidence and which replaces the
+ * capped amount. 'no_rate_on_quote' (the quote charged no mileage, 0c on
+ * purpose) is never refused.
  */
-export function approveRefusal(amounts: Pick<Amounts, "total_cents">, tripDate: string): string | null {
-  return amounts.total_cents == null
-    ? `There is no Mileage rate for ${tripDate}, so it has no total and cannot be approved. Add the IRS rate for that date first.`
-    : null;
+export function noMilesRefusal(r: Approvable, next: string): string | null {
+  if (r.mileage_cap?.basis !== "no_miles_on_deal" || r.mileage_cents_override != null || !(Number(r.miles) > 0)) return null;
+  const why = "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢.";
+  return r.mileage_cap.recalc_failed
+    ? `${why} The automatic recalculation did not find them, so a manager should check the venue address on the deal; once the miles are in, ${next}.`
+    : `${why} They are being recalculated automatically; once they are in, ${next}.`;
+}
+
+/**
+ * Why the decide route refuses this action on a reimbursement, or null when
+ * it does not. approve: with no Mileage rate for its trip date it has no
+ * total (ruling 42); and a Catering Event whose deal has no round-trip miles
+ * prices its miles at 0c until they are recalculated (noMilesRefusal), which also
+ * refuses paid_outside_payroll. The other actions are never refused here.
+ * The queue disables the same buttons with the same words.
+ */
+export function decideRefusal(action: ApproverAction, r: Approvable): string | null {
+  if (action === "paid_outside_payroll") return noMilesRefusal(r, "mark it Paid outside payroll");
+  if (action !== "approve") return null;
+  if (r.amounts.total_cents == null)
+    return `There is no Mileage rate for ${r.trip_date}, so it has no total and cannot be approved. Add the IRS rate for that date first.`;
+  return noMilesRefusal(r, "approve it");
 }
 
 /** One of the amounts, by Adjustment field: as it stands, or as it was before (rulings 40, 43). Null: Mileage with no rate. */

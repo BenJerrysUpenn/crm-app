@@ -220,3 +220,125 @@ test("loadMine and loadQueue: when the caps cannot be read they fail, rather tha
   db.signIn(MANAGER.id);
   assert.equal((await loadQueue(createClient(), MANAGER)).ok, false);
 });
+
+// ---------- a deal with no round-trip miles gets a miles recalculation (the owner, 2026-10-29) ----------
+
+const MINUTE = 60_000;
+const minutesAgo = (m: number) => new Date(Date.now() - m * MINUTE).toISOString();
+/** A quote_jobs row as the CRM's Recalculate button (kind 'retriage', the default) or the time app (kind 'miles') leaves it, after the worker. */
+function recalcJob(id: number, deal_id: number, status: string, createdMinutesAgo: number, kind = "retriage") {
+  return { id, deal_id, status, kind, created_at: minutesAgo(createdMinutesAgo), requested_by: "someone@example.test" };
+}
+const queued = () => db.rows("quote_jobs").filter((j) => j.requested_by === "withers-time:no-miles-on-deal");
+
+test("loadQueue: each deal with no round-trip miles that an unpaid trip waits on gets one miles-only recalculation (kind 'miles'); loading again queues none", async () => {
+  // 501: rows 1 (Submitted) and 2 (Approved); 900: row 6, Rejected, off the queue.
+  caps({ 501: [0, "no_miles_on_deal"], 900: [0, "no_miles_on_deal"] });
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  assert.deepEqual(
+    db.rows("quote_jobs").map(({ deal_id, status, kind, requested_by }) => ({ deal_id, status, kind, requested_by })),
+    [{ deal_id: 501, status: "pending", kind: "miles", requested_by: "withers-time:no-miles-on-deal" }],
+  );
+  const one = q.submitted.find((i) => i.id === 1)!;
+  assert.deepEqual(one.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal" }, "nothing has failed yet");
+  // Pending: a second load, or a second Approver, queues nothing more.
+  assert.ok((await loadQueue(createClient(), MANAGER)).ok);
+  db.signIn(OWNER.id);
+  assert.ok((await loadQueue(createClient(), OWNER)).ok);
+  assert.equal(db.rows("quote_jobs").length, 1);
+});
+
+test("loadQueue: a miles job of either kind, the time app's 'miles' or a manager's Recalculate, pending or recent, blocks a new one; a recent one that did not find the miles is a failure", async () => {
+  caps({ 501: [0, "no_miles_on_deal"], 502: [0, "no_miles_on_deal"], 777: [0, "no_miles_on_deal"] });
+  db.tables.quote_jobs = [
+    recalcJob(1, 501, "pending", 5, "miles"),
+    recalcJob(2, 502, "done", 20, "retriage"),
+    recalcJob(3, 777, "error", 20, "picklist"),
+  ];
+  db.tables.travel_reimbursements.push(row(8, DONTE.id, { deal_id: 502 }));
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  assert.deepEqual(queued().map((j) => [j.deal_id, j.kind]), [[777, "miles"]], "a picklist job neither blocks nor fails");
+  assert.equal(q.submitted.find((i) => i.id === 1)!.mileage_cap?.recalc_failed, undefined, "pending, not failed");
+  assert.equal(q.submitted.find((i) => i.id === 8)!.mileage_cap?.recalc_failed, true, "the manager's Recalculate finished without miles");
+  assert.equal(q.approved.find((i) => i.id === 4)!.mileage_cap?.recalc_failed, undefined);
+});
+
+test("loadQueue: a Recalculate already pending or running for the deal, from anyone, is not queued again; another kind of job does not count", async () => {
+  caps({ 501: [0, "no_miles_on_deal"], 777: [0, "no_miles_on_deal"] });
+  db.tables.quote_jobs = [recalcJob(1, 501, "running", 300), recalcJob(2, 777, "pending", 1, "quote")];
+  db.signIn(MANAGER.id);
+  assert.ok((await loadQueue(createClient(), MANAGER)).ok);
+  assert.deepEqual(queued().map((j) => j.deal_id), [777]);
+});
+
+test("loadQueue: a Recalculate that did not find the miles says so on the trip, and the next is queued only an hour after the last", async () => {
+  caps({ 501: [0, "no_miles_on_deal"] });
+  db.tables.quote_jobs = [recalcJob(1, 501, "error", 30)];
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  assert.equal(queued().length, 0, "the last one was 30 minutes ago");
+  assert.deepEqual(q.submitted.find((i) => i.id === 1)!.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal", recalc_failed: true });
+  assert.equal(q.approved.find((i) => i.id === 2)!.mileage_cap?.recalc_failed, true);
+
+  db.tables.quote_jobs[0].created_at = minutesAgo(61);
+  const later = await loadQueue(createClient(), MANAGER);
+  assert.ok(later.ok);
+  assert.equal(queued().length, 1, "an hour on, one more");
+  assert.equal(later.submitted.find((i) => i.id === 1)!.mileage_cap?.recalc_failed, true, "the last finished one still failed");
+});
+
+test("loadQueue: once the miles land the deal is capped at the quote's rate and nothing is queued", async () => {
+  caps({ 501: [72.5, "quote_derived"] });
+  db.tables.quote_jobs = [recalcJob(1, 501, "done", 5)];
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  assert.equal(db.rows("quote_jobs").length, 1);
+  assert.deepEqual(q.submitted.find((i) => i.id === 1)!.mileage_cap, { cap_cents_per_mile: 72.5, basis: "quote_derived" });
+});
+
+test("loadQueue: when the miles jobs cannot be read the queue still loads, the trip still capped at 0c", async () => {
+  caps({ 501: [0, "no_miles_on_deal"] });
+  db.missingTables = ["quote_jobs"];
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  assert.equal(q.submitted.find((i) => i.id === 1)!.amounts.mileage_cents, 0);
+});
+
+test("loadQueue: when the miles recalculation's insert is refused the queue still loads, the trip still refused at 0c and not called failed; the next load tries again", async () => {
+  caps({ 501: [0, "no_miles_on_deal"] });
+  // The jobs read; the insert is refused (a column the queue does not have yet).
+  db.missingColumns = { quote_jobs: ["requested_by"] };
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  assert.equal(db.rows("quote_jobs").length, 0);
+  const one = q.submitted.find((i) => i.id === 1)!;
+  assert.equal(one.amounts.mileage_cents, 0);
+  assert.deepEqual(one.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal" }, "nothing finished, so nothing failed");
+
+  db.missingColumns = {};
+  assert.ok((await loadQueue(createClient(), MANAGER)).ok);
+  assert.deepEqual(queued().map((j) => j.deal_id), [501], "no job was left behind, so the next load queues one");
+});
+
+test("loadMine: staff loading their page queue no miles recalculation, but are told when the last one did not find the miles", async () => {
+  caps({ 501: [0, "no_miles_on_deal"] });
+  db.signIn(DONTE.id);
+  const mine = await loadMine(createClient(), DONTE.id);
+  assert.ok(mine.ok);
+  assert.equal(db.rows("quote_jobs").length, 0);
+  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal" });
+
+  db.tables.quote_jobs = [recalcJob(1, 501, "error", 10)];
+  const after = await loadMine(createClient(), DONTE.id);
+  assert.ok(after.ok);
+  assert.equal(after.reimbursements[0].mileage_cap?.recalc_failed, true);
+  assert.equal(db.rows("quote_jobs").length, 1);
+});

@@ -4,7 +4,7 @@ import { dayKey } from "@/lib/format";
 import { isMissingTable } from "@/lib/storeHours";
 import { parseReimbursement } from "@/lib/reimbursements/submission";
 import { staffMayChange } from "@/lib/reimbursements/lifecycle";
-import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission, totalForNotice, type ReimbursementRow } from "@/lib/reimbursements/server";
+import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission, afterSubmit, type ReimbursementRow } from "@/lib/reimbursements/server";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +33,9 @@ async function own(params: Params["params"]) {
 // The staff member edits their own while Submitted, or fixes a Rejected one,
 // which resubmits it (bj-finance #210, ruling 20). Changing the miles drops an
 // Adjustment's mileage amount: the new miles need deciding again. A
-// resubmission tells the Approvers, as a new submission does.
+// resubmission tells the Approvers, as a new submission does. Either queues a
+// Miles recalculation for a Catering Event whose deal has no round-trip miles, as
+// POST does.
 export async function PATCH(request: Request, { params }: Params) {
   const found = await own(params);
   if (found.res) return found.res;
@@ -65,7 +67,9 @@ export async function PATCH(request: Request, { params }: Params) {
   if (error) return NextResponse.json({ error: error.message }, { status: 409 });
   if (!data) return NextResponse.json({ error: LOCKED }, { status: 409 });
 
-  if (row.status === "rejected") await notifyApprovers(me, data, await totalForNotice(supabase, data as ReimbursementRow, rates.rates));
+  // Its total for the notice; a deal with no round-trip miles gets a miles recalculation queued (afterSubmit).
+  const total = await afterSubmit(supabase, data as ReimbursementRow, rates.rates);
+  if (row.status === "rejected") await notifyApprovers(me, data, total);
   return NextResponse.json({ reimbursement: data });
 }
 

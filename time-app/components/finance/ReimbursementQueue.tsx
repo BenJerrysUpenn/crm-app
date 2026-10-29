@@ -6,17 +6,25 @@
 // one-line note), and the Approved ones not yet Paid, which an Approver can
 // send back and an owner's can be marked Paid outside payroll. A second person
 // on the same Catering Event is shown beside each, never blocked (ruling 24).
-// One with no Mileage rate for its trip date has no total and offers no
-// Approve (42). The Adjust panel shows the amount as it stands, pre-filled
-// (43). What leaves the queue (Rejected, Paid, Paid outside payroll) is listed
-// under a collapsed Decided at the bottom, newest first (41).
+// One with no Mileage rate for its trip date has no total, and a Catering
+// Event whose quote charged mileage but whose deal has no round-trip miles
+// would pay its miles 0c (the owner, 2026-10-29): either shows Approve
+// disabled, with the reason, as the decide route refuses it. Loading the
+// queue queues a miles recalculation for that deal (lib/reimbursements/milesRecalc.ts);
+// the reason says so, or that a manager should check the venue address when
+// one has finished without finding the miles. An Approved one
+// in the second state says so, and an owner's offers Paid outside payroll
+// disabled the same way. The Adjust panel shows the amount as it stands,
+// pre-filled (43). What leaves the queue (Rejected, Paid, Paid outside
+// payroll) is listed under a collapsed Decided at the bottom, newest first
+// (41).
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DecidedItem, QueueItem } from "@/lib/reimbursements/load";
 import { ADJUSTMENT_FIELDS, DECIDED_SHOWN, FIELD_LABEL, type AdjustmentField } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
-import { approveRefusal, fieldCents, dollarsText } from "@/lib/reimbursements/money";
+import { decideRefusal, noMilesRefusal, fieldCents, dollarsText } from "@/lib/reimbursements/money";
 import { money } from "@/lib/payroll/paySheet";
 import { ReimbursementDetail, StatusBadge, BUTTON, PRIMARY, INPUT, uploadFile } from "@/components/reimbursements/shared";
 
@@ -100,7 +108,14 @@ export default function ReimbursementQueue({
 
   function card(item: QueueItem) {
     const mine = busy === item.id;
-    const noApprove = approveRefusal(item.amounts, item.trip_date);
+    const noApprove = item.status === "submitted" ? decideRefusal("approve", item) : null;
+    // Approved before its deal lost its miles (or before this check): said before it is paid.
+    const zeroPay =
+      item.status === "approved"
+        ? item.owner
+          ? decideRefusal("paid_outside_payroll", item)
+          : noMilesRefusal(item, "payroll pays it on the next pay table")
+        : null;
     return (
       <li key={item.id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
@@ -126,25 +141,28 @@ export default function ReimbursementQueue({
           <div className="flex flex-wrap gap-2">
             {item.status === "submitted" && (
               <>
-                {noApprove ? (
-                  <span className="basis-full text-sm text-amber-700 dark:text-amber-400">{noApprove}</span>
-                ) : (
-                  <button className={PRIMARY} disabled={mine} onClick={() => post(item.id, "decide", { action: "approve" }, "Approved.")}>
-                    Approve
-                  </button>
-                )}
+                {noApprove && <span className="basis-full text-sm text-amber-700 dark:text-amber-400">{noApprove}</span>}
+                <button
+                  className={PRIMARY}
+                  disabled={mine || noApprove != null}
+                  title={noApprove ?? undefined}
+                  onClick={() => post(item.id, "decide", { action: "approve" }, "Approved.")}
+                >
+                  Approve
+                </button>
                 <button className={BUTTON} disabled={mine} onClick={() => open({ id: item.id, kind: "reject" })}>
                   Reject
                 </button>
               </>
             )}
+            {zeroPay && <span className="basis-full text-sm text-amber-700 dark:text-amber-400">{zeroPay}</span>}
             {item.status === "approved" && (
               <button className={BUTTON} disabled={mine} onClick={() => post(item.id, "decide", { action: "send_back" }, "Sent back to Submitted.")}>
                 Send back
               </button>
             )}
             {item.status === "approved" && item.owner && viewerIsOwner && (
-              <button className={PRIMARY} disabled={mine} onClick={() => post(item.id, "decide", { action: "paid_outside_payroll" }, "Marked Paid outside payroll.")}>
+              <button className={PRIMARY} disabled={mine || zeroPay != null} title={zeroPay ?? undefined} onClick={() => post(item.id, "decide", { action: "paid_outside_payroll" }, "Marked Paid outside payroll.")}>
                 Paid outside payroll
               </button>
             )}

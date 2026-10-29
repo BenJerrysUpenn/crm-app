@@ -13,7 +13,8 @@ import assert from "node:assert/strict";
 import {
   amountText,
   amountsBeforeAdjustments,
-  approveRefusal,
+  decideRefusal,
+  noMilesRefusal,
   centsFromDollars,
   fieldCents,
   dollarsText,
@@ -26,6 +27,7 @@ import {
   reimbursementCents,
   totalText,
   zeroCapText,
+  type MileageCap,
   type MileageRate,
 } from "./money.ts";
 
@@ -151,7 +153,14 @@ test("reimbursementCents: an Adjustment's mileage replaces a 0c amount", () => {
 
 test("zeroCapText: says why a 0c cap pays nothing; nothing for any other cap", () => {
   assert.match(zeroCapText({ cap_cents_per_mile: 0, basis: "no_rate_on_quote" })!, /quote charged the customer no mileage/);
-  assert.match(zeroCapText({ cap_cents_per_mile: 0, basis: "no_miles_on_deal" })!, /deal has no round-trip miles/);
+  assert.equal(
+    zeroCapText({ cap_cents_per_mile: 0, basis: "no_miles_on_deal" }),
+    "the Catering Event's quote charged mileage, but its deal has no round-trip miles to price it by yet; they are being recalculated automatically, and the trip is repriced until it is paid",
+  );
+  assert.equal(
+    zeroCapText({ cap_cents_per_mile: 0, basis: "no_miles_on_deal", recalc_failed: true }),
+    "the Catering Event's quote charged mileage, but its deal has no round-trip miles to price it by; the automatic recalculation did not find them, so a manager should check the event's venue address, and the trip is repriced until it is paid",
+  );
   assert.equal(zeroCapText({ cap_cents_per_mile: 72.5, basis: "quote_derived" }), null);
   assert.equal(zeroCapText({ cap_cents_per_mile: null, basis: "no_quote" }), null);
   assert.equal(zeroCapText(null), null);
@@ -276,13 +285,66 @@ test("amountText and totalText: nothing adjusted reads each amount and the total
   assert.equal(totalText(shown), "$28.72");
 });
 
-test("approveRefusal: no Mileage rate for the trip date means no total, so no Approve (ruling 42)", () => {
+test("decideRefusal approve: no Mileage rate for the trip date means no total, so no Approve (ruling 42)", () => {
   const none = reimbursementCents({ ...base, trip_date: "2025-06-01" }, RATES_2026);
-  assert.match(approveRefusal(none, "2025-06-01") ?? "", /no Mileage rate for 2025-06-01/);
-  assert.equal(approveRefusal(reimbursementCents(base, RATES_2026), base.trip_date), null);
+  assert.match(decideRefusal("approve", { ...base, trip_date: "2025-06-01", amounts: none }) ?? "", /no Mileage rate for 2025-06-01/);
+  assert.equal(decideRefusal("approve", { ...base, amounts: reimbursementCents(base, RATES_2026) }), null);
   // An Adjustment to the Mileage gives it a total.
-  const adjusted = reimbursementCents({ ...base, trip_date: "2025-06-01", mileage_cents_override: 1000 }, RATES_2026);
-  assert.equal(approveRefusal(adjusted, "2025-06-01"), null);
+  const overridden = { ...base, trip_date: "2025-06-01", mileage_cents_override: 1000 };
+  assert.equal(decideRefusal("approve", { ...overridden, amounts: reimbursementCents(overridden, RATES_2026) }), null);
+});
+
+test("decideRefusal approve: a Catering Event whose quote charged mileage but whose deal has no round-trip miles is refused while they are recalculated (the owner, 2026-10-29)", () => {
+  const noMiles = { cap_cents_per_mile: 0, basis: "no_miles_on_deal" } as const;
+  const priced = (over: { miles?: number; trip_date?: string; mileage_cents_override?: number } = {}, cap: MileageCap | null = noMiles) => {
+    const r = { ...base, ...over, cap_cents_per_mile: cap?.cap_cents_per_mile ?? null };
+    return { ...r, mileage_cap: cap, amounts: reimbursementCents(r, RATES_2026) };
+  };
+  const refused = decideRefusal("approve", priced());
+  assert.equal(
+    refused,
+    "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. They are being recalculated automatically; once they are in, approve it.",
+  );
+  assert.equal(priced().amounts.mileage_cents, 0, "it is refused because its miles price at 0c");
+  // A miles recalculation that did not find the miles: a manager checks the venue address.
+  assert.equal(
+    decideRefusal("approve", priced({}, { ...noMiles, recalc_failed: true })),
+    "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. The automatic recalculation did not find them, so a manager should check the venue address on the deal; once the miles are in, approve it.",
+  );
+  // Once the deal's miles land the cap is the quote's rate and it is approved.
+  assert.equal(decideRefusal("approve", priced({}, { cap_cents_per_mile: 72, basis: "quote_derived" })), null);
+  // A quote that charged no mileage is 0c on purpose: approved, tolls and parking pay.
+  const walkable = priced({}, { cap_cents_per_mile: 0, basis: "no_rate_on_quote" });
+  assert.equal(decideRefusal("approve", walkable), null);
+  assert.equal(walkable.amounts.total_cents, 1200);
+  // No miles on the trip: the cap prices nothing, so tolls and parking are approved.
+  assert.equal(decideRefusal("approve", priced({ miles: 0 })), null);
+  // A Mileage Adjustment replaces the capped amount: the Approver set it, with evidence.
+  assert.equal(decideRefusal("approve", priced({ mileage_cents_override: 1500 })), null);
+  // No rate for the trip date is said first: there is no total at all.
+  assert.match(decideRefusal("approve", priced({ trip_date: "2025-06-01" })) ?? "", /no Mileage rate for 2025-06-01/);
+  // Errands and deals without a cap are never refused for it.
+  assert.equal(decideRefusal("approve", priced({}, null)), null);
+});
+
+test("decideRefusal: paid_outside_payroll is refused while the deal has no round-trip miles; reject, send back and adjust never are", () => {
+  const r = { ...base, mileage_cap: { cap_cents_per_mile: 0, basis: "no_miles_on_deal" as const }, amounts: { total_cents: null } };
+  assert.equal(
+    decideRefusal("paid_outside_payroll", r),
+    "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. They are being recalculated automatically; once they are in, mark it Paid outside payroll.",
+  );
+  assert.equal(decideRefusal("paid_outside_payroll", { ...r, mileage_cap: null }), null);
+  for (const action of ["reject", "send_back", "adjust"] as const) assert.equal(decideRefusal(action, r), null, action);
+});
+
+test("noMilesRefusal: names the step once the deal's miles are in", () => {
+  const r = { ...base, mileage_cap: { cap_cents_per_mile: 0, basis: "no_miles_on_deal" as const }, amounts: { total_cents: 1200 } };
+  assert.match(noMilesRefusal(r, "mark it Paid outside payroll") ?? "", /recalculated automatically; once they are in, mark it Paid outside payroll\.$/);
+  assert.match(
+    noMilesRefusal({ ...r, mileage_cap: { ...r.mileage_cap, recalc_failed: true } }, "approve it") ?? "",
+    /check the venue address on the deal; once the miles are in, approve it\.$/,
+  );
+  assert.equal(noMilesRefusal({ ...r, mileage_cap: { cap_cents_per_mile: 0, basis: "no_rate_on_quote" } }, "approve it"), null);
 });
 
 test("fieldCents and dollarsText: the Adjust panel shows and pre-fills the current amount (ruling 43)", () => {
