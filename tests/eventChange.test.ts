@@ -1,0 +1,580 @@
+// Reschedule event and Cancel event on the deal drawer: the rules
+// (lib/eventChange.ts planEventChange), what the dialog says before anyone
+// confirms (components/EventChangeDialog.tsx confirmationLines), and which
+// deals show the two buttons.
+//
+// The writes themselves, against stand-in tables, are
+// tests/eventChangeRoute.test.ts.
+
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import {
+  canChangeEvent,
+  confirmationLines,
+  DEAL_SAVED_PREFIX,
+  describeShiftTime,
+  eventChangedMessage,
+  interpretChangeResponse,
+  isMissingTwinColumn,
+  linkedCalendarEventId,
+  parseEventChangeBody,
+  planEventChange,
+  type CrewShift,
+  type EventDeal,
+  type EventPreview,
+} from "@/lib/eventChange";
+import DealDetailDrawer from "@/components/DealDetailDrawer";
+import type { Deal } from "@/lib/types";
+
+vi.mock("@/lib/supabase/client", () => ({ createClient: () => ({}) }));
+
+const NOW = new Date("2026-10-27T16:00:00Z");
+const CTX = { now: NOW, actor: "manager@example.com" };
+
+function mkDeal(overrides: Partial<EventDeal> = {}): EventDeal {
+  return {
+    id: 30001,
+    stage: "Booked Paid",
+    event_date: "2026-10-29",
+    event_start_time: "12:00",
+    event_end_time: "13:30",
+    calendar_event_id: "evt_old_123",
+    amount_paid: 515.2,
+    notes: "[2026-10-09] Earlier line.",
+    picklist_docx_path: "/drive/Catering/picklists/Synthetic_10_29_26_Checklist.docx",
+    day_before_draft_sent_at: null,
+    coi_sent_at: "2026-10-20T15:00:00",
+    departure_time: "10:45",
+    arrival_time: "11:15",
+    ...overrides,
+  };
+}
+
+// 11:00-14:30 Eastern (EDT) on the event day: one hour before the 12:00 start.
+const OPEN: CrewShift = {
+  id: 601,
+  starts_at: "2026-10-29T15:00:00+00:00",
+  ends_at: "2026-10-29T18:30:00+00:00",
+  employee_id: null,
+  person: null,
+};
+const STAFFED: CrewShift = {
+  id: 602,
+  starts_at: "2026-10-29T15:00:00+00:00",
+  ends_at: "2026-10-29T18:30:00+00:00",
+  employee_id: "user-a",
+  person: "Crew Member A",
+};
+
+function plan(
+  deal: EventDeal,
+  shifts: CrewShift[],
+  request: Parameters<typeof planEventChange>[2],
+) {
+  const r = planEventChange(deal, shifts, request, CTX);
+  if (!r.ok) throw new Error(`expected a plan, got ${r.status} ${r.error}`);
+  return r.plan;
+}
+
+const TO_NOV_5 = {
+  kind: "reschedule" as const,
+  event_date: "2026-11-05",
+  event_start_time: "12:00",
+  event_end_time: "13:30",
+};
+
+describe("Reschedule event, to a new date", () => {
+  it("writes the new date and times, clears the calendar link and the old date's stamps, in one deal update", () => {
+    const p = plan(mkDeal(), [OPEN, STAFFED], TO_NOV_5);
+    expect(p.dealPatch).toMatchObject({
+      event_date: "2026-11-05",
+      event_start_time: "12:00",
+      event_end_time: "13:30",
+      calendar_event_id: null,
+      calendar_event_payload_hash: null,
+      picklist_docx_path: null,
+      day_before_draft_sent_at: null,
+      coi_sent_at: null,
+      updated_at: "2026-10-27T16:00:00.000Z",
+    });
+    expect(p.dealPatch).not.toHaveProperty("stage");
+    expect(p.deleteCalendarEventId).toBe("evt_old_123");
+    expect(p.deletes).toEqual([]);
+  });
+
+  it("moves every crew shift with the event, keeping its offset from the start, across the end of daylight time", () => {
+    const p = plan(mkDeal(), [OPEN, STAFFED], TO_NOV_5);
+    // 11:00 EDT on Oct 29 becomes 11:00 EST on Nov 5: an hour before 12:00 still.
+    expect(p.moves).toEqual([
+      { id: 601, starts_at: "2026-11-05T16:00:00.000Z", ends_at: "2026-11-05T19:30:00.000Z" },
+      { id: 602, starts_at: "2026-11-05T16:00:00.000Z", ends_at: "2026-11-05T19:30:00.000Z" },
+    ]);
+    expect(describeShiftTime(p.moves[0].starts_at, p.moves[0].ends_at)).toBe("Thu 2026-11-05 11:00-14:30");
+  });
+
+  it("follows a new start time: a shift an hour before noon is an hour before 3 PM", () => {
+    const p = plan(mkDeal(), [STAFFED], { ...TO_NOV_5, event_date: "2026-10-29", event_start_time: "15:00", event_end_time: "16:30" });
+    expect(p.moves).toEqual([
+      { id: 602, starts_at: "2026-10-29T18:00:00.000Z", ends_at: "2026-10-29T21:30:00.000Z" },
+    ]);
+  });
+
+  it("describes a shift that runs past midnight with its end day", () => {
+    // 20:00 EDT on Oct 29 to 01:00 EDT on Oct 30.
+    expect(describeShiftTime("2026-10-30T00:00:00Z", "2026-10-30T05:00:00Z")).toBe(
+      "Thu 2026-10-29 20:00-Fri 2026-10-30 01:00",
+    );
+  });
+
+  it("moves nothing when only the end time changes", () => {
+    const p = plan(mkDeal(), [OPEN], { ...TO_NOV_5, event_date: "2026-10-29", event_end_time: "14:00" });
+    expect(p.moves).toEqual([]);
+    expect(p.dealPatch.event_end_time).toBe("14:00");
+  });
+
+  it("with no old start time, keeps each shift's time of day and changes its day", () => {
+    const p = plan(mkDeal({ event_start_time: null }), [OPEN], { ...TO_NOV_5, event_date: "2026-10-30" });
+    expect(p.moves).toEqual([
+      { id: 601, starts_at: "2026-10-30T15:00:00.000Z", ends_at: "2026-10-30T18:30:00.000Z" },
+    ]);
+  });
+
+  it("with no old date, leaves the shifts where they are and says so", () => {
+    const p = plan(mkDeal({ event_date: null, calendar_event_id: null }), [OPEN], TO_NOV_5);
+    expect(p.moves).toEqual([]);
+    expect(p.deletes).toEqual([]);
+    expect(p.noteLine).toContain("1 crew shift left where it was: the deal had no date to move them from.");
+    expect(p.deleteCalendarEventId).toBeNull();
+  });
+
+  it("appends a note saying what moved, from what to what", () => {
+    const p = plan(mkDeal(), [OPEN, STAFFED], TO_NOV_5);
+    expect(p.noteLine).toBe(
+      "[2026-10-27] Rescheduled (manager@example.com): Thu 2026-10-29 12:00-13:30 to Thu 2026-11-05 12:00-13:30. " +
+        "Calendar event queued for deletion and its link cleared. A fresh event is created on the new date by the calendar reconcile. " +
+        "Crew shifts moved with it: open Thu 2026-10-29 11:00-14:30 to Thu 2026-11-05 11:00-14:30; " +
+        "Crew Member A Thu 2026-10-29 11:00-14:30 to Thu 2026-11-05 11:00-14:30. " +
+        "Cleared for the old date: picklist, COI sent stamp. Regenerate the picklist.",
+    );
+    expect(p.dealPatch.notes).toBe(`[2026-10-09] Earlier line.\n${p.noteLine}`);
+  });
+
+  it("names every stamp it clears for the old date, the day-before draft included", () => {
+    const p = plan(mkDeal({ day_before_draft_sent_at: "2026-10-28T14:00:00" }), [], TO_NOV_5);
+    expect(p.noteLine).toContain(
+      "Cleared for the old date: picklist, day-before draft stamp, COI sent stamp. Regenerate the picklist.",
+    );
+  });
+
+  it("gives a Closed Marketing Event deal a fresh calendar event on the new date, like a booked one", () => {
+    const p = plan(mkDeal({ stage: "Closed Marketing Event" }), [], TO_NOV_5);
+    expect(p.noteLine).toContain(
+      "Calendar event queued for deletion and its link cleared. A fresh event is created on the new date by the calendar reconcile.",
+    );
+    expect(p.deleteCalendarEventId).toBe("evt_old_123");
+  });
+
+  it("queues no calendar delete when no event was linked", () => {
+    const p = plan(mkDeal({ calendar_event_id: null }), [], TO_NOV_5);
+    expect(p.deleteCalendarEventId).toBeNull();
+    expect(p.noteLine).toContain("No calendar event was linked.");
+  });
+
+  it("decides 'has a calendar event' once: a blank id is no event, for the plan and the preview alike", () => {
+    expect(linkedCalendarEventId({ calendar_event_id: "   " })).toBeNull();
+    expect(linkedCalendarEventId({ calendar_event_id: null })).toBeNull();
+    expect(linkedCalendarEventId({ calendar_event_id: "evt_1" })).toBe("evt_1");
+    const p = plan(mkDeal({ calendar_event_id: "  " }), [], TO_NOV_5);
+    expect(p.deleteCalendarEventId).toBeNull();
+    expect(p.noteLine).toContain("No calendar event was linked.");
+  });
+
+  it("refuses to move the crew when the stored start time cannot be read", () => {
+    const r = planEventChange(mkDeal({ event_start_time: "noon" }), [OPEN], TO_NOV_5, CTX);
+    expect(r).toEqual({ ok: false, status: 400, error: "Could not read the event's start time." });
+  });
+
+  it("refuses the date and times the event already has", () => {
+    const r = planEventChange(mkDeal(), [], { ...TO_NOV_5, event_date: "2026-10-29" }, CTX);
+    expect(r).toEqual({ ok: false, status: 400, error: "That is the date and time the event already has." });
+  });
+});
+
+describe("Reschedule event, the logistics times derived from the start time", () => {
+  const LOGISTICS_CLEARED = {
+    departure_time: null,
+    arrival_time: null,
+    departure_time_derived: null,
+    arrival_time_derived: null,
+  };
+
+  it("clears departure, arrival and both _derived twins when the start time changes, and says so in the note", () => {
+    const p = plan(mkDeal(), [STAFFED], { ...TO_NOV_5, event_start_time: "15:00", event_end_time: "16:30" });
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+    expect(p.noteLine).toContain(
+      "Logistics times cleared (were departure 10:45, arrival 11:15); the next picklist or Recalculate derives them again.",
+    );
+    // The shift move does not read departure_time: it follows the start.
+    expect(p.moves).toEqual([
+      { id: 602, starts_at: "2026-11-05T19:00:00.000Z", ends_at: "2026-11-05T22:30:00.000Z" },
+    ]);
+  });
+
+  it("clears them on a start-time change on the same day", () => {
+    const p = plan(mkDeal(), [], { ...TO_NOV_5, event_date: "2026-10-29", event_start_time: "12:30" });
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+  });
+
+  it("clears them when the deal had no start time before", () => {
+    const p = plan(mkDeal({ event_start_time: null }), [], TO_NOV_5);
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+  });
+
+  it("keeps them on a date-only change: the same start time derives the same times on any day", () => {
+    const p = plan(mkDeal(), [], TO_NOV_5);
+    for (const c of Object.keys(LOGISTICS_CLEARED)) expect(p.dealPatch).not.toHaveProperty(c);
+    expect(p.noteLine).not.toContain("Logistics times");
+  });
+
+  it("keeps them when only the end time changes", () => {
+    const p = plan(mkDeal(), [], { ...TO_NOV_5, event_date: "2026-10-29", event_end_time: "14:00" });
+    for (const c of Object.keys(LOGISTICS_CLEARED)) expect(p.dealPatch).not.toHaveProperty(c);
+  });
+
+  it("clears all four on Date not set yet", () => {
+    const p = plan(mkDeal(), [], { kind: "reschedule_tbd" });
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+    expect(p.noteLine).toContain("Logistics times cleared (were departure 10:45, arrival 11:15)");
+  });
+
+  it("still clears the columns, saying nothing, when no time was set", () => {
+    const p = plan(mkDeal({ departure_time: null, arrival_time: "  " }), [], { kind: "reschedule_tbd" });
+    expect(p.dealPatch).toMatchObject(LOGISTICS_CLEARED);
+    expect(p.noteLine).not.toContain("Logistics times");
+  });
+
+  it("leaves them alone on a cancel", () => {
+    const p = plan(mkDeal(), [], { kind: "cancel" });
+    for (const c of Object.keys(LOGISTICS_CLEARED)) expect(p.dealPatch).not.toHaveProperty(c);
+  });
+
+  it("recognises PostgREST's missing-column answer for a twin, and only for a twin", () => {
+    const missing = (c: string) => ({ code: "PGRST204", message: `Could not find the '${c}' column of 'deals' in the schema cache` });
+    expect(isMissingTwinColumn(missing("departure_time_derived"))).toBe(true);
+    expect(isMissingTwinColumn(missing("arrival_time_derived"))).toBe(true);
+    expect(isMissingTwinColumn(missing("event_date"))).toBe(false);
+    expect(isMissingTwinColumn({ code: "42501", message: "permission denied for 'departure_time_derived'" })).toBe(false);
+    expect(isMissingTwinColumn(null)).toBe(false);
+  });
+});
+
+describe("Reschedule event, date not set yet", () => {
+  it("clears the date and keeps the times, clears the calendar link and the stamps, and removes every crew shift", () => {
+    const p = plan(mkDeal(), [OPEN, STAFFED], { kind: "reschedule_tbd" });
+    expect(p.dealPatch).toMatchObject({
+      event_date: null,
+      calendar_event_id: null,
+      calendar_event_payload_hash: null,
+      picklist_docx_path: null,
+      day_before_draft_sent_at: null,
+      coi_sent_at: null,
+    });
+    expect(p.dealPatch).not.toHaveProperty("event_start_time");
+    expect(p.dealPatch).not.toHaveProperty("event_end_time");
+    expect(p.dealPatch).not.toHaveProperty("stage");
+    expect(p.deletes).toEqual([601, 602]);
+    expect(p.moves).toEqual([]);
+    expect(p.deleteCalendarEventId).toBe("evt_old_123");
+    expect(p.noteLine).toBe(
+      "[2026-10-27] Rescheduled, new date not set (manager@example.com). Was Thu 2026-10-29 12:00-13:30. " +
+        "Calendar event queued for deletion and its link cleared. " +
+        "Crew shifts removed: open Thu 2026-10-29 11:00-14:30; Crew Member A Thu 2026-10-29 11:00-14:30. " +
+        "Cleared for the old date: picklist, COI sent stamp. " +
+        "Logistics times cleared (were departure 10:45, arrival 11:15); the next picklist or Recalculate derives them again. " +
+        "Regenerate the picklist.",
+    );
+  });
+});
+
+describe("Cancel event", () => {
+  it("moves the deal to Closed Lost, clears the calendar link and removes every crew shift", () => {
+    const p = plan(mkDeal(), [OPEN, STAFFED], { kind: "cancel" });
+    expect(p.dealPatch).toMatchObject({
+      stage: "Closed Lost",
+      is_active: 0,
+      calendar_event_id: null,
+      calendar_event_payload_hash: null,
+    });
+    // A cancel does not reschedule: the date and its stamps stay as they were.
+    expect(p.dealPatch).not.toHaveProperty("event_date");
+    expect(p.dealPatch).not.toHaveProperty("picklist_docx_path");
+    expect(p.deletes).toEqual([601, 602]);
+    expect(p.deleteCalendarEventId).toBe("evt_old_123");
+    expect(p.noteLine).toBe(
+      "[2026-10-27] Event cancelled (manager@example.com): Thu 2026-10-29 12:00-13:30, Booked Paid to Closed Lost. " +
+        "Calendar event queued for deletion and its link cleared. " +
+        "Crew shifts removed: open Thu 2026-10-29 11:00-14:30; Crew Member A Thu 2026-10-29 11:00-14:30. " +
+        "Paid $515.20; any refund is done by hand in Square.",
+    );
+  });
+
+  it("says nothing about a refund when nothing was paid", () => {
+    const p = plan(mkDeal({ amount_paid: 0 }), [], { kind: "cancel" });
+    expect(p.noteLine).not.toContain("refund");
+  });
+
+  it("writes a paid amount of a thousand or more with its thousands separator", () => {
+    const p = plan(mkDeal({ amount_paid: 1234.5 }), [], { kind: "cancel" });
+    expect(p.noteLine).toContain("Paid $1,234.50; any refund is done by hand in Square.");
+  });
+
+  it("writes an event with a start and no end time as its start alone", () => {
+    const p = plan(mkDeal({ event_end_time: null, amount_paid: 0 }), [], { kind: "cancel" });
+    expect(p.noteLine).toContain("Event cancelled (manager@example.com): Thu 2026-10-29 12:00, Booked Paid to Closed Lost.");
+  });
+
+  it("writes a deal whose date was not set as no date", () => {
+    const p = plan(mkDeal({ event_date: null, amount_paid: 0 }), [], { kind: "cancel" });
+    expect(p.noteLine).toContain("Event cancelled (manager@example.com): no date, Booked Paid to Closed Lost.");
+  });
+
+  it("labels a staffed shift with no name on file as Unnamed person, as the dialog does", () => {
+    const p = plan(mkDeal({ amount_paid: 0 }), [{ ...STAFFED, person: null }], { kind: "cancel" });
+    expect(p.noteLine).toContain("Crew shifts removed: Unnamed person Thu 2026-10-29 11:00-14:30.");
+  });
+});
+
+describe("which deals can be changed", () => {
+  it("is Booked Unpaid, Booked Paid and Closed Marketing Event only", () => {
+    expect(["Booked Unpaid", "Booked Paid", "Closed Marketing Event"].every(canChangeEvent)).toBe(true);
+    for (const s of ["Open", "Quote Review", "Sent Quote", "Event Complete", "Closed Lost", "Closed Below Min"]) {
+      expect(canChangeEvent(s)).toBe(false);
+      const r = planEventChange(mkDeal({ stage: s }), [], { kind: "cancel" }, CTX);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.status).toBe(409);
+    }
+  });
+
+  function drawer(stage: string): string {
+    const deal = { id: 1, stage, company: "Synthetic Co", event_date: "2026-11-05" } as Deal;
+    return renderToStaticMarkup(createElement(DealDetailDrawer, { deal, onClose: () => {} }));
+  }
+
+  it("shows both buttons on a booked deal and neither on any other", () => {
+    for (const s of ["Booked Unpaid", "Booked Paid", "Closed Marketing Event"]) {
+      expect(drawer(s)).toContain("Reschedule event");
+      expect(drawer(s)).toContain("Cancel event");
+    }
+    for (const s of ["Open", "Sent Quote", "Event Complete", "Closed Lost"]) {
+      expect(drawer(s)).not.toContain("Reschedule event");
+      expect(drawer(s)).not.toContain("Cancel event");
+    }
+  });
+});
+
+describe("the request body", () => {
+  it("reads a reschedule, a date-not-set and a cancel", () => {
+    expect(
+      parseEventChangeBody({
+        action: "reschedule",
+        event_date: "2026-11-05",
+        event_start_time: "12:00",
+        event_end_time: "13:30",
+        staffed_shift_ids: [602],
+      }),
+    ).toEqual({ ok: true, request: TO_NOV_5, staffedShiftIds: [602] });
+    expect(parseEventChangeBody({ action: "reschedule", date_not_set: true, staffed_shift_ids: [] })).toEqual({
+      ok: true,
+      request: { kind: "reschedule_tbd" },
+      staffedShiftIds: [],
+    });
+    expect(parseEventChangeBody({ action: "cancel", staffed_shift_ids: [] })).toEqual({
+      ok: true,
+      request: { kind: "cancel" },
+      staffedShiftIds: [],
+    });
+  });
+
+  it("refuses a missing or impossible date or time, equal times, and no crew list, telling the dialog which", () => {
+    const base = { action: "reschedule", event_date: "2026-11-05", event_start_time: "12:00", event_end_time: "13:30", staffed_shift_ids: [] };
+    const refusal = (error: string) => ({ ok: false, error });
+    expect(parseEventChangeBody({ ...base, event_date: "2026-02-30" })).toEqual(refusal("Pick the new date, or tick Date not set yet."));
+    expect(parseEventChangeBody({ ...base, event_date: "" })).toEqual(refusal("Pick the new date, or tick Date not set yet."));
+    expect(parseEventChangeBody({ ...base, event_start_time: "25:00" })).toEqual(refusal("Pick a start time (HH:MM)."));
+    expect(parseEventChangeBody({ ...base, event_end_time: "" })).toEqual(refusal("Pick an end time (HH:MM)."));
+    expect(parseEventChangeBody({ ...base, event_end_time: "12:00" })).toEqual(refusal("The end time must differ from the start time."));
+    expect(parseEventChangeBody({ action: "cancel" })).toEqual(refusal("staffed_shift_ids must be a list of shift ids"));
+    expect(parseEventChangeBody({ action: "delete", staffed_shift_ids: [] })).toEqual(refusal("action must be reschedule or cancel"));
+  });
+
+  it("reads a date and times padded with spaces as the date and times", () => {
+    expect(
+      parseEventChangeBody({
+        action: "reschedule",
+        event_date: " 2026-11-05 ",
+        event_start_time: " 12:00",
+        event_end_time: "13:30 ",
+        staffed_shift_ids: [],
+      }),
+    ).toEqual({ ok: true, request: TO_NOV_5, staffedShiftIds: [] });
+  });
+
+  it("reads Date not set yet only from a literal true, so a stray value never clears the date", () => {
+    expect(parseEventChangeBody({ action: "reschedule", date_not_set: "false", staffed_shift_ids: [] })).toEqual({
+      ok: false,
+      error: "Pick the new date, or tick Date not set yet.",
+    });
+  });
+
+  it("refuses a body that is not an object, and a crew list that is not shift ids", () => {
+    expect(parseEventChangeBody(null)).toEqual({ ok: false, error: "Bad JSON" });
+    expect(parseEventChangeBody("cancel")).toEqual({ ok: false, error: "Bad JSON" });
+    expect(parseEventChangeBody({ action: "cancel", staffed_shift_ids: ["602"] })).toEqual({
+      ok: false,
+      error: "staffed_shift_ids must be a list of shift ids",
+    });
+    expect(parseEventChangeBody({ action: "cancel", staffed_shift_ids: [602.5] })).toEqual({
+      ok: false,
+      error: "staffed_shift_ids must be a list of shift ids",
+    });
+  });
+});
+
+describe("what the dialog says before anyone confirms", () => {
+  function preview(
+    shifts: CrewShift[],
+    amountPaid: number | null = 515.2,
+    eventDate: string | null = "2026-10-29",
+    hasEvent = true,
+  ): EventPreview {
+    return {
+      deal: {
+        id: 30001,
+        stage: "Booked Paid",
+        can_change: true,
+        event_date: eventDate,
+        event_start_time: "12:00",
+        event_end_time: "13:30",
+        amount_paid: amountPaid,
+        has_calendar_event: hasEvent,
+      },
+      shifts,
+    };
+  }
+
+  it("names each person and their shift on a reschedule, and says the shifts move", () => {
+    expect(confirmationLines(preview([OPEN, STAFFED]), "reschedule")).toEqual([
+      "On the crew: Crew Member A (Thu 2026-10-29 11:00-14:30). Their shifts move with the event. Tell them yourself; nothing is sent.",
+      "1 open shift moves with it.",
+    ]);
+  });
+
+  it("counts several open shifts in the plural, moving or removed", () => {
+    const OPEN_2: CrewShift = { ...OPEN, id: 603 };
+    expect(confirmationLines(preview([OPEN, OPEN_2]), "reschedule")).toEqual(["2 open shifts move with it."]);
+    expect(confirmationLines(preview([OPEN, OPEN_2], 0), "cancel")).toEqual([
+      "The deal moves to Closed Lost and its calendar event is deleted.",
+      "2 open shifts are removed.",
+    ]);
+  });
+
+  it("says the shifts are removed when the date is not set", () => {
+    expect(confirmationLines(preview([OPEN, STAFFED]), "reschedule_tbd")).toEqual([
+      "The date is cleared and the calendar event is deleted.",
+      "On the crew: Crew Member A (Thu 2026-10-29 11:00-14:30). Their shifts are removed. Tell them yourself; nothing is sent.",
+      "1 open shift is removed.",
+    ]);
+  });
+
+  it("says a deal with no date keeps its shifts where they are, naming who is on them", () => {
+    expect(confirmationLines(preview([OPEN, STAFFED], 515.2, null), "reschedule")).toEqual([
+      "The deal has no date to move its shifts from, so 2 shifts stay where they are (Crew Member A (Thu 2026-10-29 11:00-14:30)).",
+    ]);
+    expect(confirmationLines(preview([OPEN], 515.2, null), "reschedule")).toEqual([
+      "The deal has no date to move its shifts from, so 1 shift stays where it is.",
+    ]);
+  });
+
+  it("names everyone on a cancel and shows the amount paid with the refund line and nothing more", () => {
+    expect(confirmationLines(preview([STAFFED]), "cancel")).toEqual([
+      "The deal moves to Closed Lost and its calendar event is deleted.",
+      "On the crew: Crew Member A (Thu 2026-10-29 11:00-14:30). Their shifts are removed. Tell them yourself; nothing is sent.",
+      "Paid $515.20. Any refund is done by hand in Square.",
+    ]);
+    expect(confirmationLines(preview([], 0), "cancel")).toEqual([
+      "The deal moves to Closed Lost and its calendar event is deleted.",
+    ]);
+  });
+
+  it("drops the calendar-deletion line when the deal has no linked event", () => {
+    expect(confirmationLines(preview([], 0, "2026-10-29", false), "cancel")).toEqual([
+      "The deal moves to Closed Lost.",
+    ]);
+    expect(confirmationLines(preview([OPEN], 515.2, "2026-10-29", false), "reschedule_tbd")).toEqual([
+      "The date is cleared.",
+      "1 open shift is removed.",
+    ]);
+  });
+});
+
+describe("what the dialog does with the change POST's answer", () => {
+  it("finishes with the note line on a 2xx", () => {
+    expect(interpretChangeResponse(true, 200, { noteLine: "[2026-10-27] Rescheduled." })).toEqual({
+      done: true,
+      outcome: { noteLine: "[2026-10-27] Rescheduled." },
+    });
+    // A 2xx with no note line still finishes.
+    expect(interpretChangeResponse(true, 200, {})).toEqual({ done: true, outcome: { noteLine: undefined } });
+  });
+
+  it("finishes carrying the error on a partial-failure 500 (the deal was saved), so the drawer re-reads it", () => {
+    const error = `${DEAL_SAVED_PREFIX}, but shift 601 did not move (permission denied); move it on the Schedule page.`;
+    expect(interpretChangeResponse(false, 500, { error })).toEqual({ done: true, outcome: { error } });
+  });
+
+  it("stays open with the message on any other failure", () => {
+    expect(interpretChangeResponse(false, 409, { error: "The deal changed while the dialog was open. Close it and try again." })).toEqual({
+      done: false,
+      error: "The deal changed while the dialog was open. Close it and try again.",
+    });
+    // A 500 that is not the deal-was-saved kind stays open too.
+    expect(interpretChangeResponse(false, 500, { error: "permission denied" })).toEqual({
+      done: false,
+      error: "permission denied",
+    });
+    // No error body falls back to the status.
+    expect(interpretChangeResponse(false, 500, {})).toEqual({ done: false, error: "HTTP 500" });
+    expect(interpretChangeResponse(false, 502, { error: "" })).toEqual({ done: false, error: "HTTP 502" });
+  });
+
+  it("stays open on a non-500 failure even when its message starts like a saved deal's", () => {
+    const error = `${DEAL_SAVED_PREFIX}, but not by this request.`;
+    expect(interpretChangeResponse(false, 409, { error })).toEqual({ done: false, error });
+  });
+});
+
+describe("what the drawer shows after the change, once it re-reads the deal", () => {
+  it("shows the note line when the re-read succeeded", () => {
+    expect(eventChangedMessage({ noteLine: "[2026-10-27] Rescheduled." }, true)).toEqual({
+      message: "[2026-10-27] Rescheduled.",
+    });
+    // A finished change with no note line still shows a message.
+    expect(eventChangedMessage({}, true)).toEqual({ message: "Done." });
+  });
+
+  it("shows the partial-failure error when the re-read succeeded", () => {
+    const error = `${DEAL_SAVED_PREFIX}, but shift 601 did not move (permission denied); move it on the Schedule page.`;
+    expect(eventChangedMessage({ error }, true)).toEqual({ error });
+  });
+
+  it("surfaces a failed re-read instead of the success note, so a stale view is not shown as done", () => {
+    expect(eventChangedMessage({ noteLine: "[2026-10-27] Rescheduled." }, false, "network error")).toEqual({
+      error: "The change was saved, but reloading the deal failed (network error). Refresh to see the new date and stage.",
+    });
+    // The re-read failure wins even over a partial-failure outcome.
+    expect(eventChangedMessage({ error: `${DEAL_SAVED_PREFIX}, but …` }, false)).toEqual({
+      error: "The change was saved, but reloading the deal failed. Refresh to see the new date and stage.",
+    });
+  });
+});
