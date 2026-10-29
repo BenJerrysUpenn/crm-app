@@ -5,7 +5,7 @@
 // Approver's queue queues a miles recalculation, with the service role, for each deal
 // with no round-trip miles that an unpaid trip on it is waiting on
 // (./milesRecalc.ts; the owner, 2026-10-29). Both pages read, with the service
-// role, whether that deal's last miles recalculation failed, for the words they show.
+// role, whether a miles recalculation of that deal has finished with no miles found, for the words they show.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MileageRate } from "./money";

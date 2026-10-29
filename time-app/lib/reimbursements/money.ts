@@ -45,8 +45,8 @@ export type MileageRate = {
  *                     round-trip miles, to the half cent (quotes before the
  *                     rate was stored);
  *   no_miles_on_deal  the quote charged mileage but the deal has no
- *                     round-trip miles to divide it by: 0c until a manager
- *                     enters them (never more than the quote charged);
+ *                     round-trip miles to divide it by: 0c until the miles
+ *                     land (milesRecalc.ts; never more than the quote charged);
  *   no_rate_on_quote  the quote charged no mileage ($0, or no mileage line):
  *                     0c (the owner, 2026-10-29);
  *   none              no deal: no cap.
@@ -55,8 +55,8 @@ export type CapBasis = "no_quote" | "uber_flat_fee" | "quoted_rate" | "quote_der
 
 /**
  * A Catering Event's cap, as the database answers it. recalc_failed: for
- * 'no_miles_on_deal', the deal's last automatic miles recalculation finished without
- * finding miles (lib/reimbursements/milesRecalc.ts); absent when unknown.
+ * 'no_miles_on_deal', a miles recalculation has finished and the deal still has
+ * no miles (lib/reimbursements/milesRecalc.ts); absent when unknown.
  */
 export type MileageCap = { cap_cents_per_mile: number | null; basis: CapBasis; recalc_failed?: boolean };
 
@@ -254,8 +254,8 @@ export type Approvable = Pick<Priceable, "trip_date" | "miles" | "mileage_cents_
  * quote charged mileage but its deal has no round-trip miles
  * ('no_miles_on_deal'), so its miles price at 0c until they land (the owner,
  * 2026-10-29: never pay a 0c trip by mistake; "just recalculate miles"). The
- * miles are recalculated automatically (./milesRecalc.ts); when the last
- * recalculation did not find them, a manager should check the venue address.
+ * miles are recalculated automatically (./milesRecalc.ts); when one has
+ * finished without finding them, a manager should check the venue address.
  * `next` is the step once they are in, e.g. "approve it". Not refused: no miles on the trip
  * (only tolls or parking, which the cap does not touch), or a Mileage
  * Adjustment, which an Approver made with evidence and which replaces the

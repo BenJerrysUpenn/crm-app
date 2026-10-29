@@ -12,7 +12,7 @@
 // disabled, with the reason, as the decide route refuses it. Loading the
 // queue queues a miles recalculation for that deal (lib/reimbursements/milesRecalc.ts);
 // the reason says so, or that a manager should check the venue address when
-// the last one did not find the miles. An Approved one
+// one has finished without finding the miles. An Approved one
 // in the second state says so, and an owner's offers Paid outside payroll
 // disabled the same way. The Adjust panel shows the amount as it stands,
 // pre-filled (43). What leaves the queue (Rejected, Paid, Paid outside

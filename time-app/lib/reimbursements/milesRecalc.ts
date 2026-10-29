@@ -85,7 +85,7 @@ export function noMilesDeals(rows: Capped[]): number[] {
   return Array.from(new Set(ids));
 }
 
-/** Rows with `recalc_failed` on the cap of each trip whose deal's last miles job did not find miles. */
+/** Rows with `recalc_failed` on the cap of each trip whose deal has a finished miles job and still no miles. */
 export function withRecalcState<T extends Capped>(rows: T[], failed: ReadonlySet<number>): T[] {
   return rows.map((r) =>
     r.mileage_cap?.basis === "no_miles_on_deal" && r.deal_id != null && failed.has(r.deal_id)

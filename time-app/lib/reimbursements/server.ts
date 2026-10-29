@@ -189,8 +189,8 @@ export async function afterSubmit(db: Db, row: ReimbursementRow, rates: MileageR
 
 /**
  * The priced rows, with `recalc_failed` on the cap of each trip whose deal
- * has no round-trip miles and whose last miles job ('miles' or the CRM's
- * 'retriage') finished without finding them (withRecalcState); and with
+ * has no round-trip miles and for which a miles job ('miles' or the CRM's
+ * 'retriage') has finished and the miles are still missing (withRecalcState); and with
  * `queue`, a 'miles' job queued for each such deal where planRecalc says so:
  * round-trip miles only. Service role: staff cannot read deals or
  * quote_jobs. Never throws, and a failure leaves the trip as it is (still
@@ -201,7 +201,7 @@ export async function recalculateMissingMiles<T extends WithAmounts>(rows: T[], 
   return withRecalcState(rows, await failedMilesJobs(noMilesDeals(rows), opts.queue));
 }
 
-/** recalculateMissingMiles's I/O: the deals among `dealIds` whose last miles job failed, queueing where the plan says. */
+/** recalculateMissingMiles's I/O: the deals among `dealIds` with a finished miles job and still no miles, queueing where the plan says. */
 async function failedMilesJobs(dealIds: number[], queue: boolean): Promise<Set<number>> {
   const failed = new Set<number>();
   if (!dealIds.length) return failed;

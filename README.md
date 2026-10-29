@@ -275,7 +275,7 @@ miles recalculation for that deal: a `quote_jobs` row of kind `miles`, with the 
 venue address and changes nothing else on the deal (owner's ruling 2026-10-29), unlike the CRM's Recalculate
 (`retriage`), which also redoes drive time, staffing and times. The dedupe counts both kinds, since a manager's
 Recalculate fills the miles too: none while one is pending or running, and at most one per deal an
-hour. When the last one did not find the miles, staff and the Approver are told a manager should check the venue
+hour. When a miles job has finished and the deal still has none, staff and the Approver are told a manager should check the venue
 address. Meanwhile the decide route refuses Approve and Paid outside payroll
 on that trip (`decideRefusal` in `lib/reimbursements/money.ts`; the queue disables the same buttons), unless the
 trip has no miles or carries a Mileage Adjustment; Send back, Reject and Adjust are never refused. Staff and the Approver see why a trip's miles pay $0, and tolls
