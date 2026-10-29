@@ -1,52 +1,28 @@
 // Destinations mode (bj-finance #210, rulings 2, 14, 45): the trip starts at
 // the store unless "Start at the store" is off, goes through the stops in
 // order and ends at the store unless "End at the store" is off; Google's
-// Routes API gives each leg's driving distance, one traffic-aware call per
-// leg timed at the trip's hour (the same calculation as a catering quote's
-// miles, Catering-Manager modules/maps.py), each leg is rounded to 0.1 mi
+// Routes API gives each leg's driving distance, each leg is rounded to 0.1 mi
 // half-up, and the miles are their sum. Computed on the server only: the key
-// never reaches a browser.
+// never reaches a browser. Every call bills at Compute Routes Essentials
+// (Alina, 2026-10-29): traffic-unaware, at most 10 intermediates.
 //
 //   npm test
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  NO_TIME_DEPARTURE,
-  OUTBOUND_LEAD_MINUTES,
-  ROUTES_ENDPOINT,
-  STORE_ADDRESS,
-  cleanRoute,
-  cleanStops,
-  legDepartures,
-  nextSameWeekday,
-  nyInstant,
-  placeLabel,
-  routeMiles,
-  routePoints,
-  routeText,
-  type TripTiming,
-} from "./routeMiles.ts";
+import { ESSENTIALS_MAX_INTERMEDIATES, MAX_STOPS, ROUTES_ENDPOINT, STORE_ADDRESS, cleanRoute, cleanStops, placeLabel, routeMiles, routePoints, routeText } from "./routeMiles.ts";
 
 const BOTH = { start_at_store: true, end_at_store: true };
-// Thursday 2026-10-29, 10:00 in Philadelphia (EDT, UTC-4).
-const NOW = new Date("2026-10-29T14:00:00Z");
-const ERRANDS: TripTiming = { trip_date: "2026-10-20", event: null }; // a Tuesday
-const opts = (fetchImpl: typeof fetch) => ({ apiKey: "k", fetchImpl, now: NOW });
 
 const MI = 1609.344;
 
-/** A stand-in Routes API: the i-th call answers legsMeters[i] (undefined: a route with no distance). */
 function fakeRoutes(legsMeters: (number | undefined)[], status = 200) {
   const calls: { url: string; headers: Headers; body: Record<string, unknown> }[] = [];
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const i = calls.length;
     calls.push({ url: String(input), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
     if (status !== 200) return new Response(JSON.stringify({ error: { message: "API key not valid" } }), { status });
-    if (i >= legsMeters.length) return new Response(JSON.stringify({}), { status: 200 });
-    const m = legsMeters[i];
-    return new Response(JSON.stringify({ routes: [m === undefined ? {} : { distanceMeters: m }] }), { status: 200 });
+    return new Response(JSON.stringify({ routes: [{ legs: legsMeters.map((m) => (m === undefined ? {} : { distanceMeters: m })) }] }), { status: 200 });
   }) as typeof fetch;
   return { calls, fetchImpl };
 }
@@ -90,62 +66,9 @@ test("cleanStops: trims, drops blanks, refuses none or too many", () => {
   assert.equal(cleanStops(["x".repeat(301)]).ok, false);
 });
 
-test("nextSameWeekday: the first date after today on the trip's weekday, 1 to 7 days ahead", () => {
-  assert.equal(nextSameWeekday("2026-10-20", "2026-10-29"), "2026-11-03"); // Tue -> next Tue
-  assert.equal(nextSameWeekday("2026-10-22", "2026-10-29"), "2026-11-05"); // a Thursday, today Thursday: a week on
-  assert.equal(nextSameWeekday("2026-10-30", "2026-10-29"), "2026-10-30");
-});
-
-test("nyInstant: Philadelphia wall clock to UTC, either side of DST, and minutes past midnight roll the day", () => {
-  assert.equal(nyInstant("2026-10-30", 11 * 60), "2026-10-30T15:00:00.000Z"); // EDT
-  assert.equal(nyInstant("2026-11-03", 12 * 60), "2026-11-03T17:00:00.000Z"); // EST
-  assert.equal(nyInstant("2026-11-03", -15), "2026-11-03T04:45:00.000Z"); // 23:45 the night before
-  assert.equal(nyInstant("2026-11-03", 24 * 60 + 30), "2026-11-04T05:30:00.000Z");
-});
-
-test("legDepartures: errands leave at noon on the next date with the trip's weekday", () => {
-  assert.equal(NO_TIME_DEPARTURE, "12:00");
-  assert.deepEqual(legDepartures(2, BOTH, ERRANDS, NOW), ["2026-11-03T17:00:00.000Z", "2026-11-03T17:00:00.000Z"]);
-});
-
-test("legDepartures: a Catering Event goes out 45 minutes before it starts and comes back at its end, as a catering quote is priced", () => {
-  assert.equal(OUTBOUND_LEAD_MINUTES, 45);
-  // Saturday 2026-10-24, 14:00 to 16:30. The next Saturday after Thu 10-29 is 10-31 (EDT).
-  const ev: TripTiming = { trip_date: "2026-10-24", event: { date: "2026-10-24", start_time: "14:00", end_time: "16:30" } };
-  assert.deepEqual(legDepartures(2, BOTH, ev, NOW), ["2026-10-31T17:15:00.000Z", "2026-10-31T20:30:00.000Z"]);
-  // Store -> Depot -> venue -> store: every leg but the last goes out at 13:15.
-  assert.deepEqual(legDepartures(3, BOTH, ev, NOW), ["2026-10-31T17:15:00.000Z", "2026-10-31T17:15:00.000Z", "2026-10-31T20:30:00.000Z"]);
-  // A one-way trip has no way back: all out.
-  assert.deepEqual(legDepartures(1, { start_at_store: true, end_at_store: false }, ev, NOW), ["2026-10-31T17:15:00.000Z"]);
-  // Depot -> store before the event (ruling 45): out, not back.
-  assert.deepEqual(legDepartures(1, { start_at_store: false, end_at_store: true }, ev, NOW), ["2026-10-31T17:15:00.000Z"]);
-});
-
-test("legDepartures: no end time comes back at the start; an end after midnight comes back the next day", () => {
-  const noEnd: TripTiming = { trip_date: "2026-10-24", event: { date: "2026-10-24", start_time: "14:00", end_time: null } };
-  assert.deepEqual(legDepartures(2, BOTH, noEnd, NOW), ["2026-10-31T17:15:00.000Z", "2026-10-31T18:00:00.000Z"]);
-  const late: TripTiming = { trip_date: "2026-10-24", event: { date: "2026-10-24", start_time: "22:00", end_time: "01:00" } };
-  assert.deepEqual(legDepartures(2, BOTH, late, NOW), ["2026-11-01T01:15:00.000Z", "2026-11-01T05:00:00.000Z"]);
-});
-
-test("legDepartures: a Catering Event with no start time is timed like errands, on the trip date's weekday", () => {
-  const noStart: TripTiming = { trip_date: "2026-10-20", event: { date: "2026-10-24", start_time: null, end_time: "16:00" } };
-  assert.deepEqual(legDepartures(1, BOTH, noStart, NOW), ["2026-11-03T17:00:00.000Z"]);
-});
-
-test("legDepartures: never in the past (the Routes API refuses that): a week later if it would be", () => {
-  // Friday 00:30 start, asked Thursday 23:50: 23:45 Thursday has gone, so the Friday after.
-  const lateNow = new Date("2026-10-30T03:50:00Z");
-  const early: TripTiming = { trip_date: "2026-10-23", event: { date: "2026-10-23", start_time: "00:30", end_time: "02:00" } };
-  const [out, back] = legDepartures(2, BOTH, early, lateNow);
-  assert.equal(out, "2026-11-06T04:45:00.000Z"); // Thu 11-05 23:45 EST
-  assert.equal(back, "2026-11-06T07:00:00.000Z"); // Fri 11-06 02:00 EST
-  for (const d of [out, back]) assert.ok(Date.parse(d) > lateNow.getTime());
-});
-
-test("routeMiles: one traffic-aware Routes API call per leg, each timed, rounded to 0.1 mi, summed", async () => {
+test("routeMiles: one Routes API call, each leg rounded to 0.1 mi, summed", async () => {
   const { calls, fetchImpl } = fakeRoutes([5.26 * MI, 2.04 * MI, 7.25 * MI]);
-  const r = await routeMiles(["Venue", "Restaurant Depot"], BOTH, ERRANDS, opts(fetchImpl));
+  const r = await routeMiles(["Venue", "Restaurant Depot"], BOTH, { apiKey: "k", fetchImpl });
   assert.deepEqual(r, {
     ok: true,
     miles: 14.6,
@@ -155,89 +78,80 @@ test("routeMiles: one traffic-aware Routes API call per leg, each timed, rounded
       { from: "Restaurant Depot", to: STORE_ADDRESS, miles: 7.3 },
     ],
   });
-  assert.equal(calls.length, 3);
-  for (const c of calls) {
-    assert.equal(c.url, ROUTES_ENDPOINT);
-    assert.equal(c.headers.get("X-Goog-Api-Key"), "k");
-    assert.equal(c.headers.get("X-Goog-FieldMask"), "routes.distanceMeters");
-  }
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, ROUTES_ENDPOINT);
+  assert.equal(calls[0].headers.get("X-Goog-Api-Key"), "k");
+  assert.equal(calls[0].headers.get("X-Goog-FieldMask"), "routes.legs.distanceMeters");
   assert.deepEqual(calls[0].body, {
     origin: { address: STORE_ADDRESS },
-    destination: { address: "Venue" },
+    destination: { address: STORE_ADDRESS },
+    intermediates: [{ address: "Venue" }, { address: "Restaurant Depot" }],
     travelMode: "DRIVE",
-    routingPreference: "TRAFFIC_AWARE",
-    departureTime: "2026-11-03T17:00:00.000Z",
     computeAlternativeRoutes: false,
   });
-  assert.deepEqual(calls.map((c) => [c.body.origin, c.body.destination]), [
-    [{ address: STORE_ADDRESS }, { address: "Venue" }],
-    [{ address: "Venue" }, { address: "Restaurant Depot" }],
-    [{ address: "Restaurant Depot" }, { address: STORE_ADDRESS }],
-  ]);
-  for (const c of calls) assert.equal(c.body.intermediates, undefined);
 });
 
-test("routeMiles: a Catering Event trip's way out and way back are timed by the event", async () => {
-  const { calls, fetchImpl } = fakeRoutes([2.5 * MI, 2.3 * MI]);
-  const ev: TripTiming = { trip_date: "2026-10-24", event: { date: "2026-10-24", start_time: "14:00", end_time: "16:30" } };
-  const r = await routeMiles(["Venue"], BOTH, ev, opts(fetchImpl));
-  assert.equal(r.ok && r.miles, 4.8);
-  assert.deepEqual(calls.map((c) => c.body.departureTime), ["2026-10-31T17:15:00.000Z", "2026-10-31T20:30:00.000Z"]);
-});
-
-test("routeMiles: a one-way trip is one leg, one call", async () => {
+test("routeMiles: a one-way trip has no intermediates beyond the middle stops", async () => {
   const { calls, fetchImpl } = fakeRoutes([3 * MI]);
-  const r = await routeMiles(["Venue"], { start_at_store: true, end_at_store: false }, ERRANDS, opts(fetchImpl));
+  const r = await routeMiles(["Venue"], { start_at_store: true, end_at_store: false }, { apiKey: "k", fetchImpl });
   assert.equal(r.ok && r.miles, 3);
-  assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].body.destination, { address: "Venue" });
+  assert.equal(calls[0].body.intermediates, undefined);
 });
 
 test("routeMiles: not starting at the store routes from the first stop", async () => {
   const { calls, fetchImpl } = fakeRoutes([4 * MI]);
-  const r = await routeMiles(["Restaurant Depot"], { start_at_store: false, end_at_store: true }, ERRANDS, opts(fetchImpl));
+  const r = await routeMiles(["Restaurant Depot"], { start_at_store: false, end_at_store: true }, { apiKey: "k", fetchImpl });
   assert.deepEqual(r, { ok: true, miles: 4, legs: [{ from: "Restaurant Depot", to: STORE_ADDRESS, miles: 4 }] });
   assert.deepEqual(calls[0].body.origin, { address: "Restaurant Depot" });
   assert.deepEqual(calls[0].body.destination, { address: STORE_ADDRESS });
   const both = fakeRoutes([1 * MI, 2 * MI]);
-  const off = await routeMiles(["A", "B", "C"], { start_at_store: false, end_at_store: false }, ERRANDS, opts(both.fetchImpl));
+  const off = await routeMiles(["A", "B", "C"], { start_at_store: false, end_at_store: false }, { apiKey: "k", fetchImpl: both.fetchImpl });
   assert.equal(off.ok && off.miles, 3);
-  assert.deepEqual(both.calls.map((c) => [c.body.origin, c.body.destination]), [
-    [{ address: "A" }, { address: "B" }],
-    [{ address: "B" }, { address: "C" }],
-  ]);
+  assert.deepEqual(both.calls[0].body.intermediates, [{ address: "B" }]);
 });
 
 test("routeMiles: one stop with neither end at the store is refused without calling Google", async () => {
   const { calls, fetchImpl } = fakeRoutes([1 * MI]);
-  const r = await routeMiles(["Depot"], { start_at_store: false, end_at_store: false }, ERRANDS, opts(fetchImpl));
+  const r = await routeMiles(["Depot"], { start_at_store: false, end_at_store: false }, { apiKey: "k", fetchImpl });
   assert.deepEqual(r, { ok: false, error: "A trip needs at least two points." });
   assert.equal(calls.length, 0);
 });
 
 test("routeMiles: a leg with no distance (same place twice) is 0 mi", async () => {
   const { fetchImpl } = fakeRoutes([undefined, 1 * MI]);
-  const r = await routeMiles(["218 S 40th St", "Venue"], { start_at_store: true, end_at_store: false }, ERRANDS, opts(fetchImpl));
+  const r = await routeMiles(["218 S 40th St", "Venue"], { start_at_store: true, end_at_store: false }, { apiKey: "k", fetchImpl });
   assert.equal(r.ok && r.miles, 1);
-  // The very same address twice is 0 mi without asking Google.
-  const same = fakeRoutes([1 * MI]);
-  const r2 = await routeMiles([STORE_ADDRESS, "Venue"], { start_at_store: true, end_at_store: false }, ERRANDS, opts(same.fetchImpl));
-  assert.deepEqual(r2.ok && r2.legs.map((l) => l.miles), [0, 1]);
-  assert.equal(same.calls.length, 1);
 });
 
 test("routeMiles: no key, an API error, or no route says so instead of guessing", async () => {
-  assert.equal((await routeMiles(["A"], BOTH, ERRANDS, { apiKey: "", fetchImpl: fakeRoutes([1]).fetchImpl, now: NOW })).ok, false);
-  const bad = await routeMiles(["A"], BOTH, ERRANDS, opts(fakeRoutes([1], 403).fetchImpl));
+  assert.equal((await routeMiles(["A"], BOTH, { apiKey: "", fetchImpl: fakeRoutes([1]).fetchImpl })).ok, false);
+  const bad = await routeMiles(["A"], BOTH, { apiKey: "k", fetchImpl: fakeRoutes([1], 403).fetchImpl });
   assert.equal(bad.ok, false);
   const none = (async () => new Response(JSON.stringify({}), { status: 200 })) as unknown as typeof fetch;
-  assert.equal((await routeMiles(["Nowhere"], BOTH, ERRANDS, opts(none))).ok, false);
-  // One leg of three with no route refuses the whole trip.
-  const oneMissing = await routeMiles(["A", "B"], BOTH, ERRANDS, opts(fakeRoutes([1, 1]).fetchImpl));
-  assert.equal(oneMissing.ok, false);
-  const offline = (async () => {
-    throw new Error("offline");
-  }) as unknown as typeof fetch;
-  const unreachable = await routeMiles(["A"], BOTH, ERRANDS, opts(offline));
-  assert.match(unreachable.ok ? "" : unreachable.error, /could not be reached/);
+  assert.equal((await routeMiles(["Nowhere"], BOTH, { apiKey: "k", fetchImpl: none })).ok, false);
+  const wrongLegs = await routeMiles(["A", "B"], BOTH, { apiKey: "k", fetchImpl: fakeRoutes([1]).fetchImpl });
+  assert.equal(wrongLegs.ok, false);
+});
+
+test("routeMiles: every call stays on Compute Routes Essentials (no traffic-aware routing, no Pro or Enterprise feature)", async () => {
+  // The most stops, both ends at the store: the most intermediates a trip can send.
+  const stops = Array.from({ length: MAX_STOPS }, (_, i) => `Stop ${i + 1}`);
+  assert.equal(cleanRoute(stops, BOTH).ok, true);
+  const { calls, fetchImpl } = fakeRoutes(Array.from({ length: MAX_STOPS + 1 }, () => 1 * MI));
+  const r = await routeMiles(stops, BOTH, { apiKey: "k", fetchImpl });
+  assert.equal(r.ok && r.miles, MAX_STOPS + 1);
+  assert.equal(calls.length, 1);
+  const body = calls[0].body;
+  assert.equal((body.intermediates as unknown[]).length, MAX_STOPS);
+  assert.ok(MAX_STOPS <= ESSENTIALS_MAX_INTERMEDIATES);
+  // Pro: routingPreference TRAFFIC_AWARE(_OPTIMAL), optimizeWaypointOrder, side of road / heading / vehicle stopover.
+  // Real-time traffic: departureTime. Enterprise: tolls and traffic on polylines (extraComputations), two-wheeler.
+  for (const key of ["routingPreference", "departureTime", "arrivalTime", "optimizeWaypointOrder", "extraComputations", "routeModifiers", "requestedReferenceRoutes"])
+    assert.equal(key in body, false, key);
+  assert.equal(body.travelMode, "DRIVE");
+  assert.equal(body.computeAlternativeRoutes, false);
+  for (const w of [body.origin, body.destination, ...(body.intermediates as unknown[])])
+    assert.deepEqual(Object.keys(w as object), ["address"]);
+  assert.equal(calls[0].headers.get("X-Goog-FieldMask"), "routes.legs.distanceMeters");
 });

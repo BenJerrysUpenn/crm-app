@@ -9,7 +9,7 @@ import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "./testing/fakeSupabase.ts";
-import { addDays, nyWallClock, weekdayOf } from "./coverage.ts";
+import { addDays } from "./coverage.ts";
 import { dayKey } from "./format.ts";
 
 type Handler = (request: Request, ctx?: { params: Record<string, string> }) => Promise<Response>;
@@ -76,7 +76,7 @@ beforeEach(() => {
       { starts_on: "2026-07-01", cents_per_mile: 76 },
     ],
     deals: [
-      { id: 501, stage: "Event Complete", event_date: YESTERDAY, event_start_time: "14:00", event_end_time: "16:30", company: "Acme", venue_name: "Houston Hall", venue_address: "3417 Spruce St" },
+      { id: 501, stage: "Event Complete", event_date: YESTERDAY, event_start_time: "14:00", company: "Acme", venue_name: "Houston Hall", venue_address: "3417 Spruce St" },
       { id: 502, stage: "Booked Paid", event_date: addDays(TODAY, 3), event_start_time: "10:00", company: "Future Co", venue_name: null, venue_address: "1 Market St" },
       { id: 503, stage: "Booked Paid", event_date: addDays(TODAY, -400), event_start_time: "10:00", company: "Old Co", venue_name: null, venue_address: "2 Market St" },
       { id: 504, stage: "Closed Lost", event_date: YESTERDAY, event_start_time: "10:00", company: "Lost Co", venue_name: null, venue_address: "3 Market St" },
@@ -92,8 +92,8 @@ beforeEach(() => {
     sent.push({ url: request.url, body });
     if (request.url.startsWith("https://routes.googleapis.com/")) {
       if (googleStatus !== 200) return new Response(JSON.stringify({ error: { message: "API key not valid" } }), { status: googleStatus });
-      // One call per leg (lib/reimbursements/routeMiles.ts): 2.04 mi each.
-      return new Response(JSON.stringify({ routes: [{ distanceMeters: 1609.344 * 2.04 }] }));
+      const legs = 1 + (body.intermediates?.length ?? 0);
+      return new Response(JSON.stringify({ routes: [{ legs: Array.from({ length: legs }, () => ({ distanceMeters: 1609.344 * 2.04 })) }] }));
     }
     return new Response("{}", { status: resendStatus });
   };
@@ -209,43 +209,11 @@ test("submit: destinations mode computes the miles on the server, from the store
   assert.equal(r.start_at_store, true);
   assert.equal(r.end_at_store, true);
   assert.equal((r.route_legs as unknown[]).length, 2);
-  const google = sent.filter((s) => s.url.startsWith("https://routes.googleapis.com/"));
-  assert.deepEqual(google.map((g) => [g.body.origin, g.body.destination]), [
-    [{ address: "218 S 40th St, Philadelphia, PA 19104" }, { address: "Restaurant Depot" }],
-    [{ address: "Restaurant Depot" }, { address: "218 S 40th St, Philadelphia, PA 19104" }],
-  ]);
-  // Traffic-aware, at noon on the next date with the trip's weekday (errands carry no time).
-  for (const g of google) {
-    assert.equal(g.body.routingPreference, "TRAFFIC_AWARE");
-    const at = nyWallClock(String(g.body.departureTime));
-    assert.equal(at.minutes, 12 * 60);
-    assert.equal(weekdayOf(at.date), weekdayOf(YESTERDAY));
-    assert.ok(at.date > TODAY && at.date <= addDays(TODAY, 7));
-  }
-});
-
-test("submit and route-miles: a Catering Event trip goes out 45 minutes before the start and comes back at the end", async () => {
-  process.env.GOOGLE_MAPS_API_KEY = "maps-key";
-  db.signIn(DONTE);
-  const trip = { reason: { kind: "catering_event", event_id: 501 }, trip_date: YESTERDAY };
-  const times = () =>
-    sent
-      .filter((s) => s.url.startsWith("https://routes.googleapis.com/"))
-      .map((g) => nyWallClock(String(g.body.departureTime)))
-      .map((at) => ({ minutes: at.minutes, weekday: weekdayOf(at.date) }));
-  const res = await create.POST(req("POST", { ...trip, mileage: { mode: "destinations", stops: ["3417 Spruce St"] } }));
-  assert.equal(res.status, 200);
-  assert.equal(db.rows("travel_reimbursements")[0].miles, 4);
-  const expected = [
-    { minutes: 13 * 60 + 15, weekday: weekdayOf(YESTERDAY) },
-    { minutes: 16 * 60 + 30, weekday: weekdayOf(YESTERDAY) },
-  ];
-  assert.deepEqual(times(), expected);
-  // The preview, given the same trip date and event, times the legs the same way.
-  sent = [];
-  const preview = await routeMilesApi.POST(req("POST", { stops: ["3417 Spruce St"], trip_date: YESTERDAY, event_id: 501 }));
-  assert.equal(preview.status, 200);
-  assert.deepEqual(times(), expected);
+  const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
+  assert.deepEqual(google?.body.destination, { address: "218 S 40th St, Philadelphia, PA 19104" });
+  // Essentials only (Alina, 2026-10-29): traffic-unaware and untimed.
+  assert.equal(google?.body.routingPreference, undefined);
+  assert.equal(google?.body.departureTime, undefined);
 });
 
 test("submit: destinations mode when Google cannot route the trip is refused, with nothing written and nobody told", async () => {
@@ -269,9 +237,8 @@ test("submit: Start at the store off pays only from the first stop (home -> Depo
   assert.equal(r.start_at_store, false);
   assert.equal(r.end_at_store, true);
   assert.deepEqual(r.route_legs, [{ from: "Restaurant Depot", to: "218 S 40th St, Philadelphia, PA 19104", miles: 2 }]);
-  const google = sent.filter((s) => s.url.startsWith("https://routes.googleapis.com/"));
-  assert.equal(google.length, 1);
-  assert.deepEqual(google[0].body.origin, { address: "Restaurant Depot" });
+  const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
+  assert.deepEqual(google?.body.origin, { address: "Restaurant Depot" });
 });
 
 test("submit and route-miles: with neither end at the store, one stop is refused", async () => {
