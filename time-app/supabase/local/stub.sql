@@ -9,9 +9,8 @@
 --   * auth.uid() and auth.role(), which read the JWT claims PostgREST sets
 --     (the verify files set request.jwt.claims by hand to impersonate one);
 --   * Supabase's default grants on the public schema;
---   * the CRM's deals, quote_versions and pricing_scalars tables, owned by
---     Catering-Manager, with only the columns migrations 27 and 49 and their
---     verify files use. pricing_scalars starts empty.
+--   * the CRM's deals and quote_versions tables, owned by Catering-Manager,
+--     with only the columns migrations 27 and 49 and their verify files use.
 -- ============================================================================
 
 create role anon nologin;
@@ -58,8 +57,6 @@ create table public.quote_versions (
   unique (deal_id, version)
 );
 alter table public.quote_versions enable row level security;
-create table public.pricing_scalars (key text primary key, value numeric not null, label text);
-alter table public.pricing_scalars enable row level security;
 
 -- Supabase Storage, reduced to what migration 37's bucket and policies use:
 -- the buckets and objects tables, RLS on objects as hosted Supabase has it,

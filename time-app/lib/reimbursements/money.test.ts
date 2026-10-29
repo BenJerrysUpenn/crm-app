@@ -126,10 +126,11 @@ test("reimbursementCents: the Uber flat fee and errands have no cap: the IRS rat
   assert.equal(reimbursementCents(trip, RATES).mileage_cents, 760);
 });
 
-test("reimbursementCents: a price-list cap of 70c in June is below the IRS 72.5c", () => {
-  const r = reimbursementCents({ ...trip, trip_date: "2026-06-30", cap_cents_per_mile: 70 }, RATES);
-  assert.equal(r.rate, 70);
-  assert.equal(r.mileage_cents, 700);
+test("reimbursementCents: a Catering Event with no quote, or a $0 mileage quote, has no cap: the IRS rate", () => {
+  // deal_mileage_cap() answers no cap (no_quote, no_rate_on_quote). 30.4 mi x 76c = 2310.4 -> 2310.
+  const r = reimbursementCents({ ...trip, trip_date: "2026-10-21", miles: 30.4, cap_cents_per_mile: null }, RATES);
+  assert.deepEqual(r, { rate: 76, capped: false, mileage_cents: 2310, tolls_cents: 0, parking_cents: 0, total_cents: 2310 });
+  assert.equal(reimbursementCents({ ...trip, trip_date: "2026-06-30", cap_cents_per_mile: null }, RATES).rate, 72.5);
 });
 
 test("reimbursementCents: an Adjustment's mileage still replaces the capped amount", () => {

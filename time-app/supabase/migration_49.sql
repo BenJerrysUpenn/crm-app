@@ -20,6 +20,8 @@
 --   * a quote that charged mileage: the lower of the IRS rate and the quote's
 --     per-mile rate;
 --   * a quote that charged the $50 Uber flat fee: the IRS rate;
+--   * no quote (the owner, 2026-10-29), or a quote with no mileage charge to
+--     read a rate from: the IRS rate;
 --   * Groceries / errands: the IRS rate.
 --
 -- WHAT THIS ADDS
@@ -27,6 +29,9 @@
 --      staff mile on that deal's Catering Event may pay, in cents, and where
 --      that came from. Read from the deal's latest quote (quote_versions,
 --      highest version), in this order:
+--        'no_quote'       the deal has no quote (a picklist-only event, say),
+--                         or its latest breakdown is not JSON: no cap, the
+--                         IRS rate (the owner, 2026-10-29).
 --        'uber_flat_fee'  transportation_mode 'uber' (or 'parking', the name
 --                         Catering-Manager gave the same $50 flat in May
 --                         2026): no cap.
@@ -40,15 +45,21 @@
 --                         file comes out at 72.0 or 72.5. It reads the
 --                         deal's miles today, not as quoted: a deal whose
 --                         miles changed after its last quote derives wrong.
---        'price_list'     no quote, or a quote that charged no mileage or has
---                         no miles to divide by: the catering price list's
---                         MILEAGE_RATE (public.pricing_scalars) x 100, what
---                         a quote would charge today. pricing_scalars keeps
---                         no history.
---        'none'           none of those: no cap.
---      A breakdown that is not JSON is read as no quote. SECURITY DEFINER:
---      staff cannot read deals, quote_versions or pricing_scalars; it answers
---      only the cap and its basis.
+--        'no_rate_on_quote'  a quote that is not the Uber flat fee but
+--                         states no per-mile price: no mileage_rate, and a
+--                         transportation_subtotal that is missing or 0, or
+--                         no miles on the deal to divide by. No cap, the
+--                         IRS rate, as with no quote. Catering-Manager bills
+--                         round_trip_miles x MILEAGE_RATE, so a $0 mileage
+--                         line means the quote was priced with 0 miles (the
+--                         miles were never looked up, or were zeroed): 0 /
+--                         0, not a rate of 0c. Capping it at 0c would pay
+--                         staff nothing for a real drive.
+--        'none'           no deal: no cap.
+--      The catering price list (pricing_scalars) is not read: a deal with no
+--      quote is paid the IRS rate, not what a quote would charge today.
+--      SECURITY DEFINER: staff cannot read deals or quote_versions; it
+--      answers only the cap and its basis.
 --   2. event_mileage_caps(deal ids): the same for many deals, for the app
 --      (lib/reimbursements/server.ts), as the signed-in person.
 --   3. travel_reimbursements_payable pays a Catering Event trip at the lower
@@ -76,7 +87,6 @@ as $$
 declare
   v_b        jsonb;
   v_mode     text;
-  v_rate     numeric;
   v_subtotal numeric;
   v_miles    numeric;
 begin
@@ -97,33 +107,32 @@ begin
     v_b := null;
   end;
 
-  if v_b is not null and jsonb_typeof(v_b) = 'object' then
-    v_mode := v_b ->> 'transportation_mode';
-    if v_mode in ('uber', 'parking') then
-      basis := 'uber_flat_fee';
+  if v_b is null or jsonb_typeof(v_b) <> 'object' then
+    basis := 'no_quote';
+    return;
+  end if;
+
+  v_mode := v_b ->> 'transportation_mode';
+  if v_mode in ('uber', 'parking') then
+    basis := 'uber_flat_fee';
+    return;
+  end if;
+  if jsonb_typeof(v_b -> 'mileage_rate') = 'number' and (v_b ->> 'mileage_rate')::numeric > 0 then
+    cap_cents_per_mile := round((v_b ->> 'mileage_rate')::numeric * 100, 2);
+    basis := 'quoted_rate';
+    return;
+  end if;
+  if jsonb_typeof(v_b -> 'transportation_subtotal') = 'number' then
+    v_subtotal := (v_b ->> 'transportation_subtotal')::numeric;
+    select d.round_trip_miles::numeric into v_miles from public.deals d where d.id = p_deal_id;
+    if v_subtotal > 0 and v_miles > 0 then
+      cap_cents_per_mile := round(round(v_subtotal * 100 / v_miles * 2) / 2, 2);
+      basis := 'quote_derived';
       return;
-    end if;
-    if jsonb_typeof(v_b -> 'mileage_rate') = 'number' and (v_b ->> 'mileage_rate')::numeric > 0 then
-      cap_cents_per_mile := round((v_b ->> 'mileage_rate')::numeric * 100, 2);
-      basis := 'quoted_rate';
-      return;
-    end if;
-    if jsonb_typeof(v_b -> 'transportation_subtotal') = 'number' then
-      v_subtotal := (v_b ->> 'transportation_subtotal')::numeric;
-      select d.round_trip_miles::numeric into v_miles from public.deals d where d.id = p_deal_id;
-      if v_subtotal > 0 and v_miles > 0 then
-        cap_cents_per_mile := round(round(v_subtotal * 100 / v_miles * 2) / 2, 2);
-        basis := 'quote_derived';
-        return;
-      end if;
     end if;
   end if;
 
-  select s.value * 100 into v_rate from public.pricing_scalars s where s.key = 'MILEAGE_RATE';
-  if v_rate > 0 then
-    cap_cents_per_mile := round(v_rate, 2);
-    basis := 'price_list';
-  end if;
+  basis := 'no_rate_on_quote';
 end;
 $$;
 

@@ -5,7 +5,9 @@
 --
 -- PAY CHANGES: every unpaid Catering Event trip is priced at the IRS rate
 -- again, uncapped, on the payable view payroll pays from (76c from
--- 2026-07-01 where the quote charged 72.5c). Nothing is lost: migration 49
+-- 2026-07-01 where the quote charged 72.5c). Trips with no quote, a quote
+-- with no mileage charge, or the Uber flat fee are at the IRS rate either
+-- way, so they do not change. Nothing is lost: migration 49
 -- stores no data. Roll the app back with it, or the pages keep showing the
 -- capped amounts (the code reads event_mileage_caps() and, once it is gone,
 -- prices at the IRS rate too).

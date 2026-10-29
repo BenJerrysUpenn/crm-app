@@ -5,8 +5,9 @@
 //     (migration 37), one row per start date, added by hand when the IRS
 //     announces a new one (ruling 38). For a Catering Event, never more per
 //     mile than the event's quote charged the customer (the owner,
-//     2026-10-29): the lower of the two. A quote that charged the Uber flat
-//     fee, and Groceries / errands, have no cap. The database works out the
+//     2026-10-29): the lower of the two. No quote, a quote with no mileage
+//     charge, a quote that charged the Uber flat fee, and Groceries / errands
+//     have no cap: the IRS rate. The database works out the
 //     cap from the quote (deal_mileage_cap(), migration 49); this module is
 //     told it, as Priceable.cap_cents_per_mile. Every reimbursement not yet
 //     Paid is priced at its trip's rate whenever it is read: nothing is frozen
@@ -34,15 +35,17 @@ export type MileageRate = {
 
 /**
  * Where a Catering Event's cap comes from (deal_mileage_cap(), migration 49):
- *   uber_flat_fee  the quote charged the $50 Uber flat fee: no cap;
- *   quoted_rate    the per-mile rate the quote stored;
- *   quote_derived  the quote's transportation subtotal / the deal's round-trip
- *                  miles, to the half cent (quotes before the rate was stored);
- *   price_list     no quote, or nothing to derive: the catering price list's
- *                  mileage rate;
- *   none           nothing known: no cap.
+ *   no_quote          the deal has no quote: no cap (the owner, 2026-10-29);
+ *   uber_flat_fee     the quote charged the $50 Uber flat fee: no cap;
+ *   quoted_rate       the per-mile rate the quote stored;
+ *   quote_derived     the quote's transportation subtotal / the deal's
+ *                     round-trip miles, to the half cent (quotes before the
+ *                     rate was stored);
+ *   no_rate_on_quote  the quote charged no mileage ($0, priced with 0 miles)
+ *                     or there are no miles to divide by: no cap;
+ *   none              no deal: no cap.
  */
-export type CapBasis = "uber_flat_fee" | "quoted_rate" | "quote_derived" | "price_list" | "none";
+export type CapBasis = "no_quote" | "uber_flat_fee" | "quoted_rate" | "quote_derived" | "no_rate_on_quote" | "none";
 
 /** A Catering Event's cap, as the database answers it. */
 export type MileageCap = { cap_cents_per_mile: number | null; basis: CapBasis };
@@ -106,7 +109,8 @@ export type Priceable = {
   /**
    * The most a mile may pay: what the trip's Catering Event quote charged the
    * customer per mile, in cents (lib/reimbursements/server.ts asks the
-   * database). Null or absent: no cap (errands, the Uber flat fee).
+   * database). Null or absent: no cap (errands, the Uber flat fee, no quote,
+   * a quote with no mileage charge).
    */
   cap_cents_per_mile?: number | null;
 };

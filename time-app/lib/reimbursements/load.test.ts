@@ -172,6 +172,18 @@ test("loadMine and loadQueue: a Catering Event trip is paid the lower of the IRS
   assert.equal(byId.get(3)!.mileage_cap, null);
 });
 
+test("loadMine: a Catering Event with no quote, or a quote that charged no mileage, is at the IRS rate (the owner, 2026-10-29)", async () => {
+  for (const basis of ["no_quote", "no_rate_on_quote"]) {
+    caps({ 501: [null, basis] });
+    db.signIn(DONTE.id);
+    const mine = await loadMine(createClient(), DONTE.id);
+    assert.ok(mine.ok);
+    assert.equal(mine.reimbursements[0].amounts.total_cents, 760, `${basis}: 10 mi at the IRS 76c`);
+    assert.equal(mine.reimbursements[0].amounts.capped, false);
+    assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: null, basis });
+  }
+});
+
 test("loadMine: before migration 49 (no event_mileage_caps) every trip is at the IRS rate, as before", async () => {
   db.signIn(DONTE.id);
   const mine = await loadMine(createClient(), DONTE.id);
