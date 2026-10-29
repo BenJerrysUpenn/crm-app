@@ -152,7 +152,7 @@ export function capDealIds(rows: CapKey[]): (number | null)[] {
 }
 
 /** A row's cap: its Catering Event's, or null for errands or a deal the database did not answer for. */
-export function capFor(r: CapKey, caps: MileageCaps): MileageCap | null {
+function capFor(r: CapKey, caps: MileageCaps): MileageCap | null {
   const deal = capDeal(r);
   return deal != null ? caps.get(deal) ?? null : null;
 }
