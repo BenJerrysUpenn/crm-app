@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { RECALC_RETRY_MS, noMilesDeals, planRecalc, withRecalcState, type RecalcJob } from "./milesRecalc.ts";
+import { noMilesDeals, planRecalc, withRecalcState, type RecalcJob } from "./milesRecalc.ts";
 
 const NOW = Date.parse("2026-10-29T15:00:00.000Z");
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -31,7 +31,7 @@ test("planRecalc: one pending or running, however old, queues none", () => {
 
 test("planRecalc: at most one an hour, by the newest one's created_at", () => {
   assert.deepEqual(planRecalc([job(1, "error", 59 * MIN)], NOW), { queue: false, why: "recent", failed: true });
-  assert.deepEqual(planRecalc([job(1, "error", RECALC_RETRY_MS)], NOW), { queue: true, why: "retry", failed: true });
+  assert.deepEqual(planRecalc([job(1, "error", 60 * MIN)], NOW), { queue: true, why: "retry", failed: true });
   // Only the newest counts: an old one does not let a new one through early.
   assert.deepEqual(planRecalc([job(1, "error", 300 * MIN), job(2, "done", 10 * MIN)], NOW), { queue: false, why: "recent", failed: true });
   assert.deepEqual(planRecalc([job(2, "done", 10 * MIN), job(1, "error", 300 * MIN)], NOW).why, "recent", "any order");
