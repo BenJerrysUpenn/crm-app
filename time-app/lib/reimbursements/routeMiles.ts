@@ -18,10 +18,9 @@
 // two-wheeler or large vehicle routing (developers.google.com/maps/billing-and-pricing/sku-details).
 // So the request sets none of those: no routingPreference (the default is
 // traffic-unaware), no departureTime, a field mask of routes.legs.distanceMeters
-// only, and at most ESSENTIALS_MAX_INTERMEDIATES stops between the ends, which
-// MAX_STOPS keeps. One call through the stops is one billable request for the
-// whole trip; a call per leg would bill once per leg for the same per-leg
-// distances.
+// only, and at most 10 stops between the ends, which MAX_STOPS keeps. One
+// call through the stops is one billable request for the whole trip; a call
+// per leg would bill once per leg for the same per-leg distances.
 //
 // Server-only in practice: the key is GOOGLE_MAPS_API_KEY, read by the route
 // that calls this, and never sent to a browser. Pure apart from the injected
@@ -31,9 +30,8 @@ import { legMiles, sumMiles } from "./money.ts";
 
 export const STORE_ADDRESS = "218 S 40th St, Philadelphia, PA 19104";
 export const ROUTES_ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes";
+/** The most stops a trip may carry: Google's Essentials ceiling of 10 intermediates (11 to 25 bill at Pro). */
 export const MAX_STOPS = 10;
-/** The most intermediates a Compute Routes request may carry and still bill at Essentials. */
-export const ESSENTIALS_MAX_INTERMEDIATES = 10;
 const MAX_STOP_LENGTH = 300;
 
 export type Leg = { from: string; to: string; miles: number };
