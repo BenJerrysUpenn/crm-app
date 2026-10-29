@@ -146,7 +146,14 @@ export default function ReimbursementForm({
     const res = await fetch("/api/reimbursements/route-miles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stops, start_at_store: startAtStore, end_at_store: endAtStore }),
+      body: JSON.stringify({
+        stops,
+        start_at_store: startAtStore,
+        end_at_store: endAtStore,
+        // The trip's hour sets each leg's traffic-aware route, as on submit.
+        trip_date: tripDate,
+        event_id: reasonKind === "catering_event" ? event?.id ?? null : null,
+      }),
     });
     const payload = await res.json().catch(() => ({}));
     setBusy(null);

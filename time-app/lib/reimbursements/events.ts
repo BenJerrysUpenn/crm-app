@@ -19,13 +19,15 @@ export const CATERING_EVENT_STAGES = ["Booked Unpaid", "Booked Paid", "Event Com
 export const EVENT_LOOKBACK_DAYS = 365;
 
 /** The deal columns the picker reads, and nothing else. */
-export const EVENT_DEAL_COLUMNS = "id, stage, event_date, event_start_time, company, venue_name, venue_address";
+export const EVENT_DEAL_COLUMNS = "id, stage, event_date, event_start_time, event_end_time, company, venue_name, venue_address";
 
 export type EventDeal = {
   id: number;
   stage: string | null;
   event_date: string | null;
   event_start_time: string | null;
+  /** Read for destination miles' way back (routeMiles.ts legDepartures); absent on older callers. */
+  event_end_time?: string | null;
   company: string | null;
   venue_name: string | null;
   venue_address: string | null;
@@ -36,6 +38,8 @@ export type CateringEvent = {
   id: number;
   date: string;
   start_time: string | null;
+  /** When the event ends, "HH:MM": destination miles time the way back by it. */
+  end_time: string | null;
   company: string | null;
   venue: string | null;
   address: string | null;
@@ -68,6 +72,7 @@ export function cateringEventsFromDeals(deals: EventDeal[], today: string): Cate
       id: d.id,
       date,
       start_time: hhmm(d.event_start_time),
+      end_time: hhmm(d.event_end_time),
       company: clean(d.company),
       venue: clean(d.venue_name),
       address: clean(d.venue_address),

@@ -10,6 +10,7 @@ import { MANAGER_ROLES } from "@/lib/roles";
 import { notify, emailForUser } from "@/lib/notify";
 import { emailConfigured, sendEmail, type EmailAttachment } from "@/lib/email";
 import { isMissingTable } from "@/lib/storeHours";
+import { isISODate } from "@/lib/holidays";
 import { money } from "@/lib/payroll/paySheet";
 import { amountsBeforeAdjustments, reimbursementCents, type Amounts, type BeforeAdjustments, type MileageRate } from "./money";
 import {
@@ -26,7 +27,7 @@ import {
 import { FIELD_LABEL, approversToNotify, type AdjustmentField, type Person, type ReimbursementStatus } from "./lifecycle";
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
 import { BUCKET, type ReasonValue, type ReimbursementValue } from "./submission";
-import { routeEnds, routeMiles, type RouteEnds, type RouteResult } from "./routeMiles";
+import { routeEnds, routeMiles, type RouteEnds, type RouteResult, type TripTiming } from "./routeMiles";
 
 export const NEEDS_MIGRATION = "Travel Reimbursements need migration 37 in Supabase.";
 
@@ -148,8 +149,26 @@ async function findCateringEvent(dealId: number, today: string): Promise<{ ok: t
 // ---------- destination miles ------------------------------------------------------------
 
 /** GOOGLE_MAPS_API_KEY is server-only: it is never sent to a browser. */
-export function computeRouteMiles(stops: string[], ends: RouteEnds): Promise<RouteResult> {
-  return routeMiles(stops, ends, { apiKey: process.env.GOOGLE_MAPS_API_KEY });
+export function computeRouteMiles(stops: string[], ends: RouteEnds, timing: TripTiming): Promise<RouteResult> {
+  return routeMiles(stops, ends, timing, { apiKey: process.env.GOOGLE_MAPS_API_KEY });
+}
+
+/** When the trip happened: the trip date, and the Catering Event's date and times when the Reason is one. */
+export function tripTiming(trip_date: string, event: CateringEvent | null): TripTiming {
+  return { trip_date, event: event ? { date: event.date, start_time: event.start_time, end_time: event.end_time } : null };
+}
+
+/**
+ * The preview's timing (POST /api/reimbursements/route-miles): the same as
+ * submitting would use, so the preview shows the miles that will be paid. A
+ * Catering Event the lookup cannot find leaves just the trip date; submitting
+ * refuses it with the reason.
+ */
+export async function previewTiming(tripDate: unknown, eventId: unknown, today: string): Promise<TripTiming> {
+  const trip_date = typeof tripDate === "string" && isISODate(tripDate) && tripDate <= today ? tripDate : today;
+  if (typeof eventId !== "number" || !Number.isInteger(eventId)) return tripTiming(trip_date, null);
+  const found = await findCateringEvent(eventId, today);
+  return tripTiming(trip_date, found.ok ? found.event : null);
 }
 
 // ---------- notices ------------------------------------------------------------------------
@@ -282,14 +301,20 @@ export type Unresolved = { ok: false; error: string; status: 400 | 503 };
 export async function resolveReason(
   v: ReasonValue,
   today: string,
-): Promise<{ ok: true; cols: Pick<ReimbursementRow, "reason_kind" | "deal_id" | "event_label" | "event_date" | "reason_note"> } | Unresolved> {
+): Promise<
+  { ok: true; cols: Pick<ReimbursementRow, "reason_kind" | "deal_id" | "event_label" | "event_date" | "reason_note">; event: CateringEvent | null } | Unresolved
+> {
   if (v.reason_kind === "errands")
-    return { ok: true, cols: { reason_kind: "errands", deal_id: null, event_label: null, event_date: null, reason_note: v.reason_note } };
+    return { ok: true, cols: { reason_kind: "errands", deal_id: null, event_label: null, event_date: null, reason_note: v.reason_note }, event: null };
   const found = await findCateringEvent(v.event_id!, today);
   if (!found.ok) return { ...found, status: 503 };
   const event = found.event;
   if (!event) return { ok: false, error: "That Catering Event is not in the list (the last 365 days, up to today). Pick it again.", status: 400 };
-  return { ok: true, cols: { reason_kind: "catering_event", deal_id: event.id, event_label: eventLabel(event), event_date: event.date, reason_note: v.reason_note } };
+  return {
+    ok: true,
+    cols: { reason_kind: "catering_event", deal_id: event.id, event_label: eventLabel(event), event_date: event.date, reason_note: v.reason_note },
+    event,
+  };
 }
 
 /**
@@ -308,7 +333,7 @@ export async function resolveSubmission(
   let legs: ReimbursementRow["route_legs"] = null;
   const ends = v.mileage_mode === "destinations" ? routeEnds(v) : null;
   if (ends) {
-    const route = await computeRouteMiles(v.stops!, ends);
+    const route = await computeRouteMiles(v.stops!, ends, tripTiming(v.trip_date, reason.event));
     if (!route.ok) return { ...route, status: 400 };
     miles = route.miles;
     legs = route.legs;
