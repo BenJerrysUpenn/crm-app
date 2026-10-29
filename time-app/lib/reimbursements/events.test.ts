@@ -65,6 +65,24 @@ test("cateringEventsFromDeals: several events on one day sort by start time, lat
   assert.deepEqual(events.map((e) => e.id), [2, 1, 3]);
 });
 
+test("cateringEventsFromDeals: the event's end time as HH:MM, or null when the deal has none", () => {
+  const events = cateringEventsFromDeals(
+    [
+      deal(1, "2026-10-03", { event_end_time: "16:30:00" }),
+      deal(2, "2026-10-02", { event_end_time: "9:05" }),
+      deal(3, "2026-10-01", { event_end_time: null }),
+      deal(4, "2026-09-30"),
+    ],
+    TODAY,
+  );
+  assert.deepEqual(events.map((e) => [e.id, e.end_time]), [
+    [1, "16:30"],
+    [2, "09:05"],
+    [3, null],
+    [4, null],
+  ]);
+});
+
 test("eventLabel: date, start time, venue/company and address; never the deal id", () => {
   const [e] = cateringEventsFromDeals([deal(4321, "2026-10-03", { company: "Acme", venue_name: "Houston Hall", venue_address: "3417 Spruce St" })], TODAY);
   const label = eventLabel(e);
