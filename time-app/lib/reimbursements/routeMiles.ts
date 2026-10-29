@@ -89,8 +89,7 @@ export function routeText(stops: string[], ends: RouteEnds): string {
 
 /** One leg's driving distance in meters: the shortest of Google's routes from `from` to `to`. */
 async function legMeters(
-  from: string,
-  to: string,
+  { from, to }: Omit<Leg, "miles">,
   apiKey: string,
   fetchImpl: typeof fetch,
 ): Promise<{ ok: true; meters: number } | { ok: false; error: string }> {
@@ -134,7 +133,7 @@ export async function routeMiles(
   const apiKey = opts.apiKey;
   const fetchImpl = opts.fetchImpl ?? fetch;
   const pairs = points.slice(1).map((to, i) => ({ from: points[i], to }));
-  const results = await Promise.all(pairs.map((p) => legMeters(p.from, p.to, apiKey, fetchImpl)));
+  const results = await Promise.all(pairs.map((p) => legMeters(p, apiKey, fetchImpl)));
   const out: Leg[] = [];
   for (const [i, r] of results.entries()) {
     if (!r.ok) return r;
