@@ -188,7 +188,7 @@ test("events and submit: each Catering Event carries its cap a mile, and the App
   for (const n of notices) assert.match(String(n.body), /\$7\.25\./, "10 mi at the quote's 72.5c");
 });
 
-// ---------- a deal with no round-trip miles gets a Recalculate (the owner, 2026-10-29) ----------
+// ---------- a deal with no round-trip miles gets a miles recalculation (the owner, 2026-10-29) ----------
 
 /** 501's quote charged mileage but the deal has no round-trip miles; every other deal is capped at its quote's rate. */
 function noMilesOn501() {
@@ -245,16 +245,16 @@ test("submit: when the miles recalculation cannot be queued the trip is still Su
   assert.ok(db.rows("notifications").some((n) => n.title === "Travel Reimbursement submitted"));
 });
 
-test("edit: moving a trip onto, or resubmitting one on, a deal with no round-trip miles queues its Recalculate", async () => {
+test("edit: moving a trip onto, or resubmitting one on, a deal with no round-trip miles queues its miles recalculation", async () => {
   noMilesOn501();
   db.tables.travel_reimbursements.push(row(), row({ id: 2, status: "rejected", rejection_reason: "Which event?" }));
   db.signIn(DONTE);
   const onto501 = { ...errands, reason: { kind: "catering_event", event_id: 501 } };
   assert.equal((await one.PATCH(req("PATCH", onto501), { params: { id: "1" } })).status, 200);
-  assert.deepEqual(db.rows("quote_jobs").map((j) => j.deal_id), [501]);
+  assert.deepEqual(db.rows("quote_jobs").map((j) => [j.deal_id, j.kind]), [[501, "miles"]]);
   db.tables.quote_jobs = [];
   assert.equal((await one.PATCH(req("PATCH", onto501), { params: { id: "2" } })).status, 200);
-  assert.deepEqual(db.rows("quote_jobs").map((j) => j.deal_id), [501]);
+  assert.deepEqual(db.rows("quote_jobs").map((j) => [j.deal_id, j.kind]), [[501, "miles"]]);
 });
 
 test("events: before migration 49 every Catering Event has no cap", async () => {

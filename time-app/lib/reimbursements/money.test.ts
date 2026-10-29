@@ -306,7 +306,7 @@ test("decideRefusal approve: a Catering Event whose quote charged mileage but wh
     "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. They are being recalculated automatically; once they are in, approve it.",
   );
   assert.equal(priced().amounts.mileage_cents, 0, "it is refused because its miles price at 0c");
-  // A Recalculate that did not find the miles: a manager checks the venue address.
+  // A miles recalculation that did not find the miles: a manager checks the venue address.
   assert.equal(
     decideRefusal("approve", priced({}, { ...noMiles, recalc_failed: true })),
     "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢. The automatic recalculation did not find them, so a manager should check the venue address on the deal; once the miles are in, approve it.",

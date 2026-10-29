@@ -450,7 +450,7 @@ test("approve: a quote that charged mileage on a deal with no round-trip miles i
   assert.equal(r1().status, "submitted");
   assert.equal(r1().decided_by, null);
   assert.equal(resendMails().length, 0, "no Receipts go to receipts@ for a refused approval");
-  // The Recalculate fills the deal's round-trip miles: the cap is the quote's rate.
+  // The miles recalculation fills the deal's round-trip miles: the cap is the quote's rate.
   basis = "quote_derived";
   const ok = await decide.POST(post({ action: "approve" }), ID);
   assert.equal(ok.status, 200);

@@ -62,7 +62,7 @@ test("noMilesDeals: each deal once, only Catering Events capped for no round-tri
   );
 });
 
-test("withRecalcState: marks the cap of each trip whose deal's Recalculate failed, and nothing else", () => {
+test("withRecalcState: marks the cap of each trip whose deal's last miles recalculation failed, and nothing else", () => {
   const noMiles = { cap_cents_per_mile: 0, basis: "no_miles_on_deal" } as const;
   const rows = [
     { id: 1, reason_kind: "catering_event", deal_id: 501, mileage_cap: noMiles },

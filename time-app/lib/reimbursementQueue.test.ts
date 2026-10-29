@@ -130,7 +130,7 @@ test("queue: no round-trip miles on the deal shows Approve disabled with the rea
   }
 });
 
-test("queue: when the deal's last Recalculate did not find miles, Approve stays disabled and the card says a manager should check the venue address", async () => {
+test("queue: when the deal's last miles recalculation did not find miles, Approve stays disabled and the card says a manager should check the venue address", async () => {
   const q = await mount({ submitted: [item({ ...NO_MILES, recalc_failed: true })] });
   try {
     const approve = q.button("Approve");

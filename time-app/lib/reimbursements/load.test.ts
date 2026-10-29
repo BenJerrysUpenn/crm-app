@@ -302,7 +302,7 @@ test("loadQueue: once the miles land the deal is capped at the quote's rate and 
   assert.deepEqual(q.submitted.find((i) => i.id === 1)!.mileage_cap, { cap_cents_per_mile: 72.5, basis: "quote_derived" });
 });
 
-test("loadQueue: when the Recalculate jobs cannot be read the queue still loads, the trip still capped at 0c", async () => {
+test("loadQueue: when the miles jobs cannot be read the queue still loads, the trip still capped at 0c", async () => {
   caps({ 501: [0, "no_miles_on_deal"] });
   db.missingTables = ["quote_jobs"];
   db.signIn(MANAGER.id);
@@ -311,7 +311,7 @@ test("loadQueue: when the Recalculate jobs cannot be read the queue still loads,
   assert.equal(q.submitted.find((i) => i.id === 1)!.amounts.mileage_cents, 0);
 });
 
-test("loadMine: staff loading their page queue no Recalculate, but are told when the last one did not find the miles", async () => {
+test("loadMine: staff loading their page queue no miles recalculation, but are told when the last one did not find the miles", async () => {
   caps({ 501: [0, "no_miles_on_deal"] });
   db.signIn(DONTE.id);
   const mine = await loadMine(createClient(), DONTE.id);
