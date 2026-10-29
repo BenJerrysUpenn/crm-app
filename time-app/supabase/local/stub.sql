@@ -9,8 +9,8 @@
 --   * auth.uid() and auth.role(), which read the JWT claims PostgREST sets
 --     (the verify files set request.jwt.claims by hand to impersonate one);
 --   * Supabase's default grants on the public schema;
---   * the CRM's deals table, owned by Catering-Manager, with only the columns
---     migration 27 reads.
+--   * the CRM's deals and quote_versions tables, owned by Catering-Manager,
+--     with only the columns migrations 27 and 49 and their verify files use.
 -- ============================================================================
 
 create role anon nologin;
@@ -44,7 +44,19 @@ alter default privileges in schema public grant all on tables to anon, authentic
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
 
-create table public.deals (id bigint primary key, event_date text);
+create table public.deals (id bigint primary key, event_date text, created_at text, updated_at text, round_trip_miles double precision);
+-- As in production: RLS on and no policy, so no API role reads a quote.
+create table public.quote_versions (
+  id bigint primary key,
+  deal_id integer not null references public.deals (id) on delete cascade,
+  version integer not null,
+  invoice_number text not null,
+  docx_path text not null,
+  breakdown_json text not null,
+  created_at text not null,
+  unique (deal_id, version)
+);
+alter table public.quote_versions enable row level security;
 
 -- Supabase Storage, reduced to what migration 37's bucket and policies use:
 -- the buckets and objects tables, RLS on objects as hosted Supabase has it,

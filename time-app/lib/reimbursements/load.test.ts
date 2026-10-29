@@ -141,3 +141,82 @@ test("loadQueue: Decided lists only the latest 50 that have left the queue", asy
   assert.ok(!q.decided.some((i) => i.id === 100));
   assert.equal(q.decided[0].id, 127, "Sep 28 is the newest");
 });
+
+// ---------- a Catering Event pays no more a mile than its quote charged (migration 49) ----------
+
+/** event_mileage_caps() as migration 49 answers it, for these deals. */
+function caps(byDeal: Record<number, [number | null, string]>) {
+  db.rpc.event_mileage_caps = (args) =>
+    ((args.p_deal_ids as number[]) ?? [])
+      .filter((id) => id in byDeal)
+      .map((id) => ({ deal_id: id, cap_cents_per_mile: byDeal[id][0], basis: byDeal[id][1] }));
+}
+
+test("loadMine and loadQueue: a Catering Event trip is paid the lower of the IRS rate and what its quote charged", async () => {
+  caps({ 501: [72.5, "quote_derived"], 777: [null, "uber_flat_fee"] });
+  db.signIn(DONTE.id);
+  const mine = await loadMine(createClient(), DONTE.id);
+  assert.ok(mine.ok);
+  assert.equal(mine.reimbursements[0].amounts.total_cents, 725, "10 mi on 2026-10-03 at the quote's 72.5c, not the IRS 76c");
+  assert.equal(mine.reimbursements[0].amounts.capped, true);
+  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 72.5, basis: "quote_derived" });
+
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  const byId = new Map([...q.submitted, ...q.approved].map((i) => [i.id, i]));
+  assert.equal(byId.get(2)!.amounts.total_cents, 877, "12.1 mi at 72.5c = 877.25 -> 877");
+  assert.equal(byId.get(4)!.amounts.total_cents, 760, "the Uber flat fee event: the IRS rate");
+  assert.equal(byId.get(4)!.amounts.capped, false);
+  assert.equal(byId.get(3)!.amounts.total_cents, 725, "errands: the IRS rate on 2026-06-30");
+  assert.equal(byId.get(3)!.mileage_cap, null);
+});
+
+test("loadMine: a Catering Event with no quote, or a quote that charged no mileage, is at the IRS rate (the owner, 2026-10-29)", async () => {
+  for (const basis of ["no_quote", "no_rate_on_quote"]) {
+    caps({ 501: [null, basis] });
+    db.signIn(DONTE.id);
+    const mine = await loadMine(createClient(), DONTE.id);
+    assert.ok(mine.ok);
+    assert.equal(mine.reimbursements[0].amounts.total_cents, 760, `${basis}: 10 mi at the IRS 76c`);
+    assert.equal(mine.reimbursements[0].amounts.capped, false);
+    assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: null, basis });
+  }
+});
+
+test("loadQueue: a Decided Catering Event is shown at its cap too", async () => {
+  caps({ 900: [72.5, "quoted_rate"] });
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  const rejected = q.decided.find((i) => i.id === 6)!;
+  assert.equal(rejected.amounts.total_cents, 725, "10 mi at the quote's 72.5c, not the IRS 76c");
+  assert.equal(rejected.amounts.capped, true);
+});
+
+test("loadMine: a cap Postgres answers as a numeric string still caps the trip", async () => {
+  db.rpc.event_mileage_caps = () => [{ deal_id: "501", cap_cents_per_mile: "72.50", basis: "quoted_rate" }];
+  db.signIn(DONTE.id);
+  const mine = await loadMine(createClient(), DONTE.id);
+  assert.ok(mine.ok);
+  assert.equal(mine.reimbursements[0].amounts.total_cents, 725);
+  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 72.5, basis: "quoted_rate" });
+});
+
+test("loadMine: before migration 49 (no event_mileage_caps) every trip is at the IRS rate, as before", async () => {
+  db.signIn(DONTE.id);
+  const mine = await loadMine(createClient(), DONTE.id);
+  assert.ok(mine.ok);
+  assert.equal(mine.reimbursements[0].amounts.total_cents, 760);
+  assert.equal(mine.reimbursements[0].mileage_cap, null);
+});
+
+test("loadMine and loadQueue: when the caps cannot be read they fail, rather than pay the uncapped rate", async () => {
+  db.rpc.event_mileage_caps = () => {
+    throw new Error("connection reset");
+  };
+  db.signIn(DONTE.id);
+  assert.equal((await loadMine(createClient(), DONTE.id)).ok, false);
+  db.signIn(MANAGER.id);
+  assert.equal((await loadQueue(createClient(), MANAGER)).ok, false);
+});

@@ -3,8 +3,7 @@ import { getProfile } from "@/lib/auth";
 import { dayKey } from "@/lib/format";
 import { isMissingTable } from "@/lib/storeHours";
 import { parseReimbursement } from "@/lib/reimbursements/submission";
-import { reimbursementCents } from "@/lib/reimbursements/money";
-import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission } from "@/lib/reimbursements/server";
+import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission, totalForNotice, type ReimbursementRow } from "@/lib/reimbursements/server";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +43,6 @@ export async function POST(request: Request) {
   if (isMissingTable(error)) return NextResponse.json({ error: NEEDS_MIGRATION }, { status: 503 });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  await notifyApprovers(me, data, reimbursementCents(data, rates.rates).total_cents);
+  await notifyApprovers(me, data, await totalForNotice(supabase, data as ReimbursementRow, rates.rates));
   return NextResponse.json({ reimbursement: data });
 }

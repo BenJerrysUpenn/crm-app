@@ -105,7 +105,7 @@ export function eventLabel(e: CateringEvent): string {
 }
 
 /** Events whose venue, company or address contains `query` (any case). */
-export function searchEvents(events: CateringEvent[], query: string): CateringEvent[] {
+export function searchEvents<T extends CateringEvent>(events: T[], query: string): T[] {
   const q = query.trim().toLowerCase();
   if (!q) return events;
   return events.filter((e) => [e.venue, e.company, e.address].some((f) => (f ?? "").toLowerCase().includes(q)));
