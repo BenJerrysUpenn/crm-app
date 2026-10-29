@@ -311,6 +311,23 @@ test("loadQueue: when the miles jobs cannot be read the queue still loads, the t
   assert.equal(q.submitted.find((i) => i.id === 1)!.amounts.mileage_cents, 0);
 });
 
+test("loadQueue: when the miles recalculation's insert is refused the queue still loads, the trip still refused at 0c and not called failed; the next load tries again", async () => {
+  caps({ 501: [0, "no_miles_on_deal"] });
+  // The jobs read; the insert is refused (a column the queue does not have yet).
+  db.missingColumns = { quote_jobs: ["requested_by"] };
+  db.signIn(MANAGER.id);
+  const q = await loadQueue(createClient(), MANAGER);
+  assert.ok(q.ok);
+  assert.equal(db.rows("quote_jobs").length, 0);
+  const one = q.submitted.find((i) => i.id === 1)!;
+  assert.equal(one.amounts.mileage_cents, 0);
+  assert.deepEqual(one.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal" }, "nothing finished, so nothing failed");
+
+  db.missingColumns = {};
+  assert.ok((await loadQueue(createClient(), MANAGER)).ok);
+  assert.deepEqual(queued().map((j) => j.deal_id), [501], "no job was left behind, so the next load queues one");
+});
+
 test("loadMine: staff loading their page queue no miles recalculation, but are told when the last one did not find the miles", async () => {
   caps({ 501: [0, "no_miles_on_deal"] });
   db.signIn(DONTE.id);
