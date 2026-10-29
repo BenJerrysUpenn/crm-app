@@ -153,11 +153,6 @@ export function computeRouteMiles(stops: string[], ends: RouteEnds, timing: Trip
   return routeMiles(stops, ends, timing, { apiKey: process.env.GOOGLE_MAPS_API_KEY });
 }
 
-/** When the trip happened: the trip date, and the Catering Event's date and times when the Reason is one. */
-export function tripTiming(trip_date: string, event: CateringEvent | null): TripTiming {
-  return { trip_date, event: event ? { date: event.date, start_time: event.start_time, end_time: event.end_time } : null };
-}
-
 /**
  * The preview's timing (POST /api/reimbursements/route-miles): the same as
  * submitting would use, so the preview shows the miles that will be paid. A
@@ -166,9 +161,9 @@ export function tripTiming(trip_date: string, event: CateringEvent | null): Trip
  */
 export async function previewTiming(tripDate: unknown, eventId: unknown, today: string): Promise<TripTiming> {
   const trip_date = typeof tripDate === "string" && isISODate(tripDate) && tripDate <= today ? tripDate : today;
-  if (typeof eventId !== "number" || !Number.isInteger(eventId)) return tripTiming(trip_date, null);
+  if (typeof eventId !== "number" || !Number.isInteger(eventId)) return { trip_date, event: null };
   const found = await findCateringEvent(eventId, today);
-  return tripTiming(trip_date, found.ok ? found.event : null);
+  return { trip_date, event: found.ok ? found.event : null };
 }
 
 // ---------- notices ------------------------------------------------------------------------
@@ -333,7 +328,7 @@ export async function resolveSubmission(
   let legs: ReimbursementRow["route_legs"] = null;
   const ends = v.mileage_mode === "destinations" ? routeEnds(v) : null;
   if (ends) {
-    const route = await computeRouteMiles(v.stops!, ends, tripTiming(v.trip_date, reason.event));
+    const route = await computeRouteMiles(v.stops!, ends, { trip_date: v.trip_date, event: reason.event });
     if (!route.ok) return { ...route, status: 400 };
     miles = route.miles;
     legs = route.legs;

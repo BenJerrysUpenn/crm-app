@@ -29,6 +29,7 @@
 
 import { legMiles, sumMiles } from "./money.ts";
 import { addDays, formatMinutes, nyWallClock, parseTime, weekdayOf } from "../coverage.ts";
+import type { CateringEvent } from "./events.ts";
 
 export const STORE_ADDRESS = "218 S 40th St, Philadelphia, PA 19104";
 export const ROUTES_ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes";
@@ -89,7 +90,7 @@ export function routeText(stops: string[], ends: RouteEnds): string {
  */
 export type TripTiming = {
   trip_date: string;
-  event: { date: string; start_time: string | null; end_time: string | null } | null;
+  event: Pick<CateringEvent, "date" | "start_time" | "end_time"> | null;
 };
 
 /**
