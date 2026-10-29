@@ -11,7 +11,7 @@ import { money } from "@/lib/payroll/paySheet";
 import { FIELD_LABEL, STATUS_LABEL, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { BUCKET, contentTypeOf, extOf } from "@/lib/reimbursements/submission";
-import { amountText, totalText } from "@/lib/reimbursements/money";
+import { amountText, totalText, zeroCapText } from "@/lib/reimbursements/money";
 import { routeEnds, routeText } from "@/lib/reimbursements/routeMiles";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 
@@ -147,7 +147,7 @@ export function ReimbursementDetail({
             : ""}
           {" × "}
           {rateText(a.rate)}
-          {a.capped ? " (the event's quoted rate)" : ""} = {amountText(r, "mileage")}
+          {a.capped ? ` (${zeroCapText(r.mileage_cap) ?? "the event's quoted rate"})` : ""} = {amountText(r, "mileage")}
         </div>
       )}
       {(a.tolls_cents > 0 || adjusted.includes("tolls")) && <div>Tolls: {amountText(r, "tolls")}</div>}

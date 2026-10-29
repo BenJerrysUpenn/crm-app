@@ -108,7 +108,7 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/supabase/migration_46*.sql"]
     docs: [README.md, docs/payroll-verify.md]
-  - paths: ["time-app/supabase/migration_49*.sql"]
+  - paths: ["time-app/supabase/migration_49*.sql", "time-app/supabase/migration_50*.sql"]
     docs: [README.md, GLOSSARY.md, docs/payroll-verify.md]
   - paths: ["time-app/supabase/migration_47*.sql", "time-app/lib/coverage.ts", "time-app/lib/weekCoverage.ts", "time-app/lib/storeHours*.ts", "time-app/lib/localPreview.ts", "time-app/components/StoreHoursAdmin.tsx", "time-app/app/api/store-hours/**", "time-app/app/api/dev/**", "time-app/app/dev/**"]
     docs: [README.md, GLOSSARY.md]

@@ -5,10 +5,11 @@
 //     (migration 37), one row per start date, added by hand when the IRS
 //     announces a new one (ruling 38). For a Catering Event, never more per
 //     mile than the event's quote charged the customer (the owner,
-//     2026-10-29): the lower of the two. No quote, a quote with no mileage
-//     charge, a quote that charged the Uber flat fee, and Groceries / errands
-//     have no cap: the IRS rate. The database works out the
-//     cap from the quote (deal_mileage_cap(), migration 49); this module is
+//     2026-10-29): the lower of the two. A quote that charged $0 mileage
+//     caps it at 0c (migration 50). No quote, a quote that charged the Uber
+//     flat fee, and Groceries / errands have no cap: the IRS rate. The
+//     database works out the cap from the quote (deal_mileage_cap(),
+//     migrations 49 and 50); this module is
 //     told it, as Priceable.cap_cents_per_mile. Every reimbursement not yet
 //     Paid is priced at its trip's rate whenever it is read: nothing is frozen
 //     at submit, so a rate typed in late still reaches every unpaid item.
@@ -18,7 +19,8 @@
 //   * A computed route is rounded per leg, to 0.1 mi half-up.
 //
 // migration_49.sql's travel_reimbursements_payable view is the database's
-// copy of reimbursementCents(); migration_49_verify.sql checks they agree.
+// copy of reimbursementCents(); migration_49_verify.sql and
+// migration_50_verify.sql check they agree.
 //
 // Pure (money() for the text is too), so `node --test` runs it and the browser
 // can use it.
@@ -34,18 +36,22 @@ export type MileageRate = {
 };
 
 /**
- * Where a Catering Event's cap comes from (deal_mileage_cap(), migration 49):
+ * Where a Catering Event's cap comes from (deal_mileage_cap(), migrations 49
+ * and 50):
  *   no_quote          the deal has no quote: no cap (the owner, 2026-10-29);
  *   uber_flat_fee     the quote charged the $50 Uber flat fee: no cap;
  *   quoted_rate       the per-mile rate the quote stored;
  *   quote_derived     the quote's transportation subtotal / the deal's
  *                     round-trip miles, to the half cent (quotes before the
  *                     rate was stored);
- *   no_rate_on_quote  the quote charged no mileage ($0, priced with 0 miles)
- *                     or there are no miles to divide by: no cap;
+ *   no_miles_on_deal  the quote charged mileage but the deal has no
+ *                     round-trip miles to divide it by: 0c until a manager
+ *                     enters them (never more than the quote charged);
+ *   no_rate_on_quote  the quote charged no mileage ($0, or no mileage line):
+ *                     0c (the owner, 2026-10-29);
  *   none              no deal: no cap.
  */
-export type CapBasis = "no_quote" | "uber_flat_fee" | "quoted_rate" | "quote_derived" | "no_rate_on_quote" | "none";
+export type CapBasis = "no_quote" | "uber_flat_fee" | "quoted_rate" | "quote_derived" | "no_miles_on_deal" | "no_rate_on_quote" | "none";
 
 /** A Catering Event's cap, as the database answers it. */
 export type MileageCap = { cap_cents_per_mile: number | null; basis: CapBasis };
@@ -85,9 +91,25 @@ export function rateForTrip(
     : { cents_per_mile: irs.cents_per_mile, capped: false };
 }
 
-/** "72.5¢/mi, what the event's quote charged" or "76¢/mi, the IRS rate for the trip date", for the form's estimate. */
-export function mileageRateText(a: Pick<Amounts, "rate" | "capped">): string {
+/**
+ * Why a Catering Event's miles pay 0c, for staff and Approvers; null when the
+ * cap is not 0c. Tolls and parking are paid either way.
+ */
+export function zeroCapText(cap: MileageCap | null | undefined): string | null {
+  if (cap?.cap_cents_per_mile == null || Number(cap.cap_cents_per_mile) !== 0) return null;
+  return cap.basis === "no_miles_on_deal"
+    ? "the Catering Event's quote charged mileage, but its deal has no round-trip miles to price it by; a manager can add them, and the trip is repriced until it is paid"
+    : "the Catering Event's quote charged the customer no mileage, so its miles are not reimbursed";
+}
+
+/**
+ * "72.5¢/mi, what the event's quote charged", "76¢/mi, the IRS rate for the
+ * trip date", or for a 0c cap the reason (zeroCapText), for the form's estimate.
+ */
+export function mileageRateText(a: Pick<Amounts, "rate" | "capped">, cap?: MileageCap | null): string {
   if (a.rate == null) return "no Mileage rate";
+  const zero = a.capped ? zeroCapText(cap) : null;
+  if (zero) return `${a.rate}¢/mi: ${zero}`;
   return `${a.rate}¢/mi, ${a.capped ? "what the Catering Event's quote charged per mile (below the IRS rate)" : "the IRS rate for the trip date"}`;
 }
 
@@ -109,8 +131,8 @@ export type Priceable = {
   /**
    * The most a mile may pay: what the trip's Catering Event quote charged the
    * customer per mile, in cents (lib/reimbursements/server.ts asks the
-   * database). Null or absent: no cap (errands, the Uber flat fee, no quote,
-   * a quote with no mileage charge).
+   * database). 0 when the quote charged no mileage. Null or absent: no cap
+   * (errands, the Uber flat fee, no quote).
    */
   cap_cents_per_mile?: number | null;
 };
