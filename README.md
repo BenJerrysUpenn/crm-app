@@ -263,10 +263,15 @@ the header of `time-app/lib/reimbursements/routeMiles.ts`.
 
 Mileage is paid at the IRS rate for the trip date (`mileage_rates`), and for a Catering Event at no more
 a mile than its quote charged the customer (owner's ruling 2026-10-29): `deal_mileage_cap()` in
-`time-app/supabase/migration_49.sql` reads the deal's latest quote (no quote, or the Uber flat fee: no cap;
-else the quote's stored `mileage_rate`, else its transportation subtotal over the deal's round-trip miles
-to the half cent; a quote that charged no mileage: no cap), and the payable view and
-`lib/reimbursements/money.ts` pay the lower of the two. Deploy the app, then apply migration 49 (`_verify.sql` and `_down.sql` beside it).
+`time-app/supabase/migration_49.sql`, as `migration_50.sql` redefines it, reads the deal's latest quote (no quote,
+or the Uber flat fee: no cap; else the quote's stored `mileage_rate`, else its transportation subtotal over the
+deal's round-trip miles to the half cent), and the payable view and `lib/reimbursements/money.ts` pay the lower
+of the two. A quote that is not the Uber flat fee and charged $0 mileage, or has no mileage line, caps at 0c:
+it charged the customer nothing (owner's ruling 2026-10-29). A quote that charged mileage on a deal with no
+round-trip miles also caps at 0c, never more than charged, until a manager enters the miles; the trip is
+priced when read, so it reprices until paid. Staff and the Approver see why a trip's miles pay $0, and tolls
+and parking are paid either way. Deploy the app, then apply migration 49 and then 50 (each has `_verify.sql` and
+`_down.sql` beside it).
 
 Setup, in the `time` Vercel project:
 

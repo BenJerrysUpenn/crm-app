@@ -25,6 +25,7 @@ import {
   rateForTrip,
   reimbursementCents,
   totalText,
+  zeroCapText,
   type MileageRate,
 } from "./money.ts";
 
@@ -126,11 +127,34 @@ test("reimbursementCents: the Uber flat fee and errands have no cap: the IRS rat
   assert.equal(reimbursementCents(trip, RATES).mileage_cents, 760);
 });
 
-test("reimbursementCents: a Catering Event with no quote, or a $0 mileage quote, has no cap: the IRS rate", () => {
-  // deal_mileage_cap() answers no cap (no_quote, no_rate_on_quote). 30.4 mi x 76c = 2310.4 -> 2310.
+test("reimbursementCents: a Catering Event with no quote has no cap: the IRS rate", () => {
+  // deal_mileage_cap() answers no cap (no_quote). 30.4 mi x 76c = 2310.4 -> 2310.
   const r = reimbursementCents({ ...trip, trip_date: "2026-10-21", miles: 30.4, cap_cents_per_mile: null }, RATES);
   assert.deepEqual(r, { rate: 76, capped: false, mileage_cents: 2310, tolls_cents: 0, parking_cents: 0, total_cents: 2310 });
   assert.equal(reimbursementCents({ ...trip, trip_date: "2026-06-30", cap_cents_per_mile: null }, RATES).rate, 72.5);
+});
+
+test("rateForTrip: a 0c cap (a quote that charged no mileage) pays 0c, capped", () => {
+  assert.deepEqual(rateForTrip(RATES, "2026-10-07", 0), { cents_per_mile: 0, capped: true });
+  assert.deepEqual(rateForTrip(RATES, "2026-10-07", "0.00" as unknown as number), { cents_per_mile: 0, capped: true });
+});
+
+test("reimbursementCents: a $0 mileage quote pays no mileage, but tolls and parking in full", () => {
+  // deal_mileage_cap() answers 0c (no_rate_on_quote, no_miles_on_deal; migration 50).
+  const r = reimbursementCents({ ...trip, miles: 3.2, tolls_cents: 450, parking_cents: 1200, cap_cents_per_mile: 0 }, RATES);
+  assert.deepEqual(r, { rate: 0, capped: true, mileage_cents: 0, tolls_cents: 450, parking_cents: 1200, total_cents: 1650 });
+});
+
+test("reimbursementCents: an Adjustment's mileage replaces a 0c amount", () => {
+  assert.equal(reimbursementCents({ ...trip, mileage_cents_override: 500, cap_cents_per_mile: 0 }, RATES).total_cents, 500);
+});
+
+test("zeroCapText: says why a 0c cap pays nothing; nothing for any other cap", () => {
+  assert.match(zeroCapText({ cap_cents_per_mile: 0, basis: "no_rate_on_quote" })!, /quote charged the customer no mileage/);
+  assert.match(zeroCapText({ cap_cents_per_mile: 0, basis: "no_miles_on_deal" })!, /deal has no round-trip miles/);
+  assert.equal(zeroCapText({ cap_cents_per_mile: 72.5, basis: "quote_derived" }), null);
+  assert.equal(zeroCapText({ cap_cents_per_mile: null, basis: "no_quote" }), null);
+  assert.equal(zeroCapText(null), null);
 });
 
 test("reimbursementCents: an Adjustment's mileage still replaces the capped amount", () => {
@@ -147,6 +171,7 @@ test("mileageRateText: says whether the rate is the IRS rate or what the quote c
   assert.equal(mileageRateText({ rate: 76, capped: false }), "76¢/mi, the IRS rate for the trip date");
   assert.match(mileageRateText({ rate: 72.5, capped: true }), /^72\.5¢\/mi, what the Catering Event's quote charged per mile/);
   assert.equal(mileageRateText({ rate: null, capped: false }), "no Mileage rate");
+  assert.match(mileageRateText({ rate: 0, capped: true }, { cap_cents_per_mile: 0, basis: "no_rate_on_quote" }), /^0¢\/mi: the Catering Event's quote charged the customer no mileage/);
 });
 
 test("centsFromDollars: typed amounts become integer cents", () => {

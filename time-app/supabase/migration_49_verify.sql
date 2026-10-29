@@ -14,14 +14,15 @@
 --      its older name 'parking') has no cap; a stored mileage_rate wins over
 --      the one derived from subtotal / miles, which is to the half cent; no
 --      quote, or a breakdown that is not JSON, has no cap (the owner,
---      2026-10-29); a quote with no per-mile charge (a $0 or missing
---      transportation subtotal, or no miles on the deal) has no cap; no deal
---      has no cap.
+--      2026-10-29); no deal has no cap. A quote with no per-mile charge (a $0
+--      or missing transportation subtotal, or no miles on the deal) is left
+--      to migration_50_verify.sql: migration 50 redefined it as 0c, and these
+--      checks pass with or without migration 50.
 --   3. Staff read no quote, yet event_mileage_caps() answers them; anon may
 --      call neither function.
 --   4. travel_reimbursements_payable: a Catering Event trip at the lower of
---      the IRS rate and its cap; errands, the Uber flat fee, no quote and a
---      $0 mileage quote at the IRS rate; an Adjustment's mileage still
+--      the IRS rate and its cap; errands, the Uber flat fee and no quote at
+--      the IRS rate; an Adjustment's mileage still
 --      replacing it. These are the cases
 --      lib/reimbursements/money.test.ts checks for the app's copy.
 -- ============================================================================
@@ -37,17 +38,12 @@ declare
   d_none  bigint := 990000004;  -- no quote at all
   d_bad   bigint := 990000005;  -- latest breakdown is not JSON
   d_rate  bigint := 990000006;  -- the quote stores its mileage_rate
-  d_zero  bigint := 990000007;  -- mileage quote that charged $0, priced with 0 miles
   d_high  bigint := 990000008;  -- the quote charged more than the IRS rate
-  d_zmi   bigint := 990000009;  -- mileage quote that charged $0; the deal has miles now
-  d_old   bigint := 990000010;  -- a May 2026 breakdown with no transportation_subtotal
-  d_nomi  bigint := 990000011;  -- mileage quote that charged mileage; the deal has no miles now
   t_uber  bigint;
   t_back  bigint;
   t_err   bigint;
   t_june  bigint;
   t_oct   bigint;
-  t_zero  bigint;
   t_high  bigint;
   t_adj   bigint;
   n       integer;
@@ -68,9 +64,7 @@ begin
     (d_uber, '2026-10-01', '2026-10-01', 20), (d_back, '2026-10-01', '2026-10-01', 42),
     (d_park, '2026-10-01', '2026-10-01', 6), (d_none, '2026-10-01', '2026-10-01', 30),
     (d_bad, '2026-10-01', '2026-10-01', 10), (d_rate, '2026-10-01', '2026-10-01', 42),
-    (d_zero, '2026-10-01', '2026-10-01', 0), (d_high, '2026-10-01', '2026-10-01', 10),
-    (d_zmi, '2026-10-01', '2026-10-01', 52), (d_old, '2026-10-01', '2026-10-01', 20),
-    (d_nomi, '2026-10-01', '2026-10-01', null);
+    (d_high, '2026-10-01', '2026-10-01', 10);
   insert into public.quote_versions (id, deal_id, version, invoice_number, docx_path, breakdown_json, created_at) values
     (990000001, d_uber, 1, 'v', 'v', '{"transportation_mode": "mileage", "transportation_subtotal": 14.5}', '2026-10-01'),
     (990000002, d_uber, 2, 'v', 'v', '{"transportation_mode": "uber", "transportation_subtotal": 50.0}', '2026-10-02'),
@@ -82,14 +76,8 @@ begin
     (990000007, d_bad, 2, 'v', 'v', 'not json', '2026-10-02'),
     -- A stored rate (dollars a mile) wins over 30.45 / 42.
     (990000008, d_rate, 1, 'v', 'v', '{"transportation_mode": "mileage", "transportation_subtotal": 30.45, "mileage_rate": 0.715}', '2026-10-01'),
-    (990000009, d_zero, 1, 'v', 'v', '{"transportation_mode": "mileage", "transportation_subtotal": 0.0}', '2026-10-01'),
     -- 9.03 / 10 mi = 90.3c, to the half cent 90.5c: above the IRS rate.
-    (990000010, d_high, 1, 'v', 'v', '{"transportation_mode": "mileage", "transportation_subtotal": 9.03}', '2026-10-01'),
-    -- Charged mileage first, then re-quoted at 0 miles: the latest, $0, decides.
-    (990000011, d_zmi, 1, 'v', 'v', '{"transportation_mode": "mileage", "transportation_subtotal": 37.7}', '2026-09-29'),
-    (990000012, d_zmi, 2, 'v', 'v', '{"transportation_mode": "mileage", "transportation_subtotal": 0.0}', '2026-09-30'),
-    (990000013, d_old, 1, 'v', 'v', '{"transport_mode": "mileage", "labor_transport_flat": 120}', '2026-05-25'),
-    (990000014, d_nomi, 1, 'v', 'v', '{"transportation_mode": "mileage", "transportation_subtotal": 14.5}', '2026-10-01');
+    (990000010, d_high, 1, 'v', 'v', '{"transportation_mode": "mileage", "transportation_subtotal": 9.03}', '2026-10-01');
 
   for r in
     select * from (values
@@ -99,11 +87,7 @@ begin
       (d_none, null, 'no_quote'),
       (d_bad, null, 'no_quote'),
       (d_rate, 71.50, 'quoted_rate'),
-      (d_zero, null, 'no_rate_on_quote'),
       (d_high, 90.50, 'quote_derived'),
-      (d_zmi, null, 'no_rate_on_quote'),
-      (d_old, null, 'no_rate_on_quote'),
-      (d_nomi, null, 'no_rate_on_quote'),
       (null::bigint, null, 'none')
     ) as e(deal, cap, basis)
   loop
@@ -145,12 +129,10 @@ begin
   insert into public.travel_reimbursements (profile_id, reason_kind, deal_id, event_label, reason_note, trip_date, mileage_mode, miles) values
     (emp, 'catering_event', d_none, 'No quote', null, '2026-10-21', 'typed', 30.4) returning id into t_oct;
   insert into public.travel_reimbursements (profile_id, reason_kind, deal_id, event_label, reason_note, trip_date, mileage_mode, miles) values
-    (emp, 'catering_event', d_zero, 'No mileage charged', null, '2026-10-07', 'typed', 10.0) returning id into t_zero;
-  insert into public.travel_reimbursements (profile_id, reason_kind, deal_id, event_label, reason_note, trip_date, mileage_mode, miles) values
     (emp, 'catering_event', d_high, 'Dear mileage', null, '2026-10-07', 'typed', 10.0) returning id into t_high;
   insert into public.travel_reimbursements (profile_id, reason_kind, deal_id, event_label, reason_note, trip_date, mileage_mode, miles) values
     (emp, 'catering_event', d_back, 'Mileage event', null, '2026-10-08', 'typed', 10.0) returning id into t_adj;
-  update public.travel_reimbursements set status = 'approved' where id in (t_uber, t_back, t_err, t_june, t_oct, t_zero, t_high, t_adj);
+  update public.travel_reimbursements set status = 'approved' where id in (t_uber, t_back, t_err, t_june, t_oct, t_high, t_adj);
   update public.travel_reimbursements set mileage_cents_override = 500 where id = t_adj;
 
   -- Uber flat fee: IRS 76c. 10.0 mi = 760.
@@ -176,11 +158,6 @@ begin
   select * into r from public.travel_reimbursements_payable where id = t_oct;
   if r.cents_per_mile <> 76.00 or r.mileage_cents <> 2310 or r.total_cents <> 2310 then
     raise exception 'no-quote event, October: rate % mileage % total %', r.cents_per_mile, r.mileage_cents, r.total_cents;
-  end if;
-  -- A quote that charged $0 mileage: the IRS rate, not 0c.
-  select * into r from public.travel_reimbursements_payable where id = t_zero;
-  if r.cents_per_mile <> 76.00 or r.mileage_cents <> 760 then
-    raise exception '$0 mileage quote: rate % mileage %', r.cents_per_mile, r.mileage_cents;
   end if;
   -- A quote above the IRS rate pays the IRS rate.
   select * into r from public.travel_reimbursements_payable where id = t_high;

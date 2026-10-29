@@ -115,7 +115,7 @@ export default function ReimbursementForm({
     const t = centsFromDollars(tolls);
     const p = centsFromDollars(parking);
     if (m == null || t == null || p == null) return null;
-    // A Catering Event pays no more a mile than its quote charged (migration 49).
+    // A Catering Event pays no more a mile than its quote charged (migrations 49, 50): 0c when it charged none.
     const cap = reasonKind === "catering_event" ? event?.mileage_cap?.cap_cents_per_mile ?? null : null;
     return reimbursementCents({ trip_date: tripDate, miles: m, tolls_cents: t, parking_cents: p, mileage_cents_override: null, cap_cents_per_mile: cap }, rates);
   }, [mileageMode, miles, route, tolls, parking, tripDate, rates, reasonKind, event]);
@@ -388,7 +388,7 @@ export default function ReimbursementForm({
               ? "Amount: fill in the miles and amounts."
               : estimate.total_cents == null
                 ? `There is no Mileage rate for ${tripDate}.`
-                : `Amount: ${money(estimate.total_cents)}${estimate.rate != null && estimate.mileage_cents ? ` (Mileage at ${mileageRateText(estimate)})` : ""}`}
+                : `Amount: ${money(estimate.total_cents)}${estimate.rate != null && (estimate.mileage_cents || estimate.rate === 0) ? ` (Mileage at ${mileageRateText(estimate, reasonKind === "catering_event" ? event?.mileage_cap : null)})` : ""}`}
           </div>
         </>
       )}
