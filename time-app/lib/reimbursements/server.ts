@@ -201,7 +201,7 @@ export type RecalcOutcome = RecalcPlan & { queued_job_id: number | null; error: 
  */
 export async function recalculateMissingMiles(
   dealIds: number[],
-  opts: { queue: boolean; now?: number },
+  opts: { queue: boolean },
 ): Promise<Map<number, RecalcOutcome>> {
   const out = new Map<number, RecalcOutcome>();
   if (!dealIds.length) return out;
@@ -213,7 +213,7 @@ export async function recalculateMissingMiles(
       return out;
     }
     const jobs = ((data ?? []) as RecalcJob[]).map((j) => ({ ...j, id: Number(j.id), deal_id: Number(j.deal_id) }));
-    const now = opts.now ?? Date.now();
+    const now = Date.now();
     for (const dealId of dealIds) {
       const plan = planRecalc(jobs.filter((j) => j.deal_id === dealId), now);
       const outcome: RecalcOutcome = { ...plan, queued_job_id: null, error: null };
