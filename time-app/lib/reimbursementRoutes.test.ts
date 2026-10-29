@@ -345,6 +345,17 @@ test("edit: a Rejected one is fixed and resubmitted, and the Approvers hear of i
   assert.equal(db.rows("notifications").length, 2);
 });
 
+test("edit: a Rejected Catering Event resubmitted tells the Approvers its amount at the quote's cap (migration 49)", async () => {
+  db.rpc.event_mileage_caps = () => [{ deal_id: 501, cap_cents_per_mile: 72.5, basis: "quoted_rate" }];
+  db.tables.travel_reimbursements.push(row({ status: "rejected", rejection_reason: "Which event?" }));
+  db.signIn(DONTE);
+  const res = await one.PATCH(req("PATCH", { ...errands, reason: { kind: "catering_event", event_id: 501 } }), { params: { id: "1" } });
+  assert.equal(res.status, 200);
+  const notices = db.rows("notifications").filter((n) => n.title === "Travel Reimbursement submitted");
+  assert.equal(notices.length, 2);
+  for (const n of notices) assert.match(String(n.body), /\$7\.25\./, "10 mi at the quote's 72.5c, not the IRS $7.60");
+});
+
 test("edit: when the Catering Events cannot be read, the route says so and the edit is not written", async () => {
   db.tables.travel_reimbursements.push(row());
   db.missingTables = ["deals"];
