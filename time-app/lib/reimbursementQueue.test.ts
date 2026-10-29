@@ -115,6 +115,7 @@ test("queue: no round-trip miles on the deal shows Approve disabled with the rea
     assert.equal(approve.disabled, true);
     assert.equal(approve.getAttribute("title"), REFUSED);
     assert.ok(q.text().includes(REFUSED), "the reason is on the card, not only in a tooltip");
+    assert.ok(!q.text().includes("payroll pays it on the next pay table"), "a Submitted one is not told it is about to be paid");
     await q.click("Approve");
     assert.equal(sent.length, 0);
     // Reject and Adjust stay open.
