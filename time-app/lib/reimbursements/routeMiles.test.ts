@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ESSENTIALS_MAX_INTERMEDIATES, MAX_STOPS, ROUTES_ENDPOINT, STORE_ADDRESS, cleanRoute, cleanStops, placeLabel, routeMiles, routePoints, routeText } from "./routeMiles.ts";
+import { ROUTES_ENDPOINT, STORE_ADDRESS, cleanRoute, cleanStops, placeLabel, routeMiles, routePoints, routeText } from "./routeMiles.ts";
 
 const BOTH = { start_at_store: true, end_at_store: true };
 
@@ -135,16 +135,18 @@ test("routeMiles: no key, an API error, or no route says so instead of guessing"
 });
 
 test("routeMiles: every call stays on Compute Routes Essentials (no traffic-aware routing, no Pro or Enterprise feature)", async () => {
-  // The most stops, both ends at the store: the most intermediates a trip can send.
-  const stops = Array.from({ length: MAX_STOPS }, (_, i) => `Stop ${i + 1}`);
+  // The most stops a trip may carry, both ends at the store: the most intermediates it can send.
+  // Google's Essentials ceiling is 10 intermediates (11 to 25 bill at Pro), so 10 stops must be
+  // accepted and routed in one call, and an 11th refused before Google is called.
+  const stops = Array.from({ length: 10 }, (_, i) => `Stop ${i + 1}`);
   assert.equal(cleanRoute(stops, BOTH).ok, true);
-  const { calls, fetchImpl } = fakeRoutes(Array.from({ length: MAX_STOPS + 1 }, () => 1 * MI));
+  assert.equal(cleanRoute([...stops, "Stop 11"], BOTH).ok, false);
+  const { calls, fetchImpl } = fakeRoutes(Array.from({ length: 11 }, () => 1 * MI));
   const r = await routeMiles(stops, BOTH, { apiKey: "k", fetchImpl });
-  assert.equal(r.ok && r.miles, MAX_STOPS + 1);
+  assert.equal(r.ok && r.miles, 11);
   assert.equal(calls.length, 1);
   const body = calls[0].body;
-  assert.equal((body.intermediates as unknown[]).length, MAX_STOPS);
-  assert.ok(MAX_STOPS <= ESSENTIALS_MAX_INTERMEDIATES);
+  assert.equal((body.intermediates as unknown[]).length, 10);
   // Pro: routingPreference TRAFFIC_AWARE(_OPTIMAL), optimizeWaypointOrder, side of road / heading / vehicle stopover.
   // Real-time traffic: departureTime. Enterprise: tolls and traffic on polylines (extraComputations), two-wheeler.
   for (const key of ["routingPreference", "departureTime", "arrivalTime", "optimizeWaypointOrder", "extraComputations", "routeModifiers", "requestedReferenceRoutes"])
