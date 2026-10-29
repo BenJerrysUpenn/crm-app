@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MileageRate } from "./money";
 import { alsoOnSameEvent } from "./events";
 import { DECIDED_SHOWN, LEFT_QUEUE, ON_QUEUE, decisionOf, isOwner, mayDecide, type Person } from "./lifecycle";
-import { loadMileageCaps, loadRates, readError, withAmounts, type AdjustmentRow, type LyftRow, type ReimbursementRow, type WithAmounts } from "./server";
+import { capDealIds, loadMileageCaps, loadRates, readError, withAmounts, type AdjustmentRow, type LyftRow, type ReimbursementRow, type WithAmounts } from "./server";
 
 type Failed = { ok: false; error: string };
 
@@ -35,7 +35,7 @@ export async function loadMine(
     : { data: [], error: null };
   const badAdj = failed(adj.error);
   if (badAdj) return badAdj;
-  const caps = await loadMileageCaps(db, rows.filter((r) => r.reason_kind === "catering_event").map((r) => r.deal_id));
+  const caps = await loadMileageCaps(db, capDealIds(rows));
   if (!caps.ok) return caps;
   return { ok: true, reimbursements: withAmounts(rows, rates.rates, (adj.data ?? []) as AdjustmentRow[], caps.caps), lyft: (lyft.data ?? []) as LyftRow[], rates: rates.rates };
 }
@@ -116,7 +116,7 @@ export async function loadQueue(
   if (badPeople) return badPeople;
   const byId = new Map(((people.data ?? []) as (Person & { full_name: string | null })[]).map((p) => [p.id, p]));
   const also = alsoOnSameEvent(related.map((r) => ({ ...r, full_name: byId.get(r.profile_id)?.full_name ?? null })));
-  const caps = await loadMileageCaps(db, [...rows, ...decidedRows].filter((r) => r.reason_kind === "catering_event").map((r) => r.deal_id));
+  const caps = await loadMileageCaps(db, capDealIds([...rows, ...decidedRows]));
   if (!caps.ok) return caps;
 
   const items: QueueItem[] = withAmounts(rows, rates.rates, (adj.data ?? []) as AdjustmentRow[], caps.caps).map((r) => {
