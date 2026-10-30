@@ -323,12 +323,13 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_47.sql` | `store_hours_seasons`: opening hours from a first day until the next season's, which 1.8 and 1.9 now read beside `store_hours`; also `concession_events` and `catering_hours_history`, which the verify does not read. See README, "Labor Hours Planning" |
 | `time-app/supabase/migration_49.sql` | redefines `travel_reimbursements_payable`, the view payroll pays travel reimbursements from: a Catering Event trip is paid at the lower of the IRS rate and `deal_mileage_cap()`, what its deal's quote charged a mile; every other trip at the IRS rate. Nothing in the verify reads it; see README, "Travel Reimbursements" |
 | `time-app/supabase/migration_50.sql` | redefines `deal_mileage_cap()`, which the payable view reads: a quote that charged no mileage, or charged it on a deal with no round-trip miles, caps a Catering Event trip at 0c; the May 2026 quote keys for the Uber flat fee and a stored rate are read. Nothing in the verify reads it; see README, "Travel Reimbursements" |
+| `time-app/supabase/migration_52.sql` | redefines `deal_mileage_cap()` again: a quote whose transportation subtotal is $0 caps at 0c before any stored per-mile rate is read, since every quote now stores one. Nothing in the verify reads it; see README, "Travel Reimbursements" |
 
 All of these are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_N_verify.sql` to run afterwards (in a
 transaction that rolls back) and a `migration_N_down.sql` that reverses it;
 the header of each down script says what data it loses. Roll back in reverse
-order: 50, 49, 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
+order: 52, 50, 49, 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
 not payroll; see README) rolls back before 42, whose `is_owner()` its policies call. Until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 

@@ -6,10 +6,10 @@
 //     announces a new one (ruling 38). For a Catering Event, never more per
 //     mile than the event's quote charged the customer (the owner,
 //     2026-10-29): the lower of the two. A quote that charged $0 mileage
-//     caps it at 0c (migration 50). No quote, a quote that charged the Uber
+//     caps it at 0c (migrations 50 and 52). No quote, a quote that charged the Uber
 //     flat fee, and Groceries / errands have no cap: the IRS rate. The
 //     database works out the cap from the quote (deal_mileage_cap(),
-//     migrations 49 and 50); this module is
+//     migrations 49, 50 and 52); this module is
 //     told it, as Priceable.cap_cents_per_mile. Every reimbursement not yet
 //     Paid is priced at its trip's rate whenever it is read: nothing is frozen
 //     at submit, so a rate typed in late still reaches every unpaid item.
@@ -19,8 +19,8 @@
 //   * A computed route is rounded per leg, to 0.1 mi half-up.
 //
 // migration_49.sql's travel_reimbursements_payable view is the database's
-// copy of reimbursementCents(); migration_49_verify.sql and
-// migration_50_verify.sql check they agree.
+// copy of reimbursementCents(); migration_49_verify.sql,
+// migration_50_verify.sql and migration_52_verify.sql check they agree.
 //
 // Pure (money() for the text is too), so `node --test` runs it and the browser
 // can use it.
@@ -36,10 +36,13 @@ export type MileageRate = {
 };
 
 /**
- * Where a Catering Event's cap comes from (deal_mileage_cap(), migrations 49
- * and 50):
+ * Where a Catering Event's cap comes from (deal_mileage_cap(), migrations 49,
+ * 50 and 52), checked in this order:
  *   no_quote          the deal has no quote: no cap (the owner, 2026-10-29);
  *   uber_flat_fee     the quote charged the $50 Uber flat fee: no cap;
+ *   no_rate_on_quote  the quote's transportation subtotal is $0: 0c, whatever
+ *                     per-mile rate it stores (every quote stores one since
+ *                     Catering-Manager #112; migration 52);
  *   quoted_rate       the per-mile rate the quote stored;
  *   quote_derived     the quote's transportation subtotal / the deal's
  *                     round-trip miles, to the half cent (quotes before the
@@ -47,7 +50,7 @@ export type MileageRate = {
  *   no_miles_on_deal  the quote charged mileage but the deal has no
  *                     round-trip miles to divide it by: 0c until the miles
  *                     land (milesRecalc.ts; never more than the quote charged);
- *   no_rate_on_quote  the quote charged no mileage ($0, or no mileage line):
+ *   no_rate_on_quote  any other quote: no mileage line, and no rate stored:
  *                     0c (the owner, 2026-10-29);
  *   none              no deal: no cap.
  */
