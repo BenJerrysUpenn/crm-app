@@ -470,6 +470,17 @@ availability answers 503 with a message.
   auto-fill checks, the schedule cells and the team grid all stop there; the personal calendar
   uses `weeklyRowApplies`. Null means open-ended: every row saved before migration 48.
 
+## Cash count reminders in Slack (Withers Time, crm-app #129)
+Apply `time-app/supabase/migration_51.sql` by hand in the Supabase SQL editor, after migration 50
+(`_verify.sql` and `_down.sql` beside it). Either order with the code is safe: before it, the cron
+posts nothing and says `not_migrated`. Setup (Slack app, keys) is in `time-app/SETUP-GUIDE.md`.
+
+`runCashCountReminders` (`lib/cashCount/run.ts`) runs on every `missed-clockins` tick: `plan.ts`
+decides who and when, `message.ts` writes the words, `slack.ts` is the Slack client. Each reminder
+(`open`, `close`) and its one follow-up is recorded in `cash_count_reminders` BEFORE it is
+posted, so it goes out once per store day; a Slack refusal removes the record so the next tick
+retries, and no answer at all keeps it. Off until `SLACK_CASH_COUNT_BOT_TOKEN` is set.
+
 ## Schedule coverage reminder (droplet command)
 Every day at noon ET, emails the owners and on-schedule managers every staffed
 store hour (open hours plus the open-up and close-down minutes on the Targets
