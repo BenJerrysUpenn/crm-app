@@ -58,7 +58,9 @@ let slack: {
   refusePosts: number;
   /** Posts Slack does not answer (HTTP 503): whether they went out is unknown. */
   downPosts: number;
-  claude: { status: number; text: string; calls: number };
+  claude: { status: number; text: string; calls: number; prompts: string[] };
+  /** Slack's error for reading the rules message, or null when it reads. */
+  rulesError: string | null;
 };
 let db: FakeSupabase;
 let tsCounter = 0;
@@ -72,6 +74,8 @@ async function external(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (url.origin === "https://api.anthropic.com") {
     slack.claude.calls += 1;
+    const req = (await request.json()) as { messages: { content: string }[] };
+    slack.claude.prompts.push(req.messages[0].content);
     if (slack.claude.status !== 200) {
       return Response.json({ type: "error", error: { type: "invalid_request_error", message: "nope" } }, { status: slack.claude.status });
     }
@@ -108,6 +112,7 @@ async function external(request: Request): Promise<Response> {
   if (method === "conversations.history") {
     const latest = form.get("latest");
     if (latest) {
+      if (slack.rulesError) return Response.json({ ok: false, error: slack.rulesError });
       return Response.json({ ok: true, messages: latest === RULES_TS ? [{ ts: RULES_TS, user: "U0ALEX", text: RULES }] : [] });
     }
     const oldest = Number(form.get("oldest"));
@@ -137,7 +142,7 @@ beforeEach(() => {
   process.env.ANTHROPIC_API_KEY = "sk-ant-test";
   delete process.env.CASH_COUNT_SLACK_CHANNEL;
   delete process.env.CASH_COUNT_RULES_TS;
-  slack = { channel: [], posts: [], refusePosts: 0, downPosts: 0, claude: { status: 200, text: "", calls: 0 } };
+  slack = { channel: [], posts: [], refusePosts: 0, downPosts: 0, claude: { status: 200, text: "", calls: 0, prompts: [] }, rulesError: null };
   db = startFakeSupabase({
     profiles: [
       { id: OPENER, role: "employee", full_name: "Olive Opener", preferred_name: null, active: true, archived_at: null },
@@ -192,6 +197,7 @@ test("the opener clocks in: one AI-written reminder mentioning them, and no seco
   const first = await tick("10:20");
   assert.equal(first.status === "ran" && first.posted[0]?.source, "ai");
   assert.deepEqual(slack.posts, [{ text: slack.claude.text, thread_ts: undefined }]);
+  assert.ok(slack.claude.prompts[0].includes(RULES), "Claude writes from the cash count steps as they read in the channel now");
 
   await tick("10:25");
   await tick("10:30");
@@ -267,6 +273,30 @@ test("Slack has another email for someone: they are matched by name", async () =
   await tick("22:01");
   assert.deepEqual(db.rows("cash_count_reminders")[0].slack_user_ids, ["U0NAMED"]);
   assert.match(slack.posts[0].text, /<@U0NAMED>/);
+});
+
+test("someone Slack does not know by email or name is addressed by name, with no mention", async () => {
+  const PAT = "00000000-0000-0000-0000-00000000000e";
+  db.tables.profiles.push({ id: PAT, role: "employee", full_name: "Patricia Nobody", preferred_name: "Pat", active: true, archived_at: null });
+  clockIn(15, PAT, "15:58", null); // on the clock at closing; no auth email, no Slack member of that name
+  slack.claude.text = "Thanks Pat! The store's closed, please post the closing counts here.";
+  const res = await tick("22:01");
+  assert.deepEqual(slack.posts, [{ text: "Thanks Pat! The store's closed, please post the closing counts here.", thread_ts: undefined }]);
+  assert.ok(res.status === "ran");
+  assert.equal(res.posted[0].mentioned, 0);
+  assert.deepEqual(db.rows("cash_count_reminders")[0].slack_user_ids, [""]);
+});
+
+test("the cash count steps cannot be read: the plain message goes out and Claude is not asked", async () => {
+  slack.rulesError = "message_not_found";
+  slack.claude.text = "Morning <@U0OPENER>, please post the opening counts here.";
+  clockIn(11, OPENER, "10:20", 1);
+  const res = await tick("10:20");
+  assert.equal(slack.claude.calls, 0);
+  assert.equal(slack.posts[0].text, "<@U0OPENER> thanks for opening! Please post the opening cash counts here, as the cash count steps in this channel say.");
+  assert.ok(res.status === "ran");
+  assert.equal(res.posted[0].source, "fallback");
+  assert.ok(res.errors.includes("rules message: message_not_found"));
 });
 
 test("the Claude API fails, or writes a dollar amount: the plain message goes out, so no reminder is lost", async () => {
