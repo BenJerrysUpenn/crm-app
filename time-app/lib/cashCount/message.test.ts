@@ -73,13 +73,16 @@ test("Claude's message is used when it passes, written from the live steps with 
 });
 
 test("the plain message goes out when there is no key, no rules, an API error, a refusal or a bad message", async () => {
-  const plain = fallbackMessage([SAM], "close", "reminder");
-  assert.match(plain, /^<@U0SAM> /);
+  // Written out, not recomputed with fallbackMessage: a test that asks the code
+  // for its expected value agrees with any change to it (CODING_STANDARDS 19).
+  const plain = "<@U0SAM> the store just closed. Please post the closing cash counts here, as the cash count steps in this channel say.";
+  assert.equal(fallbackMessage([SAM], "close", "reminder"), plain);
   assert.equal(validateReminder(plain, [SAM], "close").ok, true, "the plain message passes its own checks");
 
   const cases: [string, Parameters<typeof writeReminder>[0]][] = [
     ["no key", { claude: null, rules: RULES, people: [SAM], phase: "close", occasion: "reminder" }],
     ["no rules", { claude: claudeSaying("<@U0SAM> post it").client, rules: null, people: [SAM], phase: "close", occasion: "reminder" }],
+    ["blank rules", { claude: claudeSaying("<@U0SAM> post it").client, rules: "  \n ", people: [SAM], phase: "close", occasion: "reminder" }],
     ["refusal", { claude: claudeSaying("", "refusal").client, rules: RULES, people: [SAM], phase: "close", occasion: "reminder" }],
     ["cut off", { claude: claudeSaying("<@U0SAM> po", "max_tokens").client, rules: RULES, people: [SAM], phase: "close", occasion: "reminder" }],
     ["invented amount", { claude: claudeSaying("<@U0SAM> the drawer should be $300, post the count.").client, rules: RULES, people: [SAM], phase: "close", occasion: "reminder" }],
