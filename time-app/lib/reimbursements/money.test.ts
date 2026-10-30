@@ -142,7 +142,8 @@ test("rateForTrip: a 0c cap (a quote that charged no mileage) pays 0c, capped", 
 });
 
 test("reimbursementCents: a $0 mileage quote pays no mileage, but tolls and parking in full", () => {
-  // deal_mileage_cap() answers 0c (no_rate_on_quote, no_miles_on_deal; migration 50).
+  // deal_mileage_cap() answers 0c (no_rate_on_quote, no_miles_on_deal; migration 50), and since
+  // migration 52 for a $0 quote that stores a per-mile rate too; migration_52_verify.sql checks the view's 1650.
   const r = reimbursementCents({ ...trip, miles: 3.2, tolls_cents: 450, parking_cents: 1200, cap_cents_per_mile: 0 }, RATES);
   assert.deepEqual(r, { rate: 0, capped: true, mileage_cents: 0, tolls_cents: 450, parking_cents: 1200, total_cents: 1650 });
 });
