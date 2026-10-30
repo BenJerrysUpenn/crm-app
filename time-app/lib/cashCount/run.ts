@@ -290,6 +290,11 @@ type Resolved = Addressee & { slackId: string };
 
 const norm = (s: string | null | undefined) => (s ?? "").normalize("NFKD").replace(/\s+/g, " ").trim().toLowerCase();
 
+type ProfileNames = { full_name: string | null; preferred_name: string | null };
+
+/** How someone is named when they are not matched to a Slack user. */
+const shownName = (p: ProfileNames | undefined) => p?.preferred_name?.trim() || p?.full_name?.trim() || "Team";
+
 /**
  * Matches staff to Slack users: by the email they sign in to the time app
  * with (users.lookupByEmail), else by name when exactly one Slack member has
@@ -305,9 +310,9 @@ class PeopleResolver {
     this.slack = slack;
   }
 
-  private async names(ids: string[]): Promise<Map<string, { full_name: string | null; preferred_name: string | null }>> {
+  private async names(ids: string[]): Promise<Map<string, ProfileNames>> {
     const { data } = await this.supabase.from("profiles").select("id, full_name, preferred_name").in("id", ids);
-    return new Map(((data ?? []) as { id: string; full_name: string | null; preferred_name: string | null }[]).map((p) => [p.id, p]));
+    return new Map(((data ?? []) as (ProfileNames & { id: string })[]).map((p) => [p.id, p]));
   }
 
   private async users(): Promise<SlackUser[]> {
@@ -326,7 +331,6 @@ class PeopleResolver {
     const out: Resolved[] = [];
     for (const id of ids) {
       const p = names.get(id);
-      const shown = p?.preferred_name?.trim() || p?.full_name?.trim() || "Team";
       let slackId = "";
       const email = await emailForUser(id);
       if (email) {
@@ -347,7 +351,7 @@ class PeopleResolver {
         );
         if (hits.length === 1) slackId = hits[0].id;
       }
-      out.push({ slackId, token: slackId ? `<@${slackId}>` : shown });
+      out.push({ slackId, token: slackId ? `<@${slackId}>` : shownName(p) });
     }
     return out;
   }
@@ -356,8 +360,7 @@ class PeopleResolver {
     const names = await this.names(row.profile_ids);
     return row.profile_ids.map((id, i) => {
       const slackId = row.slack_user_ids[i] ?? "";
-      const p = names.get(id);
-      return { slackId, token: slackId ? `<@${slackId}>` : p?.preferred_name?.trim() || p?.full_name?.trim() || "Team" };
+      return { slackId, token: slackId ? `<@${slackId}>` : shownName(names.get(id)) };
     });
   }
 }
