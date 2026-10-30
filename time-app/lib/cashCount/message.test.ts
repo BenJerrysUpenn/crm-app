@@ -101,3 +101,19 @@ test("the follow-up's plain message mentions everyone it nudges", () => {
   assert.match(text, /^<@U0SAM> and <@U0JO> /);
   assert.match(text, /opening cash counts are not posted yet/);
 });
+
+test("a reminder in new-hire words is used, and a closing one is told to ask for the printout photo, not a drawer count", async () => {
+  // The prompt asks Claude to translate the shop's shorthand into what a new
+  // hire counts or does. Those plain words must still pass the checks, or every
+  // reminder would quietly fall back to the plain message.
+  const closing = "Nice close <@U0SAM>! Please post how much cash went into the safe, how many bundles of ones and rolls of coins are in the cash box, and a photo of the Square printout.";
+  const close = claudeSaying(closing);
+  const closed = await writeReminder({ ask: close.ask, rules: RULES, people: [SAM], phase: "close", occasion: "reminder", random: () => 0 });
+  assert.deepEqual(closed, { text: closing, source: "ai" });
+  assert.match(close.seen[0].system, /in words a new hire understands on their first shift/);
+  assert.match(close.seen[0].system, /Ask for the photo, not a separate drawer count\./);
+
+  const opening = "Morning <@U0SAM>! When you get a sec, post how much cash is in the register and how many bundles of ones and rolls of coins are in the cash box.";
+  const opened = await writeReminder({ ask: claudeSaying(opening).ask, rules: RULES, people: [SAM], phase: "open", occasion: "reminder", random: () => 0 });
+  assert.deepEqual(opened, { text: opening, source: "ai" });
+});
