@@ -70,12 +70,15 @@ export type DryMessage = {
   text: string;
 };
 
+/** What the store is doing today, as the run read it. */
+export type StoreState = "open" | "closed" | "unset" | "unreadable";
+
 export type CashCountResult =
   | { status: "not_migrated" }
   | {
       status: "ran";
       day: string;
-      store: "open" | "closed" | "unset" | "unreadable";
+      store: StoreState;
       hours?: { opens: string; closes: string };
       posted: { kind: ReminderKind; source: string; mentioned: number; note?: string }[];
       followups: { kind: ReminderKind; outcome: string; source?: string; note?: string }[];
@@ -277,7 +280,7 @@ async function loadDay(
   store: CashCountStore,
   date: string,
   now: number,
-): Promise<{ store: "open" | "closed" | "unset" | "unreadable"; day?: StoreDay; snapshot: DaySnapshot | null; error?: string }> {
+): Promise<{ store: StoreState; day?: StoreDay; snapshot: DaySnapshot | null; error?: string }> {
   let rows;
   try {
     rows = await store.dayRows(date);
