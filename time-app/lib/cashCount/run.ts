@@ -22,7 +22,7 @@
 // of today's opening and closing reminders for whoever the plan names right
 // now, so a dry run at any hour shows Claude answering.
 
-import { addDays, nyWallClock, resolveOpenWindow } from "../coverage";
+import { addDays, formatMinutes, nyWallClock, resolveOpenWindow } from "../coverage";
 import {
   MAX_PUNCH_MIN,
   MIN,
@@ -258,8 +258,7 @@ function dryMessage(kind: ReminderKind, occasion: Occasion, when: DryMessage["wh
 
 /** "11:00" New York time for an instant. */
 function nyClock(at: number): string {
-  const m = nyWallClock(new Date(at).toISOString()).minutes;
-  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  return formatMinutes(nyWallClock(new Date(at).toISOString()).minutes);
 }
 
 /** True when a person posted in the channel after `ts`, or replied in its thread. Throws when Slack cannot be read. */
