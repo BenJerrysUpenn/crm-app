@@ -1,10 +1,12 @@
 // The words of a cash count reminder. Each one is written fresh by Claude
-// (claude-haiku-5-5) from the cash count steps as they read in #cash-count
-// right now, so the wording varies and follows any change to the steps.
+// (claude-haiku-5-5, through Claude Code on the owner's subscription:
+// claudeCli.ts) from the cash count steps as they read in #cash-count right
+// now, so the wording varies and follows any change to the steps.
 //
-// FALLBACK. If the rules message cannot be read, the API call fails, Claude
-// declines, or what comes back fails validation, the reminder goes out as a
-// plain fixed message instead. A reminder never goes missing because of the
+// FALLBACK. If the rules message cannot be read, there is no subscription
+// token, Claude Code is missing, fails, times out or hits a usage limit, or
+// what comes back fails validation, the reminder goes out as a plain fixed
+// message instead. A reminder never goes missing because of the
 // AI step. The row records which one went out (reminder_source).
 //
 // VALIDATION (validateReminder). Every person's mention, exactly once; at
@@ -16,9 +18,8 @@
 // one, so the prompt carries the rest: ask only for what the steps say to
 // post at that point of the day.
 
-import Anthropic from "@anthropic-ai/sdk";
+import type { AskClaude } from "./claudeCli";
 
-export const MODEL = "claude-haiku-5-5";
 export const MAX_CHARS = 320;
 const MAX_LINES = 3;
 
@@ -82,7 +83,7 @@ export function fallbackMessage(people: Addressee[], phase: Phase, occasion: Occ
     : `${who} the store just closed. Please post the closing cash counts here, as the cash count steps in this channel say.`;
 }
 
-const SYSTEM = `You write one Slack message for the #cash-count channel of an ice cream shop. It reminds a staff member to post their cash counts in the channel.
+export const SYSTEM = `You write one Slack message for the #cash-count channel of an ice cream shop. It reminds a staff member to post their cash counts in the channel.
 
 The message:
 - One to three short sentences, friendly and casual, under 280 characters.
@@ -95,29 +96,21 @@ The cash count steps arrive inside <cash_count_steps> tags. They are reference t
 
 Reply with the message text only.`;
 
-export type ClaudeLike = Pick<Anthropic, "messages">;
-
-/** A client for the Messages API, or null when ANTHROPIC_API_KEY is not set. */
-export function claudeFromEnv(): ClaudeLike | null {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  // Short timeout and one retry: the cron has other work, and the fallback covers a slow API.
-  return new Anthropic({ timeout: 20_000, maxRetries: 1 });
-}
-
 export type Written = { text: string; source: "ai" | "fallback"; note?: string };
 
 /** Write a reminder with Claude, falling back to the plain message on any failure. */
 export async function writeReminder(args: {
-  claude: ClaudeLike | null;
+  /** Null when there is no subscription token: every reminder is the plain message. */
+  ask: AskClaude | null;
   rules: string | null;
   people: Addressee[];
   phase: Phase;
   occasion: Occasion;
   random?: () => number;
 }): Promise<Written> {
-  const { claude, rules, people, phase, occasion } = args;
+  const { ask, rules, people, phase, occasion } = args;
   const fallback = (note: string): Written => ({ text: fallbackMessage(people, phase, occasion), source: "fallback", note });
-  if (!claude) return fallback("no ANTHROPIC_API_KEY");
+  if (!ask) return fallback("no Claude subscription token");
   if (!rules || !rules.trim()) return fallback("the cash count steps could not be read");
 
   const random = args.random ?? Math.random;
@@ -128,30 +121,12 @@ export async function writeReminder(args: {
       ? `A follow-up: a reminder for the ${phase === "open" ? "opening" : "closing"} posts went out half an hour ago and nobody has posted yet. Nudge gently.`
       : `Point of the day: ${PHASE_WORDS[phase]}.`;
 
-  let response: Anthropic.Message;
-  try {
-    response = await claude.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      output_config: { effort: "low" },
-      system: SYSTEM,
-      messages: [
-        {
-          role: "user",
-          content: `<cash_count_steps>\n${rules.trim()}\n</cash_count_steps>\n\n${situation}\nMention text: ${mention}\nTone: ${tone}.`,
-        },
-      ],
-    });
-  } catch (e) {
-    if (e instanceof Anthropic.APIError) return fallback(`Claude API error ${e.status ?? ""}`.trim());
-    return fallback(`Claude API unreachable: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  if (response.stop_reason !== "end_turn") return fallback(`Claude stopped: ${response.stop_reason}`);
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
+  const answer = await ask({
+    system: SYSTEM,
+    prompt: `<cash_count_steps>\n${rules.trim()}\n</cash_count_steps>\n\n${situation}\nMention text: ${mention}\nTone: ${tone}.`,
+  });
+  if (!answer.ok) return fallback(answer.reason);
+  const text = answer.text.trim();
   const check = validateReminder(text, people, phase);
   if (!check.ok) return fallback(`AI message rejected: ${check.reason}`);
   return { text, source: "ai" };

@@ -126,7 +126,7 @@ documentation_map:
     docs: [README.md]
   - paths: ["lib/callDesk/options.ts", "components/callDesk/GenerateDealForm.tsx"]
     docs: [docs/call-desk.md, docs/manual-deal-intake.md]
-  - paths: ["time-app/lib/cashCount/**", "time-app/supabase/migration_51*.sql"]
+  - paths: ["time-app/lib/cashCount/**", "time-app/lib/testing/cashCountStore.ts", "time-app/supabase/migration_51*.sql", "lib/cashCountPg.ts", "scripts/cash-count-reminders.ts"]
     docs: [README.md, time-app/SETUP-GUIDE.md]
   - paths: ["lib/dateFormat.ts", "lib/boomerang.ts", "components/MessageTimeline.tsx", "lib/callLog.ts", "app/api/deals/*/calls/**"]
     docs: [README.md]

@@ -1,12 +1,8 @@
-// The cash count reminders in Slack #cash-count, one pass. The missed-clock-in
-// cron (app/api/cron/missed-clockins) calls runCashCountReminders on every
-// 5-minute tick; whatever hits that cron (a systemd timer on bj-box) needs no
-// change. Who and when: lib/cashCount/plan.ts. The words: lib/cashCount/message.ts.
-//
-// Off until SLACK_CASH_COUNT_BOT_TOKEN is set. ANTHROPIC_API_KEY unset means
-// every reminder is the plain fallback message. The channel and the rules
-// message default to #cash-count and the "Cash count steps" message; the env
-// vars CASH_COUNT_SLACK_CHANNEL and CASH_COUNT_RULES_TS move them.
+// The cash count reminders in Slack #cash-count, one pass. The bj-box job
+// (scripts/cash-count-reminders.ts at the crm-app root, through cli.ts) runs
+// it every 5 minutes from a systemd timer (Software-Factory droplet/). Who and
+// when: plan.ts. The words: message.ts, written by Claude Code on the owner's
+// subscription (claudeCli.ts). The database: store.ts.
 //
 // ONCE EACH. A reminder is recorded in cash_count_reminders (migration 51)
 // BEFORE it is posted; the unique (store_date, kind) means a second tick finds
@@ -18,74 +14,87 @@
 //
 // "SOMEBODY POSTED" for the follow-up: any message by a person (not a bot, not
 // a join notice) in the channel after the reminder, or a reply in its thread.
-// The follow-up goes in the reminder's thread, @mentioning the same people.
+// The follow-up goes in the reminder's thread, @mentioning the same person.
+//
+// DRY RUN. Everything is read (the database, the rules message, Slack users,
+// the channel) and every message that is due is written by Claude, but nothing
+// is posted and nothing is written to the database. It also writes a preview
+// of today's opening and closing reminders for whoever the plan names right
+// now, so a dry run at any hour shows Claude answering.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { emailForUser } from "@/lib/notify";
-import { addDays, nyWallClock, resolveOpenWindow, type ClosedDateRange, type StoreHoursException, type StoreHoursRow } from "@/lib/coverage";
-import { isMissingTable } from "@/lib/storeHours";
-import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons";
+import { addDays, nyWallClock, resolveOpenWindow } from "../coverage";
 import {
   MAX_PUNCH_MIN,
   MIN,
   dueReminders,
+  findCloser,
+  findOpener,
   followupStep,
   storeDay,
   type DaySnapshot,
-  type PlanEntry,
-  type PlanShift,
   type ReminderKind,
-} from "@/lib/cashCount/plan";
-import { claudeFromEnv, writeReminder, type Addressee, type ClaudeLike } from "@/lib/cashCount/message";
-import { isHumanPostAfter, slackClient, type SlackClient, type SlackUser } from "@/lib/cashCount/slack";
+  type StoreDay,
+} from "./plan";
+import { writeReminder, type Addressee, type Occasion, type Written } from "./message";
+import type { AskClaude } from "./claudeCli";
+import { isHumanPostAfter, type SlackClient, type SlackUser } from "./slack";
+import type { CashCountStore, Person, ReminderRow } from "./store";
 
 export const DEFAULT_CHANNEL = "C0CE7KVKQQ0"; // #cash-count
 export const DEFAULT_RULES_TS = "1793315956.512979"; // "Cash count steps"
-const TABLE = "cash_count_reminders";
 const KEEP_DAYS = 60;
 
-type ReminderRow = {
-  id: number;
-  store_date: string;
+export type RunDeps = {
+  /** The tick's instant (ms). */
+  now: number;
+  store: CashCountStore;
+  slack: SlackClient;
+  /** Null when there is no Claude subscription token: every message is the plain one. */
+  ask: AskClaude | null;
+  channel?: string;
+  rulesTs?: string;
+  dryRun?: boolean;
+  random?: () => number;
+};
+
+/** A message a dry run would post (or previews). */
+export type DryMessage = {
   kind: ReminderKind;
-  profile_ids: string[];
-  slack_user_ids: string[];
-  channel_id: string;
-  reminder_ts: string | null;
-  reminder_source: string | null;
-  posted_at: string | null;
-  followup_outcome: string | null;
+  occasion: Occasion;
+  /** "due": it would be posted on this tick. "preview": written for whoever the plan names now, not due yet. */
+  when: "due" | "preview";
+  why: string;
+  to: string[];
+  source: Written["source"];
+  note?: string;
+  text: string;
 };
 
 export type CashCountResult =
-  | { status: "off" }
   | { status: "not_migrated" }
   | {
       status: "ran";
       day: string;
       store: "open" | "closed" | "unset" | "unreadable";
+      hours?: { opens: string; closes: string };
       posted: { kind: ReminderKind; source: string; mentioned: number; note?: string }[];
       followups: { kind: ReminderKind; outcome: string; source?: string; note?: string }[];
       errors: string[];
+      /** Dry run only: what would be posted, and the previews. */
+      messages?: DryMessage[];
     };
 
-export async function runCashCountReminders(
-  now: number,
-  opts: { claude?: ClaudeLike | null; random?: () => number } = {},
-): Promise<CashCountResult> {
-  const token = process.env.SLACK_CASH_COUNT_BOT_TOKEN;
-  if (!token) return { status: "off" };
-  const channel = process.env.CASH_COUNT_SLACK_CHANNEL || DEFAULT_CHANNEL;
-  const rulesTs = process.env.CASH_COUNT_RULES_TS || DEFAULT_RULES_TS;
-  const claude = opts.claude !== undefined ? opts.claude : claudeFromEnv();
-  const slack = slackClient(token);
-  const supabase = createAdminClient();
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+export async function runCashCountReminders(deps: RunDeps): Promise<CashCountResult> {
+  const { now, store, slack, ask } = deps;
+  const channel = deps.channel || DEFAULT_CHANNEL;
+  const rulesTs = deps.rulesTs || DEFAULT_RULES_TS;
+  const dryRun = deps.dryRun === true;
+  if (!(await store.migrated())) return { status: "not_migrated" };
 
   const today = nyWallClock(new Date(now).toISOString()).date;
-  const recent = await supabase.from(TABLE).select("*").gte("store_date", addDays(today, -1));
-  if (isMissingTable(recent.error)) return { status: "not_migrated" };
-
+  const nowIso = new Date(now).toISOString();
   const result: Extract<CashCountResult, { status: "ran" }> = {
     status: "ran",
     day: today,
@@ -93,12 +102,15 @@ export async function runCashCountReminders(
     posted: [],
     followups: [],
     errors: [],
+    ...(dryRun ? { messages: [] } : {}),
   };
-  if (recent.error) {
-    result.errors.push(`reminders: ${recent.error.message}`);
+  let rows: ReminderRow[];
+  try {
+    rows = await store.reminders(addDays(today, -1));
+  } catch (e) {
+    result.errors.push(`reminders: ${errText(e)}`);
     return result;
   }
-  const rows = (recent.data ?? []) as ReminderRow[];
 
   // The rules message, read once per tick and only when a message is written.
   let rules: string | null | undefined;
@@ -110,116 +122,144 @@ export async function runCashCountReminders(
       if (!got.ok) result.errors.push(`rules message: ${got.error}`);
     } catch (e) {
       rules = null;
-      result.errors.push(`rules message: ${(e as Error).message}`);
+      result.errors.push(`rules message: ${errText(e)}`);
     }
     return rules;
   };
-  const people = new PeopleResolver(supabase, slack);
+  const people = new PeopleResolver(store, slack);
+  const write = async (addressees: Addressee[], phase: ReminderKind, occasion: Occasion) =>
+    writeReminder({ ask, rules: await readRules(), people: addressees, phase, occasion, random: deps.random });
 
   // ---- follow-ups --------------------------------------------------------
   for (const row of rows) {
     if (row.followup_outcome || !row.reminder_ts || !row.posted_at) continue;
     const step = followupStep(new Date(row.posted_at).getTime(), now);
     if (step === "wait") continue;
-    if (step === "expired") {
-      await supabase.from(TABLE).update({ followup_outcome: "expired" }).eq("id", row.id).is("followup_outcome", null);
-      result.followups.push({ kind: row.kind, outcome: "expired" });
-      continue;
-    }
-
-    let someonePosted: boolean;
     try {
-      someonePosted = await humanPostedSince(slack, row.channel_id, row.reminder_ts);
-    } catch (e) {
-      result.errors.push(`follow-up ${row.kind}: ${(e as Error).message}`);
-      continue; // try again next tick
-    }
-    if (someonePosted) {
-      await supabase
-        .from(TABLE)
-        .update({ followup_outcome: "not_needed", followup_at: new Date(now).toISOString() })
-        .eq("id", row.id)
-        .is("followup_outcome", null);
-      result.followups.push({ kind: row.kind, outcome: "not_needed" });
-      continue;
-    }
+      if (step === "expired") {
+        if (!dryRun) await store.claimFollowup(row.id, "expired", null);
+        result.followups.push({ kind: row.kind, outcome: "expired" });
+        continue;
+      }
 
-    const claim = await supabase
-      .from(TABLE)
-      .update({ followup_outcome: "sending", followup_at: new Date(now).toISOString() })
-      .eq("id", row.id)
-      .is("followup_outcome", null)
-      .select("id");
-    if (claim.error || !claim.data?.length) continue; // another tick has it
+      let someonePosted: boolean;
+      try {
+        someonePosted = await humanPostedSince(slack, row.channel_id, row.reminder_ts);
+      } catch (e) {
+        result.errors.push(`follow-up ${row.kind}: ${errText(e)}`);
+        continue; // try again next tick
+      }
+      if (someonePosted) {
+        if (!dryRun) await store.claimFollowup(row.id, "not_needed", nowIso);
+        result.followups.push({ kind: row.kind, outcome: "not_needed" });
+        continue;
+      }
 
-    const addressees = await people.fromRow(row);
-    const written = await writeReminder({ claude, rules: await readRules(), people: addressees, phase: row.kind, occasion: "followup", random: opts.random });
-    try {
-      const sent = await slack.postMessage(row.channel_id, written.text, row.reminder_ts);
-      if (sent.ok) {
-        await supabase
-          .from(TABLE)
-          .update({ followup_outcome: "sent", followup_ts: sent.value, followup_source: written.source })
-          .eq("id", row.id);
-        result.followups.push({ kind: row.kind, outcome: "sent", source: written.source, note: written.note });
-      } else {
-        // Slack said it did not post: release the claim for the next tick.
-        await supabase.from(TABLE).update({ followup_outcome: null, followup_at: null }).eq("id", row.id);
-        result.errors.push(`follow-up ${row.kind}: Slack refused (${sent.error})`);
+      const addressees = await people.fromRow(row);
+      if (dryRun) {
+        const written = await write(addressees, row.kind, "followup");
+        result.messages!.push(dryMessage(row.kind, "followup", "due", "nobody posted", addressees, written));
+        continue;
+      }
+      if (!(await store.claimFollowup(row.id, "sending", nowIso))) continue; // another tick has it
+      const written = await write(addressees, row.kind, "followup");
+      try {
+        const sent = await slack.postMessage(row.channel_id, written.text, row.reminder_ts);
+        if (sent.ok) {
+          await store.settleFollowup(row.id, { followup_outcome: "sent", followup_ts: sent.value, followup_source: written.source });
+          result.followups.push({ kind: row.kind, outcome: "sent", source: written.source, note: written.note });
+        } else {
+          // Slack said it did not post: release the claim for the next tick.
+          await store.settleFollowup(row.id, { followup_outcome: null, followup_at: null });
+          result.errors.push(`follow-up ${row.kind}: Slack refused (${sent.error})`);
+        }
+      } catch (e) {
+        await store.settleFollowup(row.id, { followup_outcome: "failed" });
+        result.errors.push(`follow-up ${row.kind}: ${errText(e)}`);
       }
     } catch (e) {
-      await supabase.from(TABLE).update({ followup_outcome: "failed" }).eq("id", row.id);
-      result.errors.push(`follow-up ${row.kind}: ${(e as Error).message}`);
+      result.errors.push(`follow-up ${row.kind}: ${errText(e)}`);
     }
   }
 
   // ---- today's opening and closing reminders ----------------------------------
   const sent = new Set(rows.filter((r) => r.store_date === today).map((r) => r.kind));
-  if (!(sent.has("open") && sent.has("close"))) {
-    const loaded = await loadDay(supabase, today, now);
+  if (!(sent.has("open") && sent.has("close")) || dryRun) {
+    const loaded = await loadDay(store, today, now);
     result.store = loaded.store;
+    if (loaded.day) result.hours = { opens: nyClock(loaded.day.openAt), closes: nyClock(loaded.day.closeAt) };
     if (loaded.error) result.errors.push(loaded.error);
-    for (const due of loaded.snapshot ? dueReminders(loaded.snapshot, now, sent) : []) {
-      const addressees = await people.forProfiles(due.profileIds);
-      const claim = await supabase
-        .from(TABLE)
-        .insert({
+    const due = loaded.snapshot ? dueReminders(loaded.snapshot, now, sent) : [];
+    for (const reminder of due) {
+      try {
+        const addressees = await people.forProfiles(reminder.profileIds);
+        if (dryRun) {
+          const written = await write(addressees, reminder.kind, "reminder");
+          result.messages!.push(dryMessage(reminder.kind, "reminder", "due", reminder.why, addressees, written));
+          continue;
+        }
+        const id = await store.claimReminder({
           store_date: today,
-          kind: due.kind,
-          profile_ids: due.profileIds,
+          kind: reminder.kind,
+          profile_ids: reminder.profileIds,
           slack_user_ids: addressees.map((a) => a.slackId),
           channel_id: channel,
-        })
-        .select("id")
-        .single();
-      if (claim.error || !claim.data) {
-        // 23505: another tick recorded it first. Anything else: try next tick.
-        if (claim.error?.code !== "23505") result.errors.push(`${due.kind} reminder: ${claim.error?.message ?? "not recorded"}`);
-        continue;
-      }
-      const id = (claim.data as { id: number }).id;
-      const written = await writeReminder({ claude, rules: await readRules(), people: addressees, phase: due.kind, occasion: "reminder", random: opts.random });
-      try {
-        const posted = await slack.postMessage(channel, written.text);
-        if (posted.ok) {
-          await supabase
-            .from(TABLE)
-            .update({ reminder_ts: posted.value, reminder_source: written.source, posted_at: new Date(now).toISOString() })
-            .eq("id", id);
-          result.posted.push({ kind: due.kind, source: written.source, mentioned: addressees.filter((a) => a.slackId).length, note: written.note });
-        } else {
-          await supabase.from(TABLE).delete().eq("id", id); // not posted: the next tick tries again
-          result.errors.push(`${due.kind} reminder: Slack refused (${posted.error})`);
+        });
+        if (id === null) continue; // another tick recorded it first
+        const written = await write(addressees, reminder.kind, "reminder");
+        try {
+          const posted = await slack.postMessage(channel, written.text);
+          if (posted.ok) {
+            await store.markPosted(id, { reminder_ts: posted.value, reminder_source: written.source, posted_at: nowIso });
+            result.posted.push({ kind: reminder.kind, source: written.source, mentioned: addressees.filter((a) => a.slackId).length, note: written.note });
+          } else {
+            await store.dropReminder(id); // not posted: the next tick tries again
+            result.errors.push(`${reminder.kind} reminder: Slack refused (${posted.error})`);
+          }
+        } catch (e) {
+          // Unknown whether it posted: keep the record so it is never posted twice.
+          result.errors.push(`${reminder.kind} reminder: ${errText(e)}`);
         }
       } catch (e) {
-        // Unknown whether it posted: keep the record so it is never posted twice.
-        result.errors.push(`${due.kind} reminder: ${(e as Error).message}`);
+        result.errors.push(`${reminder.kind} reminder: ${errText(e)}`);
+      }
+    }
+
+    // A dry run previews the reminders not due yet, for whoever the plan names now.
+    if (dryRun && loaded.snapshot) {
+      const dueKinds = new Set(due.map((d) => d.kind));
+      const previews: { kind: ReminderKind; profileId: string; why: string }[] = [];
+      const opener = findOpener(loaded.snapshot, now);
+      if (!dueKinds.has("open") && opener) previews.push({ kind: "open", profileId: opener.profileId, why: opener.how });
+      // Before closing, who will be on the clock is not known: preview the scheduled closer.
+      const closer = findCloser(now < loaded.snapshot.day.closeAt ? { ...loaded.snapshot, entries: [] } : loaded.snapshot);
+      if (!dueKinds.has("close") && closer) previews.push({ kind: "close", profileId: closer.profileId, why: closer.how });
+      for (const p of previews) {
+        const addressees = await people.forProfiles([p.profileId]);
+        const written = await write(addressees, p.kind, "reminder");
+        result.messages!.push(dryMessage(p.kind, "reminder", "preview", p.why, addressees, written));
       }
     }
   }
 
-  await supabase.from(TABLE).delete().lt("store_date", addDays(today, -KEEP_DAYS));
+  if (!dryRun) {
+    try {
+      await store.prune(addDays(today, -KEEP_DAYS));
+    } catch (e) {
+      result.errors.push(`prune: ${errText(e)}`);
+    }
+  }
   return result;
+}
+
+function dryMessage(kind: ReminderKind, occasion: Occasion, when: DryMessage["when"], why: string, to: Addressee[], w: Written): DryMessage {
+  return { kind, occasion, when, why, to: to.map((a) => a.token), source: w.source, ...(w.note ? { note: w.note } : {}), text: w.text };
+}
+
+/** "11:00" New York time for an instant. */
+function nyClock(at: number): string {
+  const m = nyWallClock(new Date(at).toISOString()).minutes;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 
 /** True when a person posted in the channel after `ts`, or replied in its thread. Throws when Slack cannot be read. */
@@ -235,54 +275,35 @@ async function humanPostedSince(slack: SlackClient, channel: string, ts: string)
 // ---- the store day --------------------------------------------------------------
 
 async function loadDay(
-  supabase: SupabaseClient,
+  store: CashCountStore,
   date: string,
   now: number,
-): Promise<{ store: "open" | "closed" | "unset" | "unreadable"; snapshot: DaySnapshot | null; error?: string }> {
-  const [hours, exceptions, closed, seasons, types] = await Promise.all([
-    supabase.from("store_hours").select("weekday, is_closed, opens, closes"),
-    supabase.from("store_hours_exceptions").select("date, label, is_closed, opens, closes").eq("date", date),
-    supabase.from("annotations").select("title, start_date, end_date").eq("business_closed", true).lte("start_date", date).gte("end_date", date),
-    loadStoreHoursSeasons(supabase),
-    supabase.from("shift_types").select("name, in_store"),
-  ]);
-  const failed = hours.error || exceptions.error || seasons.error || types.error;
-  if (failed) return { store: "unreadable", snapshot: null, error: `store hours: ${typeof failed === "string" ? failed : failed.message}` };
-
-  const window = resolveOpenWindow(
-    date,
-    [...((hours.data ?? []) as StoreHoursRow[]), ...seasonHoursRows(seasons.seasons)],
-    (exceptions.data ?? []) as StoreHoursException[],
-    // Not load-bearing, as in the coverage check: if this read fails, the day's hours still apply.
-    closed.error ? [] : ((closed.data ?? []) as ClosedDateRange[]),
-  );
+): Promise<{ store: "open" | "closed" | "unset" | "unreadable"; day?: StoreDay; snapshot: DaySnapshot | null; error?: string }> {
+  let rows;
+  try {
+    rows = await store.dayRows(date);
+  } catch (e) {
+    return { store: "unreadable", snapshot: null, error: `store hours: ${errText(e)}` };
+  }
+  const window = resolveOpenWindow(date, rows.hours, rows.exceptions, rows.closed);
   const day = storeDay(date, window);
   if (!day) return { store: window.state === "closed" ? "closed" : "unset", snapshot: null };
 
-  const [shifts, entries] = await Promise.all([
-    supabase
-      .from("shifts")
-      .select("id, employee_id, starts_at, ends_at, position, deal_id, published")
-      .gte("starts_at", new Date(day.openAt - 20 * 60 * MIN).toISOString())
-      .lte("starts_at", new Date(day.closeAt + 60 * MIN).toISOString()),
-    supabase
-      .from("time_entries")
-      .select("id, employee_id, shift_id, clock_in_at, clock_out_at")
-      .gte("clock_in_at", new Date(day.closeAt - MAX_PUNCH_MIN * MIN).toISOString())
-      .lte("clock_in_at", new Date(Math.min(now, day.closeAt)).toISOString()),
-  ]);
-  if (shifts.error || entries.error) {
-    return { store: "unreadable", snapshot: null, error: `shifts or punches: ${(shifts.error ?? entries.error)!.message}` };
-  }
-  return {
-    store: "open",
-    snapshot: {
+  try {
+    const { shifts, entries } = await store.punches({
+      shiftsFrom: new Date(day.openAt - 20 * 60 * MIN).toISOString(),
+      shiftsTo: new Date(day.closeAt + 60 * MIN).toISOString(),
+      entriesFrom: new Date(day.closeAt - MAX_PUNCH_MIN * MIN).toISOString(),
+      entriesTo: new Date(Math.min(now, day.closeAt)).toISOString(),
+    });
+    return {
+      store: "open",
       day,
-      shifts: (shifts.data ?? []) as PlanShift[],
-      entries: (entries.data ?? []) as PlanEntry[],
-      inStoreByName: new Map(((types.data ?? []) as { name: string; in_store?: boolean | null }[]).map((t) => [t.name, t.in_store !== false])),
-    },
-  };
+      snapshot: { day, shifts, entries, inStoreByName: new Map(rows.shiftTypes.map((t) => [t.name, t.in_store !== false])) },
+    };
+  } catch (e) {
+    return { store: "unreadable", day, snapshot: null, error: `shifts or punches: ${errText(e)}` };
+  }
 }
 
 // ---- staff to Slack users ------------------------------------------------------
@@ -291,10 +312,8 @@ type Resolved = Addressee & { slackId: string };
 
 const norm = (s: string | null | undefined) => (s ?? "").normalize("NFKD").replace(/\s+/g, " ").trim().toLowerCase();
 
-type ProfileNames = { full_name: string | null; preferred_name: string | null };
-
 /** How someone is named when they are not matched to a Slack user. */
-const shownName = (p: ProfileNames | undefined) => p?.preferred_name?.trim() || p?.full_name?.trim() || "Team";
+const shownName = (p: Person | undefined) => p?.preferred_name?.trim() || p?.full_name?.trim() || "Team";
 
 /**
  * Matches staff to Slack users: by the email they sign in to the time app
@@ -304,16 +323,20 @@ const shownName = (p: ProfileNames | undefined) => p?.preferred_name?.trim() || 
  */
 class PeopleResolver {
   private directory: SlackUser[] | null | undefined;
-  private supabase: SupabaseClient;
+  private store: CashCountStore;
   private slack: SlackClient;
-  constructor(supabase: SupabaseClient, slack: SlackClient) {
-    this.supabase = supabase;
+  constructor(store: CashCountStore, slack: SlackClient) {
+    this.store = store;
     this.slack = slack;
   }
 
-  private async names(ids: string[]): Promise<Map<string, ProfileNames>> {
-    const { data } = await this.supabase.from("profiles").select("id, full_name, preferred_name").in("id", ids);
-    return new Map(((data ?? []) as (ProfileNames & { id: string })[]).map((p) => [p.id, p]));
+  /** Names and sign-in emails. A failed read leaves everyone unnamed rather than holding up the reminder. */
+  private async names(ids: string[]): Promise<Map<string, Person>> {
+    try {
+      return new Map((await this.store.people(ids)).map((p) => [p.id, p]));
+    } catch {
+      return new Map();
+    }
   }
 
   private async users(): Promise<SlackUser[]> {
@@ -333,7 +356,7 @@ class PeopleResolver {
     for (const id of ids) {
       const p = names.get(id);
       let slackId = "";
-      const email = await emailForUser(id);
+      const email = p?.email;
       if (email) {
         try {
           const got = await this.slack.userByEmail(email);

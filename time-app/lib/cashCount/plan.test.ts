@@ -1,6 +1,7 @@
 // Who the cash count reminders mention, and when (lib/cashCount/plan.ts).
-// The owner's rules, 2026-10-29: the opener after they clock in; the lead on
-// shift just after closing; one follow-up 30 minutes later if nobody posted.
+// The owner's rules, 2026-10-29: the opener after they clock in; one person
+// just after closing (the scheduled closer among several on the clock, else the
+// latest clock-in); one follow-up 30 minutes later if nobody posted.
 // Invented people and shifts; the shapes are production's (2026-09-30..10-29).
 //
 //   npm test        (node --test; Node runs TypeScript directly)
@@ -11,9 +12,8 @@ import assert from "node:assert/strict";
 import { loadAppModule } from "../testing/fakeSupabase.ts";
 import type * as Plan from "./plan.ts";
 
-// plan.ts imports "@/lib/coverage"; the app's loader resolves the alias.
 const plan = await loadAppModule<typeof Plan>("lib/cashCount/plan.ts");
-const { dueReminders, findClosers, findOpener, followupStep, nyInstant } = plan;
+const { dueReminders, findCloser, findOpener, followupStep, nyInstant } = plan;
 
 const DATE = "2026-10-29"; // a Thursday, EDT
 const at = (hhmm: string, date = DATE) => new Date(`${date}T${hhmm}:00-04:00`).toISOString();
@@ -112,24 +112,46 @@ test("the closer is the one person on the clock at closing; a catering punch sti
     [closing, event],
     [punch(OPENER, "10:00", "16:05"), punch(CLOSER, "15:58", null, closing.id), punch(CATERER, "17:05", null, event.id)],
   );
-  assert.deepEqual(findClosers(s), { profileIds: [CLOSER], how: "on_clock" });
+  assert.deepEqual(findCloser(s), { profileId: CLOSER, how: "on_clock" });
 });
 
-test("two people on the clock at closing are both closers (owner to rule which one is the lead)", () => {
+test("several on the clock at closing: the one whose punch is for the closing shift, even an earlier punch", () => {
   const closing = shift(CLOSER, "16:00", "23:00", "PENN Closer");
-  const s = snap([closing], [punch(MANAGER, "12:16", null), punch(CLOSER, "15:58", null, closing.id)]);
-  assert.deepEqual(findClosers(s)?.profileIds, [MANAGER, CLOSER]);
+  // The unscheduled manager clocked in later than the scheduled closer.
+  const linked = snap([closing], [punch(CLOSER, "15:58", null, closing.id), punch(MANAGER, "18:16", null)]);
+  assert.deepEqual(findCloser(linked), { profileId: CLOSER, how: "closing_shift" });
+  // The fob leaves the closer's punch unlinked: it is still for their closing shift.
+  const unlinked = snap([closing], [punch(CLOSER, "15:58", null), punch(MANAGER, "18:16", null)]);
+  assert.deepEqual(findCloser(unlinked), { profileId: CLOSER, how: "closing_shift" });
 });
 
-test("nobody on the clock at closing: the person on the store shift running at closing", () => {
+test("several on the clock and none on a closing shift: the one who clocked in most recently", () => {
+  const s = snap([], [punch(MANAGER, "12:16", null), punch(COVER, "17:40", null), punch(OFFICE, "15:05", null)]);
+  assert.deepEqual(findCloser(s), { profileId: COVER, how: "latest_punch" });
+  // A punch for a store shift that ends before closing is not a closing-shift punch.
+  const day = shift(OPENER, "10:00", "16:00", "PENN Opener");
+  const late = snap([day], [punch(OPENER, "17:30", null, day.id), punch(MANAGER, "18:16", null)]);
+  assert.deepEqual(findCloser(late), { profileId: MANAGER, how: "latest_punch" });
+});
+
+test("nobody on the clock at closing: the scheduled closer on the store shift running at closing", () => {
   const s = snap([shift(CLOSER, "16:00", "23:00", "PENN Closer"), shift(CATERER, "18:00", "23:00", "Catering")], []);
-  assert.deepEqual(findClosers(s), { profileIds: [CLOSER], how: "scheduled" });
-  assert.equal(findClosers(snap([], [])), null);
+  assert.deepEqual(findCloser(s), { profileId: CLOSER, how: "scheduled" });
+  // Two closing shifts: the one starting later.
+  const two = snap([shift(MANAGER, "12:00", "22:00", "PENN Closer"), shift(CLOSER, "16:00", "23:00", "PENN Closer")], []);
+  assert.deepEqual(findCloser(two), { profileId: CLOSER, how: "scheduled" });
+  assert.equal(findCloser(snap([], [])), null);
 });
 
 test("someone who clocked out before closing, or a punch left open since the morning before, is not a closer", () => {
   const s = snap([], [punch(OPENER, "16:00", "21:50"), { ...punch(OFFICE, "05:00", null), clock_in_at: at("05:00") }]);
-  assert.equal(findClosers(s), null);
+  assert.equal(findCloser(s), null);
+});
+
+test("several on the clock at closing: the closing reminder mentions one person", () => {
+  const closing = shift(CLOSER, "16:00", "23:00", "PENN Closer");
+  const s = snap([closing], [punch(MANAGER, "18:16", null), punch(CLOSER, "15:58", null, closing.id)]);
+  assert.deepEqual(dueReminders(s, t("22:03"), new Set()), [{ kind: "close", profileIds: [CLOSER], why: "closing_shift" }]);
 });
 
 test("the opening reminder: once the opener has clocked in, and not two hours later (the cron was off)", () => {

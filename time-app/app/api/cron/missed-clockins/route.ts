@@ -5,7 +5,6 @@ import { fmtTime } from "@/lib/format";
 import { clockoutReminderDue, shiftEndForEntry } from "@/lib/clockoutReminder";
 import { sendShiftDigests } from "@/lib/shiftNotice";
 import { sendAvailabilityDigest } from "@/lib/availabilityNotice";
-import { runCashCountReminders } from "@/lib/cashCount/run";
 import type { TimeEntry } from "@/lib/types";
 import { NextResponse } from "next/server";
 import { MANAGER_ROLES } from "@/lib/roles";
@@ -251,15 +250,6 @@ export async function GET(request: Request) {
     error: e instanceof Error ? e.message : String(e),
   }));
 
-  // ---- Cash count reminders in Slack #cash-count (lib/cashCount/run.ts) ----
-  // The opener after they clock in, the closer just after closing, and one
-  // follow-up each if nobody has posted 30 minutes later. Off until
-  // SLACK_CASH_COUNT_BOT_TOKEN is set; a failure here never fails the tick.
-  const cashCount = await runCashCountReminders(now).catch((e: unknown) => ({
-    status: "error" as const,
-    error: e instanceof Error ? e.message : String(e),
-  }));
-
   // Housekeeping: delete notifications older than 30 days so the bell stays tidy.
   await supabase
     .from("notifications")
@@ -277,6 +267,5 @@ export async function GET(request: Request) {
     ...(digests.error ? { shiftDigestError: digests.error } : {}),
     availabilityDigest: availabilityDigest.told,
     ...(availabilityDigest.error ? { availabilityDigestError: availabilityDigest.error } : {}),
-    cashCount,
   });
 }

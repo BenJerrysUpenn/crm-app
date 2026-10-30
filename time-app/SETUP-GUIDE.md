@@ -333,26 +333,26 @@ date and keep repeating until the person saves them again.
 
 ### Cash count reminders in Slack #cash-count
 
-The `missed-clockins` check also reminds staff in the public Slack channel
-#cash-count to post the cash counts (`lib/cashCount`): the opener once they
-clock in, whoever is on the clock just after closing, and each of them once
-more 30 minutes later if nobody has posted. Each reminder is written by Claude
-from the "Cash count steps" message posted in the channel, so it follows any
-change to the steps; if that fails, a plain message goes out instead.
+A job on bj-box (the always-on server) reminds staff in the public Slack
+channel #cash-count to post the cash counts: the opener once they clock in,
+one closer just after closing, and that same person once more 30 minutes later
+if nobody has posted. Each reminder is written by Claude from the "Cash count
+steps" message posted in the channel, on your Claude subscription, so it
+follows any change to the steps; if that fails, a plain message goes out
+instead. Nothing is set in Vercel.
 
-It needs `migration_51.sql` and two keys in the Vercel **time** project, each
-saved to Supabase Vault first:
+What you do, once:
 
-- `SLACK_CASH_COUNT_BOT_TOKEN`: the Bot User OAuth Token (`xoxb-...`) of the
-  "Cash Count" Slack app, with the scopes `chat:write`, `channels:history`,
-  `users:read` and `users:read.email`. Invite the app to #cash-count. Without
-  this key nothing is posted.
-- `ANTHROPIC_API_KEY`: a Claude API key. Without it every reminder is the
-  plain message.
+1. Create the "Cash Count" Slack app (scopes `chat:write`, `channels:history`,
+   `users:read`, `users:read.email`) and save its bot token to Supabase Vault
+   as `slack_cash_count_bot_token`. Done 2026-10-29.
+2. In Slack, open #cash-count and send `/invite @Cash Count`.
 
-Optional: `CASH_COUNT_SLACK_CHANNEL` and `CASH_COUNT_RULES_TS` move the channel
-and the steps message. Staff are matched to Slack by the email they sign in
-with, else by their name on the Team page.
+The job reads the Slack token and your Claude subscription token
+(`claude_usage_token`, already in Vault) from Vault each time it runs. Staff
+are matched to Slack by the email they sign in with, else by their name on the
+Team page. To stop it, ask for the `bj-cash-count-reminders.timer` kill switch
+on bj-box.
 
 ---
 

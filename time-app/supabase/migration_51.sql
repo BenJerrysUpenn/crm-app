@@ -5,32 +5,34 @@
 -- VERIFY. supabase/migration_51_verify.sql. ROLLBACK. supabase/migration_51_down.sql.
 --
 -- APPLY ORDER. Either order is safe.
---   * New code, old database: the cron finds no cash_count_reminders table,
---     posts nothing and says so in its JSON ("not_migrated").
+--   * New code, old database: the bj-box job finds no cash_count_reminders
+--     table, posts nothing and exits 1 saying so.
 --   * Old code, new database: the table sits empty.
 --
 -- WHY (the owner, 2026-10-29). Staff post the opening and closing cash counts
--- in the public Slack channel #cash-count. The 5-minute cron reminds the
--- opener after they clock in and the closer just after closing, and reminds
--- them once more if nobody has posted 30 minutes later (lib/cashCount).
+-- in the public Slack channel #cash-count. A 5-minute job on bj-box reminds
+-- the opener after they clock in and the closer just after closing, and
+-- reminds them once more if nobody has posted 30 minutes later
+-- (lib/cashCount, scripts/cash-count-reminders.ts at the crm-app root).
 --
 -- WHAT THIS ADDS. cash_count_reminders: one row per New York store day per
 -- kind ('open' or 'close'). The unique (store_date, kind) is what makes it one
--- reminder a day each: the cron inserts the row BEFORE it posts, so a second
+-- reminder a day each: the job inserts the row BEFORE it posts, so a second
 -- tick, or two ticks at once, find the row (or hit 23505) and post nothing.
 -- The follow-up is claimed by an update guarded on followup_outcome being
 -- null, so it is decided once:
 --   'sending'     claimed, the Slack post is in flight
 --   'sent'        the follow-up was posted
 --   'not_needed'  someone posted in the channel or the reminder's thread
---   'expired'     the cron did not run between 30 and 120 minutes after the
+--   'expired'     the job did not run between 30 and 120 minutes after the
 --                 reminder (machine off), so it is too late to nudge
 --   'failed'      the Slack call failed without saying whether it posted;
 --                 never retried, so it cannot post twice
--- Rows older than 60 days are pruned by the cron.
+-- Rows older than 60 days are pruned by the job.
 --
--- WHO MAY TOUCH IT. The service role alone. RLS is on and there are no
--- policies; anon and authenticated also lose the table privileges.
+-- WHO MAY TOUCH IT. The job's direct Postgres connection (the bootstrap
+-- DSN) and the service role. RLS is on and there are no policies; anon and
+-- authenticated also lose the table privileges.
 -- ============================================================================
 
 begin;

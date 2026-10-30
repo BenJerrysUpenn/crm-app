@@ -5,7 +5,7 @@
 // The owner's rules (2026-10-29):
 //   * OPEN. After the person opening the store clocks in, @mention them to
 //     post the opening counts.
-//   * CLOSE. Just after closing, @mention the lead on shift to post the
+//   * CLOSE. Just after closing, @mention the one person closing to post the
 //     closing counts.
 //   * FOLLOW-UP. If nobody has posted 30 minutes after a reminder, @mention
 //     them once more. Managers are not alerted; they can see the channel.
@@ -27,18 +27,26 @@
 // three times in those 30 days).
 //
 // THE CLOSER. There is no lead role: profiles.role is owner/manager/employee
-// and shift positions are free text. In those 30 days one person was on a
-// store shift at closing on 28 of 30 nights, so the closer is the lead. The
-// closers are everyone on the clock at closing time whose punch is not for a
-// catering or other non-store shift; if nobody is (a missed punch), the people
-// on the store shifts running at closing. When that is more than one person
-// all of them are mentioned (an open question for the owner: issue body).
+// and shift positions are free text. ONE person is mentioned at close (the
+// owner's ruling, 2026-10-29). Everyone on the clock at closing on a store
+// punch (not a catering or other non-store shift) is a candidate:
+//   * exactly one: them;
+//   * several: the one whose punch is for a closing shift (a store shift
+//     running at closing), by its link or, unlinked, the clock's own link
+//     rule (shiftForEntry); if several are, or none is, the one who clocked
+//     in most recently;
+//   * nobody (a missed punch): the scheduled closer, the person on the store
+//     shift running at closing (the latest-starting one if there are two).
+// The follow-up goes to the same person.
+//
+// THE OPENER needs no such rule: the baker on Pastry Opener, an in-store type
+// running at opening, opens the store (the owner's ruling, 2026-10-29).
 //
 // STORE HOURS come from the time app (store_hours, store_hours_seasons,
 // store_hours_exceptions and "Business closed" annotations), through
 // lib/coverage.ts resolveOpenWindow. A closed or unset day gets no reminders.
 
-import { nyWallClock, type OpenWindow } from "@/lib/coverage";
+import { nyWallClock, type OpenWindow } from "../coverage";
 
 export const MIN = 60_000;
 /** The follow-up is due this long after a reminder. */
@@ -199,32 +207,40 @@ export function openReminderDueAt(snap: DaySnapshot, opener: Opener): number {
     : Math.max(opener.clockInAt, snap.day.openAt + OPENER_UNSCHEDULED_AFTER_MIN * MIN);
 }
 
-// ---- the closers -----------------------------------------------------------
+// ---- the closer ------------------------------------------------------------
 
-export type Closers = { profileIds: string[]; how: "on_clock" | "scheduled" };
+export type Closer = { profileId: string; how: "on_clock" | "closing_shift" | "latest_punch" | "scheduled" };
 
-/** Who is closing: on the clock at closing on a store punch, else on a store shift running at closing. */
-export function findClosers(snap: DaySnapshot): Closers | null {
+function isClosingShift(s: PlanShift, snap: DaySnapshot): boolean {
   const { closeAt } = snap.day;
-  const onClock: string[] = [];
-  for (const e of [...snap.entries].sort((a, b) => ms(a.clock_in_at) - ms(b.clock_in_at))) {
+  return s.employee_id != null && isStoreShift(s, snap.inStoreByName) && ms(s.starts_at) < closeAt && ms(s.ends_at) >= closeAt;
+}
+
+/** The one person closing: see THE CLOSER above. Null when nobody is on the clock or on a closing shift. */
+export function findCloser(snap: DaySnapshot): Closer | null {
+  const { closeAt } = snap.day;
+  // Store punches open at closing, latest clock-in first.
+  const onClock: { entry: PlanEntry; shift: PlanShift | null }[] = [];
+  for (const e of [...snap.entries].sort((a, b) => ms(b.clock_in_at) - ms(a.clock_in_at))) {
     const inAt = ms(e.clock_in_at);
     if (inAt > closeAt || inAt < closeAt - MAX_PUNCH_MIN * MIN) continue;
     if (e.clock_out_at && ms(e.clock_out_at) < closeAt) continue;
     const shift = shiftForEntry(e, snap.shifts);
     if (shift && !isStoreShift(shift, snap.inStoreByName)) continue;
-    if (!onClock.includes(e.employee_id)) onClock.push(e.employee_id);
+    onClock.push({ entry: e, shift });
   }
-  if (onClock.length) return { profileIds: onClock, how: "on_clock" };
+  const people = new Set(onClock.map((p) => p.entry.employee_id));
+  if (people.size === 1) return { profileId: onClock[0].entry.employee_id, how: "on_clock" };
+  if (people.size > 1) {
+    const closing = onClock.find((p) => p.shift && isClosingShift(p.shift, snap));
+    if (closing) return { profileId: closing.entry.employee_id, how: "closing_shift" };
+    return { profileId: onClock[0].entry.employee_id, how: "latest_punch" };
+  }
 
-  const scheduled: string[] = [];
-  for (const s of [...snap.shifts].sort((a, b) => ms(a.starts_at) - ms(b.starts_at))) {
-    if (!s.employee_id || !isStoreShift(s, snap.inStoreByName)) continue;
-    if (ms(s.starts_at) < closeAt && ms(s.ends_at) >= closeAt && !scheduled.includes(s.employee_id)) {
-      scheduled.push(s.employee_id);
-    }
-  }
-  return scheduled.length ? { profileIds: scheduled, how: "scheduled" } : null;
+  const scheduled = snap.shifts
+    .filter((s) => isClosingShift(s, snap))
+    .sort((a, b) => ms(b.starts_at) - ms(a.starts_at) || a.id - b.id)[0];
+  return scheduled?.employee_id ? { profileId: scheduled.employee_id, how: "scheduled" } : null;
 }
 
 // ---- what is due -----------------------------------------------------------
@@ -248,8 +264,8 @@ export function dueReminders(snap: DaySnapshot, now: number, sent: Set<ReminderK
   if (!sent.has("close")) {
     const { closeAt } = snap.day;
     if (now >= closeAt && now - closeAt <= CLOSE_REMINDER_WINDOW_MIN * MIN) {
-      const closers = findClosers(snap);
-      if (closers) due.push({ kind: "close", profileIds: closers.profileIds, why: closers.how });
+      const closer = findCloser(snap);
+      if (closer) due.push({ kind: "close", profileIds: [closer.profileId], why: closer.how });
     }
   }
   return due;

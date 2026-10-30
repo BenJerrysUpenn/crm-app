@@ -470,16 +470,39 @@ availability answers 503 with a message.
   auto-fill checks, the schedule cells and the team grid all stop there; the personal calendar
   uses `weeklyRowApplies`. Null means open-ended: every row saved before migration 48.
 
-## Cash count reminders in Slack (Withers Time, crm-app #129)
-Apply `time-app/supabase/migration_51.sql` by hand in the Supabase SQL editor, after migration 50
-(`_verify.sql` and `_down.sql` beside it). Either order with the code is safe: before it, the cron
-posts nothing and says `not_migrated`. Setup (Slack app, keys) is in `time-app/SETUP-GUIDE.md`.
+## Cash count reminders in Slack (droplet command, crm-app #129)
+Every 5 minutes on bj-box (`bj-cash-count-reminders.timer`, Software-Factory `droplet/`), reminds
+staff in Slack #cash-count to post the cash counts: the opener once they clock in, one closer just
+after closing (of several on the clock, the one on the closing shift, else the latest clock-in;
+nobody on the clock, the scheduled closer), and that same person once more in the reminder's thread
+if nobody has posted 30 minutes later. Each message is written by Claude Code (`claude -p`,
+`claude-haiku-5-5`, no tools, hard timeout) on the owner's Claude subscription from the live "Cash
+count steps" message, validated, and replaced by a plain message on any failure. Who and when:
+`time-app/lib/cashCount/plan.ts`; one pass: `run.ts`; the words: `message.ts` and `claudeCli.ts`;
+Slack: `slack.ts`; command: `cli.ts`; reads and writes: `lib/cashCountPg.ts`; wiring:
+`scripts/cash-count-reminders.ts`.
 
-`runCashCountReminders` (`lib/cashCount/run.ts`) runs on every `missed-clockins` tick: `plan.ts`
-decides who and when, `message.ts` writes the words, `slack.ts` is the Slack client. Each reminder
-(`open`, `close`) and its one follow-up is recorded in `cash_count_reminders` BEFORE it is
-posted, so it goes out once per store day; a Slack refusal removes the record so the next tick
-retries, and no answer at all keeps it. Off until `SLACK_CASH_COUNT_BOT_TOKEN` is set.
+Each reminder (`open`, `close`) and its one follow-up is recorded in `cash_count_reminders`
+(migration 51) BEFORE it is posted, so it goes out once per store day; a Slack refusal removes the
+record so the next tick retries, and no answer at all keeps it. Apply
+`time-app/supabase/migration_51.sql` by hand in the Supabase SQL editor, after migration 50
+(`_verify.sql` and `_down.sql` beside it). Before it, the command posts nothing and exits 1.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project (the unit maps it from `BJ_DATABASE_URL`) |
+| Vault `slack_cash_count_bot_token` | The "Cash Count" Slack app's bot token, read at run time. Required |
+| Vault `claude_usage_token` | The owner's Claude subscription token, read at run time and passed to Claude Code as `CLAUDE_CODE_OAUTH_TOKEN` in its environment only. Missing means plain messages |
+| `CASH_COUNT_CLAUDE_BIN` | The `claude` executable (default: `claude` on `PATH`). Set in the droplet's systemd unit |
+| `CASH_COUNT_SLACK_CHANNEL`, `CASH_COUNT_RULES_TS` | Optional: move the channel and the steps message |
+
+```
+npm run cash-count-reminders -- --dry-run   # prints the plan and the Claude-written messages; posts and writes nothing
+npm run cash-count-reminders                # posts what is due
+```
+Exit 0 = ran (posted what was due, or nothing was due), 1 = a failure (database, Vault, Slack,
+migration 51 missing, or a failed step; each printed), 2 = bad argument or no `DATABASE_URL`.
+Neither token is ever printed or put on a command line.
 
 ## Schedule coverage reminder (droplet command)
 Every day at noon ET, emails the owners and on-schedule managers every staffed
