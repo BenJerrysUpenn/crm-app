@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 
 import { loadAppModule } from "../testing/fakeSupabase.ts";
 import type * as Message from "./message.ts";
+import type { ReminderKind } from "./plan.ts";
 
 const m = await loadAppModule<typeof Message>("lib/cashCount/message.ts");
 const { fallbackMessage, validateReminder, writeReminder } = m;
@@ -36,7 +37,7 @@ test("a good reminder passes: the mention once, short, no numbers", () => {
 });
 
 test("a reminder is rejected for a missing or doubled mention, other mentions, links, numbers, money or length", () => {
-  const bad = (text: string, people = [SAM], phase: Message.Phase = "open") => validateReminder(text, people, phase).ok;
+  const bad = (text: string, people = [SAM], phase: ReminderKind = "open") => validateReminder(text, people, phase).ok;
   assert.equal(bad("Please post the opening counts."), false, "no mention");
   assert.equal(bad("<@U0SAM> hi <@U0SAM>, post the counts."), false, "mention twice");
   assert.equal(bad("<@U0SAM> post the counts.", [SAM, JO], "close"), false, "one of two people missing");

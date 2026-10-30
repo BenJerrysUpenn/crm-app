@@ -19,24 +19,24 @@
 // post at that point of the day.
 
 import type { AskClaude } from "./claudeCli";
+import type { ReminderKind } from "./plan";
 
 export const MAX_CHARS = 320;
 const MAX_LINES = 3;
 
-export type Phase = "open" | "close";
 export type Occasion = "reminder" | "followup";
 
 /** How a person is addressed: their Slack mention, or their name when they are not matched to a Slack user. */
 export type Addressee = { token: string };
 
-const PHASE_WORDS: Record<Phase, string> = {
+const PHASE_WORDS: Record<ReminderKind, string> = {
   open: "opening (the person just clocked in to open the store)",
   close: "closing (the store has just closed)",
 };
 
 // Words that belong to the other half of the day, or to the 14-day bank run,
 // never to a reminder for this one.
-const FOREIGN_WORDS: Record<Phase, RegExp> = {
+const FOREIGN_WORDS: Record<ReminderKind, RegExp> = {
   open: /\b(drop|dropped|safe|print ?out|printout|photo|picture|end(?:ing)? the drawer|deposit|bank)\b/i,
   close: /\b(deposit|bank)\b/i,
 };
@@ -50,7 +50,7 @@ export function joinTokens(people: Addressee[]): string {
 
 export type Validation = { ok: true } | { ok: false; reason: string };
 
-export function validateReminder(text: string, people: Addressee[], phase: Phase): Validation {
+export function validateReminder(text: string, people: Addressee[], phase: ReminderKind): Validation {
   const message = text.trim();
   if (!message) return { ok: false, reason: "empty" };
   if (message.length > MAX_CHARS) return { ok: false, reason: `longer than ${MAX_CHARS} characters` };
@@ -72,7 +72,7 @@ export function validateReminder(text: string, people: Addressee[], phase: Phase
 }
 
 /** The plain message used when the AI step fails. It names no step, so it cannot go stale when the steps change. */
-export function fallbackMessage(people: Addressee[], phase: Phase, occasion: Occasion): string {
+export function fallbackMessage(people: Addressee[], phase: ReminderKind, occasion: Occasion): string {
   const who = joinTokens(people);
   const half = phase === "open" ? "opening" : "closing";
   if (occasion === "followup") {
@@ -104,7 +104,7 @@ export async function writeReminder(args: {
   ask: AskClaude | null;
   rules: string | null;
   people: Addressee[];
-  phase: Phase;
+  phase: ReminderKind;
   occasion: Occasion;
   random?: () => number;
 }): Promise<Written> {
