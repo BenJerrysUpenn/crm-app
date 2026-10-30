@@ -105,6 +105,35 @@ test("a punch for a catering shift with no deal is not a cover", () => {
   assert.equal(findOpener(s, t("11:30")), null);
 });
 
+test("a shift that ends as the store opens is not the opening shift, and its punch is not a cover", () => {
+  const early = shift(OFFICE, "09:00", "11:00", "PENN Opener");
+  const s = snap([early], [punch(OFFICE, "09:05", null, early.id)]);
+  assert.equal(findOpener(s, t("11:30")), null);
+});
+
+test("a shift type the Team page has not set, or a blank one, counts as in-store", () => {
+  assert.deepEqual(findCloser(snap([shift(CLOSER, "16:00", "23:00", "Pastry Closer")], [])), { profileId: CLOSER, how: "scheduled" });
+  assert.deepEqual(findCloser(snap([shift(CLOSER, "16:00", "23:00", " ")], [])), { profileId: CLOSER, how: "scheduled" });
+});
+
+test("an unpublished shift is nobody's: no scheduled closer, and its owner's punch can still be a cover", () => {
+  const draft = { ...shift(CLOSER, "16:00", "23:00", "PENN Closer"), published: false };
+  assert.equal(findCloser(snap([draft], [])), null);
+  const draftOpening = { ...shift(COVER, "10:00", "16:00", "PENN Opener"), published: false };
+  const s = snap([shift(OPENER, "10:00", "16:00", "PENN Opener"), draftOpening], [punch(COVER, "10:26", null)]);
+  assert.deepEqual(
+    { who: findOpener(s, t("11:30"))?.profileId, how: findOpener(s, t("11:30"))?.how },
+    { who: COVER, how: "unscheduled" },
+  );
+});
+
+test("an unlinked punch more than four hours from the person's closing shift is not for it", () => {
+  const closing = shift(CLOSER, "16:00", "23:00", "PENN Closer");
+  // In at 11:30 with no link: four and a half hours before the closing shift.
+  const s = snap([closing], [punch(CLOSER, "11:30", null), punch(MANAGER, "18:16", null)]);
+  assert.deepEqual(findCloser(s), { profileId: MANAGER, how: "latest_punch" });
+});
+
 test("the closer is the one person on the clock at closing; a catering punch still open is left out", () => {
   const closing = shift(CLOSER, "16:00", "23:00", "PENN Closer");
   const event = shift(CATERER, "17:00", "23:30", "Catering", 78);
