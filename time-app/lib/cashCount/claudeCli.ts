@@ -35,7 +35,6 @@ export type ClaudeCliOptions = {
   token: string;
   /** The environment the child's PATH, HOME and locale come from. Nothing else in it is passed on. */
   env: Record<string, string | undefined>;
-  model?: string;
   timeoutMs?: number;
 };
 
@@ -55,10 +54,10 @@ export function childEnv(env: Record<string, string | undefined>, token: string)
 }
 
 /** The command line. Nothing secret and nothing per-message is on it; the prompt goes on stdin. */
-export function cliArgs(system: string, model: string): string[] {
+export function cliArgs(system: string): string[] {
   return [
     "-p",
-    "--model", model,
+    "--model", MODEL,
     "--effort", "low",
     "--tools", "",
     "--system-prompt", system,
@@ -101,7 +100,6 @@ const oneLine = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 200);
 
 /** An AskClaude that runs Claude Code headless once per message. */
 export function claudeCli(opts: ClaudeCliOptions): AskClaude {
-  const model = opts.model ?? MODEL;
   const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   return ({ system, prompt }) =>
     new Promise<ClaudeAnswer>((resolve) => {
@@ -118,7 +116,7 @@ export function claudeCli(opts: ClaudeCliOptions): AskClaude {
         // cast: Next's typings require NODE_ENV in ProcessEnv, and the child's
         // environment leaves it out on purpose (childEnv).
         const env = childEnv(opts.env, opts.token) as NodeJS.ProcessEnv;
-        child = spawn(opts.bin, cliArgs(system, model), { env, cwd: tmpdir(), stdio: ["pipe", "pipe", "pipe"] });
+        child = spawn(opts.bin, cliArgs(system), { env, cwd: tmpdir(), stdio: ["pipe", "pipe", "pipe"] });
       } catch (e) {
         resolve({ ok: false, reason: `claude could not start: ${e instanceof Error ? e.message : String(e)}` });
         return;
