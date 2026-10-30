@@ -27,6 +27,7 @@ import { addDays, nyWallClock, resolveOpenWindow, type ClosedDateRange, type Sto
 import { isMissingTable } from "@/lib/storeHours";
 import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons";
 import {
+  MAX_PUNCH_MIN,
   MIN,
   dueReminders,
   followupStep,
@@ -267,7 +268,7 @@ async function loadDay(
     supabase
       .from("time_entries")
       .select("id, employee_id, shift_id, clock_in_at, clock_out_at")
-      .gte("clock_in_at", new Date(day.closeAt - 16 * 60 * MIN).toISOString())
+      .gte("clock_in_at", new Date(day.closeAt - MAX_PUNCH_MIN * MIN).toISOString())
       .lte("clock_in_at", new Date(Math.min(now, day.closeAt)).toISOString()),
   ]);
   if (shifts.error || entries.error) {

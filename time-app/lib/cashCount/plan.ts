@@ -56,7 +56,7 @@ export const CLOSE_REMINDER_WINDOW_MIN = 90;
 /** An unlinked punch belongs to the person's own shift that starts within this of it (the clock's link rule). */
 const LINK_WINDOW_MIN = 4 * 60;
 /** A punch still open at closing that began longer ago than this is a forgotten clock-out, not a closer. */
-const MAX_PUNCH_MIN = 16 * 60;
+export const MAX_PUNCH_MIN = 16 * 60;
 
 export type PlanShift = {
   id: number;
