@@ -14,7 +14,7 @@
 // timeout, an error result (a usage limit, a bad token), unreadable output.
 // message.ts turns any of them into the plain fallback message.
 
-import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { tmpdir } from "node:os";
 
 /** The current Haiku. Claude Code 2.1.299 or later knows it (bj-box installs a pinned version, Software-Factory droplet/). */
@@ -28,12 +28,6 @@ export type ClaudeAnswer = { ok: true; text: string } | { ok: false; reason: str
 /** Ask Claude for one message. Resolves; never rejects. */
 export type AskClaude = (request: { system: string; prompt: string }) => Promise<ClaudeAnswer>;
 
-export type SpawnLike = (
-  command: string,
-  args: string[],
-  options: { env: Record<string, string>; cwd: string; stdio: ["pipe", "pipe", "pipe"] },
-) => ChildProcess;
-
 export type ClaudeCliOptions = {
   /** The claude executable: a path, or a name found on PATH. */
   bin: string;
@@ -43,7 +37,6 @@ export type ClaudeCliOptions = {
   env: Record<string, string | undefined>;
   model?: string;
   timeoutMs?: number;
-  spawn?: SpawnLike;
 };
 
 /** The child's whole environment: what Claude Code needs to run, the token, and switches that keep it quiet. */
@@ -108,7 +101,6 @@ const oneLine = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 200);
 
 /** An AskClaude that runs Claude Code headless once per message. */
 export function claudeCli(opts: ClaudeCliOptions): AskClaude {
-  const spawn = opts.spawn ?? (nodeSpawn as unknown as SpawnLike);
   const model = opts.model ?? MODEL;
   const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   return ({ system, prompt }) =>
@@ -122,8 +114,11 @@ export function claudeCli(opts: ClaudeCliOptions): AskClaude {
       };
       let child: ChildProcess;
       try {
-        // cwd is a scratch directory so no project CLAUDE.md is picked up.
-        child = spawn(opts.bin, cliArgs(system, model), { env: childEnv(opts.env, opts.token), cwd: tmpdir(), stdio: ["pipe", "pipe", "pipe"] });
+        // cwd is a scratch directory so no project CLAUDE.md is picked up. The
+        // cast: Next's typings require NODE_ENV in ProcessEnv, and the child's
+        // environment leaves it out on purpose (childEnv).
+        const env = childEnv(opts.env, opts.token) as NodeJS.ProcessEnv;
+        child = spawn(opts.bin, cliArgs(system, model), { env, cwd: tmpdir(), stdio: ["pipe", "pipe", "pipe"] });
       } catch (e) {
         resolve({ ok: false, reason: `claude could not start: ${e instanceof Error ? e.message : String(e)}` });
         return;
