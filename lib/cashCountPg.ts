@@ -7,8 +7,7 @@ import type { OpenCashCountStore, VaultReader } from "../time-app/lib/cashCount/
 // by scripts/cash-count-reminders.ts on bj-box. It holds no rules: who is
 // reminded and when is time-app/lib/cashCount/plan.ts and run.ts.
 //
-// It reads what the old Supabase-client code in the time app read: store
-// hours, their seasons (migration 47) and exceptions, "Business closed"
+// It reads store hours, their seasons (migration 47) and exceptions, "Business closed"
 // annotations, shift types, shifts and punches, and the profiles' names with
 // the email each signs in with (auth.users, as lib/notify.ts emailForUser
 // gives it). It writes only cash_count_reminders (migration 51), with the
