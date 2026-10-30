@@ -1,5 +1,5 @@
 // The few Slack Web API calls the cash count reminders make, with the "Cash
-// Count" app's bot token (SLACK_CASH_COUNT_BOT_TOKEN). Scopes: chat:write
+// Count" app's bot token (Vault slack_cash_count_bot_token). Scopes: chat:write
 // (post), channels:history (read the rules message and see whether anyone
 // posted), users:read and users:read.email (match staff to Slack users).
 //
