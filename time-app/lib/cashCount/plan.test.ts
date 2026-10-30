@@ -142,6 +142,16 @@ test("the opening reminder: once the opener has clocked in, and not two hours la
   assert.deepEqual(dueReminders(s, t("10:22"), new Set(["open"])), [], "already sent today");
 });
 
+test("a cover who clocked in early is reminded half an hour after opening, not dropped as stale", () => {
+  // Clocked in at 9:10 with no shift; taken as the opener at 11:30, which is
+  // more than two hours after the punch. The reminder is due from 11:30.
+  const s = snap([shift(OPENER, "10:00", "16:00", "PENN Opener")], [punch(COVER, "09:10", null)]);
+  const none = new Set<Plan.ReminderKind>();
+  assert.deepEqual(dueReminders(s, t("11:25"), none), [], "the scheduled opener may still turn up");
+  assert.deepEqual(dueReminders(s, t("11:30"), none), [{ kind: "open", profileIds: [COVER], why: "unscheduled" }]);
+  assert.deepEqual(dueReminders(s, t("13:31"), none), [], "two hours after it was due, it is stale");
+});
+
 test("the closing reminder: from closing time to an hour and a half after", () => {
   const closing = shift(CLOSER, "16:00", "23:00", "PENN Closer");
   const s = snap([closing], [punch(CLOSER, "15:58", null, closing.id)]);
