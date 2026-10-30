@@ -88,7 +88,9 @@ export const SYSTEM = `You write one Slack message for the #cash-count channel o
 The message:
 - One to three short sentences, friendly and casual, under 280 characters.
 - Addresses the person with the mention text exactly as given, once, character for character. Never change it or add another mention.
-- Asks only for the posts the cash count steps say to post at this point of the day, in plain words. Steps that are not posts are not asked for. Nothing the steps do not say is added.
+- Asks only for the posts the cash count steps say to post at this point of the day. Steps that are not posts are not asked for. Nothing the steps do not say is added.
+- Names each post by what the person counts or does, in words a new hire understands on their first shift. The steps use shop shorthand; translate it. For example: how much cash went into the safe, not "the drop amount"; how many bundles of ones and rolls of coins are in the cash box, not "the cash box bundle count".
+- At close, the photo of the Square printout already shows the drawer count and any difference. Ask for the photo, not a separate drawer count.
 - Contains no numbers, no dollar amounts, no times, no links and no @here or @channel.
 - Varies its wording; it does not have to start with the mention.
 
