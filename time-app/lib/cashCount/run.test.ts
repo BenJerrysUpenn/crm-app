@@ -56,6 +56,8 @@ let slack: {
   channel: SlackMsg[];
   posts: { text: string; thread_ts?: string }[];
   refusePosts: number;
+  /** Posts Slack does not answer (HTTP 503): whether they went out is unknown. */
+  downPosts: number;
   claude: { status: number; text: string; calls: number };
 };
 let db: FakeSupabase;
@@ -90,6 +92,10 @@ async function external(request: Request): Promise<Response> {
   const method = url.pathname.replace("/api/", "");
   if (method === "chat.postMessage") {
     assert.equal(form.get("channel"), CHANNEL);
+    if (slack.downPosts > 0) {
+      slack.downPosts -= 1;
+      return new Response("upstream unavailable", { status: 503 });
+    }
     if (slack.refusePosts > 0) {
       slack.refusePosts -= 1;
       return Response.json({ ok: false, error: "not_in_channel" });
@@ -131,7 +137,7 @@ beforeEach(() => {
   process.env.ANTHROPIC_API_KEY = "sk-ant-test";
   delete process.env.CASH_COUNT_SLACK_CHANNEL;
   delete process.env.CASH_COUNT_RULES_TS;
-  slack = { channel: [], posts: [], refusePosts: 0, claude: { status: 200, text: "", calls: 0 } };
+  slack = { channel: [], posts: [], refusePosts: 0, downPosts: 0, claude: { status: 200, text: "", calls: 0 } };
   db = startFakeSupabase({
     profiles: [
       { id: OPENER, role: "employee", full_name: "Olive Opener", preferred_name: null, active: true, archived_at: null },
@@ -289,6 +295,44 @@ test("Slack refuses the post: nothing is recorded, and the next tick posts it", 
   assert.ok(res.status === "ran" && res.errors.some((e) => /not_in_channel/.test(e)));
   await tick("10:25");
   assert.equal(slack.posts.length, 1);
+});
+
+test("Slack does not answer the post: the record stays, so a reminder that may have gone out is never posted again", async () => {
+  slack.claude.text = "Morning <@U0OPENER>, please post the opening counts here.";
+  slack.downPosts = 1;
+  clockIn(11, OPENER, "10:20", 1);
+  const res = await tick("10:20");
+  assert.ok(res.status === "ran" && res.errors.some((e) => /chat\.postMessage: HTTP 503/.test(e)));
+  await tick("10:25");
+  await tick("10:55");
+  assert.equal(slack.posts.length, 0, "no second reminder, and no follow-up to one that may not exist");
+  assert.equal(db.rows("cash_count_reminders").length, 1);
+});
+
+test("Slack refuses the follow-up: the next tick sends it in the thread", async () => {
+  slack.claude.text = "Hey <@U0OPENER>, please post the opening counts here when you can.";
+  clockIn(11, OPENER, "10:20", 1);
+  await tick("10:20");
+  const reminderTs = slack.channel[0].ts;
+  slack.refusePosts = 1;
+  const res = await tick("10:50");
+  assert.equal(slack.posts.length, 1);
+  assert.ok(res.status === "ran" && res.errors.some((e) => /follow-up open: Slack refused \(not_in_channel\)/.test(e)));
+  await tick("10:55");
+  assert.equal(slack.posts.length, 2);
+  assert.equal(slack.posts[1].thread_ts, reminderTs);
+  assert.equal(db.rows("cash_count_reminders")[0].followup_outcome, "sent");
+});
+
+test("the cron was off for over two hours: the follow-up is skipped, not sent late", async () => {
+  slack.claude.text = "Hey <@U0OPENER>, please post the opening counts here when you can.";
+  clockIn(11, OPENER, "10:20", 1, "16:02");
+  await tick("10:20");
+  const res = await tick("12:25");
+  assert.equal(slack.posts.length, 1);
+  assert.ok(res.status === "ran");
+  assert.deepEqual(res.followups, [{ kind: "open", outcome: "expired" }]);
+  assert.equal(db.rows("cash_count_reminders")[0].followup_outcome, "expired");
 });
 
 test("the store is closed that day: no reminders", async () => {
