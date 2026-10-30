@@ -53,8 +53,8 @@ const SLACK_USERS = [
 
 const edt = (hhmm: string, date = "2026-10-29") => new Date(`${date}T${hhmm}:00-04:00`).toISOString();
 let clock = Date.parse(edt("08:00"));
-const tick = (hhmm: string, opts: { dryRun?: boolean; noClaude?: boolean } = {}) => {
-  clock = Date.parse(edt(hhmm));
+const tick = (hhmm: string, opts: { dryRun?: boolean; noClaude?: boolean; date?: string } = {}) => {
+  clock = Date.parse(edt(hhmm, opts.date));
   return runCashCountReminders({
     now: clock,
     store: db,
@@ -130,7 +130,12 @@ async function external(input: string | URL | Request, init?: RequestInit): Prom
     const user = SLACK_USERS.find((u) => u.profile.email === form.get("email"));
     return Response.json(user ? { ok: true, user } : { ok: false, error: "users_not_found" });
   }
-  if (method === "users.list") return Response.json({ ok: true, members: SLACK_USERS, response_metadata: { next_cursor: "" } });
+  if (method === "users.list") {
+    // Two pages, as Slack's cursor gives a bigger workspace: Nina is on the second.
+    const second = form.get("cursor") === "page2";
+    const members = second ? SLACK_USERS.slice(3) : SLACK_USERS.slice(0, 3);
+    return Response.json({ ok: true, members, response_metadata: { next_cursor: second ? "" : "page2" } });
+  }
   throw new Error(`unexpected Slack method ${method}`);
 }
 
@@ -215,7 +220,7 @@ test("nobody posts within 30 minutes: one follow-up in the thread, exactly once"
   const reminderTs = slack.channel[0].ts;
   // A join notice and a bot do not count as someone posting.
   humanSays("<@U0NEW> has joined the channel", undefined, { subtype: "channel_join" });
-  slack.channel.push({ ts: nextTs(), bot_id: "B0OTHER", text: "beep" });
+  slack.channel.push({ ts: nextTs(), bot_id: "B0OTHER", user: "U0APPUSER", text: "beep" });
 
   await tick("10:45");
   assert.equal(slack.posts.length, 1, "not yet 30 minutes");
@@ -446,4 +451,111 @@ test("the database fails mid-tick: the error is reported and nothing is posted t
   await tick("10:25");
   await tick("10:30");
   assert.equal(slack.posts.length, 1);
+});
+
+test("a photo of the counts (a file share) counts as someone posting: no follow-up", async () => {
+  slack.claude.text = "Hi <@U0OPENER>, please post the register count and cash box bundles here.";
+  clockIn(11, OPENER, "10:20", 1, "16:02");
+  await tick("10:20");
+  humanSays("", undefined, { subtype: "file_share" });
+  await tick("10:50");
+  assert.equal(slack.posts.length, 1);
+  assert.equal(db.rows[0].followup_outcome, "not_needed");
+});
+
+test("a deleted Slack account is never mentioned, by email or by name: the person is addressed by name", async () => {
+  const GONE = "00000000-0000-0000-0000-00000000000f";
+  SLACK_USERS.push({ id: "U0GONE", deleted: true, real_name: "Gil Gone", profile: { real_name: "Gil Gone", email: "gil@example.test" } } as (typeof SLACK_USERS)[number]);
+  try {
+    db.persons.push({ id: GONE, full_name: "Gil Gone", preferred_name: null, email: "gil@example.test" });
+    clockIn(16, GONE, "15:58", null);
+    db.shifts = db.shifts.filter((s) => s.id !== 2);
+    slack.claude.text = "Thanks Gil Gone! The store's closed, please post the closing counts here.";
+    await tick("22:01");
+    assert.deepEqual(db.rows[0].slack_user_ids, [""]);
+    assert.doesNotMatch(slack.posts[0].text, /U0GONE/);
+  } finally {
+    SLACK_USERS.pop();
+  }
+});
+
+test("two Slack members with the person's name: no guess, the person is addressed by name", async () => {
+  const SAM = "00000000-0000-0000-0000-000000000010";
+  SLACK_USERS.push(
+    { id: "U0SAM1", real_name: "Sam Same", profile: { real_name: "Sam Same", email: "sam1@example.test" } },
+    { id: "U0SAM2", real_name: "Sam Same", profile: { real_name: "Sam Same", email: "sam2@example.test" } },
+  );
+  try {
+    db.persons.push({ id: SAM, full_name: "Sam Same", preferred_name: null, email: null });
+    clockIn(17, SAM, "15:58", null);
+    db.shifts = db.shifts.filter((s) => s.id !== 2);
+    slack.claude.text = "Thanks Sam Same! The store's closed, please post the closing counts here.";
+    const res = await tick("22:01");
+    assert.ok(res.status === "ran");
+    assert.equal(res.posted[0].mentioned, 0);
+    assert.deepEqual(db.rows[0].slack_user_ids, [""]);
+  } finally {
+    SLACK_USERS.splice(-2, 2);
+  }
+});
+
+test("Slack does not answer the follow-up: it is marked failed and never sent again", async () => {
+  slack.claude.text = "Hey <@U0OPENER>, please post the opening counts here when you can.";
+  clockIn(11, OPENER, "10:20", 1);
+  await tick("10:20");
+  slack.downPosts = 1;
+  const res = await tick("10:50");
+  assert.ok(res.status === "ran" && res.errors.some((e) => /follow-up open: chat\.postMessage: HTTP 503/.test(e)));
+  await tick("10:55");
+  await tick("11:00");
+  assert.equal(slack.posts.length, 1, "a follow-up that may have gone out is not repeated");
+  assert.equal(db.rows[0].followup_outcome, "failed");
+});
+
+test("another tick claimed the follow-up first: this one posts nothing", async () => {
+  slack.claude.text = "Hey <@U0OPENER>, please post the opening counts here when you can.";
+  clockIn(11, OPENER, "10:20", 1);
+  await tick("10:20");
+  // The database as it is when a second tick wins the claim between this tick's read and its claim.
+  const claim = db.claimFollowup;
+  db.claimFollowup = async (id, outcome, at) => {
+    await claim(id, "sending", at);
+    return claim(id, outcome, at);
+  };
+  await tick("10:50");
+  assert.equal(slack.posts.length, 1);
+});
+
+test("a closing reminder late in the evening still gets its follow-up after midnight", async () => {
+  db.day.exceptions.push({ date: "2026-10-29", label: "Late night", is_closed: false, opens: "11:00:00", closes: "23:40:00" });
+  clockIn(12, CLOSER, "15:58", 2);
+  slack.claude.text = "<@U0CLOSER> great close! Please post the count, the printout photo, the bundles and the drop.";
+  await tick("23:41");
+  assert.equal(slack.posts.length, 1);
+  slack.claude.text = "<@U0CLOSER> gentle nudge: the closing counts are not posted yet.";
+  await tick("00:12", { date: "2026-10-30" });
+  assert.equal(slack.posts.length, 2);
+  assert.equal(slack.posts[1].thread_ts, slack.channel[0].ts);
+  assert.equal(db.rows[0].followup_outcome, "sent");
+});
+
+test("reminders are kept for 60 days, then deleted", async () => {
+  const old = (id: number, store_date: string) => ({
+    id,
+    store_date,
+    kind: "open" as const,
+    profile_ids: [OPENER],
+    slack_user_ids: ["U0OPENER"],
+    channel_id: CHANNEL,
+    reminder_ts: "1788000000.000001",
+    reminder_source: "ai",
+    posted_at: `${store_date}T14:30:00.000Z`,
+    followup_outcome: "not_needed",
+    followup_ts: null,
+    followup_source: null,
+    followup_at: null,
+  });
+  db.rows.push(old(901, "2026-08-29"), old(902, "2026-08-30"));
+  await tick("09:00");
+  assert.deepEqual(db.rows.map((r) => r.store_date), ["2026-08-30"], "60 days before 2026-10-29 is kept; the day before it is deleted");
 });
