@@ -40,20 +40,32 @@ const b = JSON.parse(fs.readFileSync(path.join(here, "behaviour.json"), "utf8"))
 let stdin = "";
 process.stdin.on("data", (c) => (stdin += c));
 process.stdin.on("end", () => {
-  fs.writeFileSync(path.join(here, "record.json"), JSON.stringify({ argv: process.argv.slice(2), env: process.env, stdin, cwd: process.cwd() }));
+  fs.writeFileSync(path.join(here, "record.json"), JSON.stringify({ argv: process.argv.slice(2), env: process.env, stdin, cwd: process.cwd(), pid: process.pid }));
   if (b.mode === "hang") return setTimeout(() => {}, 60000);
   if (b.mode === "garbage") { process.stdout.write("not json at all\\n"); process.exit(0); }
   if (b.mode === "crash") { process.stderr.write("Error: boom\\n"); process.exit(3); }
   const result = { type: "result", subtype: "success", is_error: b.mode !== "ok", result: b.text, stop_reason: b.stop || "end_turn", api_error_status: b.status || null };
   process.stdout.write(JSON.stringify(result) + "\\n");
-  process.exit(b.mode === "ok" ? 0 : 1);
+  process.exit(b.mode === "ok" ? (b.code || 0) : 1);
 });
 `;
 
-function behave(b: { mode: "ok" | "error" | "hang" | "garbage" | "crash"; text?: string; status?: number; stop?: string }) {
+function behave(b: { mode: "ok" | "error" | "hang" | "garbage" | "crash"; text?: string; status?: number; stop?: string; code?: number }) {
   writeFileSync(join(dir, "behaviour.json"), JSON.stringify(b));
 }
-const record = () => JSON.parse(readFileSync(join(dir, "record.json"), "utf8")) as { argv: string[]; env: Record<string, string>; stdin: string; cwd: string };
+const record = () => JSON.parse(readFileSync(join(dir, "record.json"), "utf8")) as { argv: string[]; env: Record<string, string>; stdin: string; cwd: string; pid: number };
+/** True once `pid` is gone, polling for up to two seconds. */
+async function exited(pid: number): Promise<boolean> {
+  for (let i = 0; i < 40; i++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
+}
 const ask = (timeoutMs?: number, env: Record<string, string | undefined> = { PATH: process.env.PATH, HOME: dir }) =>
   claudeCli({ bin, token: TOKEN, env, timeoutMs });
 
@@ -113,6 +125,11 @@ test("a cut-off answer is not used", async () => {
   assert.deepEqual(await ask()({ system: "s", prompt: "p" }), { ok: false, reason: "claude stopped: max_tokens" });
 });
 
+test("a success result from a child that exits non-zero is not used", async () => {
+  behave({ mode: "ok", text: "<@U0SAM> please post the opening counts.", code: 2 });
+  assert.deepEqual(await ask()({ system: "s", prompt: "p" }), { ok: false, reason: "claude exited 2" });
+});
+
 test("a non-zero exit with no result, garbage output, and a missing executable are answers too", async () => {
   behave({ mode: "crash" });
   assert.deepEqual(await ask()({ system: "s", prompt: "p" }), { ok: false, reason: "claude exited 3: Error: boom" });
@@ -127,6 +144,7 @@ test("a hung child is killed at the timeout", async () => {
   const started = Date.now();
   assert.deepEqual(await ask(300)({ system: "s", prompt: "p" }), { ok: false, reason: "claude timed out after 0s" });
   assert.ok(Date.now() - started < 5000, "it does not wait for the child");
+  assert.ok(await exited(record().pid), "the hung child is not left running");
 });
 
 test("through writeReminder: a good answer is posted; a timeout, an error or a bad message means the plain one", async () => {
