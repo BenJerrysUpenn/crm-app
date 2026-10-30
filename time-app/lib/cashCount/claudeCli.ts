@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 /** The current Haiku. Claude Code 2.1.299 or later knows it (bj-box installs a pinned version, Software-Factory droplet/). */
 export const MODEL = "claude-haiku-5-5";
 /** Long enough for Claude Code's start-up plus one short Haiku answer; the job's unit allows several. */
-export const TIMEOUT_MS = 45_000;
+const TIMEOUT_MS = 45_000;
 /** More output than this is not a two-line Slack message; stop reading. */
 const MAX_OUTPUT_BYTES = 256 * 1024;
 
@@ -39,7 +39,7 @@ export type ClaudeCliOptions = {
 };
 
 /** The child's whole environment: what Claude Code needs to run, the token, and switches that keep it quiet. */
-export function childEnv(env: Record<string, string | undefined>, token: string): Record<string, string> {
+function childEnv(env: Record<string, string | undefined>, token: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of ["PATH", "HOME", "LANG", "LC_ALL", "TZ", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME"]) {
     const v = env[key];
@@ -54,7 +54,7 @@ export function childEnv(env: Record<string, string | undefined>, token: string)
 }
 
 /** The command line. Nothing secret and nothing per-message is on it; the prompt goes on stdin. */
-export function cliArgs(system: string): string[] {
+function cliArgs(system: string): string[] {
   return [
     "-p",
     "--model", MODEL,
@@ -72,7 +72,7 @@ export function cliArgs(system: string): string[] {
 type CliResult = { type?: string; subtype?: string; is_error?: boolean; result?: unknown; api_error_status?: number | null; stop_reason?: string | null };
 
 /** What Claude Code printed, as an answer. */
-export function readCliOutput(code: number | null, stdout: string, stderr: string): ClaudeAnswer {
+function readCliOutput(code: number | null, stdout: string, stderr: string): ClaudeAnswer {
   let parsed: CliResult | null = null;
   try {
     // The json format prints one object; take the last line in case anything precedes it.
