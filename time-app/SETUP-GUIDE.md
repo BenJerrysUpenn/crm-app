@@ -331,6 +331,29 @@ availability warnings and cells, auto-fill, the Team availability view and the
 person's own calendar. Weekly blocks saved before `migration_48.sql` have no end
 date and keep repeating until the person saves them again.
 
+### Cash count reminders in Slack #cash-count
+
+The `missed-clockins` check also reminds staff in the public Slack channel
+#cash-count to post the cash counts (`lib/cashCount`): the opener once they
+clock in, whoever is on the clock just after closing, and each of them once
+more 30 minutes later if nobody has posted. Each reminder is written by Claude
+from the "Cash count steps" message posted in the channel, so it follows any
+change to the steps; if that fails, a plain message goes out instead.
+
+It needs `migration_51.sql` and two keys in the Vercel **time** project, each
+saved to Supabase Vault first:
+
+- `SLACK_CASH_COUNT_BOT_TOKEN`: the Bot User OAuth Token (`xoxb-...`) of the
+  "Cash Count" Slack app, with the scopes `chat:write`, `channels:history`,
+  `users:read` and `users:read.email`. Invite the app to #cash-count. Without
+  this key nothing is posted.
+- `ANTHROPIC_API_KEY`: a Claude API key. Without it every reminder is the
+  plain message.
+
+Optional: `CASH_COUNT_SLACK_CHANNEL` and `CASH_COUNT_RULES_TS` move the channel
+and the steps message. Staff are matched to Slack by the email they sign in
+with, else by their name on the Team page.
+
 ---
 
 ## Part 8: The missed-clock-in checker (one note about your Vercel plan)
