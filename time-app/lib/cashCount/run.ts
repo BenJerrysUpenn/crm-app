@@ -311,8 +311,11 @@ type Resolved = Addressee & { slackId: string };
 
 const norm = (s: string | null | undefined) => (s ?? "").normalize("NFKD").replace(/\s+/g, " ").trim().toLowerCase();
 
-/** How someone is named when they are not matched to a Slack user. */
-const shownName = (p: Person | undefined) => p?.preferred_name?.trim() || p?.full_name?.trim() || "Team";
+/** Someone's Slack mention, or their name when they are not matched to a Slack user. */
+const addressee = (slackId: string, p: Person | undefined): Resolved => ({
+  slackId,
+  token: slackId ? `<@${slackId}>` : p?.preferred_name?.trim() || p?.full_name?.trim() || "Team",
+});
 
 /**
  * Matches staff to Slack users: by the email they sign in to the time app
@@ -374,17 +377,14 @@ class PeopleResolver {
         );
         if (hits.length === 1) slackId = hits[0].id;
       }
-      out.push({ slackId, token: slackId ? `<@${slackId}>` : shownName(p) });
+      out.push(addressee(slackId, p));
     }
     return out;
   }
 
   async fromRow(row: ReminderRow): Promise<Resolved[]> {
     const names = await this.names(row.profile_ids);
-    return row.profile_ids.map((id, i) => {
-      const slackId = row.slack_user_ids[i] ?? "";
-      return { slackId, token: slackId ? `<@${slackId}>` : shownName(names.get(id)) };
-    });
+    return row.profile_ids.map((id, i) => addressee(row.slack_user_ids[i] ?? "", names.get(id)));
   }
 }
 
