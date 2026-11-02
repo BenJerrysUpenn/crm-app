@@ -134,7 +134,7 @@ documentation_map:
     docs: [README.md]
   - paths: ["lib/dealUpdate.ts", "components/KanbanBoard.tsx", "components/CalendarView.tsx"]
     docs: [README.md, docs/call-desk.md]
-  - paths: ["lib/cateringShifts.ts", "lib/handPlacedCrew.ts", "time-app/lib/handPlacedCrew.ts", "time-app/lib/scheduleEvents.ts", "time-app/lib/shiftEventLink.ts", "time-app/lib/managerAssigns.ts", "time-app/app/schedule/page.tsx", "time-app/app/api/schedule/catering-events/**"]
+  - paths: ["lib/cateringShifts.ts", "lib/handPlacedCrew.ts", "time-app/lib/handPlacedCrew.ts", "time-app/lib/scheduleEvents.ts", "time-app/lib/shiftEventLink.ts", "time-app/lib/managerAssigns.ts", "time-app/app/schedule/page.tsx", "time-app/app/api/schedule/events/**"]
     docs: [README.md]
 
 deploy_notes: >-

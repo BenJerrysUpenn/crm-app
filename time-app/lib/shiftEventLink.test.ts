@@ -1,4 +1,4 @@
-// Saving a shift's Catering event through the shift routes: who may, which slot
+// Saving a shift's event through the shift routes: who may, which slot
 // it takes, what clears it. The rule for what the popup shows is
 // lib/scheduleEvents.test.ts; the database's own guards are
 // supabase/migration_30_verify.sql and migration_34_verify.sql.
@@ -17,8 +17,9 @@ type Collection = { POST: (request: Request) => Promise<Response> };
 
 const shiftById = await loadAppModule<{ PATCH: Handler }>("app/api/shifts/[id]/route.ts");
 const shifts = await loadAppModule<Collection>("app/api/shifts/route.ts");
-const eventsRoute = await loadAppModule<{ GET: (request: Request) => Promise<Response> }>("app/api/schedule/catering-events/route.ts");
-const { loadLinkedEvents } = await loadAppModule<typeof import("./shiftEventLink.ts")>("lib/shiftEventLink.ts");
+const eventsRoute = await loadAppModule<{ GET: (request: Request) => Promise<Response> }>("app/api/schedule/events/route.ts");
+const { loadEventNames, loadLinkedEvents, loadScheduleEvents } = await loadAppModule<typeof import("./shiftEventLink.ts")>("lib/shiftEventLink.ts");
+const { eventBadges, eventDropdown, eventsForPosition, fittingEvents } = await loadAppModule<typeof import("./scheduleEvents.ts")>("lib/scheduleEvents.ts");
 const { createClient } = await loadAppModule<typeof import("./supabase/server.ts")>("lib/supabase/server.ts");
 
 const OWNER = "00000000-0000-0000-0000-00000000000c";
@@ -38,6 +39,22 @@ const OTHER_DAY = { ...DEAL, id: 501, event_date: "2026-10-24" };
 const MARKETING = { ...DEAL, id: 502, stage: "Closed Marketing Event" };
 const FINISHED = { ...DEAL, id: 503, stage: "Event Complete" };
 const ARCHIVED = { ...DEAL, id: 504, archived: 1 };
+const SAME_DAY = { ...DEAL, id: 505, event_name: "Event B", stage: "Booked Unpaid" };
+const MARKETING_ONLY_DAY = { ...MARKETING, id: 506, event_date: "2026-10-26" };
+// A deal with everything a name must not bring along.
+const NAMED = {
+  ...DEAL,
+  id: 600,
+  event_date: "2026-10-30",
+  company: "Test Company",
+  contact_first_name: "Pat",
+  contact_last_name: "Test",
+  contact_email: "pat@example.test",
+  contact_phone: "555-0100",
+  total_price: 1234.5,
+};
+const CONTACT_ONLY = { ...NAMED, id: 601, company: "  " };
+const NAMELESS = { ...NAMED, id: 602, company: null, contact_first_name: null, contact_last_name: null };
 
 // Shift 1: on a person, placed on the page, no event yet.
 const PLACED = { id: 1, employee_id: SAM, location_id: 1, starts_at: edt("2026-10-23", "11:00"), ends_at: edt("2026-10-23", "15:00"), position: "Catering", notes: null, published: true, deal_id: null, deal_slot: null };
@@ -52,7 +69,7 @@ beforeEach(() => {
       { id: SAM, role: "employee", active: true, full_name: "Sam Lee", phone: null },
     ],
     shifts: [{ ...PLACED }],
-    deals: [{ ...DEAL }, { ...OTHER_DAY }, { ...MARKETING }, { ...FINISHED }, { ...ARCHIVED }],
+    deals: [{ ...DEAL }, { ...OTHER_DAY }, { ...MARKETING }, { ...FINISHED }, { ...ARCHIVED }, { ...SAME_DAY }, { ...MARKETING_ONLY_DAY }, { ...NAMED }, { ...CONTACT_ONLY }, { ...NAMELESS }],
     shift_requests: [],
     shift_notices: [],
     availability: [],
@@ -119,16 +136,19 @@ test("a new shift with no event writes neither column", async () => {
   assert.equal(row.deal_slot ?? null, null);
 });
 
-test("a Closed Marketing Event can be linked", async () => {
-  assert.equal((await patch(1, { deal_id: 502 })).status, 200);
-  assert.equal(shift(1).deal_id, 502);
+test("a Closed Marketing Event cannot be linked, and nothing changes", async () => {
+  assert.equal((await patch(1, { deal_id: 502 })).status, 400);
+  assert.equal(shift(1).deal_id, null);
+  assert.equal(shift(1).deal_slot, null);
+  assert.equal((await shifts.POST(req("POST", newShiftBody({ deal_id: 502 })))).status, 400);
+  assert.equal(db.rows("shifts").length, 1);
 });
 
 test("switching events takes a slot on the new one", async () => {
   await patch(1, { deal_id: 500 });
-  addLinked({ deal_id: 502, deal_slot: 1 });
-  assert.equal((await patch(1, { deal_id: 502 })).status, 200);
-  assert.equal(shift(1).deal_id, 502);
+  addLinked({ deal_id: 505, deal_slot: 1 });
+  assert.equal((await patch(1, { deal_id: 505 })).status, 200);
+  assert.equal(shift(1).deal_id, 505);
   assert.equal(shift(1).deal_slot, 2);
 });
 
@@ -206,14 +226,6 @@ test("a linked shift off its event's day, moved onto that day, keeps its event a
   assert.equal(shift(1).deal_slot, 3);
 });
 
-test("a linked Marketing shift keeps its link when moved: it is what marks a marketing event", async () => {
-  db.rows("shifts")[0].position = "Marketing";
-  db.rows("shifts")[0].deal_id = 502;
-  db.rows("shifts")[0].deal_slot = 1;
-  await patch(1, { starts_at: edt("2026-10-25", "11:00"), ends_at: edt("2026-10-25", "15:00") });
-  assert.equal(shift(1).deal_id, 502);
-});
-
 // --- refusals -----------------------------------------------------------------
 
 test("staff are refused on both routes and nothing is written", async () => {
@@ -236,7 +248,7 @@ test("an owner passes the same gate", async () => {
   assert.equal(shift(1).deal_id, 500);
 });
 
-test("a shift that isn't Catering cannot take an event", async () => {
+test("a shift that isn't Catering or Marketing cannot take an event", async () => {
   const res = await patch(1, { position: "PENN Opener", deal_id: 500 });
   assert.equal(res.status, 400);
   assert.equal(shift(1).deal_id, null);
@@ -329,11 +341,11 @@ test("a linked shift cannot then be picked up by staff", async () => {
 
 // --- the day's events ---------------------------------------------------------
 
-test("the events route lists a date's booked events and no others", async () => {
+test("the events route lists a date's booked and marketing events and no others", async () => {
   const res = await eventsRoute.GET(new Request("http://time.test/api?date=2026-10-23"));
   assert.equal(res.status, 200);
   const { events } = await res.json();
-  assert.deepEqual(events.map((e: { id: number }) => e.id).sort(), [500, 502]);
+  assert.deepEqual(events.map((e: { id: number }) => e.id).sort(), [500, 502, 505]);
   assert.equal(events.find((e: { id: number }) => e.id === 500).name, "Event A");
 });
 
@@ -357,4 +369,195 @@ test("no linked shifts: no linked events, even when events can't be read", async
 test("linked events that can't be read come back as null, not as none", async () => {
   db.missingTables = ["deals"];
   assert.equal(await loadLinkedEvents(createClient(), [500]), null);
+});
+
+// --- marketing events are out of a Catering shift's selector and badge -----------
+
+test("a day with only a marketing event offers a Catering shift nothing and badges nothing", async () => {
+  const events = await loadScheduleEvents(createClient(), "2026-10-26", "2026-10-26");
+  assert.deepEqual(eventsForPosition("Catering", events!), []);
+  const covering = { ...PLACED, starts_at: edt("2026-10-26", "11:00"), ends_at: edt("2026-10-26", "15:00") };
+  assert.equal(eventBadges([covering], events!).size, 0);
+});
+
+test("a marketing event beside one Booked event: the Booked event still preselects and is the one the badge suggests", async () => {
+  db.tables.deals = [{ ...DEAL }, { ...MARKETING }];
+  const onDate = eventsForPosition("Catering", (await loadScheduleEvents(createClient(), "2026-10-23", "2026-10-23"))!);
+  assert.deepEqual(onDate.map((e) => e.id), [500]);
+  const fitting = fittingEvents(PLACED, onDate);
+  assert.equal(eventDropdown({ pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting })?.selected, 500);
+  const badge = eventBadges([PLACED], onDate).get(1);
+  assert.equal(badge?.kind === "suggest" && badge.event.id, 500);
+});
+
+// --- a Catering shift already linked to a marketing event ------------------------
+
+async function popupFor(linked: number) {
+  const onDate = eventsForPosition("Catering", (await loadScheduleEvents(createClient(), "2026-10-23", "2026-10-23"))!);
+  const [current] = (await loadLinkedEvents(createClient(), [linked]))!;
+  return eventDropdown({ pick: null, currentDealId: linked, currentEvent: current ?? null, date: "2026-10-23", onDate, fitting: fittingEvents(PLACED, onDate) });
+}
+
+function linkToMarketing() {
+  db.rows("shifts")[0].deal_id = 502;
+  db.rows("shifts")[0].deal_slot = 4;
+}
+
+test("its popup shows the saved marketing event, selected, though the day does not offer it", async () => {
+  linkToMarketing();
+  const popup = await popupFor(502);
+  assert.equal(popup?.selected, 502);
+  assert.equal(popup?.options.find((e) => e.id === 502)?.name, "Event A");
+  assert.deepEqual(popup?.options.map((e) => e.id), [500, 505, 502]);
+});
+
+test("a save that leaves the dropdown alone keeps the link and the slot, with or without deal_id in the body", async () => {
+  linkToMarketing();
+  assert.equal((await patch(1, { notes: "bring the cart" })).status, 200);
+  assert.equal(shift(1).deal_id, 502);
+  assert.equal((await patch(1, { deal_id: 502 })).status, 200);
+  assert.equal(shift(1).deal_id, 502);
+  assert.equal(shift(1).deal_slot, 4);
+});
+
+test("the manager can move it to a Booked event", async () => {
+  linkToMarketing();
+  assert.equal((await patch(1, { deal_id: 500 })).status, 200);
+  assert.equal(shift(1).deal_id, 500);
+  assert.equal(shift(1).deal_slot, 1);
+});
+
+test("the manager can set it to None", async () => {
+  linkToMarketing();
+  assert.equal((await patch(1, { deal_id: null })).status, 200);
+  assert.equal(shift(1).deal_id, null);
+  assert.equal(shift(1).deal_slot, null);
+});
+
+// --- Marketing shifts ------------------------------------------------------------
+
+const MARKETING_BODY = { position: "Marketing" };
+
+function makeMarketing(over: Record<string, unknown> = {}) {
+  Object.assign(db.rows("shifts")[0], { position: "Marketing", deal_id: 502, deal_slot: 4, ...over });
+}
+
+test("a Marketing shift is offered that day's marketing events and no booked ones", async () => {
+  const onDate = eventsForPosition("Marketing", (await loadScheduleEvents(createClient(), "2026-10-23", "2026-10-23"))!);
+  assert.deepEqual(onDate.map((e) => e.id), [502]);
+});
+
+test("a Marketing shift covering one marketing event gets it preselected and badged", async () => {
+  const placed = { ...PLACED, ...MARKETING_BODY };
+  const all = (await loadScheduleEvents(createClient(), "2026-10-23", "2026-10-23"))!;
+  const onDate = eventsForPosition("Marketing", all);
+  const popup = eventDropdown({ pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: fittingEvents(placed, onDate) });
+  assert.equal(popup?.selected, 502);
+  const badge = eventBadges([placed], all).get(1);
+  assert.equal(badge?.kind === "suggest" && badge.event.id, 502);
+});
+
+test("saving a marketing event on a Marketing shift writes deal_id and the next free slot", async () => {
+  db.rows("shifts")[0].position = "Marketing";
+  addLinked({ deal_id: 502, deal_slot: 2, position: "Marketing" });
+  assert.equal((await patch(1, { deal_id: 502 })).status, 200);
+  assert.equal(shift(1).deal_id, 502);
+  assert.equal(shift(1).deal_slot, 3);
+});
+
+test("a new Marketing shift can be saved with its event", async () => {
+  const res = await shifts.POST(req("POST", newShiftBody({ ...MARKETING_BODY, deal_id: 502 })));
+  assert.equal(res.status, 200);
+  const { shift: row } = await res.json();
+  assert.equal(row.deal_id, 502);
+  assert.equal(row.deal_slot, 1);
+});
+
+test("a Marketing shift cannot take a booked event, on either route", async () => {
+  db.rows("shifts")[0].position = "Marketing";
+  assert.equal((await patch(1, { deal_id: 500 })).status, 400);
+  assert.equal(shift(1).deal_id, null);
+  assert.equal((await shifts.POST(req("POST", newShiftBody({ ...MARKETING_BODY, deal_id: 500 })))).status, 400);
+  assert.equal(db.rows("shifts").length, 1);
+});
+
+test("None clears a Marketing shift's event and slot", async () => {
+  makeMarketing();
+  assert.equal((await patch(1, { deal_id: null })).status, 200);
+  assert.equal(shift(1).deal_id, null);
+  assert.equal(shift(1).deal_slot, null);
+});
+
+test("moving a linked Marketing shift to another day clears its event", async () => {
+  makeMarketing();
+  assert.equal((await patch(1, { starts_at: edt("2026-10-25", "11:00"), ends_at: edt("2026-10-25", "15:00") })).status, 200);
+  assert.equal(shift(1).deal_id, null);
+  assert.equal(shift(1).deal_slot, null);
+});
+
+test("moving a linked Marketing shift within the day keeps its event", async () => {
+  makeMarketing();
+  await patch(1, { starts_at: edt("2026-10-23", "10:00") });
+  assert.equal(shift(1).deal_id, 502);
+  assert.equal(shift(1).deal_slot, 4);
+});
+
+test("staff cannot link a Marketing shift", async () => {
+  db.rows("shifts")[0].position = "Marketing";
+  db.signIn(SAM);
+  assert.equal((await patch(1, { deal_id: 502 })).status, 403);
+  assert.equal(shift(1).deal_id, null);
+});
+
+test("a save that only changes a Marketing shift's event tells nobody", async () => {
+  db.rows("shifts")[0].position = "Marketing";
+  const res = await patch(1, { employee_id: SAM, location_id: 1, starts_at: PLACED.starts_at, ends_at: PLACED.ends_at, position: "Marketing", notes: null, deal_id: 502 });
+  assert.equal(res.status, 200);
+  assert.equal(shift(1).deal_id, 502);
+  assert.deepEqual(db.rows("shift_notices"), []);
+});
+
+test("a past Marketing shift whose deal is now Event Complete keeps its link and slot through unrelated saves", async () => {
+  makeMarketing({ deal_id: 503, deal_slot: 2 });
+  assert.equal((await patch(1, { notes: "bring the table" })).status, 200);
+  assert.equal((await patch(1, { deal_id: 503 })).status, 200);
+  assert.equal(shift(1).deal_id, 503);
+  assert.equal(shift(1).deal_slot, 2);
+  assert.equal(shift(1).notes, "bring the table");
+  const [saved] = (await loadLinkedEvents(createClient(), [503]))!;
+  const onDate = eventsForPosition("Marketing", (await loadScheduleEvents(createClient(), "2026-10-23", "2026-10-23"))!);
+  const popup = eventDropdown({ pick: null, currentDealId: 503, currentEvent: saved, savedDate: "2026-10-23", date: "2026-10-23", onDate, fitting: [] });
+  assert.equal(popup?.selected, 503);
+  assert.ok(popup?.options.some((e) => e.id === 503));
+});
+
+test("a position with no events keeps whatever link it has when moved", async () => {
+  Object.assign(db.rows("shifts")[0], { position: "PENN Opener", deal_id: 500, deal_slot: 1 });
+  await patch(1, { starts_at: edt("2026-10-25", "11:00"), ends_at: edt("2026-10-25", "15:00") });
+  assert.equal(shift(1).deal_id, 500);
+});
+
+// --- the names on linked shifts' chips --------------------------------------------
+
+test("a name comes back by deal id: the company, else the contact", async () => {
+  assert.deepEqual(await loadEventNames([600, 601]), { 600: "Test Company", 601: "Pat Test" });
+});
+
+test("a deal that is missing or has no name is left out, and the rest still come back", async () => {
+  assert.deepEqual(await loadEventNames([600, 602, 999]), { 600: "Test Company" });
+});
+
+test("no ids and no read; a failed read is no names, not an error", async () => {
+  db.missingTables = ["deals"];
+  assert.deepEqual(await loadEventNames([]), {});
+  assert.deepEqual(await loadEventNames([600]), {});
+});
+
+test("a staff session cannot read deals, and still gets the name and only the name", async () => {
+  db.signIn(SAM);
+  const { data } = await createClient().from("deals").select("id, company").in("id", [600]);
+  assert.deepEqual(data, []);
+  const names = await loadEventNames([600]);
+  assert.deepEqual(names, { 600: "Test Company" });
+  assert.doesNotMatch(JSON.stringify(names), /example\.test|555-0100|1234|Pat/);
 });

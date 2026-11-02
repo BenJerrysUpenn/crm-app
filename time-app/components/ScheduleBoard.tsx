@@ -18,14 +18,17 @@ import { managerAssignsOnly } from "@/lib/managerAssigns";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 import type { ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
 import ScheduleLaborLine from "./ScheduleLaborLine";
-import { isCateringPosition } from "@/lib/handPlacedCrew";
 import {
   eventBadgeText,
   eventBadges,
+  eventDropdown,
+  eventFieldLabel,
+  eventKindOf,
   eventOptionLabel,
+  eventsForPosition,
   eventsOnDate,
   fittingEvents,
-  selectedEventId,
+  movedOffSavedEvent,
   shiftDate,
   type EventBadge,
   type EventPick,
@@ -82,6 +85,8 @@ type Draft = {
   notes: string;
   /** The event the shift is linked to as stored. Null on a new shift. */
   deal_id: number | null;
+  /** The New York date the shift is saved on. Null on a new shift. */
+  saved_date: string | null;
 };
 
 type DropReq = ShiftRequest & { profiles?: Pick<Profile, "id" | "full_name"> };
@@ -99,6 +104,7 @@ export default function ScheduleBoard({
   labor = null,
   weekEvents = [],
   linkedEvents = [],
+  eventNames = {},
 }: {
   isManager: boolean;
   weekStart: string; // YYYY-MM-DD (Sunday)
@@ -116,6 +122,8 @@ export default function ScheduleBoard({
   weekEvents?: ScheduleEvent[] | null;
   /** Manager view: the deals this week's shifts are linked to, at any stage. */
   linkedEvents?: ScheduleEvent[] | null;
+  /** Everyone: the name of each linked shift's event, by deal id. */
+  eventNames?: Record<number, string>;
 }) {
   const colorByType = new Map(shiftTypes.map((t) => [t.name, t.color]));
 
@@ -149,7 +157,7 @@ export default function ScheduleBoard({
     | { key: string; kind: "mismatch"; mismatch: AvailabilityMismatch }
     | { key: string; kind: "unavailable" }
   >(null);
-  // The Catering event dropdown. eventPick is the manager's own choice, null
+  // The event dropdown. eventPick is the manager's own choice, null
   // until they touch it (lib/scheduleEvents.ts selectedEventId works out what
   // it shows until then). A date outside the week on screen is fetched.
   const [eventPick, setEventPick] = useState<EventPick>(null);
@@ -190,21 +198,22 @@ export default function ScheduleBoard({
   const myPendingDrops = new Set(dropOnly.map((r) => r.shift_id));
   const myPendingPickups = new Set(pickupOnly.map((r) => r.shift_id));
 
-  // The shift in the popup against that day's catering events. Null when it is
-  // not a Catering shift or its start is not a real time yet.
-  const draftDate = draft && isCateringPosition(draft.position) ? localInputDate(draft.starts_at) : null;
-  const draftEvents: ScheduleEvent[] | "loading" | "failed" | null =
+  // The shift in the popup against that day's events for its position. Null when
+  // its position takes no event or its start is not a real time yet.
+  const draftDate = draft && eventKindOf(draft.position) !== null ? localInputDate(draft.starts_at) : null;
+  const draftDayEvents: ScheduleEvent[] | "loading" | "failed" | null =
     draftDate === null
       ? null
       : dates.includes(draftDate)
         ? (weekEvents === null ? "failed" : eventsOnDate(weekEvents, draftDate))
         : (otherDayEvents[draftDate] ?? "loading");
+  const draftEvents = draft && Array.isArray(draftDayEvents) ? eventsForPosition(draft.position, draftDayEvents) : draftDayEvents;
   const outsideWeekDate = draftDate !== null && !dates.includes(draftDate) ? draftDate : null;
   useEffect(() => {
     if (outsideWeekDate === null) return;
     let stale = false;
     setOtherDayEvents((known) => (known[outsideWeekDate] ? known : { ...known, [outsideWeekDate]: "loading" }));
-    fetch(`/api/schedule/catering-events?date=${outsideWeekDate}`, { cache: "no-store" })
+    fetch(`/api/schedule/events?date=${outsideWeekDate}`, { cache: "no-store" })
       .then(async (res) => {
         const j = await res.json().catch(() => ({}));
         if (stale) return;
@@ -220,17 +229,19 @@ export default function ScheduleBoard({
   const draftCurrentEvent = draft?.deal_id != null ? linkedEvents?.find((e) => e.id === draft.deal_id) ?? null : null;
   const draftFitting =
     draft && Array.isArray(draftEvents) ? fittingEvents(localInputShift(draft), draftEvents) : [];
-  const draftEventId =
+  const draftDropdown =
     draft && draftDate !== null && Array.isArray(draftEvents) && linkedEvents !== null
-      ? selectedEventId({
+      ? eventDropdown({
           pick: eventPick,
           currentDealId: draft.deal_id,
           currentEvent: draftCurrentEvent,
+          savedDate: draft.saved_date,
           date: draftDate,
           onDate: draftEvents,
           fitting: draftFitting,
         })
-      : undefined;
+      : null;
+  const draftEventId = draftDropdown?.selected;
 
   async function ack(id: number) {
     setAckingId(id);
@@ -255,8 +266,7 @@ export default function ScheduleBoard({
   // pick up). Managers: count all assigned coverage.
   const countedShifts = isManager ? weekShifts : weekShifts.filter((s) => s.employee_id);
   const weekHours = countedShifts.reduce((sum, s) => sum + shiftHours(s), 0);
-  // Manager only: shifts that look like they are for a catering event and have
-  // none. Worked out fresh from what this page loaded; nothing is written.
+  // Manager only: shifts that look like they are for an event and have none. Worked out fresh from what this page loaded; nothing is written.
   const badges = isManager && weekEvents ? eventBadges(weekShifts, weekEvents) : new Map<number, EventBadge>();
   const badgedShifts = weekShifts.filter((s) => badges.has(s.id));
   const weekCost = isManager
@@ -390,6 +400,7 @@ export default function ScheduleBoard({
       position: "",
       notes: "",
       deal_id: null,
+      saved_date: null,
     });
   }
 
@@ -409,6 +420,7 @@ export default function ScheduleBoard({
       position: s.position ?? "",
       notes: s.notes ?? "",
       deal_id: s.deal_id ?? null,
+      saved_date: shiftDate(s.starts_at),
     });
   }
 
@@ -502,7 +514,7 @@ export default function ScheduleBoard({
           <CheckWeekButton isManager={isManager} weekStart={weekStart} />
           {badgedShifts.length > 0 && (
             <button onClick={() => setEventListOpen(true)} className="px-2.5 py-1 text-sm rounded-md border border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/60">
-              Catering events to choose ({badgedShifts.length})
+              Events to choose ({badgedShifts.length})
             </button>
           )}
           {isManager && (
@@ -661,6 +673,7 @@ export default function ScheduleBoard({
           DAYS={DAYS}
           availability={availability}
           badges={badges}
+          eventNames={eventNames}
         />
       )}
 
@@ -704,6 +717,7 @@ export default function ScheduleBoard({
                       {s.position}
                     </div>
                   )}
+                  <EventName shift={s} names={eventNames} />
                   {s.notes && <div className="text-slate-600 dark:text-slate-400 italic mt-0.5">{s.notes}</div>}
                   {isManager && s.employee_id && (
                     <div className={s.acknowledged_at ? "text-emerald-400 mt-0.5" : "text-slate-500 mt-0.5"}>
@@ -796,8 +810,8 @@ export default function ScheduleBoard({
 
       {eventListOpen && (
         <Modal onClose={() => setEventListOpen(false)} className="max-w-md space-y-3">
-          <h2 className="font-semibold text-slate-900 dark:text-slate-100">Catering events to choose</h2>
-          <p className="text-xs text-slate-500">These Catering shifts don&apos;t say which event they are for yet. Open one, check the event, and save it.</p>
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">Events to choose</h2>
+          <p className="text-xs text-slate-500">These shifts don&apos;t say which event they are for yet. Open one, check the event, and save it.</p>
           <div className="space-y-2">
             {badgedShifts.map((s) => (
               <button
@@ -907,26 +921,23 @@ export default function ScheduleBoard({
           </div>
           {draftEvents !== null && (
             <div>
-              {draftEventId === undefined ? (
+              {!draftDropdown ? (
                 <div className="text-xs text-slate-500">
-                  {draftEvents === "loading" ? "Looking up that day's catering events…" : "Couldn't load that day's catering events. Saving won't change this shift's event."}
+                  {draftEvents === "loading" ? "Looking up that day's events…" : "Couldn't load this shift's events. Saving won't change its event."}
                 </div>
               ) : (
                 <>
-                  <label className="block text-xs text-slate-600 dark:text-slate-400">Catering event
+                  <label className="block text-xs text-slate-600 dark:text-slate-400">{eventFieldLabel(draft.position)}
                     <select
                       value={draftEventId ?? "none"}
                       onChange={(e) => setEventPick(e.target.value === "none" ? "none" : Number(e.target.value))}
                       className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100"
                     >
                       <option value="none">None</option>
-                      {(draftEvents as ScheduleEvent[]).map((ev) => <option key={ev.id} value={ev.id}>{eventOptionLabel(ev)}</option>)}
-                      {draftCurrentEvent && draftEventId === draftCurrentEvent.id && !(draftEvents as ScheduleEvent[]).some((ev) => ev.id === draftCurrentEvent.id) && (
-                        <option value={draftCurrentEvent.id}>{eventOptionLabel(draftCurrentEvent)}</option>
-                      )}
+                      {draftDropdown.options.map((ev) => <option key={ev.id} value={ev.id}>{eventOptionLabel(ev)}</option>)}
                     </select>
                   </label>
-                  {draftCurrentEvent && draftCurrentEvent.event_date !== draftDate && (
+                  {draftCurrentEvent && draftDate !== null && movedOffSavedEvent({ currentEvent: draftCurrentEvent, savedDate: draft.saved_date, date: draftDate }) && (
                     <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">This shift was on {draftCurrentEvent.name}, which is on another day. Saving takes it off that event.</div>
                   )}
                   {eventPick === null && draft.deal_id === null && draftEventId !== null && (
@@ -1007,6 +1018,7 @@ function ManagerMatrix({
   DAYS,
   availability,
   badges,
+  eventNames,
 }: {
   dates: string[];
   employees: Profile[];
@@ -1020,6 +1032,7 @@ function ManagerMatrix({
   DAYS: string[];
   availability: AvailabilityRow[];
   badges: Map<number, EventBadge>;
+  eventNames: Record<number, string>;
 }) {
   function cellShifts(date: string, employeeId: string | null) {
     return shiftsForDay(date).filter((s) =>
@@ -1049,6 +1062,7 @@ function ManagerMatrix({
       >
         <div className="font-medium whitespace-nowrap truncate">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
         {s.position && <div className="text-slate-500 truncate">{s.position}</div>}
+        <EventName shift={s} names={eventNames} />
         {s.employee_id && (
           <div className={`truncate ${s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}`}>
             {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
@@ -1136,6 +1150,13 @@ const LINE_TEXT: Record<CellLine["kind"], string> = {
   preferred: "text-sky-700/90 dark:text-sky-300/80",
   available: "text-emerald-700/90 dark:text-emerald-400/80",
 };
+
+// A linked shift's event, on its chip. No name, no line.
+function EventName({ shift, names }: { shift: ShiftWithEmployee; names: Record<number, string> }) {
+  const name = shift.deal_id != null ? names[shift.deal_id] : undefined;
+  if (!name) return null;
+  return <div title={name} className="truncate text-slate-700 dark:text-slate-300">{name}</div>;
+}
 
 function AvailabilityNote({ a }: { a: CellAvailability }) {
   if (a.state === "hours") {

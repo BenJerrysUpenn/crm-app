@@ -63,8 +63,8 @@ export type Shift = {
   acknowledged_at: string | null;
   created_at: string;
   updated_at: string;
-  // The catering event this shift is for: set on the shifts the CRM writes for
-  // a booked deal, and by a manager in the shift popup. A manager assigns these
+  // The event this shift is for: set on the shifts the CRM writes for a booked
+  // deal, and by a manager in the shift popup. A manager assigns these
   // (lib/managerAssigns.ts).
   deal_id?: number | null;
 };

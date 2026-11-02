@@ -439,6 +439,12 @@ describe("catering", () => {
       expect(lines([event], [satHandPlaced("14:00", "14:59")])).toEqual(gap);
     });
 
+    it("a marketing event with a person on any linked shift is not a gap: the reminder never reads the linked shift's position", () => {
+      const marketing = satDeal("14:00", "15:00", { stage: "Closed Marketing Event" });
+      expect(lines([marketing], [], [{ deal_id: 1, employee_id: "emp-1", published: true }])).toEqual([]);
+      expect(lines([marketing], [], [])).toEqual(["Sat Oct 24, 2:00–3:00 PM (catering)"]);
+    });
+
     it("an open shift linked to the event, and nobody else, is a gap", () => {
       const open = shift(sat24("13:00"), sat24("17:00"), { employee_id: null, position: "Catering", deal_id: 1 });
       const dealShifts = [{ deal_id: 1, employee_id: null, published: true }];

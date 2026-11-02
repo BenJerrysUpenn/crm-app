@@ -10,9 +10,10 @@ export const dynamic = "force-dynamic";
 // (see lib/supabase/admin.ts); this does.
 export const fetchCache = "force-no-store";
 
-// GET /api/schedule/catering-events?date=YYYY-MM-DD -> 200 { events }
-// The Catering event dropdown, for a shift moved to a date outside the week on
-// screen (the page already has that week's). Managers only. Read-only.
+// GET /api/schedule/events?date=YYYY-MM-DD -> 200 { events }
+// The event dropdown, for a shift moved to a date outside the week on screen (the
+// page already has that week's). Every position's events: the popup keeps the
+// ones its position takes. Managers only. Read-only.
 export async function GET(request: Request) {
   const profile = await getProfile();
   if (!profile || !isManager(profile))

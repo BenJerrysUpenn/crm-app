@@ -1,5 +1,5 @@
-// The Catering event selector and badge on the schedule: what the popup
-// preselects and which shifts get a badge. The saving side is
+// The event selector and badge on the schedule: which events each position takes,
+// what the popup preselects and which shifts get a badge. The saving side is
 // lib/shiftEventLink.test.ts.
 //
 //   npm test        (node --test; Node runs TypeScript directly)
@@ -11,7 +11,9 @@ import { loadAppModule } from "./testing/fakeSupabase.ts";
 import type * as Events from "./scheduleEvents.ts";
 
 const events = await loadAppModule<typeof Events>("lib/scheduleEvents.ts");
-const { eventBadge, eventBadges, eventBadgeText, eventOptionLabel, eventsOnDate, fittingEvents, isLinkableDeal, selectedEventId, toScheduleEvent } = events;
+const { eventBadge, eventBadges, eventBadgeText, eventChipName, eventDropdown, eventFieldLabel, eventKindOf, eventOptionLabel, eventsForPosition, eventsOnDate, fittingEvents, isLinkableDeal, movedOffSavedEvent, selectedEventId, toScheduleEvent } = events;
+const { isHandPlacedShift } = await loadAppModule<typeof import("./handPlacedCrew.ts")>("lib/handPlacedCrew.ts");
+const { MARKETING_POSITION } = await loadAppModule<typeof import("./payroll/verify.ts")>("lib/payroll/verify.ts");
 
 type Event = Events.ScheduleEvent;
 
@@ -19,9 +21,11 @@ function edt(date: string, hhmm: string) {
   return new Date(`${date}T${hhmm}:00-04:00`).toISOString();
 }
 
-const EVENT_A: Event = { id: 101, name: "Event A", event_date: "2026-10-23", event_start_time: "12:00", event_end_time: "14:00" };
-const EVENT_B: Event = { id: 102, name: "Event B", event_date: "2026-10-23", event_start_time: "13:00", event_end_time: "15:00" };
-const NEXT_DAY: Event = { id: 103, name: "Event C", event_date: "2026-10-24", event_start_time: "12:00", event_end_time: "14:00" };
+const EVENT_A: Event = { id: 101, name: "Event A", stage: "Booked Paid", event_date: "2026-10-23", event_start_time: "12:00", event_end_time: "14:00" };
+const EVENT_B: Event = { id: 102, name: "Event B", stage: "Booked Unpaid", event_date: "2026-10-23", event_start_time: "13:00", event_end_time: "15:00" };
+const NEXT_DAY: Event = { id: 103, name: "Event C", stage: "Booked Paid", event_date: "2026-10-24", event_start_time: "12:00", event_end_time: "14:00" };
+const MARKETING_A: Event = { id: 301, name: "Marketing A", stage: "Closed Marketing Event", event_date: "2026-10-23", event_start_time: "12:00", event_end_time: "14:00" };
+const MARKETING_B: Event = { id: 302, name: "Marketing B", stage: "Closed Marketing Event", event_date: "2026-10-23", event_start_time: "13:00", event_end_time: "15:00" };
 
 function shift(over: Partial<Events.BadgeShift & { id: number }> = {}) {
   return {
@@ -60,13 +64,42 @@ test("an event's label is its name and time", () => {
   assert.equal(eventOptionLabel({ ...EVENT_A, event_start_time: null }), "Event A · time not set");
 });
 
-test("Booked Unpaid, Booked Paid and Closed Marketing Event can be linked, archived or any other stage cannot", () => {
-  assert.equal(isLinkableDeal({ stage: "Booked Unpaid", archived: 0 }), true);
-  assert.equal(isLinkableDeal({ stage: "Booked Paid", archived: 0 }), true);
-  assert.equal(isLinkableDeal({ stage: "Closed Marketing Event", archived: 0 }), true);
-  assert.equal(isLinkableDeal({ stage: "Booked Paid", archived: 1 }), false);
-  assert.equal(isLinkableDeal({ stage: "Event Complete", archived: 0 }), false);
-  assert.equal(isLinkableDeal({ stage: "Sent Quote", archived: 0 }), false);
+test("a Catering shift can be linked at Booked Unpaid or Booked Paid; a marketing event, archived or any other stage cannot", () => {
+  assert.equal(isLinkableDeal({ stage: "Booked Unpaid", archived: 0 }, "Catering"), true);
+  assert.equal(isLinkableDeal({ stage: "Booked Paid", archived: 0 }, "Catering"), true);
+  assert.equal(isLinkableDeal({ stage: "Closed Marketing Event", archived: 0 }, "Catering"), false);
+  assert.equal(isLinkableDeal({ stage: "Booked Paid", archived: 1 }, "Catering"), false);
+  assert.equal(isLinkableDeal({ stage: "Event Complete", archived: 0 }, "Catering"), false);
+  assert.equal(isLinkableDeal({ stage: "Sent Quote", archived: 0 }, "Catering"), false);
+});
+
+test("a Marketing shift can be linked only at Closed Marketing Event", () => {
+  assert.equal(isLinkableDeal({ stage: "Closed Marketing Event", archived: 0 }, "Marketing"), true);
+  assert.equal(isLinkableDeal({ stage: "Closed Marketing Event", archived: 1 }, "Marketing"), false);
+  assert.equal(isLinkableDeal({ stage: "Booked Paid", archived: 0 }, "Marketing"), false);
+  assert.equal(isLinkableDeal({ stage: "Booked Unpaid", archived: 0 }, "Marketing"), false);
+  assert.equal(isLinkableDeal({ stage: "Event Complete", archived: 0 }, "Marketing"), false);
+});
+
+test("any other position can be linked at nothing", () => {
+  assert.equal(isLinkableDeal({ stage: "Booked Paid", archived: 0 }, "PENN Opener"), false);
+  assert.equal(isLinkableDeal({ stage: "Closed Marketing Event", archived: 0 }, null), false);
+});
+
+test("the position says which events are listed, and what the field is called", () => {
+  const all = [EVENT_A, EVENT_B, MARKETING_A, { ...EVENT_A, id: 400, stage: "Event Complete" }];
+  assert.deepEqual(eventsForPosition("Catering", all).map((e) => e.id), [101, 102]);
+  assert.deepEqual(eventsForPosition(" Marketing ", all).map((e) => e.id), [301]);
+  assert.deepEqual(eventsForPosition("PENN Opener", all), []);
+  assert.deepEqual(eventsForPosition("", all), []);
+  assert.equal(eventFieldLabel("Catering"), "Catering event");
+  assert.equal(eventFieldLabel("Marketing"), "Marketing event");
+  assert.equal(eventKindOf("PENN Opener"), null);
+  assert.equal(eventKindOf("Marketing Lead"), null);
+});
+
+test("Marketing is the word payroll reads as a Marketing shift", () => {
+  assert.equal(events.MARKETING_POSITION, MARKETING_POSITION);
 });
 
 test("an event's name is its own, then the company, then the venue", () => {
@@ -76,6 +109,23 @@ test("an event's name is its own, then the company, then the venue", () => {
   assert.equal(toScheduleEvent({ ...deal, company: null, venue_name: "Venue" })?.name, "Venue");
   assert.equal(toScheduleEvent(deal)?.name, "Catering event");
   assert.equal(toScheduleEvent({ ...deal, event_date: null }), null);
+});
+
+// --- the name on a linked shift's chip ------------------------------------------
+
+test("the chip's name is the company", () => {
+  assert.equal(eventChipName({ id: 1, company: "  Company  ", contact_first_name: "Pat", contact_last_name: "Test" }), "Company");
+});
+
+test("no company: the chip's name is the contact, with whichever parts there are", () => {
+  assert.equal(eventChipName({ id: 1, company: "  ", contact_first_name: " Pat ", contact_last_name: "Test" }), "Pat Test");
+  assert.equal(eventChipName({ id: 1, company: null, contact_first_name: "Pat", contact_last_name: null }), "Pat");
+  assert.equal(eventChipName({ id: 1, company: null, contact_first_name: null, contact_last_name: "Test" }), "Test");
+});
+
+test("neither a company nor a contact: no name", () => {
+  assert.equal(eventChipName({ id: 1, company: null, contact_first_name: "", contact_last_name: "  " }), null);
+  assert.equal(eventChipName({ id: 1 }), null);
 });
 
 // --- preselect ----------------------------------------------------------------
@@ -144,6 +194,71 @@ test("a choice made before the date changed does not follow the shift to another
   assert.equal(selectedEventId({ pick: 101, currentDealId: null, currentEvent: null, date: "2026-10-24", onDate: [NEXT_DAY], fitting: [] }), null);
 });
 
+// --- a saved link the day does not offer -----------------------------------------
+
+const SAVED_MARKETING: Event = { id: 300, name: "Marketing Event", stage: "Closed Marketing Event", event_date: "2026-10-23", event_start_time: "12:00", event_end_time: "14:00" };
+
+function dropdown(over: Partial<Parameters<typeof eventDropdown>[0]> = {}) {
+  return eventDropdown({ pick: null, currentDealId: 300, currentEvent: SAVED_MARKETING, date: "2026-10-23", onDate: [EVENT_A], fitting: [EVENT_A], ...over });
+}
+
+test("a Catering shift saved on a marketing event shows it, listed and selected, over a Booked event that fits", () => {
+  const shown = dropdown();
+  assert.equal(shown?.selected, 300);
+  assert.deepEqual(shown?.options.map((e) => e.id), [101, 300]);
+});
+
+test("that link can be changed, cleared, and gone back to before saving", () => {
+  assert.equal(dropdown({ pick: 101 })?.selected, 101);
+  assert.deepEqual(dropdown({ pick: 101 })?.options.map((e) => e.id), [101, 300]);
+  assert.equal(dropdown({ pick: "none" })?.selected, null);
+  assert.deepEqual(dropdown({ pick: "none" })?.options.map((e) => e.id), [101, 300]);
+  assert.equal(dropdown({ pick: 300 })?.selected, 300);
+});
+
+test("moved to another day: the saved event leaves the list, and the popup says so", () => {
+  const moved = dropdown({ date: "2026-10-24", onDate: [NEXT_DAY], fitting: [] });
+  assert.equal(moved?.selected, null);
+  assert.deepEqual(moved?.options.map((e) => e.id), [103]);
+});
+
+test("a saved event the day already lists is not listed twice", () => {
+  assert.deepEqual(dropdown({ currentDealId: 101, currentEvent: EVENT_A })?.options.map((e) => e.id), [101]);
+});
+
+test("a shift with no link lists only what the day offers", () => {
+  const shown = dropdown({ currentDealId: null, currentEvent: null });
+  assert.equal(shown?.selected, 101);
+  assert.deepEqual(shown?.options.map((e) => e.id), [101]);
+});
+
+test("a linked shift whose deal was not read gets no dropdown, so a save cannot clear it", () => {
+  assert.equal(dropdown({ currentEvent: null }), null);
+});
+
+test("a shift already off its event's date and not moved keeps showing the link, with nothing to warn about", () => {
+  const offDay = { ...SAVED_MARKETING, event_date: "2026-10-22" };
+  const unmoved = { currentEvent: offDay, savedDate: "2026-10-23", date: "2026-10-23" };
+  const shown = dropdown({ ...unmoved, onDate: [] });
+  assert.equal(shown?.selected, 300);
+  assert.deepEqual(shown?.options.map((e) => e.id), [300]);
+  assert.equal(movedOffSavedEvent(unmoved), false);
+});
+
+test("moved off its event's date in the popup: the link goes and the popup warns", () => {
+  const moved = { currentEvent: SAVED_MARKETING, savedDate: "2026-10-23", date: "2026-10-24" };
+  assert.equal(dropdown({ ...moved, onDate: [], fitting: [] })?.selected, null);
+  assert.equal(movedOffSavedEvent(moved), true);
+  assert.equal(movedOffSavedEvent({ ...moved, date: "2026-10-23" }), false);
+});
+
+test("a past Marketing shift whose deal is now Event Complete shows that saved link", () => {
+  const finished = { ...MARKETING_A, stage: "Event Complete" };
+  const shown = eventDropdown({ pick: null, currentDealId: 301, currentEvent: finished, savedDate: "2026-10-23", date: "2026-10-23", onDate: [], fitting: [] });
+  assert.equal(shown?.selected, 301);
+  assert.deepEqual(shown?.options.map((e) => e.id), [301]);
+});
+
 // --- the badge ----------------------------------------------------------------
 
 test("one event fits: the badge suggests it", () => {
@@ -172,6 +287,43 @@ test("only a published Catering shift with a person and no link gets a badge", (
   assert.equal(eventBadge(shift({ employee_id: null }), [EVENT_A]), null);
   assert.equal(eventBadge(shift({ position: "PENN Opener" }), [EVENT_A]), null);
   assert.equal(eventBadge(shift({ published: false }), [EVENT_A]), null);
+});
+
+test("a Marketing shift's badge looks only at marketing events", () => {
+  const marketing = shift({ position: "Marketing" });
+  const one = eventBadge(marketing, [EVENT_A, MARKETING_A]);
+  assert.equal(one?.kind === "suggest" && one.event.id, 301);
+  assert.equal(eventBadge(marketing, [MARKETING_A, MARKETING_B])?.kind, "choose");
+  assert.equal(eventBadge(marketing, [EVENT_A]), null);
+  assert.equal(eventBadge(shift({ position: " Marketing " }), [MARKETING_A])?.kind, "suggest");
+});
+
+test("a Catering shift's badge looks only at booked events", () => {
+  const one = eventBadge(shift(), [EVENT_A, MARKETING_A]);
+  assert.equal(one?.kind === "suggest" && one.event.id, 101);
+  assert.equal(eventBadge(shift(), [MARKETING_A]), null);
+});
+
+test("only a published Marketing shift with a person and no link gets a badge", () => {
+  const marketing = { position: "Marketing" };
+  assert.equal(eventBadge(shift({ ...marketing, deal_id: 301 }), [MARKETING_A]), null);
+  assert.equal(eventBadge(shift({ ...marketing, employee_id: null }), [MARKETING_A]), null);
+  assert.equal(eventBadge(shift({ ...marketing, published: false }), [MARKETING_A]), null);
+});
+
+test("the Marketing badge is its own path: a Marketing shift is still not hand-placed crew", () => {
+  const marketing = shift({ position: "Marketing" });
+  assert.notEqual(eventBadge(marketing, [MARKETING_A]), null);
+  assert.equal(isHandPlacedShift(marketing), false);
+});
+
+test("a Marketing shift preselects the one marketing event it covers, and two start at None", () => {
+  const marketing = shift({ position: "Marketing" });
+  const pickFrom = (onDate: Event[]) =>
+    selectedEventId({ pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: fittingEvents(marketing, onDate) });
+  assert.equal(pickFrom(eventsForPosition("Marketing", [EVENT_A, MARKETING_A])), 301);
+  assert.equal(pickFrom(eventsForPosition("Marketing", [MARKETING_A, MARKETING_B])), null);
+  assert.equal(pickFrom(eventsForPosition("Marketing", [EVENT_A])), null);
 });
 
 test("a row with no deal_id field reads as unlinked", () => {

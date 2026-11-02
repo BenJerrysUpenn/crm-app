@@ -35,10 +35,9 @@ export const fetchCache = "force-no-store";
 // that touches neither — notes, location — is not re-asked, so a
 // shift the manager already confirmed does not nag on every save.
 //
-// deal_id is the shift's Catering event (lib/shiftEventLink.ts): an event's id
-// links it on a free deal_slot, null clears both. Without it the link stays,
-// unless a Catering shift moved to a date that is not its event's, which clears
-// it. An edit that changes nothing but the event tells nobody: the person's
+// deal_id is the shift's event (lib/shiftEventLink.ts): an event's id links it on
+// a free deal_slot, null clears both. Without it the link stays, unless a Catering
+// or Marketing shift moved to a date that is not its event's, which clears it. An edit that changes nothing but the event tells nobody: the person's
 // shift has not changed for them.
 export async function PATCH(
   request: Request,

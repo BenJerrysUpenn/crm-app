@@ -561,34 +561,55 @@ Gmail send) is also emailed to the fixed failure address with the subject
 run in a read-only transaction. Where it runs: bj-box, from
 `bj-coverage-reminder.timer` (Software-Factory `droplet/systemd/`).
 
-## Catering event on a shift (time app)
+## Event on a shift (time app)
 A shift added on the Schedule page says which event it is for through
 `shifts.deal_id`, the same column the shifts made for a booked deal carry. Managers
-and owners set it in the shift popup. When the position is Catering, a "Catering
-event" dropdown lists the shift's New York date's events (deals at Booked Unpaid,
-Booked Paid or Closed Marketing Event, `archived = 0`) and None. If exactly one
-event fits, by the covers-the-whole-event rule in `time-app/lib/handPlacedCrew.ts`,
-it is preselected; nothing is written until the save. A date outside the week on
-screen is read from `GET /api/schedule/catering-events`.
+and owners set it in the shift popup. The position says which events the dropdown
+lists for the shift's New York date, with `archived = 0`, plus None:
+
+| Position | Field | Deal stages listed |
+| --- | --- | --- |
+| Catering | Catering event | Booked Unpaid, Booked Paid |
+| Marketing | Marketing event | Closed Marketing Event |
+| Any other | No dropdown | |
+
+If exactly one listed event fits, by the covers-the-whole-event rule in
+`time-app/lib/handPlacedCrew.ts`, it is preselected; nothing is written until the
+save. A date outside the week on screen is read from `GET /api/schedule/events`.
 
 Saving writes `deal_id` and the next free `deal_slot`; None clears both. Moving a
-linked Catering shift to a date that is not its event's clears both, in the popup
-and on the server. A save that changes only the event tells nobody. A linked shift
-is one only a manager can assign (`time-app/lib/managerAssigns.ts`).
+linked Catering or Marketing shift to a date that is not its event's clears both, in
+the popup and on the server. A save that changes only the event tells nobody. A
+linked shift is one only a manager can assign (`time-app/lib/managerAssigns.ts`).
 
-A Catering shift with a person, no `deal_id` and an event it fits gets a badge on
-the schedule: it suggests the one event, or says to choose between several. The
-count sits on a "Catering events to choose" button in the schedule's toolbar, which
-lists the shifts. The badge is worked out each time the schedule loads, for the week
-on screen, and writes nothing: every link goes through the popup and a save, one
-shift at a time. Nothing records a None, so a shift saved as None that fits an event
-keeps its badge. Logic: `time-app/lib/scheduleEvents.ts` (pure) and
+A saved link stays through any save that does not change it, whatever the deal's
+stage is now. A past Marketing shift whose deal is at Event Complete, or a Catering
+shift linked to a marketing event, still shows that event in its dropdown, and the
+manager can change it.
+
+A Catering or Marketing shift with a person, no `deal_id` and an event it fits gets a
+badge on the schedule: it suggests the one event, or says to choose between several.
+The count sits on an "Events to choose" button in the schedule's toolbar, which lists
+the shifts. The badge is worked out each time the schedule loads, for the week on
+screen, and writes nothing: every link goes through the popup and a save, one shift
+at a time. Nothing records a None, so a shift saved as None that fits an event keeps
+its badge. The Marketing side of the badge is its own path in `scheduleEvents.ts`:
+the hand-placed rule stays Catering-only, so the coverage reminder and the reconciler
+count what they counted. Logic: `time-app/lib/scheduleEvents.ts` (pure) and
 `time-app/lib/shiftEventLink.ts` (reads and writes).
 
-Link the whole crew. Payroll reads only the linked shifts with a person once any
-Catering shift on the deal has one (`time-app/lib/payroll/verify.ts` `eventShifts`,
-bj-finance `modules/tips.py` `event_crew`), so until the rest of the crew is linked
-payroll sees only the linked people on that event.
+Every shift with a `deal_id` shows its event's name on its schedule chip: the deal's
+company, else the contact's name, truncated when long. Staff see it on the shifts
+they can see, as the names already sit in those shifts' notes. Staff sessions cannot
+read `deals`, so `loadEventNames` reads through the service role, for the deal ids on
+the shifts that person was just allowed to read, and only the names reach the browser.
+
+What a link means elsewhere: payroll reads only the linked shifts with a person once
+any Catering shift on the deal has one (`time-app/lib/payroll/verify.ts`
+`eventShifts`, bj-finance `modules/tips.py` `event_crew`), so a manager links the
+whole crew by hand. A Marketing shift linked to a deal makes it a marketing event,
+exempt from the crew card (`isMarketingEvent`). The coverage reminder treats any deal
+with a person on a linked shift as staffed, whatever that shift's position.
 
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
@@ -610,7 +631,7 @@ one person on a shift spanning two overlapping events skips both, and the
 reminder, which gives one shift to one event, still lists one as a gap. A failed
 read fails that deal, never reads as "nobody placed". A deal with any linked shift
 is left alone, shifts are never updated or deleted, and the reconciler never writes
-`deal_id` onto a hand-placed shift. A manager can (see "Catering event on a shift"
+`deal_id` onto a hand-placed shift. A manager can (see "Event on a shift"
 below): that shift then counts as linked, so the deal is left alone from then on and
 no more open shifts are made for it, however many of its crew are still unlinked.
 

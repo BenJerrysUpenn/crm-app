@@ -9,7 +9,7 @@ import type { AvailabilityRow } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { loadScheduleLabor, type ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
 import { nyToday } from "@/lib/metrics/dates";
-import { loadLinkedEvents, loadScheduleEvents } from "@/lib/shiftEventLink";
+import { loadEventNames, loadLinkedEvents, loadScheduleEvents } from "@/lib/shiftEventLink";
 import type { ScheduleEvent } from "@/lib/scheduleEvents";
 
 export const dynamic = "force-dynamic";
@@ -118,15 +118,19 @@ export default async function SchedulePage({
     availability = load.ok ? load.rows : [];
   }
 
-  // Manager only: the week's catering events, for the Catering event dropdown
-  // and the badges (lib/scheduleEvents.ts). Staff never get these. A failed read
+  // Everyone: the event names on linked shifts' chips, for the shifts this person
+  // was just allowed to read. Only the names reach the browser.
+  const linkedIds = Array.from(
+    new Set(((shifts as ShiftWithEmployee[]) ?? []).map((s) => s.deal_id).filter((id): id is number => id != null)),
+  );
+  const eventNames = await loadEventNames(linkedIds);
+
+  // Manager only: the week's events, for the popup's event dropdown and the
+  // badges (lib/scheduleEvents.ts). Staff never get these. A failed read
   // is null, which shows no badge and leaves every link alone.
   let weekEvents: ScheduleEvent[] | null = [];
   let linkedEvents: ScheduleEvent[] | null = [];
   if (isManager) {
-    const linkedIds = Array.from(
-      new Set(((shifts as ShiftWithEmployee[]) ?? []).map((s) => s.deal_id).filter((id): id is number => id != null)),
-    );
     [weekEvents, linkedEvents] = await Promise.all([
       loadScheduleEvents(supabase, weekStart, addDays(weekStart, 6)),
       loadLinkedEvents(supabase, linkedIds),
@@ -170,6 +174,7 @@ export default async function SchedulePage({
             labor={labor}
             weekEvents={weekEvents}
             linkedEvents={linkedEvents}
+            eventNames={eventNames}
           />
         </div>
       </main>

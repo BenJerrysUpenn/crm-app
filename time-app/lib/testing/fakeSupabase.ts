@@ -38,7 +38,8 @@
 // the row is stamped with the caller and the database clock; concession_events
 // (migration 47) the same. store_hours_seasons (migration 47):
 // anyone signed in reads, only an owner writes. Every other table is readable
-// by any signed-in caller.
+// by any signed-in caller, except deals, which a session reads only as a manager
+// (supabase/crm/004_call_desk_perf.sql).
 //
 // Storage (migration 37's travel-reimbursements bucket) is faked too: signed
 // upload URLs, signed read URLs and downloads, under the bucket's policies
@@ -259,7 +260,7 @@ const MANAGER_OWN_ROWS: Record<string, string> = { metric_views: "owner_id", met
 function canRead(table: string, caller: Caller, row: Row): boolean {
   if (caller.kind === "service") return true;
   if (caller.kind === "anon" || SERVICE_ONLY.includes(table)) return false;
-  if (OWNER_ADDS.includes(table)) return isManager(caller);
+  if (OWNER_ADDS.includes(table) || table === "deals") return isManager(caller);
   const managerOwner = MANAGER_OWN_ROWS[table];
   if (managerOwner) return row[managerOwner] === caller.id && isManager(caller);
   const owner = OWN_ROWS[table];

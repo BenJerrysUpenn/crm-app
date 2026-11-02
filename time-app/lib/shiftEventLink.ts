@@ -1,4 +1,4 @@
-// Saving the Catering event on a shift: shifts.deal_id and a free deal_slot.
+// Saving the event on a shift: shifts.deal_id and a free deal_slot.
 // The shift routes (app/api/shifts) call this after their manager gate. The
 // reading side and the words are lib/scheduleEvents.ts.
 //
@@ -7,15 +7,19 @@
 // changing anything else, so a staff session cannot set deal_id through /rest/v1.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isCateringPosition } from "./handPlacedCrew";
 import { nextDealSlot } from "./payroll/eventShift";
+import { createAdminClient } from "./supabase/admin";
 import {
   EVENT_DEAL_COLUMNS,
+  EVENT_NAME_COLUMNS,
   EVENT_STAGES,
+  eventChipName,
+  eventKindOf,
   isLinkableDeal,
   shiftDate,
   toScheduleEvent,
   type EventDeal,
+  type EventNameDeal,
   type ScheduleEvent,
 } from "./scheduleEvents";
 
@@ -40,12 +44,13 @@ const UNREADABLE: EventLinkPlan = { ok: false, status: 503, error: "Couldn't rea
 /**
  * Decide the link from what was asked and the shift as it will be.
  *
- * deal_id in the body: None clears, an event is checked (Catering only, a live
- * booked event, on the shift's New York date). No deal_id in the body: the link
- * stays, unless a Catering shift moved to a date that is not its event's. That
- * case is here as well as in the popup so no caller can leave a shift pointing
- * at another day's event. Other positions are left alone: a Marketing shift
- * linked to its deal is what marks a marketing event (lib/payroll/verify.ts).
+ * deal_id in the body: None clears, an event is checked (a Catering shift takes a
+ * live booked event, a Marketing shift a live marketing event, on the shift's New
+ * York date). Asking for the event it already has, on the same date, keeps it at
+ * any stage. No deal_id in the body: the link stays, unless a Catering or Marketing
+ * shift moved to a date that is not its event's. That case is here as well as in
+ * the popup so no caller can leave such a shift pointing at another day's event.
+ * Other positions are left alone.
  */
 export async function planEventLink(
   supabase: SupabaseClient,
@@ -63,7 +68,7 @@ export async function planEventLink(
   if (requested === null) return { ok: true, link: currentDeal === null ? { kind: "keep" } : { kind: "clear" } };
 
   if (requested === undefined) {
-    if (currentDeal === null || !isCateringPosition(position)) return { ok: true, link: { kind: "keep" } };
+    if (currentDeal === null || eventKindOf(position) === null) return { ok: true, link: { kind: "keep" } };
     if (before && shiftDate(before.starts_at) === afterDate) return { ok: true, link: { kind: "keep" } };
     const { data, error } = await supabase.from("deals").select("id, event_date").eq("id", currentDeal).maybeSingle();
     if (error) return UNREADABLE;
@@ -71,13 +76,13 @@ export async function planEventLink(
     return { ok: true, link: stillOnIt ? { kind: "keep" } : { kind: "clear" } };
   }
 
-  if (!isCateringPosition(position)) return { ok: false, status: 400, error: "Only a Catering shift can be on a catering event." };
+  if (eventKindOf(position) === null) return { ok: false, status: 400, error: "Only a Catering or Marketing shift can be on an event." };
   if (requested === currentDeal && before && shiftDate(before.starts_at) === afterDate) return { ok: true, link: { kind: "keep" } };
 
   const { data, error } = await supabase.from("deals").select(EVENT_DEAL_COLUMNS).eq("id", requested).maybeSingle();
   if (error) return UNREADABLE;
   const deal = data as EventDeal | null;
-  if (!deal || !isLinkableDeal(deal)) return { ok: false, status: 400, error: "That event isn't booked any more." };
+  if (!deal || !isLinkableDeal(deal, position)) return { ok: false, status: 400, error: "That event can't be chosen for this shift." };
   if (deal.event_date?.slice(0, 10) !== afterDate) return { ok: false, status: 400, error: "That event is on a different day from this shift." };
   return { ok: true, link: { kind: "link", dealId: requested } };
 }
@@ -131,4 +136,23 @@ export async function loadLinkedEvents(supabase: SupabaseClient, dealIds: number
   if (dealIds.length === 0) return [];
   const { data, error } = await supabase.from("deals").select(EVENT_DEAL_COLUMNS).in("id", dealIds);
   return error ? null : toEvents(data);
+}
+
+/**
+ * The name to show on each linked shift's chip, by deal id. Pass only the ids on
+ * shifts the viewer can already see. A staff session cannot read deals (policy in
+ * supabase/crm/004_call_desk_perf.sql), so this reads through the service role and
+ * hands back the names and nothing else of the deal. A deal that is missing or has
+ * no name is left out, and a failed read is no names: the chip goes without.
+ */
+export async function loadEventNames(dealIds: number[]): Promise<Record<number, string>> {
+  if (dealIds.length === 0) return {};
+  const { data, error } = await createAdminClient().from("deals").select(EVENT_NAME_COLUMNS).in("id", dealIds);
+  if (error) return {};
+  const names: Record<number, string> = {};
+  for (const deal of (data ?? []) as EventNameDeal[]) {
+    const name = eventChipName(deal);
+    if (name) names[deal.id] = name;
+  }
+  return names;
 }

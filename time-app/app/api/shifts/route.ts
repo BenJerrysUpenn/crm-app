@@ -16,7 +16,7 @@ export const fetchCache = "force-no-store";
 // POST: create a shift (manager only). Body: employee_id, starts_at, ends_at,
 // position, notes, location_id, confirmLong, deal_id.
 //
-// deal_id is the shift's Catering event: it is checked and given a free
+// deal_id is the shift's event: it is checked and given a free
 // deal_slot by lib/shiftEventLink.ts. Absent or null, the shift has no event.
 //
 // There are no drafts: every shift is written live (published = true). An

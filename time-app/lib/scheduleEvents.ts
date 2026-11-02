@@ -1,25 +1,50 @@
-// The Catering event on a shift, as the schedule works it out (Alina,
-// 2026-11-02). Adding a shift on the Schedule page is the main way catering
-// crew get scheduled, and shifts.deal_id is what ties a shift to its event.
+// The event on a shift, as the schedule works it out (Alina, 2026-11-02). Adding a
+// shift on the Schedule page is the main way crew get scheduled, and
+// shifts.deal_id is what ties a shift to its event.
+//
+// The position says which events: a Catering shift takes a booked catering event,
+// a Marketing shift its marketing event, and any other position none.
 //
 // A manager links a shift to an event in the shift popup, one shift at a time.
-// When a Catering shift with a person has no link and an event it fits, a badge
-// on the schedule says so. The badge is worked out here each time the schedule
-// loads and never writes anything. "Fits" is the covers-the-whole-event rule in
+// When such a shift with a person has no link and an event it fits, a badge on
+// the schedule says so. The badge is worked out here each time the schedule loads
+// and never writes anything. "Fits" is the covers-the-whole-event rule in
 // lib/handPlacedCrew.ts; this file has no second one.
 //
 // Pure, so `node --test` runs it and the browser can use it. The writing side is
 // lib/shiftEventLink.ts.
 
 import { formatClock, nyWallClock, parseTime } from "./coverage";
-import { eventSpan, isHandPlacedShift, shiftSpan, spanCovers, type CrewShift } from "./handPlacedCrew";
+import { eventSpan, isCateringPosition, isHandPlacedShift, shiftSpan, spanCovers, type CrewShift } from "./handPlacedCrew";
+
+/** The word lib/payroll/verify.ts reads as a Marketing shift. */
+export const MARKETING_POSITION = "Marketing";
+
+export type EventKind = "catering" | "marketing";
 
 /**
- * The deal stages a shift can be linked at: an event that is happening. The same
- * list as ALERT_STAGES in root lib/coverageReminder.ts; the two apps cannot share
- * a constant in that direction, so change them together.
+ * The deal stages each kind of shift can be linked at, and the only ones the
+ * dropdown and the badge offer it. A shift already linked to a deal at another
+ * stage keeps that link: see eventDropdown.
  */
-export const EVENT_STAGES = ["Booked Unpaid", "Booked Paid", "Closed Marketing Event"];
+const STAGES_BY_KIND: Record<EventKind, string[]> = {
+  catering: ["Booked Unpaid", "Booked Paid"],
+  marketing: ["Closed Marketing Event"],
+};
+
+/** Every stage a schedule read needs. eventsForPosition then splits them by position. */
+export const EVENT_STAGES = [...STAGES_BY_KIND.catering, ...STAGES_BY_KIND.marketing];
+
+/** Which events this position takes; null for one with no dropdown and no badge. Surrounding spaces do not count. */
+export function eventKindOf(position: unknown): EventKind | null {
+  if (isCateringPosition(position)) return "catering";
+  return typeof position === "string" && position.trim() === MARKETING_POSITION ? "marketing" : null;
+}
+
+/** What the popup calls the dropdown for this position. */
+export function eventFieldLabel(position: unknown): string {
+  return eventKindOf(position) === "marketing" ? "Marketing event" : "Catering event";
+}
 
 /** The deal columns the schedule reads, and nothing else. */
 export const EVENT_DEAL_COLUMNS = "id, event_name, company, venue_name, event_date, event_start_time, event_end_time, stage, archived";
@@ -36,17 +61,35 @@ export type EventDeal = {
   archived: number | null;
 };
 
+/** The deal columns a linked shift's chip name comes from, and nothing else. */
+export const EVENT_NAME_COLUMNS = "id, company, contact_first_name, contact_last_name";
+
+export type EventNameDeal = {
+  id: number;
+  company?: string | null;
+  contact_first_name?: string | null;
+  contact_last_name?: string | null;
+};
+
 export type ScheduleEvent = {
   id: number;
   name: string;
+  stage: string | null;
   event_date: string;
   event_start_time: string | null;
   event_end_time: string | null;
 };
 
-/** Can a shift be linked to this deal? */
-export function isLinkableDeal(deal: Pick<EventDeal, "stage" | "archived">): boolean {
-  return EVENT_STAGES.includes(deal.stage ?? "") && deal.archived === 0;
+/** Can a shift at this position be linked to this deal? */
+export function isLinkableDeal(deal: Pick<EventDeal, "stage" | "archived">, position: unknown): boolean {
+  const kind = eventKindOf(position);
+  return kind !== null && STAGES_BY_KIND[kind].includes(deal.stage ?? "") && deal.archived === 0;
+}
+
+/** The events a shift at this position can be offered. */
+export function eventsForPosition(position: unknown, events: ScheduleEvent[]): ScheduleEvent[] {
+  const kind = eventKindOf(position);
+  return kind === null ? [] : events.filter((e) => STAGES_BY_KIND[kind].includes(e.stage ?? ""));
 }
 
 /** A deal as the schedule shows it. Null when it has no date to sit on. */
@@ -57,10 +100,17 @@ export function toScheduleEvent(deal: EventDeal): ScheduleEvent | null {
   return {
     id: deal.id,
     name: name || "Catering event",
+    stage: deal.stage,
     event_date: date,
     event_start_time: deal.event_start_time,
     event_end_time: deal.event_end_time,
   };
+}
+
+/** The name on a linked shift's chip: the company, else the contact. Null when a deal has neither. */
+export function eventChipName(deal: EventNameDeal): string | null {
+  const contact = [deal.contact_first_name, deal.contact_last_name].map((n) => n?.trim()).filter(Boolean).join(" ");
+  return deal.company?.trim() || contact || null;
 }
 
 /** "6:00 PM–9:00 PM", "6:00 PM", or "time not set". */
@@ -109,24 +159,62 @@ export type EventPick = number | "none" | null;
  * What the dropdown holds right now.
  *
  * Someone's own choice comes first, while it is still on the shift's date. Then
- * the event the shift is already linked to, unless it is on another day: a shift
- * moved off its event's date must not stay pointing at it. Then the one event
- * that fits, if exactly one does. Two or more is the manager's call, and so is
- * none, so both start at None.
+ * the event the shift is already linked to, unless this popup moved it onto a day
+ * that is not the event's: a shift moved off its event's date must not stay
+ * pointing at it, and a shift not moved has its link left alone. Then the one
+ * event that fits, if exactly one does. Two or more is the manager's call, and so
+ * is none, so both start at None.
  */
 export function selectedEventId(input: {
   pick: EventPick;
   currentDealId: number | null;
   /** The linked deal as read, at any stage. Null when there is none or it is gone. */
   currentEvent: ScheduleEvent | null;
+  /** The date the shift is saved on. Absent on a new shift. */
+  savedDate?: string | null;
   date: string;
   onDate: ScheduleEvent[];
   fitting: ScheduleEvent[];
 }): number | null {
   if (input.pick === "none") return null;
   if (typeof input.pick === "number" && input.onDate.some((e) => e.id === input.pick)) return input.pick;
-  if (input.currentDealId !== null && input.currentEvent?.event_date === input.date) return input.currentDealId;
+  if (input.currentDealId !== null && savedLinkStands(input)) return input.currentDealId;
   return input.fitting.length === 1 ? input.fitting[0].id : null;
+}
+
+/** Is the saved event still the shift's at this date: on that date, or the shift not moved? */
+function savedLinkStands(input: { currentEvent: ScheduleEvent | null; savedDate?: string | null; date: string }): boolean {
+  return input.currentEvent !== null && (input.currentEvent.event_date === input.date || input.savedDate === input.date);
+}
+
+/** Will a save take the shift off its saved event because it moved to another day? */
+export function movedOffSavedEvent(input: { currentEvent: ScheduleEvent | null; savedDate?: string | null; date: string }): boolean {
+  return input.currentEvent !== null && !savedLinkStands(input);
+}
+
+/**
+ * The dropdown for a shift: what it lists and what it holds. The list is the
+ * day's events for its position plus, while it stands, the event the shift is
+ * saved on when that is not one on offer (a finished one, or a Catering shift's
+ * marketing event), so the link is shown, can be changed, and can be gone back to.
+ *
+ * Null for a linked shift whose deal was not read (gone, or with no date to sit
+ * on). There is nothing to show, and a dropdown would read as None and clear it,
+ * so the popup leaves the link alone.
+ */
+export function eventDropdown(input: {
+  pick: EventPick;
+  currentDealId: number | null;
+  currentEvent: ScheduleEvent | null;
+  savedDate?: string | null;
+  date: string;
+  onDate: ScheduleEvent[];
+  fitting: ScheduleEvent[];
+}): { selected: number | null; options: ScheduleEvent[] } | null {
+  const { currentDealId, currentEvent, onDate } = input;
+  if (currentDealId !== null && currentEvent === null) return null;
+  const notOnOffer = currentEvent !== null && savedLinkStands(input) && !onDate.some((e) => e.id === currentEvent.id);
+  return { selected: selectedEventId(input), options: notOnOffer ? [...onDate, currentEvent] : onDate };
 }
 
 /** A shift as the badge reads it. A row can come back without deal_id. */
@@ -137,16 +225,27 @@ export type EventBadge =
   | { kind: "choose"; events: ScheduleEvent[] };
 
 /**
- * The badge on a shift: a Catering shift with a person and no link that fits at
- * least one event. It judges the shift alone. Whether a colleague on the same
- * event is already linked changes nothing, so the rest of a crew stays badged
- * until each of them is done.
+ * The badge on a shift: a Catering or Marketing shift with a person and no link
+ * that fits at least one event of its kind. It judges the shift alone. Whether a
+ * colleague on the same event is already linked changes nothing, so the rest of a
+ * crew stays badged until each of them is done.
  */
 export function eventBadge(shift: BadgeShift, events: ScheduleEvent[]): EventBadge | null {
-  if (!isHandPlacedShift({ ...shift, deal_id: shift.deal_id ?? null })) return null;
-  const fits = fittingEvents(shift, events);
+  if (!wantsEventBadge(shift)) return null;
+  const fits = fittingEvents(shift, eventsForPosition(shift.position, events));
   if (fits.length === 0) return null;
   return fits.length === 1 ? { kind: "suggest", event: fits[0] } : { kind: "choose", events: fits };
+}
+
+/**
+ * Catering goes by isHandPlacedShift. Marketing is the same test written out here,
+ * not added to that rule: the noon reminder and the shift reconciler also read it,
+ * and a Marketing shift covers nothing for them.
+ */
+function wantsEventBadge(shift: BadgeShift): boolean {
+  const row = { ...shift, deal_id: shift.deal_id ?? null };
+  if (eventKindOf(shift.position) === "marketing") return row.published && !!row.employee_id && row.deal_id === null;
+  return isHandPlacedShift(row);
 }
 
 /** Every badged shift's badge, by shift id. Its size is the count on the button. */
