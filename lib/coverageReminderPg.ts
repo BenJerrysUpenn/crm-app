@@ -64,7 +64,7 @@ function pgReminderStore(sql: postgres.TransactionSql): ReminderStore {
         // event_date is text (YYYY-MM-DD); every stage, the rule is applied in code.
         jsonRows<ReminderDeal>(sql`
           select to_json(d) as row from (
-            select id, stage, archived, event_date, event_start_time, event_end_time from public.deals
+            select id, stage, archived, event_date, event_start_time, event_end_time, staff_count from public.deals
             where event_date >= ${window.start} and event_date <= ${window.end}
             order by id
           ) d`),

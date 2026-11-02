@@ -533,7 +533,10 @@ crew by hand: a published Catering shift with a person and no `deal_id` that
 spans the whole event in New York time (or, with no end time, spans its start).
 A partial overlap does not cover, a shift linked to another deal never counts,
 and one hand-placed shift counts toward one event only, taken in time order. An
-event with no start time stays a gap. Crew size is not checked. Recipients are
+event with no start time stays a gap. A deal with `staff_count` exactly 0 needs
+nobody (a customer pickup at the store): it is never listed and takes no
+hand-placed shift. A `staff_count` that is not set is checked like any other
+event. Crew size is not otherwise checked. Recipients are
 read from the database (`profiles` joined to `auth.users`): every owner, leaving
 out anyone archived or banned. Managers do not get this email (owner decision,
 2026-11-02). Logic: `lib/coverageReminder.ts`, with the hand-placed rule in

@@ -77,6 +77,8 @@ export type ReminderDeal = {
   event_date: string | null;
   event_start_time: string | null;
   event_end_time: string | null;
+  /** Exactly 0 means the deal needs nobody, such as a customer pickup. NULL means no count was recorded. */
+  staff_count: number | null;
 };
 
 /** A shift that belongs to a catering deal (shifts.deal_id). */
@@ -151,6 +153,8 @@ function coveredByHandPlacedShifts(
  * spans it (coveredByHandPlacedShifts). A partial overlap does not cover. A deal
  * with no shifts at all (no picklist yet, or the reconciler counted its crew as
  * placed by hand and made none) and no hand-placed shift left for it is a gap.
+ * A deal with a staff count of exactly 0 needs nobody: it is never a gap and
+ * takes no hand-placed shift. No count recorded (NULL) is checked as usual.
  */
 function cateringLines(snapshot: ReminderSnapshot, window: ReminderWindow): Line[] {
   const linked = new Set(
@@ -160,6 +164,7 @@ function cateringLines(snapshot: ReminderSnapshot, window: ReminderWindow): Line
     const date = deal.event_date;
     if (!date || date < window.start || date > window.end) return [];
     if (!ALERT_STAGES.includes(deal.stage) || deal.archived !== 0 || linked.has(deal.id)) return [];
+    if (deal.staff_count === 0) return [];
     return [{ ...deal, event_date: date }];
   });
   const handPlaced = coveredByHandPlacedShifts(booked, snapshot.shifts);
