@@ -16,7 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // shift already exists for that deal. That makes the endpoint safe to call on
 // any transition into Booked Unpaid without ever double-creating.
 
-const CATERING_POSITION = "Catering";
+export const CATERING_POSITION = "Catering";
 const PRE_DEPARTURE_MIN = 60; // start this many minutes before departure
 const DEFAULT_STAFF = 1;
 const DEFAULT_LABOR_HOURS = 4;

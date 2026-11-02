@@ -463,7 +463,7 @@ availability answers 503 with a message.
   an in-app row on each scheduler's bell and queues the dates or weekdays whose blocks changed in
   `availability_notices`. The same 8pm cron claims the day's queue once
   (`claim_availability_digest`) and emails each scheduler one list, by person. Schedulers: every
-  owner plus every active manager, not archived or banned (the coverage reminder's rule). Off with
+  owner plus every active manager, not archived or banned. Off with
   notif_prefs `availability_change` or `email`. Time-off requests, a scheduler's own changes and a
   manager's edits to someone else's rows are left out.
 - **Repeat-until** (`lib/repeatUntil.ts`): `availability.repeat_until` is the last date, inclusive,
@@ -507,10 +507,10 @@ migration 51 missing, or a failed step; each printed), 2 = bad argument or no `D
 Neither token is ever printed or put on a command line.
 
 ## Schedule coverage reminder (droplet command)
-Every day at noon ET, emails the owners and on-schedule managers every staffed
-store hour (open hours plus the open-up and close-down minutes on the Targets
-tab) and every booked catering event in two Sun–Sat weeks that nobody is
-scheduled for (bj-finance #709, daily since #753). No gaps, no email. The two
+Every day at noon ET, emails the owners every staffed store hour (open hours
+plus the open-up and close-down minutes on the Targets tab) and every booked
+catering event in two Sun–Sat weeks that nobody is scheduled for (bj-finance
+#709, daily since #753). No gaps, no email. The two
 weeks start the Sunday after the most recent Thursday (a Thursday run counts
 itself), because the schedule is made on Wednesdays: Thursday, Friday and
 Saturday runs check the next two weeks; Sunday to Wednesday runs check the
@@ -520,9 +520,15 @@ weeks (`reminderWindow`). Store hours are judged by `checkWeekCoverage` in
 `time-app/lib/coverage.ts`, the function the schedule board's "Check week"
 button runs, so the two cannot disagree. Catering events are deals at Booked
 Paid, Booked Unpaid or Closed Marketing Event (`archived = 0`); one counts as
-covered when a published shift on it has a person. Recipients are read from
-the database (`profiles` joined to `auth.users`): every owner plus every active
-manager, leaving out anyone archived or banned. Logic: `lib/coverageReminder.ts`;
+covered when a published shift on it has a person, or when a manager placed
+crew by hand: a published Catering shift with a person and no `deal_id` that
+spans the whole event in New York time (or, with no end time, spans its start).
+A partial overlap does not cover, a shift linked to another deal never counts,
+and one hand-placed shift counts toward one event only, taken in time order. An
+event with no start time stays a gap. Crew size is not checked. Recipients are
+read from the database (`profiles` joined to `auth.users`): every owner, leaving
+out anyone archived or banned. Managers do not get this email (owner decision,
+2026-11-02). Logic: `lib/coverageReminder.ts`;
 command: `lib/coverageReminderCli.ts`; reads: `lib/coverageReminderPg.ts`;
 send: `lib/gmailSend.ts`.
 

@@ -18,10 +18,9 @@
 // own alert, as before), and a change a manager makes to someone else's rows.
 // A scheduler's bell and email leave out their own changes.
 //
-// THE SCHEDULERS are chosen as the coverage reminder chooses them
-// (lib/coverageReminder.ts selectRecipients, repo root): every owner, plus
-// every manager on the schedule (active), leaving out anyone archived or
-// banned. The bell and the email go to the same people. Then notif_prefs, as
+// THE SCHEDULERS: every owner, plus every manager on the schedule (active),
+// leaving out anyone archived or banned. The bell and the email go to the same
+// people. Then notif_prefs, as
 // notify() applies them: availability_change switched off means neither,
 // email switched off means no email.
 //
@@ -143,9 +142,9 @@ type Scheduler = Person & { email: string };
 
 /**
  * Is this person a scheduler: an owner, or a manager on the schedule, not
- * archived? (Banned is read from their login, in loadSchedulers.) A copy of
- * selectRecipients in the repo root's lib/coverageReminder.ts, kept by hand
- * because the two apps share no code: change both together.
+ * archived? (Banned is read from their login, in loadSchedulers.) Not the
+ * coverage reminder's rule: that email goes to owners only (selectRecipients in
+ * the repo root's lib/coverageReminder.ts).
  */
 function schedulerByProfile(p: Person): boolean {
   if (p.archived_at) return false;
