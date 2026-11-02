@@ -17,6 +17,11 @@ import { addDays, nyWallClock, parseTime } from "./coverage";
 
 export const CATERING_POSITION = "Catering";
 
+/** Is this a Catering shift's position? Surrounding spaces do not count. */
+export function isCateringPosition(position: unknown): boolean {
+  return typeof position === "string" && position.trim() === CATERING_POSITION;
+}
+
 /** A shift as this rule reads it. */
 export type CrewShift = {
   employee_id: string | null;
@@ -70,7 +75,7 @@ export function isHandPlacedShift(shift: CrewShift): boolean {
     shift.published &&
     !!shift.employee_id &&
     shift.deal_id === null &&
-    shift.position?.trim() === CATERING_POSITION
+    isCateringPosition(shift.position)
   );
 }
 

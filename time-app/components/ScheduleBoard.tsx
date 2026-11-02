@@ -18,7 +18,7 @@ import { managerAssignsOnly } from "@/lib/managerAssigns";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 import type { ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
 import ScheduleLaborLine from "./ScheduleLaborLine";
-import { CATERING_POSITION } from "@/lib/handPlacedCrew";
+import { isCateringPosition } from "@/lib/handPlacedCrew";
 import {
   eventBadgeText,
   eventBadges,
@@ -192,7 +192,7 @@ export default function ScheduleBoard({
 
   // The shift in the popup against that day's catering events. Null when it is
   // not a Catering shift or its start is not a real time yet.
-  const draftDate = draft && draft.position.trim() === CATERING_POSITION ? localInputDate(draft.starts_at) : null;
+  const draftDate = draft && isCateringPosition(draft.position) ? localInputDate(draft.starts_at) : null;
   const draftEvents: ScheduleEvent[] | "loading" | "failed" | null =
     draftDate === null
       ? null

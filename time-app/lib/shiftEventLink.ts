@@ -7,7 +7,7 @@
 // changing anything else, so a staff session cannot set deal_id through /rest/v1.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CATERING_POSITION } from "./handPlacedCrew";
+import { isCateringPosition } from "./handPlacedCrew";
 import { nextDealSlot } from "./payroll/eventShift";
 import {
   EVENT_DEAL_COLUMNS,
@@ -35,11 +35,6 @@ export function requestedEvent(body: Record<string, unknown>): RequestedEvent {
 
 const UNREADABLE: EventLinkPlan = { ok: false, status: 503, error: "Couldn't read that event. Try again in a moment." };
 
-/** Is this shift's position Catering? The selector only exists for these. */
-function isCatering(position: unknown): boolean {
-  return typeof position === "string" && position.trim() === CATERING_POSITION;
-}
-
 /**
  * Decide the link from what was asked and the shift as it will be.
  *
@@ -66,7 +61,7 @@ export async function planEventLink(
   if (requested === null) return { ok: true, link: currentDeal === null ? { kind: "keep" } : { kind: "clear" } };
 
   if (requested === undefined) {
-    if (currentDeal === null || !isCatering(position)) return { ok: true, link: { kind: "keep" } };
+    if (currentDeal === null || !isCateringPosition(position)) return { ok: true, link: { kind: "keep" } };
     if (before && shiftDate(before.starts_at) === afterDate) return { ok: true, link: { kind: "keep" } };
     const { data, error } = await supabase.from("deals").select("id, event_date").eq("id", currentDeal).maybeSingle();
     if (error) return UNREADABLE;
@@ -74,7 +69,7 @@ export async function planEventLink(
     return { ok: true, link: stillOnIt ? { kind: "keep" } : { kind: "clear" } };
   }
 
-  if (!isCatering(position)) return { ok: false, status: 400, error: "Only a Catering shift can be on a catering event." };
+  if (!isCateringPosition(position)) return { ok: false, status: 400, error: "Only a Catering shift can be on a catering event." };
   if (requested === currentDeal && before && shiftDate(before.starts_at) === afterDate) return { ok: true, link: { kind: "keep" } };
 
   const { data, error } = await supabase.from("deals").select(EVENT_DEAL_COLUMNS).eq("id", requested).maybeSingle();
