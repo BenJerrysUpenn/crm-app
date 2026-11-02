@@ -20,10 +20,11 @@ function fakeSupabase(opts: {
   updateError?: string;
   updatedRows?: number;
   insertError?: string;
+  /** The stage the row holds by the time the update runs (the sweep moved it). */
+  movedMeanwhileTo?: string;
 }) {
   const calls = {
     updates: [] as Array<Record<string, unknown>>,
-    filters: [] as Array<[string, unknown]>,
     inserts: [] as Array<Record<string, unknown>>,
   };
   const client = {
@@ -48,13 +49,22 @@ function fakeSupabase(opts: {
         };
       }
       if (table !== "deals") throw new Error(`unexpected table ${table}`);
-      const updated = () => ({
-        data: Array.from({ length: opts.updatedRows ?? 1 }, () => ({ id: 25419 })),
-        error: opts.updateError ? { message: opts.updateError } : null,
-      });
+      // The update lands on the row only if every stage filter on it still
+      // matches what the row holds when the update runs, as PostgREST would.
+      const rowFilters: Array<[string, unknown]> = [];
+      const stageAtWrite = () =>
+        opts.movedMeanwhileTo ?? (opts.row === undefined ? "Booked Unpaid" : opts.row?.stage);
+      const updated = () => {
+        const matches = rowFilters.every(([col, val]) => col !== "stage" || val === stageAtWrite());
+        const count = matches ? (opts.updatedRows ?? 1) : 0;
+        return {
+          data: Array.from({ length: count }, () => ({ id: 25419 })),
+          error: opts.updateError ? { message: opts.updateError } : null,
+        };
+      };
       const write = {
         eq: (col: string, val: unknown) => {
-          calls.filters.push([col, val]);
+          rowFilters.push([col, val]);
           return write;
         },
         select: async () => updated(),
@@ -128,11 +138,17 @@ describe("writeStageChange writes the history", () => {
       old_value: "0",
       new_value: "1",
     });
-    // The write only lands if the stage is still the one that was read.
-    expect(calls.filters).toEqual([
-      ["id", 7],
-      ["stage", "Event Complete"],
-    ]);
+  });
+
+  it("a deal the sweep moved while this was saving is not moved, and gets no history", async () => {
+    const { client, calls } = fakeSupabase({
+      row: { stage: "Sent Quote", is_active: 1 },
+      movedMeanwhileTo: "Closed Lost",
+    });
+    const res = await writeStageChange(client, 7, buildStagePatch("Booked Paid"));
+    expect(res.error?.message).toMatch(/changed while this was saving/);
+    expect(res.changed).toBe(false);
+    expect(calls.inserts).toEqual([]);
   });
 
   it("writes nothing when the deal is already in that stage", async () => {
@@ -175,35 +191,44 @@ describe("writeStageChange writes the history", () => {
     expect(calls.inserts).toEqual([]);
   });
 
-  it("a deal that cannot be read is not moved", async () => {
-    const missing = fakeSupabase({ row: null });
-    const res = await writeStageChange(missing.client, 7, buildStagePatch("Booked Paid"));
+  it("a deal that is not there is not moved", async () => {
+    const { client, calls } = fakeSupabase({ row: null });
+    const res = await writeStageChange(client, 7, buildStagePatch("Booked Paid"));
     expect(res.error?.message).toMatch(/not found/i);
-    expect(missing.calls.updates).toEqual([]);
+    expect(calls.updates).toEqual([]);
+  });
 
-    const failed = fakeSupabase({ readError: "read failed" });
-    const res2 = await writeStageChange(failed.client, 7, buildStagePatch("Booked Paid"));
-    expect(res2.error?.message).toBe("read failed");
-    expect(failed.calls.updates).toEqual([]);
+  it("a deal whose read fails is not moved", async () => {
+    const { client, calls } = fakeSupabase({ readError: "read failed" });
+    const res = await writeStageChange(client, 7, buildStagePatch("Booked Paid"));
+    expect(res.error?.message).toBe("read failed");
+    expect(calls.updates).toEqual([]);
   });
 });
 
-describe("buildStagePatch leaves payment alone", () => {
-  it.each([
-    [undefined],
-    [null],
-    [""],
-    ["None"],
-    ["Deposit Paid"],
-    ["Paid in Full"],
-  ])("moving to Booked Paid with payment %s writes no payment_status", (payment) => {
-    const build = buildStagePatch as (s: string, p?: string | null) => object;
-    expect(build("Booked Paid", payment)).not.toHaveProperty("payment_status");
+describe("a stage move leaves payment alone", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-02T15:30:07.123Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("still keeps is_active in step with the stage", () => {
-    expect(buildStagePatch("Booked Paid").is_active).toBe(1);
-    expect(buildStagePatch("Closed Lost").is_active).toBe(0);
+  it("moving an unpaid deal to Booked Paid writes stage, is_active and updated_at only", async () => {
+    const { client, calls } = fakeSupabase({
+      row: { stage: "Booked Unpaid", is_active: 1 },
+    });
+    await writeStageChange(client, 7, buildStagePatch("Booked Paid"));
+    expect(calls.updates).toEqual([
+      { stage: "Booked Paid", is_active: 1, updated_at: "2026-11-02T15:30:07.123Z" },
+    ]);
+  });
+
+  it("moving a deal to Closed Lost marks it inactive", async () => {
+    const { client, calls } = fakeSupabase({});
+    await writeStageChange(client, 7, buildStagePatch("Closed Lost"));
+    expect(calls.updates[0]).toMatchObject({ stage: "Closed Lost", is_active: 0 });
   });
 });
 
