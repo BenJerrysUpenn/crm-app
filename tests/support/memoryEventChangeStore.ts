@@ -10,6 +10,7 @@ import type {
   EventChangeStore,
   EventDeal,
   ShiftMove,
+  UnlinkedShiftRow,
 } from "@/lib/eventChange";
 
 /** A pending_calendar_actions row, the few columns the store reads and writes. */
@@ -24,8 +25,12 @@ export type QueueRow = {
   new_hash?: unknown;
 };
 
-/** A crew shift with the deal it is on, which CrewShift itself does not carry. */
-export type StoredShift = CrewShift & { deal_id: number };
+/**
+ * A shift row: a crew shift with the deal it is on, or null for one added
+ * directly on the Schedule page, and what shiftsAlsoAtEvent's rule reads.
+ */
+export type StoredShift = CrewShift &
+  Pick<Partial<UnlinkedShiftRow>, "position" | "published"> & { deal_id: number | null };
 
 export type MemoryDb = {
   deals: EventDeal[];
@@ -72,6 +77,15 @@ export function memoryEventChangeStore(db: MemoryDb): EventChangeStore {
         .filter((s) => s.deal_id === dealId)
         .sort((a, b) => (a.starts_at < b.starts_at ? -1 : 1))
         .map((s) => ({ ...s }));
+    },
+
+    // Every row in the range, linked or not: the interface leaves judging them
+    // to shiftsAlsoAtEvent, so this adapter shows that rule doing all the work.
+    async readUnlinkedCateringShifts({ fromISO, toISO }) {
+      maybeFail("readUnlinkedCateringShifts");
+      return db.shifts
+        .filter((s) => Date.parse(s.starts_at) < Date.parse(toISO) && Date.parse(s.ends_at) > Date.parse(fromISO))
+        .map((s) => ({ ...s, position: s.position ?? null, published: s.published ?? false }));
     },
 
     async supersedeOpenCalendarWrites(dealId, nowNaiveUtc) {

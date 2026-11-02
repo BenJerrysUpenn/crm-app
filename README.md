@@ -200,6 +200,11 @@ to anyone; Alina tells the crew.
   event start, not `departure_time`, and the catering-shifts cron skips a deal that already has
   shifts, so a cleared departure does not move or duplicate any shift.
 - Every change appends one line to `deals.notes` saying what moved, from what to what.
+- Shifts added directly on the Schedule page have no `shifts.deal_id`, so no change touches them.
+  The dialog names the people on them at the event's time, Alina 2026-11-02 (`shiftsAlsoAtEvent`:
+  published, staffed, position Catering, New York time, any shift touching the event, unlike the
+  covers-the-whole-event rule in `lib/handPlacedCrew.ts`). Display only: they are not in the 409 crew
+  check or the note, and a failed read answers 500. No date or no start time shows nothing.
 
 The deal is written first, in one update guarded on its stage, date and calendar event id (a
 deal changed since the dialog read it answers 409, as does a crew that changed). A failure after

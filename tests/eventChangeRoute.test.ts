@@ -171,6 +171,118 @@ describe("GET: what the dialog shows", () => {
   });
 });
 
+describe("people on shifts with no deal at the event's time", () => {
+  const get = () => GET(new Request("https://crm.test"), { params: { id: String(DEAL_ID) } });
+  // 12:30-14:00 EDT against the seeded 12:00-13:30 event.
+  const scheduled = (overrides: Record<string, unknown> = {}) => ({
+    id: 801,
+    deal_id: null,
+    employee_id: "user-b",
+    position: "Catering",
+    published: true,
+    starts_at: "2026-10-29T16:30:00+00:00",
+    ends_at: "2026-10-29T18:00:00+00:00",
+    ...overrides,
+  });
+  const profileB = { id: "user-b", full_name: "Crew Member B Fullname", preferred_name: "Crew Member B" };
+
+  beforeEach(() => {
+    h.db.tables.profiles.push(profileB);
+  });
+
+  it("GET answers an empty list when nobody else is there", async () => {
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect((await res.json()).also_on_schedule).toEqual([]);
+  });
+
+  it("GET names them through the same helper as the crew, and keeps them out of the crew", async () => {
+    h.db.tables.shifts.push(scheduled());
+    const body = await (await get()).json();
+    expect(body.also_on_schedule).toEqual([
+      {
+        id: 801,
+        employee_id: "user-b",
+        person: "Crew Member B",
+        starts_at: "2026-10-29T16:30:00+00:00",
+        ends_at: "2026-10-29T18:00:00+00:00",
+      },
+    ]);
+    expect(body.shifts.map((s: { id: number }) => s.id)).toEqual([601, 602]);
+  });
+
+  it("GET leaves out linked, open, unpublished, other-position and non-overlapping shifts", async () => {
+    h.db.tables.shifts.push(
+      scheduled({ id: 802, deal_id: 30002 }),
+      scheduled({ id: 803, employee_id: null }),
+      scheduled({ id: 804, published: false }),
+      scheduled({ id: 805, position: "Catering Lead" }),
+      scheduled({ id: 806, position: "Scooper" }),
+      scheduled({ id: 807, starts_at: "2026-10-29T20:00:00+00:00", ends_at: "2026-10-29T21:00:00+00:00" }),
+      scheduled({ id: 808, position: " Catering " }),
+    );
+    const body = await (await get()).json();
+    expect(body.also_on_schedule.map((s: { id: number }) => s.id)).toEqual([808]);
+  });
+
+  it("GET finds a shift that crosses midnight into the event's day", async () => {
+    deal().event_start_time = "00:30";
+    deal().event_end_time = "02:00";
+    h.db.tables.shifts.push(scheduled({ starts_at: "2026-10-29T02:00:00+00:00", ends_at: "2026-10-29T05:00:00+00:00" }));
+    const body = await (await get()).json();
+    expect(body.also_on_schedule.map((s: { id: number }) => s.id)).toEqual([801]);
+  });
+
+  it("GET shows nothing for a deal with no date", async () => {
+    deal().event_date = null;
+    h.db.tables.shifts.push(scheduled());
+    expect((await (await get()).json()).also_on_schedule).toEqual([]);
+  });
+
+  it("GET answers 500, not an empty list, when these shifts cannot be read", async () => {
+    h.db.tables.shifts.push(scheduled());
+    // The first read of shifts is the crew's; the second is this one.
+    h.db.failReadsAfter.shifts = 1;
+    h.db.failReads.shifts = "permission denied for table shifts";
+    const res = await get();
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("permission denied for table shifts");
+  });
+
+  it("GET answers 500 rather than showing them unnamed when their names cannot be read", async () => {
+    h.db.tables.shifts.push(scheduled());
+    // The first read of profiles names the crew; the second names these people.
+    h.db.failReadsAfter.profiles = 1;
+    h.db.failReads.profiles = "permission denied for table profiles";
+    const res = await get();
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("permission denied for table profiles");
+  });
+
+  it("POST cancel leaves them where they are and out of the note, and the crew check does not count them", async () => {
+    h.db.tables.shifts.push(scheduled());
+    const res = await post({ action: "cancel", staffed_shift_ids: [602] });
+    expect(res.status).toBe(200);
+    expect(shift(801)).toMatchObject(scheduled());
+    expect(shift(602)).toBeUndefined();
+    expect(String(deal().notes)).not.toContain("Crew Member B");
+  });
+
+  it("POST reschedule leaves them where they are and out of the note", async () => {
+    h.db.tables.shifts.push(scheduled());
+    const res = await post({
+      action: "reschedule",
+      event_date: "2026-11-05",
+      event_start_time: "13:00",
+      event_end_time: "14:30",
+      staffed_shift_ids: [602],
+    });
+    expect(res.status).toBe(200);
+    expect(shift(801)).toMatchObject(scheduled());
+    expect(String(deal().notes)).not.toContain("Crew Member B");
+  });
+});
+
 describe("POST refusals before any write", () => {
   it("answers 401 signed out, writing nothing", async () => {
     h.user = null;

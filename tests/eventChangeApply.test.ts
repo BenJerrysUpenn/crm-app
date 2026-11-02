@@ -194,6 +194,94 @@ describe("applyEventChange over the in-memory store", () => {
   });
 });
 
+describe("people on shifts with no deal, over the in-memory store", () => {
+  // 12:30-14:00 EDT against the seeded 12:00-13:30 event.
+  const SCHEDULED: StoredShift = {
+    id: 801,
+    deal_id: null,
+    employee_id: "user-b",
+    person: "Crew Member B",
+    position: "Catering",
+    published: true,
+    starts_at: "2026-10-29T16:30:00+00:00",
+    ends_at: "2026-10-29T18:00:00+00:00",
+  };
+
+  it("adds them to the preview, apart from the crew, leaving the crew's ids as the dialog sends them", async () => {
+    db.shifts.push({ ...SCHEDULED });
+    const preview = await readEventPreview(memoryEventChangeStore(db), DEAL_ID);
+    expect(preview!.also_on_schedule).toEqual([
+      {
+        id: 801,
+        employee_id: "user-b",
+        person: "Crew Member B",
+        starts_at: SCHEDULED.starts_at,
+        ends_at: SCHEDULED.ends_at,
+      },
+    ]);
+    expect(preview!.shifts.map((s) => s.id)).toEqual([601, 602]);
+  });
+
+  it("leaves out a shift linked to a deal, open, unpublished or at another position, whatever the read answers", async () => {
+    db.shifts.push(
+      { ...SCHEDULED, id: 802, deal_id: 30002 },
+      { ...SCHEDULED, id: 803, employee_id: null, person: null },
+      { ...SCHEDULED, id: 804, published: false },
+      { ...SCHEDULED, id: 805, position: "Scooper" },
+    );
+    const preview = await readEventPreview(memoryEventChangeStore(db), DEAL_ID);
+    expect(preview!.also_on_schedule).toEqual([]);
+  });
+
+  it("reads far enough to see a shift starting late in an event that ends the next evening", async () => {
+    // Oct 29 20:30 to Oct 30 20:15 EDT. The shift starts at 20:05 EDT on Oct 30,
+    // inside the event and past the end of eventReadRange (Oct 31 00:00 UTC).
+    db.deals = [deal({ event_start_time: "20:30", event_end_time: "20:15" })];
+    db.shifts.push({ ...SCHEDULED, starts_at: "2026-10-31T00:05:00+00:00", ends_at: "2026-10-31T01:00:00+00:00" });
+    const preview = await readEventPreview(memoryEventChangeStore(db), DEAL_ID);
+    expect(preview!.also_on_schedule.map((s) => s.id)).toEqual([801]);
+  });
+
+  it("does not read for an event with no date or no start time, and shows nothing", async () => {
+    db.shifts.push({ ...SCHEDULED });
+    db.fail.readUnlinkedCateringShifts = "must not be read";
+    db.deals = [deal({ event_date: null })];
+    expect((await readEventPreview(memoryEventChangeStore(db), DEAL_ID))!.also_on_schedule).toEqual([]);
+    db.deals = [deal({ event_date: "   " })];
+    expect((await readEventPreview(memoryEventChangeStore(db), DEAL_ID))!.also_on_schedule).toEqual([]);
+    db.deals = [deal({ event_start_time: null })];
+    expect((await readEventPreview(memoryEventChangeStore(db), DEAL_ID))!.also_on_schedule).toEqual([]);
+    expect(db.fail.readUnlinkedCateringShifts).toBe("must not be read");
+  });
+
+  it("throws when the read fails, never answering that nobody is there", async () => {
+    db.shifts.push({ ...SCHEDULED });
+    db.fail.readUnlinkedCateringShifts = "connection lost";
+    await expect(readEventPreview(memoryEventChangeStore(db), DEAL_ID)).rejects.toThrow("connection lost");
+  });
+
+  it("throws on a shift with a bad timestamp the read answered", async () => {
+    const store = memoryEventChangeStore(db);
+    store.readUnlinkedCateringShifts = async () => [
+      { ...SCHEDULED, starts_at: "not a time", position: "Catering", published: true },
+    ];
+    await expect(readEventPreview(store, DEAL_ID)).rejects.toThrow(/invalid timestamp/);
+  });
+
+  it("a change never reads them, so neither they nor a failed read of them can block it", async () => {
+    db.shifts.push({ ...SCHEDULED });
+    db.fail.readUnlinkedCateringShifts = "must not be read";
+    const out = await applyEventChange(
+      memoryEventChangeStore(db),
+      DEAL_ID,
+      { request: { kind: "cancel" }, staffedShiftIds: [602] },
+      CTX,
+    );
+    expect(out.ok).toBe(true);
+    expect(db.fail.readUnlinkedCateringShifts).toBe("must not be read");
+  });
+});
+
 describe("readEventPreview over the in-memory store", () => {
   it("returns can_change, the event and every crew shift, and null for a missing deal", async () => {
     const store = memoryEventChangeStore(db);

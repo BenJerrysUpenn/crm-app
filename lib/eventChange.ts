@@ -2,6 +2,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildStagePatch, writeStageChange, type StagePatch, type StageChangeResult } from "@/lib/dealUpdate";
 import { easternInputValue, parseEasternInput } from "@/lib/dateFormat";
 import { nowIso, todayIsoEastern } from "@/lib/callDesk/dealForm";
+import {
+  CATERING_POSITION,
+  eventReadRange,
+  eventSpan,
+  isHandPlacedShift,
+  shiftSpan,
+  type CrewShift as HandPlacedShift,
+  type Span,
+} from "@/lib/handPlacedCrew";
+import { addDays } from "../time-app/lib/coverage";
 
 // Reschedule event and Cancel event, the two buttons on the deal drawer.
 //
@@ -25,6 +35,9 @@ import { nowIso, todayIsoEastern } from "@/lib/callDesk/dealForm";
 //     the old start time are cleared so they are derived again
 //     (CLEARED_FOR_NEW_START).
 //   * A line is appended to `deals.notes` saying what moved, from what to what.
+//   * Shifts added directly on the Schedule page carry no `deal_id`, so nothing
+//     here moves them or removes them. The dialog names the people on them
+//     (shiftsAlsoAtEvent) so someone can update them by hand.
 //
 // The rules are pure (planEventChange). The reads and writes go through an
 // EventChangeStore: the web route passes the service-role supabase-js store at
@@ -146,6 +159,12 @@ export type CrewShift = {
   employee_id: string | null;
   person: string | null;
 };
+
+/** A shift as shiftsAlsoAtEvent judges it: a crew shift and the fields its rule reads. */
+export type UnlinkedShiftRow = CrewShift & Pick<HandPlacedShift, "position" | "published" | "deal_id">;
+
+/** A stretch of instants to read shifts for. */
+export type ReadRange = { fromISO: string; toISO: string };
 
 /**
  * The staffed shifts' ids: what the dialog sends as `staffed_shift_ids` and
@@ -304,6 +323,34 @@ export function describeShiftTime(startsAt: string, endsAt: string): string {
   return `${weekday(sDate)} ${sDate} ${sTime}-${end}`;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Tue Nov 10", for a YYYY-MM-DD date. */
+function shortDay(ymd: string): string {
+  const [, month, day] = ymd.split("-");
+  return `${weekday(ymd)} ${MONTHS[+month - 1]} ${+day}`;
+}
+
+/** "13:05" as a 12-hour time and which half of the day it is in. */
+function twelveHour(hhmm: string): { time: string; half: "AM" | "PM" } {
+  const [hour, minute] = hhmm.split(":");
+  return { time: `${+hour % 12 || 12}:${minute}`, half: +hour < 12 ? "AM" : "PM" };
+}
+
+/**
+ * A shift's Eastern time in plain words: "Tue Nov 10, 12:30 to 4:00 PM", with
+ * both halves of the day when they differ and both days when it crosses midnight.
+ */
+function describeShiftPlainly(startsAt: string, endsAt: string): string {
+  const [sDate, sTime] = easternInputValue(new Date(startsAt)).split("T");
+  const [eDate, eTime] = easternInputValue(new Date(endsAt)).split("T");
+  const s = twelveHour(sTime);
+  const e = twelveHour(eTime);
+  if (eDate !== sDate) return `${shortDay(sDate)}, ${s.time} ${s.half} to ${shortDay(eDate)}, ${e.time} ${e.half}`;
+  if (e.half !== s.half) return `${shortDay(sDate)}, ${s.time} ${s.half} to ${e.time} ${e.half}`;
+  return `${shortDay(sDate)}, ${s.time} to ${e.time} ${e.half}`;
+}
+
 function shiftLabel(s: CrewShift): string {
   return s.person ?? (s.employee_id ? UNNAMED_PERSON : "open");
 }
@@ -341,17 +388,90 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/** The times a deal's event falls in, or null with no usable date or start time. event_date is text. */
+function placedEventSpan(
+  event: Pick<EventDeal, "event_date" | "event_start_time" | "event_end_time">,
+): Span | null {
+  const span = eventSpan({ ...event, event_date: (event.event_date ?? "").trim() });
+  return span && !Number.isNaN(span.from) ? span : null;
+}
+
 /**
- * What the dialog says will happen to the crew and the money before anyone
- * confirms. Pure. It lives here beside `planEventChange` so the two cannot
- * drift on the shared decisions — a paid amount means a by-hand refund
- * (`hasPaidAmount`), and a dateless deal cannot move its shifts
- * (`canMoveShifts`).
+ * The shifts added directly on the Schedule page that touch this event, earliest
+ * first. Pure. Which shifts count is isHandPlacedShift's rule; the time test is
+ * deliberately looser than handPlacedCrew's spanCovers. That one decides whether
+ * an event is staffed, and this one is a warning, so any shift that touches the
+ * event shows, one that ends as the event starts included.
+ *
+ * Only ever shown: these shifts are not moved or removed, are not in the
+ * staffed-crew guard and are not in the deal note. An event that cannot be placed
+ * in time (no date, no start time) shows nothing. Throws on a bad shift timestamp.
+ */
+export function shiftsAlsoAtEvent(
+  event: Pick<EventDeal, "event_date" | "event_start_time" | "event_end_time">,
+  rows: UnlinkedShiftRow[],
+): CrewShift[] {
+  const span = placedEventSpan(event);
+  if (!span) return [];
+  return rows
+    .filter((row) => {
+      if (!isHandPlacedShift(row)) return false;
+      const shift = shiftSpan(row);
+      return shift.from <= span.to && shift.to >= span.from;
+    })
+    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at) || a.id - b.id)
+    .map(({ id, starts_at, ends_at, employee_id, person }) => ({ id, starts_at, ends_at, employee_id, person }));
+}
+
+/**
+ * The instants to read for shiftsAlsoAtEvent. eventReadRange fits a shift on the
+ * clock at the event's start. A shift that only touches the event can start as
+ * late as the event's end, which may be the next evening, so the range runs a
+ * day further.
+ */
+function alsoAtEventReadRange(eventDate: string): ReadRange {
+  return {
+    fromISO: eventReadRange(eventDate).fromISO,
+    toISO: eventReadRange(addDays(eventDate, 1)).toISO,
+  };
+}
+
+/** The dialog's warning about those shifts, people with the same time together; null when there are none. */
+function alsoOnScheduleLine(shifts: CrewShift[]): string | null {
+  if (!shifts.length) return null;
+  const groups = new Map<string, Map<string, string>>();
+  for (const s of shifts) {
+    const when = describeShiftPlainly(s.starts_at, s.ends_at);
+    const people = groups.get(when) ?? new Map<string, string>();
+    people.set(s.employee_id ?? String(s.id), s.person ?? UNNAMED_PERSON);
+    groups.set(when, people);
+  }
+  const listed = [...groups]
+    .map(([when, people]) => `${[...people.values()].join(", ")} (${when})`)
+    .join("; ");
+  return `Also on the schedule at this time: ${listed}. These shifts won't change. Update them on the Schedule page and let them know.`;
+}
+
+/**
+ * What the dialog says before anyone confirms: what the change does, then who
+ * else is on the schedule at the event's time. Pure.
  */
 export function confirmationLines(
   preview: EventPreview,
   kind: EventChangeRequest["kind"],
 ): string[] {
+  const lines = changeLines(preview, kind);
+  const also = alsoOnScheduleLine(preview.also_on_schedule);
+  return also ? [...lines, also] : lines;
+}
+
+/**
+ * What the change will do to the crew and the money. It lives here beside
+ * `planEventChange` so the two cannot drift on the shared decisions — a paid
+ * amount means a by-hand refund (`hasPaidAmount`), and a dateless deal cannot
+ * move its shifts (`canMoveShifts`).
+ */
+function changeLines(preview: EventPreview, kind: EventChangeRequest["kind"]): string[] {
   const staffed = preview.shifts.filter((s) => s.employee_id);
   const open = preview.shifts.length - staffed.length;
   const people = staffed
@@ -597,9 +717,15 @@ export type EventPreview = {
     has_calendar_event: boolean;
   };
   shifts: CrewShift[];
+  /** People on shifts with no deal at the event's time (shiftsAlsoAtEvent). Shown, never changed. */
+  also_on_schedule: CrewShift[];
 };
 
-/** The deal's event and every crew shift with the person on it; null when there is no such deal. */
+/**
+ * The deal's event, every crew shift with the person on it, and who else is on
+ * the schedule at its time; null when there is no such deal. A failed read
+ * throws, so it is never taken for nobody being there.
+ */
 export async function readEventPreview(
   store: EventChangeStore,
   dealId: number,
@@ -607,6 +733,7 @@ export async function readEventPreview(
   const deal = await store.readDeal(dealId);
   if (!deal) return null;
   const shifts = await store.readCrewShifts(dealId);
+  const also_on_schedule = await readAlsoOnSchedule(store, deal);
   return {
     deal: {
       id: deal.id,
@@ -619,7 +746,15 @@ export async function readEventPreview(
       has_calendar_event: linkedCalendarEventId(deal) !== null,
     },
     shifts,
+    also_on_schedule,
   };
+}
+
+async function readAlsoOnSchedule(store: EventChangeStore, deal: EventDeal): Promise<CrewShift[]> {
+  // The range needs a real date, and such an event shows nothing anyway.
+  if (!placedEventSpan(deal)) return [];
+  const rows = await store.readUnlinkedCateringShifts(alsoAtEventReadRange(deal.event_date!.trim()));
+  return shiftsAlsoAtEvent(deal, rows);
 }
 
 /** The reads and writes, and nothing else. Every rule is above. */
@@ -627,6 +762,12 @@ export interface EventChangeStore {
   readDeal(dealId: number): Promise<EventDeal | null>;
   /** The deal's shifts (shifts.deal_id), earliest first, staffed ones named. */
   readCrewShifts(dealId: number): Promise<CrewShift[]>;
+  /**
+   * Shifts with no deal touching this range, staffed ones named. It may answer
+   * more than shiftsAlsoAtEvent keeps, and that function decides. Throws when the
+   * read fails.
+   */
+  readUnlinkedCateringShifts(range: ReadRange): Promise<UnlinkedShiftRow[]>;
   /**
    * Close the deal's open `create` and `patch` rows in pending_calendar_actions,
    * the way the daemon supersedes them, so a payload queued for the old date
@@ -872,6 +1013,29 @@ export function personName(p: { full_name?: string | null; preferred_name?: stri
   return p.preferred_name?.trim() || p.full_name?.trim() || UNNAMED_PERSON;
 }
 
+/** Each row with the name of the person on it. Throws when the names cannot be read. */
+async function withPersonNames<T extends { employee_id: string | null }>(
+  admin: SupabaseClient,
+  rows: T[],
+): Promise<Array<T & { person: string | null }>> {
+  const people = [...new Set(rows.map((r) => r.employee_id).filter(Boolean))] as string[];
+  const names = new Map<string, string>();
+  if (people.length) {
+    const { data: profiles, error } = await admin
+      .from("profiles")
+      .select("id, full_name, preferred_name")
+      .in("id", people);
+    if (error) throw new Error(error.message);
+    for (const p of (profiles ?? []) as Array<{ id: string; full_name: string | null; preferred_name: string | null }>) {
+      names.set(p.id, personName(p));
+    }
+  }
+  return rows.map((r) => ({
+    ...r,
+    person: r.employee_id ? names.get(r.employee_id) ?? UNNAMED_PERSON : null,
+  }));
+}
+
 /**
  * `session` is the signed-in user's client: writeStageChange logs the move
  * under that login, and the service role has none.
@@ -895,23 +1059,21 @@ export function supabaseEventChangeStore(admin: SupabaseClient, session: Supabas
         .eq("deal_id", dealId)
         .order("starts_at", { ascending: true });
       if (error) throw new Error(error.message);
-      const rows = (data ?? []) as Array<Omit<CrewShift, "person">>;
-      const people = [...new Set(rows.map((r) => r.employee_id).filter(Boolean))] as string[];
-      const names = new Map<string, string>();
-      if (people.length) {
-        const { data: profiles, error: pErr } = await admin
-          .from("profiles")
-          .select("id, full_name, preferred_name")
-          .in("id", people);
-        if (pErr) throw new Error(pErr.message);
-        for (const p of (profiles ?? []) as Array<{ id: string; full_name: string | null; preferred_name: string | null }>) {
-          names.set(p.id, personName(p));
-        }
-      }
-      return rows.map((r) => ({
-        ...r,
-        person: r.employee_id ? names.get(r.employee_id) ?? UNNAMED_PERSON : null,
-      }));
+      return withPersonNames(admin, (data ?? []) as Array<Omit<CrewShift, "person">>);
+    },
+
+    async readUnlinkedCateringShifts({ fromISO, toISO }) {
+      const { data, error } = await admin
+        .from("shifts")
+        .select("id, starts_at, ends_at, employee_id, position, published, deal_id")
+        .eq("published", true)
+        .is("deal_id", null)
+        .not("employee_id", "is", null)
+        .like("position", `%${CATERING_POSITION}%`)
+        .lt("starts_at", toISO)
+        .gt("ends_at", fromISO);
+      if (error) throw new Error(error.message);
+      return withPersonNames(admin, (data ?? []) as Array<Omit<UnlinkedShiftRow, "person">>);
     },
 
     async supersedeOpenCalendarWrites(dealId, nowNaiveUtc) {

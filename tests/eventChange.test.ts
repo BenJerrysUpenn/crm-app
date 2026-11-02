@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   canChangeEvent,
   confirmationLines,
+  shiftsAlsoAtEvent,
   DEAL_SAVED_PREFIX,
   describeShiftTime,
   eventChangedMessage,
@@ -23,6 +24,7 @@ import {
   type CrewShift,
   type EventDeal,
   type EventPreview,
+  type UnlinkedShiftRow,
 } from "@/lib/eventChange";
 import DealDetailDrawer from "@/components/DealDetailDrawer";
 import type { Deal } from "@/lib/types";
@@ -459,6 +461,7 @@ describe("what the dialog says before anyone confirms", () => {
         has_calendar_event: hasEvent,
       },
       shifts,
+      also_on_schedule: [],
     };
   }
 
@@ -514,6 +517,209 @@ describe("what the dialog says before anyone confirms", () => {
       "The date is cleared.",
       "1 open shift is removed.",
     ]);
+  });
+});
+
+describe("people on shifts with no deal at the event's time", () => {
+  // A Tuesday in EST (UTC-5): the event is 14:30-15:30 New York time.
+  const EVENT = { event_date: "2026-11-10", event_start_time: "14:30", event_end_time: "15:30" };
+
+  function row(overrides: Partial<UnlinkedShiftRow> = {}): UnlinkedShiftRow {
+    return {
+      id: 801,
+      starts_at: "2026-11-10T17:30:00+00:00", // 12:30 EST
+      ends_at: "2026-11-10T21:00:00+00:00", // 16:00 EST
+      employee_id: "user-a",
+      person: "Crew Member A",
+      position: "Catering",
+      published: true,
+      deal_id: null,
+      ...overrides,
+    };
+  }
+  /** A shift between two New York wall-clock times on the event day, in EST. */
+  const at = (from: string, to: string, overrides: Partial<UnlinkedShiftRow> = {}) =>
+    row({ starts_at: `2026-11-10T${from}:00-05:00`, ends_at: `2026-11-10T${to}:00-05:00`, ...overrides });
+  const kept = (rows: UnlinkedShiftRow[], event: Parameters<typeof shiftsAlsoAtEvent>[0] = EVENT) =>
+    shiftsAlsoAtEvent(event, rows).map((s) => s.id);
+
+  describe("which shifts show", () => {
+    it("shows a shift that spans the event, starts inside it, ends inside it or sits within it", () => {
+      expect(kept([at("12:30", "16:00")])).toEqual([801]);
+      expect(kept([at("15:00", "18:00")])).toEqual([801]);
+      expect(kept([at("10:00", "15:00")])).toEqual([801]);
+      expect(kept([at("14:45", "15:15")])).toEqual([801]);
+    });
+
+    it("shows a shift that only touches the event, at either end", () => {
+      expect(kept([at("10:00", "14:30")])).toEqual([801]);
+      expect(kept([at("15:30", "18:00")])).toEqual([801]);
+    });
+
+    it("leaves out a shift wholly before or after the event", () => {
+      expect(kept([at("09:00", "14:29")])).toEqual([]);
+      expect(kept([at("15:31", "18:00")])).toEqual([]);
+    });
+
+    it("leaves out a shift linked to a deal, open, unpublished or at another position", () => {
+      expect(kept([row({ deal_id: 30001 })])).toEqual([]);
+      expect(kept([row({ employee_id: null, person: null })])).toEqual([]);
+      expect(kept([row({ published: false })])).toEqual([]);
+      expect(kept([row({ position: "Scooper" })])).toEqual([]);
+      expect(kept([row({ position: "Catering Lead" })])).toEqual([]);
+      expect(kept([row({ position: "catering" })])).toEqual([]);
+      expect(kept([row({ position: null })])).toEqual([]);
+    });
+
+    it("trims the position before comparing it", () => {
+      expect(kept([row({ position: "  Catering " })])).toEqual([801]);
+    });
+
+    it("judges in New York time, on both sides of the clock change", () => {
+      // 13:05 EDT is 17:05 UTC, which would be 12:05 and inside the event in EST.
+      const july = { event_date: "2026-07-14", event_start_time: "12:00", event_end_time: "13:00" };
+      expect(kept([row({ starts_at: "2026-07-14T17:05:00Z", ends_at: "2026-07-14T18:00:00Z" })], july)).toEqual([]);
+      expect(kept([row({ starts_at: "2026-07-14T16:30:00Z", ends_at: "2026-07-14T18:00:00Z" })], july)).toEqual([801]);
+    });
+
+    it("sees a shift that crosses midnight, from the day before and into the day after", () => {
+      const lateEvent = { event_date: "2026-11-10", event_start_time: "23:00", event_end_time: "23:45" };
+      const earlyEvent = { event_date: "2026-11-11", event_start_time: "00:30", event_end_time: "01:30" };
+      const overnight = row({ starts_at: "2026-11-10T22:00:00-05:00", ends_at: "2026-11-11T02:00:00-05:00" });
+      expect(kept([overnight], lateEvent)).toEqual([801]);
+      expect(kept([overnight], earlyEvent)).toEqual([801]);
+      const earlier = row({ starts_at: "2026-11-09T22:00:00-05:00", ends_at: "2026-11-10T02:00:00-05:00" });
+      expect(kept([earlier], { event_date: "2026-11-10", event_start_time: "01:00", event_end_time: "03:00" })).toEqual([801]);
+      expect(kept([earlier], { event_date: "2026-11-10", event_start_time: "03:00", event_end_time: "04:00" })).toEqual([]);
+    });
+
+    it("runs an event whose end is earlier than its start into the next morning", () => {
+      const overnightEvent = { event_date: "2026-11-10", event_start_time: "22:00", event_end_time: "01:00" };
+      const nextMorning = row({ starts_at: "2026-11-11T00:30:00-05:00", ends_at: "2026-11-11T03:00:00-05:00" });
+      const tooLate = row({ starts_at: "2026-11-11T01:30:00-05:00", ends_at: "2026-11-11T03:00:00-05:00" });
+      expect(kept([nextMorning], overnightEvent)).toEqual([801]);
+      expect(kept([tooLate], overnightEvent)).toEqual([]);
+    });
+
+    it("judges an event with no end time at its start", () => {
+      const noEnd = { event_date: "2026-11-10", event_start_time: "14:30", event_end_time: null };
+      expect(kept([at("12:30", "16:00")], noEnd)).toEqual([801]);
+      expect(kept([at("09:00", "12:00")], noEnd)).toEqual([]);
+    });
+
+    it("shows nothing for an event with no date or no start time", () => {
+      const anything = [row()];
+      expect(kept(anything, { ...EVENT, event_date: null })).toEqual([]);
+      expect(kept(anything, { ...EVENT, event_date: "  " })).toEqual([]);
+      expect(kept(anything, { ...EVENT, event_start_time: null })).toEqual([]);
+      expect(kept(anything, { ...EVENT, event_start_time: "" })).toEqual([]);
+    });
+
+    it("throws on a shift with a bad timestamp rather than leaving it out", () => {
+      expect(() => shiftsAlsoAtEvent(EVENT, [row({ starts_at: "not a time" })])).toThrow(/invalid timestamp/);
+    });
+
+    it("lists the earliest shift first, then in id order, carrying only what the dialog needs", () => {
+      const out = shiftsAlsoAtEvent(EVENT, [
+        at("13:00", "16:00", { id: 803 }),
+        at("12:30", "16:00", { id: 802 }),
+        at("12:30", "16:00", { id: 801 }),
+      ]);
+      expect(out.map((s) => s.id)).toEqual([801, 802, 803]);
+      expect(Object.keys(out[0]).sort()).toEqual(["employee_id", "ends_at", "id", "person", "starts_at"]);
+    });
+  });
+
+  describe("what the dialog says", () => {
+    const WARNED = [
+      at("12:30", "16:00", { id: 801, employee_id: "user-a", person: "Crew Member A" }),
+      at("12:30", "16:00", { id: 802, employee_id: "user-b", person: "Crew Member B" }),
+      at("12:30", "16:00", { id: 803, employee_id: "user-c", person: "Crew Member C" }),
+    ];
+    const SAME_TIME =
+      "Also on the schedule at this time: Crew Member A, Crew Member B, Crew Member C (Tue Nov 10, 12:30 to 4:00 PM). These shifts won't change. Update them on the Schedule page and let them know.";
+
+    function previewWith(rows: UnlinkedShiftRow[], shifts: CrewShift[] = [], eventDate: string | null = "2026-11-10"): EventPreview {
+      return {
+        deal: {
+          id: 30001,
+          stage: "Booked Paid",
+          can_change: true,
+          event_date: eventDate,
+          event_start_time: "14:30",
+          event_end_time: "15:30",
+          amount_paid: 0,
+          has_calendar_event: false,
+        },
+        shifts,
+        also_on_schedule: rows,
+      };
+    }
+    const lastLine = (rows: UnlinkedShiftRow[]) => confirmationLines(previewWith(rows), "cancel").at(-1);
+
+    it("puts people with the same time together", () => {
+      expect(lastLine(WARNED)).toBe(SAME_TIME);
+    });
+
+    it("gives each different time its own group", () => {
+      expect(
+        lastLine([
+          at("12:30", "16:00", { id: 801, employee_id: "user-a", person: "Crew Member A" }),
+          at("13:00", "15:00", { id: 802, employee_id: "user-b", person: "Crew Member B" }),
+          at("12:30", "16:00", { id: 803, employee_id: "user-c", person: "Crew Member C" }),
+        ]),
+      ).toBe(
+        "Also on the schedule at this time: Crew Member A, Crew Member C (Tue Nov 10, 12:30 to 4:00 PM); Crew Member B (Tue Nov 10, 1:00 to 3:00 PM). These shifts won't change. Update them on the Schedule page and let them know.",
+      );
+    });
+
+    it("names a person once when they have two shifts at the same time", () => {
+      expect(lastLine([WARNED[0], { ...WARNED[0], id: 899 }])).toContain("Crew Member A (Tue Nov 10");
+    });
+
+    it("keeps two people apart when neither has a name on file", () => {
+      expect(
+        lastLine([
+          at("12:30", "16:00", { id: 801, employee_id: "user-a", person: null }),
+          at("12:30", "16:00", { id: 802, employee_id: "user-b", person: "Unnamed person" }),
+        ]),
+      ).toContain("Unnamed person, Unnamed person (Tue Nov 10");
+    });
+
+    it("writes both halves of the day when they differ, and noon and midnight as 12", () => {
+      expect(lastLine([at("11:30", "16:00")])).toContain("(Tue Nov 10, 11:30 AM to 4:00 PM)");
+      expect(lastLine([at("09:00", "11:00")])).toContain("(Tue Nov 10, 9:00 to 11:00 AM)");
+      expect(lastLine([at("12:00", "12:30")])).toContain("(Tue Nov 10, 12:00 to 12:30 PM)");
+      expect(lastLine([at("00:15", "01:00")])).toContain("(Tue Nov 10, 12:15 to 1:00 AM)");
+    });
+
+    it("writes both days for a shift that crosses midnight", () => {
+      const overnight = row({ starts_at: "2026-11-10T22:00:00-05:00", ends_at: "2026-11-11T01:00:00-05:00" });
+      expect(lastLine([overnight])).toContain("(Tue Nov 10, 10:00 PM to Wed Nov 11, 1:00 AM)");
+    });
+
+    it("is said for a cancel and for both kinds of reschedule, after what the change does", () => {
+      for (const kind of ["cancel", "reschedule", "reschedule_tbd"] as const) {
+        const lines = confirmationLines(previewWith(WARNED, [STAFFED]), kind);
+        expect(lines.length).toBeGreaterThan(1);
+        expect(lines.at(-1)).toBe(SAME_TIME);
+      }
+    });
+
+    it("is said after the line about a deal with no date to move its shifts from", () => {
+      const lines = confirmationLines(previewWith(WARNED, [OPEN], null), "reschedule");
+      expect(lines[0]).toContain("no date to move its shifts from");
+      expect(lines.at(-1)).toBe(SAME_TIME);
+    });
+
+    it("says nothing when nobody else is there", () => {
+      const lines = confirmationLines(previewWith([]), "reschedule");
+      expect(lines).toEqual([]);
+    });
+
+    it("uses plain words", () => {
+      expect(lastLine(WARNED)).not.toMatch(/hand-placed|hand placed|deal_id|unlinked|linked/i);
+    });
   });
 });
 

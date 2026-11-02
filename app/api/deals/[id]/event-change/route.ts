@@ -12,7 +12,8 @@ import {
 // (rules and every write: lib/eventChange.ts).
 //
 // GET  what the dialog shows before anyone confirms: the event's date and
-//      times, the amount paid, and every crew shift with the person on it.
+//      times, the amount paid, every crew shift with the person on it, and who
+//      else is on the schedule at that time (never changed by the POST).
 // POST the change. Body: see parseEventChangeBody. Answers 409 when the crew
 //      or the deal changed since the dialog read them.
 //
