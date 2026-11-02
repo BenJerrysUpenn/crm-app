@@ -254,6 +254,45 @@ test("a deal_id that is not an id is refused", async () => {
   assert.equal(shift(1).deal_id, null);
 });
 
+// --- when the database can't answer --------------------------------------------
+
+test("the event can't be read: the save answers 503 and the shift is not linked", async () => {
+  db.missingTables = ["deals"];
+  const res = await patch(1, { deal_id: 500 });
+  assert.equal(res.status, 503);
+  assert.equal(shift(1).deal_id, null);
+  assert.equal(shift(1).deal_slot, null);
+});
+
+test("the event can't be read when a linked shift moves day: the move answers 503 and nothing changes", async () => {
+  db.rows("shifts")[0].deal_id = 500;
+  db.rows("shifts")[0].deal_slot = 3;
+  db.missingTables = ["deals"];
+  const res = await patch(1, { starts_at: edt("2026-10-25", "11:00"), ends_at: edt("2026-10-25", "15:00") });
+  assert.equal(res.status, 503);
+  assert.equal(shift(1).starts_at, PLACED.starts_at);
+  assert.equal(shift(1).deal_id, 500);
+  assert.equal(shift(1).deal_slot, 3);
+});
+
+test("a slot taken on every try: the save gives up with an error and the shift is not linked", async () => {
+  db.beforeWrite = (table) => {
+    if (table !== "shifts") return;
+    const taken = db.rows("shifts").filter((s) => s.deal_id === 500).map((s) => s.deal_slot as number);
+    addLinked({ deal_slot: Math.max(0, ...taken) + 1 });
+  };
+  const res = await patch(1, { deal_id: 500 });
+  assert.equal(res.status, 400);
+  assert.equal(shift(1).deal_id, null);
+  assert.equal(shift(1).deal_slot, null);
+});
+
+test("the events route answers 503 when the events can't be read", async () => {
+  db.missingTables = ["deals"];
+  const res = await eventsRoute.GET(new Request("http://time.test/api?date=2026-10-23"));
+  assert.equal(res.status, 503);
+});
+
 // --- leaving everything else alone --------------------------------------------
 
 test("an edit with no deal_id leaves the link alone", async () => {
