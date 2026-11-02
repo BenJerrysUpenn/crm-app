@@ -7,7 +7,7 @@
 //
 //   npm test        (node --test; Node runs TypeScript directly)
 
-import { beforeEach, test } from "node:test";
+import { beforeEach, mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createElement, type ReactElement, type ReactNode } from "react";
@@ -188,9 +188,11 @@ test("a manager's count takes in a shift left off a finished event, while it is 
   assert.match(html(older), chooseButton(1));
 });
 
-test("the board is told today by the page", async () => {
-  const { nyToday } = await loadAppModule<typeof import("./metrics/dates.ts")>("lib/metrics/dates.ts");
-  assert.equal((await boardFor(MANAGER)).props.today, nyToday());
+test("the board is told New York's today by the page, not UTC's", async (t) => {
+  // 11:30 PM on Wednesday 4 November in New York is already Thursday in UTC.
+  mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-05T04:30:00Z") });
+  t.after(() => mock.timers.reset());
+  assert.equal((await boardFor(MANAGER)).props.today, "2026-11-04");
 });
 
 test("the board gets a finished event's kind, worked out on the server", async () => {
