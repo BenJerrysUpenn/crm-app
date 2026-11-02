@@ -166,19 +166,44 @@ built on the Mac, published to `payroll_sheets` (migration 36) by
 (`components/finance/PayTable.tsx`, `lib/payroll/paySheet.ts`):
 
 - one row per person, columns in QBO's Run Payroll order (Regular hours,
-  Overtime hours, Paycheck tips, Solo close, Catering premium, Catering
-  premium OT, Travel reimbursement). Three info columns sit among them,
-  never keyed into QBO and never in a pay total (2026-10-12): Catering
-  hours (everyone's catering hours, salaried and $20+/h included; the total
-  is the sheet's own `totals.catering_hours`) just before Catering premium,
-  and Marketing hours and Marketing cost (marketing labour booked toward the
-  2% marketing obligation) after Catering premium OT. Then the rate and the wages
+  Overtime hours, Paycheck tips, Solo close, Catering premium, Travel
+  reimbursement). Two info columns sit among them, never keyed into QBO and
+  never in a pay total (2026-10-12): Marketing hours and Marketing cost
+  (marketing labour booked toward the 2% marketing obligation), after Catering
+  premium. Then the rate and the wages
   (rate × regular + 1.5 × rate × OT, from the sheet; "salary"; or "no rate");
   a totals row;
 - each row opens onto its punches (date, in, out, paid-to when cut back,
   hours, the shift it is measured against), week 1 / week 2 hours, tips by
-  source (pool, each catering event, Olo) and the solo-close nights it earned;
+  source (pool, each catering event, Olo), the solo-close nights it earned, and
+  how a Catering premium was worked out (`premiumDetailText`);
 - the run's solo-close night table, open items and flags.
+
+**The owner's pay table rulings of 2026-11-02:**
+
+- **No Catering hours column.** "I only need Catering premium not catering
+  hours." The column and its total are gone. The sheet still computes catering
+  hours, because the premium needs them, and the expanded row still shows them.
+- **No Catering premium OT column.** "Catering premium OT isn't a thing." QBO has
+  no such pay type. A premium for hours worked is part of the overtime rate, so
+  overtime weeks still owe extra on it. From the period starting 2026-10-19,
+  bj-finance adds that amount into the row's Catering premium, one line, and the
+  expanded row says how much (`evidence.premium_base_cents`,
+  `evidence.premium_overtime`). That default is the owner's to veto: the
+  alternative is to stop paying it. A pay table for an earlier period keeps its
+  separate line in `premium_ot`; the expanded row shows it, and a note under the
+  table says so when there is one (`separatePremiumOtNote`).
+- **Salaried staff have no marketing cost.** This reverses 2026-10-12's salary /
+  2,080. From the period starting 2026-10-19 the sheet publishes a salaried row's
+  Marketing hours with no dollars, in the row or its total, and raises no finding
+  for being salaried. Hourly staff are unchanged. This page computes nothing: a
+  pay table built before bj-finance's change keeps showing the old figure until
+  it is rebuilt.
+
+Rule and evidence: bj-finance `docs/specs/payroll-pipeline.md` §2.9, §2.10, §5.1.
+These land with bj-finance's change, in either order: the sheet keeps `premium_ot`
+and `premium_ot_cents` empty and zero so a page that still reads them keeps
+working, and this page reads a sheet with or without them.
 
 **Rebuild pay table** (`POST /api/payroll/sheet`) inserts a `queued` row with
 the service-role key; the bj-finance runner daemon on the Mac builds it within

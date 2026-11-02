@@ -14,10 +14,12 @@ import {
   money,
   oloEvidenceText,
   payTableBlocker,
+  premiumDetailText,
   qboCell,
   qboTotal,
   rateCell,
   requestView,
+  separatePremiumOtNote,
   wagesCell,
   type PaySheetBuild,
   type PaySheetJson,
@@ -146,11 +148,11 @@ function audit(table: string, at: string, image: Record<string, unknown>, which:
 test("columns follow QBO's Run Payroll grid: hours, then the flat amounts", () => {
   assert.deepEqual(
     QBO_COLUMNS.map((c) => c.label),
-    ["Regular hours", "Overtime hours", "Paycheck tips", "Solo close", "Catering premium", "Catering premium OT", "Travel reimbursement"],
+    ["Regular hours", "Overtime hours", "Paycheck tips", "Solo close", "Catering premium", "Travel reimbursement"],
   );
 });
 
-test("the table adds catering and marketing info columns among the pay lines, never as pay lines", () => {
+test("the table adds marketing info columns among the pay lines, never as pay lines, and no catering hours or premium OT", () => {
   assert.deepEqual(
     PAY_TABLE_COLUMNS.map((c) => c.label),
     [
@@ -158,9 +160,7 @@ test("the table adds catering and marketing info columns among the pay lines, ne
       "Overtime hours",
       "Paycheck tips",
       "Solo close",
-      "Catering hours",
       "Catering premium",
-      "Catering premium OT",
       "Marketing hours",
       "Marketing cost",
       "Travel reimbursement",
@@ -168,7 +168,7 @@ test("the table adds catering and marketing info columns among the pay lines, ne
   );
   assert.deepEqual(
     PAY_TABLE_COLUMNS.filter((c) => !c.qbo).map((c) => c.key),
-    ["catering_hours", "marketing_hours", "marketing"],
+    ["marketing_hours", "marketing"],
   );
 });
 
@@ -176,7 +176,7 @@ test("an hourly row is keyed as the sheet published it", () => {
   const r = row();
   assert.deepEqual(
     PAY_TABLE_COLUMNS.map((c) => qboCell(r, c.key)),
-    ["47.00", "2.00", "$64.02", "$30.00", "", "", "", "", "", ""],
+    ["47.00", "2.00", "$64.02", "$30.00", "", "", "", ""],
   );
   assert.equal(rateCell(r), "$19.00/h");
   assert.equal(wagesCell(r), "$950.00");
@@ -206,45 +206,72 @@ test("the wages cell follows the sheet's wages basis, not the rate alone", () =>
 });
 
 test("flat amounts and premium lines show only when there is one", () => {
-  const r = row({ premium_cents: 291, premium_ot_cents: 12, travel_cents: 4536, tips_cents: 0, solo_close_cents: 0 });
+  const r = row({ premium_cents: 291, travel_cents: 4536, tips_cents: 0, solo_close_cents: 0 });
   assert.equal(qboCell(r, "premium"), "$2.91");
-  assert.equal(qboCell(r, "premium_ot"), "$0.12");
   assert.equal(qboCell(r, "travel"), "$45.36");
   assert.equal(qboCell(r, "tips"), "");
   assert.equal(qboCell(r, "solo"), "");
 });
 
-test("catering hours show everyone's catering hours, as hours, beside the premium dollars", () => {
-  const r = row({ catering_hours: 6.5, premium_hours: 6.5, premium_cents: 650 });
-  const cells = PAY_TABLE_COLUMNS.map((c) => qboCell(r, c.key));
-  const at = PAY_TABLE_COLUMNS.findIndex((c) => c.key === "catering_hours");
-  assert.equal(PAY_TABLE_COLUMNS[at + 1].key, "premium");
-  assert.deepEqual(cells.slice(at, at + 2), ["6.50", "$6.50"]);
-});
-
-test("catering hours show for a person with no premium ($20+/h or salaried)", () => {
-  assert.equal(qboCell(row({ catering_hours: 4, premium_hours: 0, premium_cents: 0 }), "catering_hours"), "4.00");
-  assert.equal(qboCell(row({ salaried: true, catering_hours: 3.25, premium_hours: 0 }), "catering_hours"), "3.25");
+test("the pay table has no column for catering hours or premium overtime", () => {
+  const keys: string[] = PAY_TABLE_COLUMNS.map((c) => c.key);
+  assert.equal(keys.includes("catering_hours"), false);
+  assert.equal(keys.includes("premium_ot"), false);
   assert.equal(qboCell(row({ catering_hours: 4, premium_hours: 0, premium_cents: 0 }), "premium"), "");
+  assert.equal(qboCell(row({ catering_hours: 4, premium_hours: 4, premium_cents: 400 }), "premium"), "$4.00");
 });
 
-test("catering hours are blank when zero", () => {
-  assert.equal(qboCell(row(), "catering_hours"), "");
-  assert.equal(qboCell(row({ catering_hours: 0, premium_hours: 0 }), "catering_hours"), "");
+test("the expanded row works out a premium with no overtime", () => {
+  assert.equal(premiumDetailText(row({ catering_hours: 5, premium_hours: 5, premium_cents: 500 })), "Premium hours 5.00h → $5.00");
 });
 
-test("the catering hours total is the sheet's own total", () => {
-  const t = { ...sheet().totals, catering_hours: 12.75 };
-  const rows = [row({ catering_hours: 6.5 }), row({ catering_hours: 2.25 })];
-  assert.equal(qboTotal(t, "catering_hours", rows), "12.75");
-  assert.equal(qboTotal({ ...t, catering_hours: 0 }, "catering_hours", rows), "0.00");
+test("the expanded row shows a period's overtime inside the one Catering premium amount", () => {
+  const base = row();
+  const r = row({
+    catering_hours: 10,
+    premium_hours: 10,
+    premium_cents: 1100,
+    premium_ot_cents: 0,
+    premium_ot: [],
+    evidence: {
+      ...base.evidence,
+      premium_base_cents: 1000,
+      premium_overtime: [{ week_start: "2026-10-19", week_end: "2026-10-25", week_hours: 50, overtime_hours: 10, cents: 100 }],
+    },
+  });
+  assert.equal(qboCell(r, "premium"), "$11.00");
+  assert.equal(
+    premiumDetailText(r),
+    "Premium hours 10.00h → $10.00 · overtime on the premium 2026-10-19–2026-10-25: $1.00 · Catering premium $11.00, with that overtime inside it",
+  );
 });
 
-test("the catering hours total adds up the rows only when the sheet has none", () => {
-  const { catering_hours: _omit, ...t } = sheet().totals;
-  const rows = [row({ catering_hours: 6.5 }), row({ catering_hours: 0 }), row({ catering_hours: 2.25 }), row({ catering_hours: 0.1 }), row({ catering_hours: 0.2 })];
-  assert.equal(qboTotal(t, "catering_hours", rows), "9.05");
-  assert.equal(qboTotal(t, "catering_hours", []), "0.00");
+test("a published sheet from before the ruling keeps its separate premium overtime line in the expanded row", () => {
+  const r = row({
+    catering_hours: 10,
+    premium_hours: 10,
+    premium_cents: 1000,
+    premium_ot_cents: 100,
+    premium_ot: [{ week_start: "2026-10-05", week_end: "2026-10-11", week_hours: 50, overtime_hours: 10, cents: 100 }],
+  });
+  assert.equal(qboCell(r, "premium"), "$10.00");
+  assert.equal(premiumDetailText(r), "Premium hours 10.00h → $10.00 · premium OT 2026-10-05–2026-10-11: $1.00");
+});
+
+test("a sheet with no premium overtime keys at all still renders", () => {
+  const { premium_ot: _ot, premium_ot_cents: _cents, ...r } = row({ catering_hours: 2, premium_hours: 2, premium_cents: 200 });
+  assert.equal(premiumDetailText(r), "Premium hours 2.00h → $2.00");
+  const { premium_ot_cents: _total, ...t } = sheet().totals;
+  assert.equal(separatePremiumOtNote(t), null);
+});
+
+test("a separate premium overtime amount is named under the table, never hidden, and only when there is one", () => {
+  const t = sheet().totals;
+  assert.equal(separatePremiumOtNote({ ...t, premium_ot_cents: 0 }), null);
+  assert.equal(
+    separatePremiumOtNote({ ...t, premium_ot_cents: 150 }),
+    "This pay table also has $1.50 of premium overtime on its own line, shown when you open the row.",
+  );
 });
 
 test("marketing hours and cost show as the sheet published them, blank when zero or missing", () => {
@@ -255,6 +282,12 @@ test("marketing hours and cost show as the sheet published them, blank when zero
   assert.equal(qboCell(row({ marketing_hours: 0, marketing_cents: 0 }), "marketing"), "");
   assert.equal(qboCell(row(), "marketing_hours"), "");
   assert.equal(qboCell(row(), "marketing"), "");
+});
+
+test("a salaried row shows its marketing hours and no cost, as the sheet publishes them", () => {
+  const r = row({ salaried: true, marketing_hours: 4, marketing_cents: 0 });
+  assert.equal(qboCell(r, "marketing_hours"), "4.00");
+  assert.equal(qboCell(r, "marketing"), "");
 });
 
 test("marketing totals come from the sheet's totals, and are blank on a sheet without them", () => {
@@ -275,7 +308,7 @@ test("totals come from the sheet's own totals row", () => {
   const t = sheet().totals;
   assert.deepEqual(
     PAY_TABLE_COLUMNS.map((c) => qboTotal(t, c.key)),
-    ["47.00", "2.00", "$64.02", "$30.00", "0.00", "$0.00", "$0.00", "", "", "$0.00"],
+    ["47.00", "2.00", "$64.02", "$30.00", "$0.00", "", "", "$0.00"],
   );
   assert.equal(qboTotal({ ...t, regular_hours: undefined }, "regular"), "49.00");
 });
