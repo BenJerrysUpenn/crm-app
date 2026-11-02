@@ -155,6 +155,22 @@ export function fittingEvents(shift: Pick<CrewShift, "starts_at" | "ends_at">, e
 /** Nobody has touched the dropdown (null), or they chose None or an event. */
 export type EventPick = number | "none" | null;
 
+/** What the popup knows about a shift when it works out its event dropdown. */
+export type DropdownInput = {
+  pick: EventPick;
+  currentDealId: number | null;
+  /** The linked deal as read, at any stage. Null when there is none or it is gone. */
+  currentEvent: ScheduleEvent | null;
+  /** The date the shift is saved on. Absent on a new shift. */
+  savedDate?: string | null;
+  date: string;
+  onDate: ScheduleEvent[];
+  fitting: ScheduleEvent[];
+};
+
+/** The part of DropdownInput that says whether the saved link still stands. */
+type SavedLink = Pick<DropdownInput, "currentEvent" | "savedDate" | "date">;
+
 /**
  * What the dropdown holds right now.
  *
@@ -165,17 +181,7 @@ export type EventPick = number | "none" | null;
  * event that fits, if exactly one does. Two or more is the manager's call, and so
  * is none, so both start at None.
  */
-export function selectedEventId(input: {
-  pick: EventPick;
-  currentDealId: number | null;
-  /** The linked deal as read, at any stage. Null when there is none or it is gone. */
-  currentEvent: ScheduleEvent | null;
-  /** The date the shift is saved on. Absent on a new shift. */
-  savedDate?: string | null;
-  date: string;
-  onDate: ScheduleEvent[];
-  fitting: ScheduleEvent[];
-}): number | null {
+export function selectedEventId(input: DropdownInput): number | null {
   if (input.pick === "none") return null;
   if (typeof input.pick === "number" && input.onDate.some((e) => e.id === input.pick)) return input.pick;
   if (input.currentDealId !== null && savedLinkStands(input)) return input.currentDealId;
@@ -183,12 +189,12 @@ export function selectedEventId(input: {
 }
 
 /** Is the saved event still the shift's at this date: on that date, or the shift not moved? */
-function savedLinkStands(input: { currentEvent: ScheduleEvent | null; savedDate?: string | null; date: string }): boolean {
+function savedLinkStands(input: SavedLink): boolean {
   return input.currentEvent !== null && (input.currentEvent.event_date === input.date || input.savedDate === input.date);
 }
 
 /** Will a save take the shift off its saved event because it moved to another day? */
-export function movedOffSavedEvent(input: { currentEvent: ScheduleEvent | null; savedDate?: string | null; date: string }): boolean {
+export function movedOffSavedEvent(input: SavedLink): boolean {
   return input.currentEvent !== null && !savedLinkStands(input);
 }
 
@@ -202,15 +208,7 @@ export function movedOffSavedEvent(input: { currentEvent: ScheduleEvent | null; 
  * on). There is nothing to show, and a dropdown would read as None and clear it,
  * so the popup leaves the link alone.
  */
-export function eventDropdown(input: {
-  pick: EventPick;
-  currentDealId: number | null;
-  currentEvent: ScheduleEvent | null;
-  savedDate?: string | null;
-  date: string;
-  onDate: ScheduleEvent[];
-  fitting: ScheduleEvent[];
-}): { selected: number | null; options: ScheduleEvent[] } | null {
+export function eventDropdown(input: DropdownInput): { selected: number | null; options: ScheduleEvent[] } | null {
   const { currentDealId, currentEvent, onDate } = input;
   if (currentDealId !== null && currentEvent === null) return null;
   const notOnOffer = currentEvent !== null && savedLinkStands(input) && !onDate.some((e) => e.id === currentEvent.id);
