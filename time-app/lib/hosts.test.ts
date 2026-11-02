@@ -101,7 +101,7 @@ test("finance host: finance pages, sign-in and the APIs they use are served", ()
 
 test("finance host: the payroll page's punch forms save through the Timesheets routes", () => {
   // PunchFixForm: POST /api/time-entries (add a punch), PATCH /api/time-entries/:id (fix a punch).
-  // These were a 404 ("Not found") on the finance host and nowhere else.
+  // Both hosts serve them; a 404 ("Not found") here shows a manager an error on the form.
   for (const path of ["/api/time-entries", "/api/time-entries/123"]) {
     assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
     assert.deepEqual(routeForHost(TIME, path, ""), { kind: "next" }, path);
