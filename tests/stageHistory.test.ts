@@ -11,10 +11,17 @@ import { join, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildStagePatch, writeStageChange } from "@/lib/dealUpdate";
 
-type Row = { stage: string; is_active: number };
+type Row = { stage: string; is_active: number | null };
 
+// The deals table as PostgREST would serve it: a read or an update reaches the
+// rows whose every filter matches what they hold at that moment, and
+// maybeSingle refuses more than one.
 function fakeSupabase(opts: {
+  /** The id of the deal the test is about. */
+  id?: number;
   row?: Row | null;
+  /** Other deals in the table. */
+  others?: Array<Row & { id: number }>;
   email?: string | null;
   readError?: string;
   updateError?: string;
@@ -23,10 +30,20 @@ function fakeSupabase(opts: {
   /** The stage the row holds by the time the update runs (the sweep moved it). */
   movedMeanwhileTo?: string;
 }) {
+  const id = opts.id ?? 7;
+  const row = opts.row === undefined ? { stage: "Booked Unpaid", is_active: 1 } : opts.row;
+  const table: Array<Record<string, unknown>> = [
+    ...(row ? [{ id, ...row }] : []),
+    ...(opts.others ?? []),
+  ];
   const calls = {
     updates: [] as Array<Record<string, unknown>>,
+    /** The ids of the deals an update reached. */
+    moved: [] as number[],
     inserts: [] as Array<Record<string, unknown>>,
   };
+  const reached = (filters: Array<[string, unknown]>, held = table) =>
+    held.filter((r) => filters.every(([col, val]) => r[col] === val));
   const client = {
     auth: {
       getUser: async () => ({
@@ -37,8 +54,8 @@ function fakeSupabase(opts: {
         error: null,
       }),
     },
-    from(table: string) {
-      if (table === "deal_events") {
+    from(name: string) {
+      if (name === "deal_events") {
         return {
           insert: async (rows: Array<Record<string, unknown>>) => {
             calls.inserts.push(...rows);
@@ -48,23 +65,22 @@ function fakeSupabase(opts: {
           },
         };
       }
-      if (table !== "deals") throw new Error(`unexpected table ${table}`);
-      // The update lands on the row only if every stage filter on it still
-      // matches what the row holds when the update runs, as PostgREST would.
-      const rowFilters: Array<[string, unknown]> = [];
-      const stageAtWrite = () =>
-        opts.movedMeanwhileTo ?? (opts.row === undefined ? "Booked Unpaid" : opts.row?.stage);
+      if (name !== "deals") throw new Error(`unexpected table ${name}`);
+      const filters: Array<[string, unknown]> = [];
       const updated = () => {
-        const matches = rowFilters.every(([col, val]) => col !== "stage" || val === stageAtWrite());
-        const count = matches ? (opts.updatedRows ?? 1) : 0;
+        const atWrite = table.map((r) =>
+          r.id === id && opts.movedMeanwhileTo ? { ...r, stage: opts.movedMeanwhileTo } : r,
+        );
+        const hit = opts.updateError ? [] : reached(filters, atWrite).slice(0, opts.updatedRows);
+        calls.moved.push(...hit.map((r) => r.id as number));
         return {
-          data: Array.from({ length: count }, () => ({ id: 25419 })),
+          data: hit.map((r) => ({ id: r.id })),
           error: opts.updateError ? { message: opts.updateError } : null,
         };
       };
       const write = {
         eq: (col: string, val: unknown) => {
-          rowFilters.push([col, val]);
+          filters.push([col, val]);
           return write;
         },
         select: async () => updated(),
@@ -72,11 +88,21 @@ function fakeSupabase(opts: {
       };
       const read = {
         select: () => read,
-        eq: () => read,
-        maybeSingle: async () => ({
-          data: opts.row === undefined ? { stage: "Booked Unpaid", is_active: 1 } : opts.row,
-          error: opts.readError ? { message: opts.readError } : null,
-        }),
+        eq: (col: string, val: unknown) => {
+          filters.push([col, val]);
+          return read;
+        },
+        maybeSingle: async () => {
+          if (opts.readError) return { data: null, error: { message: opts.readError } };
+          const hit = reached(filters);
+          if (hit.length > 1)
+            return { data: null, error: { message: "multiple rows returned" } };
+          const [found] = hit;
+          return {
+            data: found ? { stage: found.stage, is_active: found.is_active } : null,
+            error: null,
+          };
+        },
         update: (patch: Record<string, unknown>) => {
           calls.updates.push(patch);
           return write;
@@ -100,7 +126,7 @@ describe("writeStageChange writes the history", () => {
   });
 
   it("writes a stage row shaped like catering's", async () => {
-    const { client, calls } = fakeSupabase({});
+    const { client, calls } = fakeSupabase({ id: 25419 });
     const res = await writeStageChange(client, 25419, buildStagePatch("Booked Paid"));
     expect(res.error).toBeNull();
     expect(res.historyError).toBeNull();
@@ -158,6 +184,28 @@ describe("writeStageChange writes the history", () => {
     expect(res).toEqual({ error: null, historyError: null });
     expect(calls.updates).toEqual([]);
     expect(calls.inserts).toEqual([]);
+  });
+
+  it("moves only the deal it was asked to move", async () => {
+    const { client, calls } = fakeSupabase({
+      others: [{ id: 8, stage: "Booked Unpaid", is_active: 1 }],
+    });
+    const res = await writeStageChange(client, 7, buildStagePatch("Booked Paid"));
+    expect(res.error).toBeNull();
+    expect(calls.moved).toEqual([7]);
+    expect(calls.inserts.map((r) => r.deal_id)).toEqual([7]);
+  });
+
+  it("logs a missing is_active as no old value, not the text null", async () => {
+    const { client, calls } = fakeSupabase({
+      row: { stage: "Sent Quote", is_active: null },
+    });
+    await writeStageChange(client, 7, buildStagePatch("Closed Lost"));
+    expect(calls.inserts[1]).toMatchObject({
+      field: "is_active",
+      old_value: null,
+      new_value: "0",
+    });
   });
 
   it("names nobody it does not know", async () => {
