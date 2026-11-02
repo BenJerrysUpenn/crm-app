@@ -277,6 +277,20 @@ describe("the cron route fails closed", () => {
   });
 });
 
+describe("which deals the sweep makes shifts for", () => {
+  it("a finished event stays out: an Event Complete deal beside a booked one gets no shifts", async () => {
+    db.state.deals = [{ ...DEAL }, { ...DEAL, id: 25402, stage: "Event Complete" }];
+
+    const response = await GET(cron("", { authorization: `Bearer ${SECRET}` }));
+
+    expect(response.status).toBe(200);
+    expect(db.state.shifts.map((s) => [s.deal_id, s.deal_slot])).toEqual([
+      [25401, 1],
+      [25401, 2],
+    ]);
+  });
+});
+
 describe("the supabase-js store's insert and the unique index", () => {
   it("targets exactly the columns migration 29 indexes, and that index is plain", () => {
     expect(MIGRATION_29).toEqual({ columns: ["deal_id", "deal_slot"], where: null });

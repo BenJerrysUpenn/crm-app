@@ -11,7 +11,6 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  ALERT_STAGES,
   buildReminder,
   reminderEmail,
   reminderWindow,
@@ -345,8 +344,11 @@ describe("catering", () => {
     ]);
   });
 
-  it("the stages the reminder reads are these and no others: a finished event stays out", () => {
-    expect(ALERT_STAGES).toEqual(["Booked Unpaid", "Booked Paid", "Closed Marketing Event"]);
+  it("a finished event stays out: the same event Booked Paid is a gap, at Event Complete it is not", () => {
+    const booked = deal({ id: 1, stage: "Booked Paid" });
+    const finished = deal({ id: 1, stage: "Event Complete" });
+    expect(buildReminder(snapshot({ storeHours: [], deals: [booked] }), RUN_DATE)).toEqual(["Sat Oct 24, 2:00–6:00 PM (catering)"]);
+    expect(buildReminder(snapshot({ storeHours: [], deals: [finished] }), RUN_DATE)).toEqual([]);
   });
 
   it("only events from the first Sunday to the last Saturday are checked; an undated event is not", () => {

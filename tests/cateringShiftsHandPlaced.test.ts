@@ -13,7 +13,6 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  BOOKED_STAGES,
   createCateringShifts,
   planCateringShifts,
   reconcileShifts,
@@ -204,10 +203,6 @@ describe("which shifts count as hand-placed crew", () => {
     const db = memoryStore([deal], [handPlaced(sat("12:30"), sat("16:00"), over)]);
 
     expect(await createCateringShifts(db.store, deal)).toEqual({ created: 1 });
-  });
-
-  it("the stages it makes shifts for are the booked ones: a finished event stays out", () => {
-    expect(BOOKED_STAGES).toEqual(["Booked Unpaid", "Booked Paid"]);
   });
 
   it("a position with stray spaces counts, as it does for the reminder", async () => {
