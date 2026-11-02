@@ -99,6 +99,47 @@ test("finance host: finance pages, sign-in and the APIs they use are served", ()
   }
 });
 
+test("finance host: the payroll page's punch forms save through the Timesheets routes", () => {
+  // PunchFixForm: POST /api/time-entries (add a punch), PATCH /api/time-entries/:id (fix a punch).
+  // These were a 404 ("Not found") on the finance host and nowhere else.
+  for (const path of ["/api/time-entries", "/api/time-entries/123"]) {
+    assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
+    assert.deepEqual(routeForHost(TIME, path, ""), { kind: "next" }, path);
+  }
+  // Only the prefix itself, not look-alikes.
+  assert.deepEqual(routeForHost(FIN, "/api/time-entriesx", ""), { kind: "not_found" });
+});
+
+test("finance host: every API the finance pages' components call is served", () => {
+  // The paths components/finance, components/metrics and SoloCloseNights fetch,
+  // as of the 2026-11-02 audit. A browser-side fetch here that the host 404s
+  // shows up to a manager as "Not found" on a form, not as a server error.
+  for (const path of [
+    "/api/time-entries", // PunchFixForm
+    "/api/time-entries/123", // PunchFixForm
+    "/api/payroll/event-punch", // PunchFixForm
+    "/api/payroll/verify", // PayrollVerify, SoloCloseNights
+    "/api/payroll/sheet", // PayrollVerify
+    "/api/payroll/submit", // PayrollVerify
+    "/api/payroll/rulings", // choiceApi
+    "/api/payroll/reimbursements/7/decide", // ReimbursementQueue
+    "/api/payroll/reimbursements/7/adjust", // ReimbursementQueue
+    "/api/payroll/reimbursements/evidence-url", // ReimbursementQueue
+    "/api/payroll/reimbursements/file", // ReimbursementQueue
+    "/api/payroll/targets", // ControlBoard
+    "/api/payroll/targets/seasons", // PlanningInputs
+    "/api/payroll/targets/concession-events", // PlanningInputs
+    "/api/payroll/targets/closed-days", // PlanningInputs
+    "/api/payroll/targets/closed-days/2026-11-26", // PlanningInputs
+    "/api/metrics/views", // viewStore
+    "/api/metrics/views/12", // viewStore
+    "/api/metrics/preferences", // viewStore
+    "/api/logout", // FinanceShell
+  ]) {
+    assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
+  }
+});
+
 test("finance host: a staff page is sent to the time host, path and query kept", () => {
   assert.deepEqual(routeForHost(FIN, "/schedule", "?week=2026-09-21"), {
     kind: "redirect",
