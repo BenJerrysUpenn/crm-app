@@ -392,6 +392,32 @@ describe("a failed hand-placed read", () => {
   });
 });
 
+// The noon reminder's lines for the same deals and shifts the reconciler reads,
+// as Booked Paid deals with no store hours, on a run that covers Sat Oct 24.
+function reminderGaps(deals: DealTimes[], shifts: TableRow[]): string[] {
+  return buildReminder(
+    {
+      storeHours: [],
+      exceptions: [],
+      closedRanges: [],
+      shiftTypes: [],
+      shifts,
+      deals: deals.map((d) => ({
+        id: d.id,
+        stage: "Booked Paid",
+        archived: 0,
+        event_date: d.event_date ?? null,
+        event_start_time: d.event_start_time ?? null,
+        event_end_time: d.event_end_time ?? null,
+        staff_count: d.staff_count ?? null,
+      })),
+      dealShifts: [],
+      staffing: [],
+    },
+    "2026-10-15",
+  );
+}
+
 // Deliberate: the reconciler counts per deal and does not allocate one shift
 // across overlapping events. The noon reminder does. So one person on a shift
 // spanning two overlapping events skips both here, and the reminder still names
@@ -405,27 +431,7 @@ describe("one person's shift across two overlapping events", () => {
     const db = memoryStore([EARLY, LATE], [SPANNING]);
 
     const report = await reconcileShifts(db.store);
-    const gaps = buildReminder(
-      {
-        storeHours: [],
-        exceptions: [],
-        closedRanges: [],
-        shiftTypes: [],
-        shifts: [SPANNING],
-        deals: [EARLY, LATE].map((d) => ({
-          id: d.id,
-          stage: "Booked Paid",
-          archived: 0,
-          event_date: d.event_date ?? null,
-          event_start_time: d.event_start_time ?? null,
-          event_end_time: d.event_end_time ?? null,
-          staff_count: d.staff_count ?? null,
-        })),
-        dealShifts: [],
-        staffing: [],
-      },
-      "2026-10-15",
-    );
+    const gaps = reminderGaps([EARLY, LATE], [SPANNING]);
 
     expect(report.created).toBe(0);
     expect(report.failed).toEqual([]);
@@ -456,29 +462,7 @@ describe("the reconciler and the reminder agree", () => {
     const db = memoryStore([deal], [row]);
 
     const report = await reconcileShifts(db.store);
-    const gaps = buildReminder(
-      {
-        storeHours: [],
-        exceptions: [],
-        closedRanges: [],
-        shiftTypes: [],
-        shifts: [row],
-        deals: [
-          {
-            id: deal.id,
-            stage: "Booked Paid",
-            archived: 0,
-            event_date: deal.event_date ?? null,
-            event_start_time: deal.event_start_time ?? null,
-            event_end_time: deal.event_end_time ?? null,
-            staff_count: deal.staff_count ?? null,
-          },
-        ],
-        dealShifts: [],
-        staffing: [],
-      },
-      "2026-10-15",
-    );
+    const gaps = reminderGaps([deal], [row]);
 
     expect(report.created === 0).toBe(covered);
     expect(gaps.length === 0).toBe(covered);
