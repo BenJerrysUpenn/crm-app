@@ -18,6 +18,8 @@ type Collection = { POST: (request: Request) => Promise<Response> };
 const shiftById = await loadAppModule<{ PATCH: Handler }>("app/api/shifts/[id]/route.ts");
 const shifts = await loadAppModule<Collection>("app/api/shifts/route.ts");
 const eventsRoute = await loadAppModule<{ GET: (request: Request) => Promise<Response> }>("app/api/schedule/catering-events/route.ts");
+const { loadLinkedEvents } = await loadAppModule<typeof import("./shiftEventLink.ts")>("lib/shiftEventLink.ts");
+const { createClient } = await loadAppModule<typeof import("./supabase/server.ts")>("lib/supabase/server.ts");
 
 const OWNER = "00000000-0000-0000-0000-00000000000c";
 const MANAGER = "00000000-0000-0000-0000-00000000000a";
@@ -338,4 +340,21 @@ test("the events route lists a date's booked events and no others", async () => 
 test("the events route needs a real date", async () => {
   const res = await eventsRoute.GET(new Request("http://time.test/api?date=soon"));
   assert.equal(res.status, 400);
+});
+
+// --- the events shifts are already linked to ------------------------------------
+
+test("a shift's linked event is read back at any stage, so the popup can show a finished or archived one", async () => {
+  const events = await loadLinkedEvents(createClient(), [503, 504]);
+  assert.deepEqual(events?.map((e) => e.id).sort(), [503, 504]);
+});
+
+test("no linked shifts: no linked events, even when events can't be read", async () => {
+  db.missingTables = ["deals"];
+  assert.deepEqual(await loadLinkedEvents(createClient(), []), []);
+});
+
+test("linked events that can't be read come back as null, not as none", async () => {
+  db.missingTables = ["deals"];
+  assert.equal(await loadLinkedEvents(createClient(), [500]), null);
 });
