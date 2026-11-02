@@ -30,8 +30,21 @@ const LOCAL_SUFFIX = ".localhost";
 /** Paths that make up the finance site's own pages. */
 const FINANCE_PAGES = ["/payroll", "/metrics"];
 
-/** What the finance host serves besides its pages: sign-in and the APIs the pages call. */
-const FINANCE_HOST_ALSO = ["/login", "/auth", "/api/auth", "/api/logout", "/api/payroll", "/api/metrics", "/_next"];
+/**
+ * What the finance host serves besides its pages: sign-in and the APIs the pages
+ * call. /api/time-entries is the payroll page's fix-a-punch and add-a-punch forms,
+ * which save through the Timesheets routes (docs/payroll-verify.md).
+ */
+const FINANCE_HOST_ALSO = [
+  "/login",
+  "/auth",
+  "/api/auth",
+  "/api/logout",
+  "/api/payroll",
+  "/api/metrics",
+  "/api/time-entries",
+  "/_next",
+];
 const FINANCE_HOST_FILES = new Set(["/favicon.ico", "/manifest.webmanifest", "/sw.js"]);
 
 function parseHost(host: string | null): { name: string; port: string } {
