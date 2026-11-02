@@ -200,8 +200,8 @@ to anyone; Alina tells the crew.
   event start, not `departure_time`, and the catering-shifts cron skips a deal that already has
   shifts, so a cleared departure does not move or duplicate any shift.
 - Every change appends one line to `deals.notes` saying what moved, from what to what.
-- Shifts added directly on the Schedule page have no `shifts.deal_id`, so no change touches them.
-  The dialog names the people on them at the event's time, Alina 2026-11-02 (`shiftsAlsoAtEvent`:
+- A shift added directly on the Schedule page has no `shifts.deal_id` until a manager links it in its popup (see "Event on a shift"). Linked, it moves or is removed like the rest of the crew. Unlinked, no change touches it.
+  The dialog names the people on unlinked ones at the event's time, Alina 2026-11-02 (`shiftsAlsoAtEvent`:
   published, staffed, position Catering or Marketing on any event, New York time, any shift touching
   the event). That is wider than `lib/handPlacedCrew.ts`, which the noon reminder and the shift
   reconciler use: it counts Catering only and needs a shift covering the whole event. Display only:
