@@ -66,17 +66,17 @@ export function eventSpan(event: EventTimes): Span | null {
   return { from, to: wallMinute(event.event_date, ends) + (ends < starts ? 1440 : 0) };
 }
 
+/** Published, a person on it, and linked to no deal, whatever its position. */
+export function isUnlinkedStaffedShift(shift: CrewShift): boolean {
+  return shift.published && !!shift.employee_id && shift.deal_id === null;
+}
+
 /**
- * Is this a shift a manager placed by hand? Published, a person on it, linked to
- * no deal, position Catering. A shift linked to any deal never counts.
+ * Is this a shift a manager placed by hand? An unlinked staffed shift at
+ * position Catering. A shift linked to any deal never counts.
  */
 export function isHandPlacedShift(shift: CrewShift): boolean {
-  return (
-    shift.published &&
-    !!shift.employee_id &&
-    shift.deal_id === null &&
-    isCateringPosition(shift.position)
-  );
+  return isUnlinkedStaffedShift(shift) && isCateringPosition(shift.position);
 }
 
 /** A shift's New York wall-clock time as a Span. Throws on a bad timestamp. */

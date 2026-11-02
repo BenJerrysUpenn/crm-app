@@ -15,7 +15,7 @@
 // lib/shiftEventLink.ts.
 
 import { formatClock, nyWallClock, parseTime } from "./coverage";
-import { eventSpan, isCateringPosition, isHandPlacedShift, shiftSpan, spanCovers, type CrewShift } from "./handPlacedCrew";
+import { eventSpan, isCateringPosition, isUnlinkedStaffedShift, shiftSpan, spanCovers, type CrewShift } from "./handPlacedCrew";
 
 /** The word lib/payroll/verify.ts reads as a Marketing shift. */
 export const MARKETING_POSITION = "Marketing";
@@ -236,14 +236,13 @@ export function eventBadge(shift: BadgeShift, events: ScheduleEvent[]): EventBad
 }
 
 /**
- * Catering goes by isHandPlacedShift. Marketing is the same test written out here,
- * not added to that rule: the noon reminder and the shift reconciler also read it,
- * and a Marketing shift covers nothing for them.
+ * A shift of either kind that is staffed and unlinked. For Catering that is
+ * exactly isHandPlacedShift; Marketing is not added to that rule, because the
+ * noon reminder and the shift reconciler also read it and a Marketing shift
+ * covers nothing for them.
  */
 function wantsEventBadge(shift: BadgeShift): boolean {
-  const row = { ...shift, deal_id: shift.deal_id ?? null };
-  if (eventKindOf(shift.position) === "marketing") return row.published && !!row.employee_id && row.deal_id === null;
-  return isHandPlacedShift(row);
+  return eventKindOf(shift.position) !== null && isUnlinkedStaffedShift({ ...shift, deal_id: shift.deal_id ?? null });
 }
 
 /** Every badged shift's badge, by shift id. Its size is the count on the button. */
