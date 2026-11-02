@@ -2343,6 +2343,19 @@ test("marketing: an unassigned Catering slot does not cancel the exemption, sinc
   assert.equal(f.status, "needs_fix");
 });
 
+test("marketing: a shift position with stray spaces reads the same as the crew check reads it", () => {
+  // The crew check trims shifts.position, so a padded Catering shift with
+  // somebody on it is crew and keeps the card; a padded Marketing shift exempts.
+  const expo = dealOn(25500, "2026-10-21", "Birthday Party");
+  assert.deepEqual(only(runLatest({ windowDeals: [expo], deals: [expo], shifts: [linkedShift(expo, " Marketing ", DREW)] }).findings, "3.5"), []);
+  const both = dealOn(25501, "2026-10-22", "Birthday Party");
+  const catering = linkedShift(both, " Catering ", CASEY);
+  const result = runLatest({ windowDeals: [both], deals: [both], shifts: [linkedShift(both, "Marketing", DREW), catering] });
+  const f = only(result.findings, "3.5")[0];
+  assert.equal(f.status, "needs_fix");
+  assert.deepEqual(f.evidence.shift_ids, [catering.id]);
+});
+
 test("marketing: a pickup is still exempt from 2026-10-19", () => {
   assert.deepEqual(only(runLatest({ windowDeals: [dealOn(25500, "2026-10-21", "Pick-up")] }).findings, "3.5"), []);
 });
