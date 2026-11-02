@@ -49,8 +49,9 @@ export function validateChoice(check: string, choice: string, payeeId: string | 
  * catering tip (3.5) splits by punches with no payee to pick, and stranded
  * Olo tips (3.7) wait for the bake shift's punch. From the period starting
  * OLO_AND_MARKETING_RULES_FROM (ruled 2026-11-02) nothing is stranded, because
- * Olo tips have one payee, so 3.7 is refused for that reason. Returns the
- * refusal, or null when the choice still exists.
+ * Olo tips have one payee, and a period with no bake shift is still a fix, so
+ * 3.7 is refused for those reasons. Returns the refusal, or null when the
+ * choice still exists.
  */
 export function retiredChoice(check: string, window: PayWindow): string | null {
   if (!crewPunchRequired(window)) return null;
@@ -59,7 +60,7 @@ export function retiredChoice(check: string, window: PayWindow): string | null {
   if (check === "3.5")
     return `From ${CREW_PUNCH_REQUIRED_FROM} a catering tip goes to whoever punched for the event: add the missing punch instead of picking a payee.`;
   if (check === "3.7" && oloAndMarketingRules(window))
-    return `From ${OLO_AND_MARKETING_RULES_FROM} Olo tips go to the staff member who does the cakes, whether or not a bake shift was worked: there is nothing to pick.`;
+    return `From ${OLO_AND_MARKETING_RULES_FROM} Olo tips go to the staff member who does the cakes, whether or not a bake shift was worked: there is nothing to pick. If no bake shift was worked, put the one that was on the schedule with the person's punch.`;
   if (check === "3.7")
     return `From ${CREW_PUNCH_REQUIRED_FROM} stranded Olo tips have no payee to pick: add the Pastry Opener punch on the Timesheets page, then the tips split by bake shifts.`;
   return null;

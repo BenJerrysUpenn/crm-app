@@ -166,12 +166,13 @@ test("submitting would pay you: crewless and Olo cases only", () => {
   assert.deepEqual(paysSubmitter([mine, olo, night, theirs], "me"), [mine, olo]);
 });
 
-test("from 2026-10-19 a 3.7 choice is still refused, and no longer asks for a Pastry Opener punch (ruled 2026-11-02)", () => {
+test("from 2026-10-19 a 3.7 choice is still refused, and says the Olo tips have their payee (ruled 2026-11-02)", () => {
   const after = payWindowEnding("2026-11-01");
   const before = payWindowEnding("2026-10-18");
   if (!after.ok || !before.ok) throw new Error("window");
   assert.match(retiredChoice("3.7", after.window)!, /nothing to pick/);
-  assert.doesNotMatch(retiredChoice("3.7", after.window)!, /Pastry Opener punch/);
+  assert.match(retiredChoice("3.7", after.window)!, /put the one that was on the schedule/);
+  assert.doesNotMatch(retiredChoice("3.7", after.window)!, /split/);
   assert.match(retiredChoice("3.7", before.window)!, /Pastry Opener punch/);
   assert.match(retiredChoice("3.5", after.window)!, /punch/);
   assert.match(retiredChoice("1.9", after.window)!, /punches/);

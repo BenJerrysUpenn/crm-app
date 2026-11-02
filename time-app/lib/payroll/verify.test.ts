@@ -2173,7 +2173,8 @@ test("fix: the result lists active staff for the add-a-punch picker", () => {
 // --- the 2026-11-02 rulings, for periods starting 2026-10-19 on -------------
 //
 // (a) Olo tips go to the staff member who now does the cakes, whether or not a
-//     bake shift was worked, so §3.7 is not a finding. bj-finance decides who.
+//     bake shift was worked. bj-finance decides who. §3.7 stays a fix with no
+//     default and no picker, now about whether baking happened.
 // (b) Marketing events have marketing hours and no tips, so a marketing deal is
 //     exempt from the §3.5 crew card. The linked shifts decide, not event_type
 //     alone. Periods before keep their rules exactly.
@@ -2216,29 +2217,101 @@ test("2026-11-02 rulings: the cutover is one date, the period starting 2026-10-1
   assert.equal(oloAndMarketingRules(NEXT), false);
 });
 
-test("3.7 from 2026-10-19: no bake shift worked is not a finding, and the button is green", () => {
+test("3.7 from 2026-10-19: no bake shift worked is a fix, with no default and no picker, and it holds Submit", () => {
   const result = runLatest({ ...WED_LATEST });
-  assert.deepEqual(only(result.findings, "3.7"), []);
-  assert.equal(result.counts.needsFix, 0);
+  const f = only(result.findings, "3.7")[0];
+  assert.equal(f.key, "3.7:olo:2026-11-01");
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.severity, "error");
+  assert.equal(f.defaultChoice, undefined);
+  assert.equal(f.options, undefined);
+  assert.equal(f.candidates, undefined);
+  assert.equal(f.defaultPayee, undefined);
+  assert.equal(result.counts.needsFix, 1);
   assert.equal(result.counts.needsRuling, 0);
-  assert.equal(result.ready, true);
-  assert.equal(submittalBlocker(result, true, "2026-11-02"), null);
+  assert.equal(result.ready, false);
+  assert.ok(submittalBlocker(result, true, "2026-11-02"));
 });
 
-test("3.7 from 2026-10-19: a scheduled Pastry Opener shift nobody worked is no finding either", () => {
+test("3.7 from 2026-10-19: the card is about the bake shift, and says the Olo tips go to the cake maker either way", () => {
+  const result = runLatest({ ...WED_LATEST });
+  const f = only(result.findings, "3.7")[0];
+  assert.equal(f.title, "No bake shift worked");
+  assert.equal(
+    f.summary,
+    "No bake shift was worked in this period (the norm is at least 4 Pastry Opener shifts a period). The Olo tips go to the staff member who does the cakes either way.",
+  );
+  assert.match(f.resolution!, /put the bake shift that was worked on the schedule for the person who worked it/);
+  assert.match(f.rule, /put the bake shift that was worked on the schedule, with the person's punch/);
+  assert.match(f.rule, /the Olo tips go to the staff member who does the cakes either way/);
+  assert.match(f.fixNote!, /Put the bake shift that was worked on the schedule/);
+  assert.equal(result.groups.find((g) => g.check === "3.7")?.rule, f.rule);
+  for (const words of [f.summary, f.resolution!, f.rule, f.fixNote!]) {
+    assert.doesNotMatch(words, /nobody to go to/);
+    assert.doesNotMatch(words, /split/);
+    assert.doesNotMatch(words, /strand/);
+  }
+});
+
+test("3.7 from 2026-10-19: a scheduled Pastry Opener shift nobody worked carries its add-punch form, with no talk of splitting", () => {
   const bake = shift({ employee_id: CASEY, starts_at: at("2026-10-21", "06:00"), ends_at: at("2026-10-21", "10:00"), position: "Pastry Opener" });
   const result = runLatest({ ...WED_LATEST, shifts: [bake] });
-  assert.deepEqual(only(result.findings, "3.7"), []);
-  assert.equal(result.ready, true);
+  const f = only(result.findings, "3.7")[0];
+  assert.equal(f.status, "needs_fix");
+  assert.deepEqual(f.evidence.shift_ids, [bake.id]);
+  assert.equal(f.fixes?.length, 1);
+  const fix = f.fixes![0];
+  if (fix.kind !== "add") throw new Error("expected an add-punch form");
+  assert.equal(fix.shift_id, bake.id);
+  assert.match(f.resolution!, /add the punch with the form/);
+  assert.match(f.resolution!, /Put the bake shift that was worked on the schedule/);
+  assert.doesNotMatch(f.resolution!, /split/);
+  assert.equal(result.ready, false);
 });
 
-test("3.7 from 2026-10-19: a recorded choice raises nothing and pays nobody", () => {
+test("3.7 from 2026-10-19: what counts as worked is unchanged: the person's own punch on a Pastry Opener shift clears it", () => {
+  const bake = shift({ employee_id: CASEY, starts_at: at("2026-10-21", "06:00"), ends_at: at("2026-10-21", "10:00"), position: "Pastry Opener" });
+  const worked = runLatest({
+    ...WED_LATEST,
+    shifts: [bake],
+    punches: [punch({ employee_id: CASEY, shift_id: bake.id, clock_in_at: at("2026-10-21", "06:00"), clock_out_at: at("2026-10-21", "10:00") })],
+  });
+  assert.deepEqual(only(worked.findings, "3.7"), []);
+  assert.equal(worked.ready, true);
+  assert.equal(submittalBlocker(worked, true, "2026-11-02"), null);
+});
+
+test("3.7 from 2026-10-19: a shift put on the schedule over a punch already there clears it, with no shift link on the punch", () => {
+  const bake = shift({ employee_id: CASEY, starts_at: at("2026-10-21", "06:00"), ends_at: at("2026-10-21", "10:00"), position: "Pastry Opener" });
+  const unscheduled = punch({ employee_id: CASEY, shift_id: null, clock_in_at: at("2026-10-21", "06:30"), clock_out_at: at("2026-10-21", "10:00") });
+  assert.equal(only(runLatest({ ...WED_LATEST, punches: [unscheduled] }).findings, "3.7").length, 1);
+  assert.deepEqual(only(runLatest({ ...WED_LATEST, shifts: [bake], punches: [unscheduled] }).findings, "3.7"), []);
+});
+
+test("3.7 from 2026-10-19: a punch with no Pastry Opener shift does not count as worked", () => {
+  const scoop = shift({ employee_id: CASEY, starts_at: at("2026-10-21", "06:00"), ends_at: at("2026-10-21", "10:00"), position: "PENN Opener" });
+  const result = runLatest({
+    ...WED_LATEST,
+    shifts: [scoop],
+    punches: [punch({ employee_id: CASEY, shift_id: scoop.id, clock_in_at: at("2026-10-21", "06:00"), clock_out_at: at("2026-10-21", "10:00") })],
+  });
+  assert.equal(only(result.findings, "3.7")[0].status, "needs_fix");
+});
+
+test("3.7 from 2026-10-19: a period the store never opened is not asked about", () => {
+  assert.deepEqual(only(runLatest().findings, "3.7"), []);
+});
+
+test("3.7 from 2026-10-19: a recorded choice cannot answer it and pays nobody", () => {
   const result = runLatest({
     ...WED_LATEST,
     rulings: [{ check_id: "3.7", finding_key: "3.7:olo:2026-11-01", choice: "staff", payee_id: PAT }],
   });
-  assert.deepEqual(only(result.findings, "3.7"), []);
+  const f = only(result.findings, "3.7")[0];
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.effective, undefined);
   assert.deepEqual(result.flags, []);
+  assert.equal(result.ready, false);
 });
 
 test("3.7 before 2026-10-19: the 10-05..10-18 run keeps the fix and its words exactly", () => {
@@ -2247,7 +2320,9 @@ test("3.7 before 2026-10-19: the 10-05..10-18 run keeps the fix and its words ex
   assert.equal(f.status, "needs_fix");
   assert.equal(f.title, "No bake shift worked");
   assert.match(f.rule, /strands the Olo tips: no default and no picker/);
-  assert.match(f.summary, /No bake shift was worked in this period/);
+  assert.match(f.summary, /No bake shift was worked in this period, so any Olo tips for it have nobody to go to/);
+  assert.match(f.resolution!, /Once the punch exists the Olo tips split by bake shifts as normal/);
+  assert.equal(f.fixNote, undefined);
   assert.equal(result.ready, false);
 });
 
@@ -2386,17 +2461,23 @@ test("rule text from 2026-10-19: the 3.5 card the page shows names the marketing
   assert.match(f.rule, /the card stays/);
   assert.match(f.rule, /A pickup event .* is exempt/);
   assert.equal(result.groups.find((g) => g.check === "3.5")?.rule, f.rule);
-  assert.equal(result.groups.find((g) => g.check === "3.7"), undefined);
 });
 
-test("the button from 2026-10-19: a marketing period with no bake shift submits; any other finding still holds it", () => {
+test("the button from 2026-10-19: a marketing period with a bake shift worked submits; no bake shift, or any other finding, holds it", () => {
   const expo = dealOn(25426, "2026-10-21", "Marketing Event");
-  const clean = runLatest({ ...WED_LATEST, windowDeals: [expo], deals: [expo], shifts: [linkedShift(expo, "Marketing", CASEY)] });
+  const bake = shift({ employee_id: CASEY, starts_at: at("2026-10-21", "06:00"), ends_at: at("2026-10-21", "10:00"), position: "Pastry Opener" });
+  const baked = punch({ employee_id: CASEY, shift_id: bake.id, clock_in_at: at("2026-10-21", "06:00"), clock_out_at: at("2026-10-21", "10:00") });
+  const marketing = linkedShift(expo, "Marketing", DREW);
+  const clean = runLatest({ ...WED_LATEST, windowDeals: [expo], deals: [expo], shifts: [marketing, bake], punches: [baked] });
   assert.equal(clean.ready, true);
   assert.equal(submittalBlocker(clean, true, "2026-11-02"), null);
 
-  const open = punch({ employee_id: CASEY, clock_in_at: at("2026-10-21", "11:00"), clock_out_at: null });
-  const held = runLatest({ ...WED_LATEST, punches: [open] });
+  const noBake = runLatest({ ...WED_LATEST, windowDeals: [expo], deals: [expo], shifts: [marketing] });
+  assert.deepEqual(noBake.findings.filter((f) => f.status === "needs_fix").map((f) => f.check), ["3.7"]);
+  assert.ok(submittalBlocker(noBake, true, "2026-11-02"));
+
+  const open = punch({ employee_id: CASEY, clock_in_at: at("2026-10-22", "11:00"), clock_out_at: null });
+  const held = runLatest({ ...WED_LATEST, shifts: [bake], punches: [baked, open] });
   assert.equal(held.ready, false);
   assert.ok(submittalBlocker(held, true, "2026-11-02"));
 });

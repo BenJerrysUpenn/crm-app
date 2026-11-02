@@ -27,7 +27,8 @@
 //                   CREW_PUNCH_REQUIRED_FROM none is left: §1.9 is not
 //                   asked, and §3.5 and §3.7 are fixes (ruled 2026-10-05).
 //                   From the period starting OLO_AND_MARKETING_RULES_FROM
-//                   §3.7 is not a finding at all (ruled 2026-11-02).
+//                   §3.7 asks whether baking happened, not who gets the Olo
+//                   tips (ruled 2026-11-02).
 //   needs_fix     — the data is wrong and no ruling can make it right: an open
 //                   punch has no end (§1.1), two overlapping punches double-pay
 //                   (§1.7), and — ruling D, 2026-09-22 — a runaway punch with
@@ -150,17 +151,19 @@ export function crewPunchRequired(window: PayWindow): boolean {
  * starting on or after this date (periods starting before it keep their rules
  * exactly):
  *
- *   §3.7 is not a finding. Olo tips go to the staff member who now does the
- *   cakes, whether or not a Pastry Opener shift was worked. bj-finance decides
- *   who (modules/tips.py, the same date), so this app has nothing to fix,
- *   nothing to choose and nothing blocks. POST /api/payroll/rulings still
- *   refuses a 3.7 choice (retiredChoice).
+ *   Olo tips go to the staff member who now does the cakes, whether or not a
+ *   Pastry Opener shift was worked. bj-finance decides who (modules/tips.py,
+ *   the same date). §3.7 stays: a period with no bake shift worked is still a
+ *   fix with no default and no picker, holding Submit (bakeShiftFix), but it
+ *   is about whether baking happened, not about who gets the tips. What counts
+ *   as worked is unchanged: a Pastry Opener shift with the person's punch.
+ *   POST /api/payroll/rulings still refuses a 3.7 choice (retiredChoice).
  *
  *   A marketing event is exempt from the §3.5 crew card (isMarketingEvent):
  *   it has marketing hours and no tips, so there is no crew to punch.
  *
  * The two sides move together: this date and bj-finance's must stay the same,
- * or the page and the pay table disagree about the same period.
+ * or the card and the pay table disagree about who the Olo tips go to.
  */
 export const OLO_AND_MARKETING_RULES_FROM = "2026-10-19";
 
@@ -392,6 +395,8 @@ export type Finding = {
   evidence: Evidence;
   /** What the rule did, for auto_resolved findings. */
   resolution?: string;
+  /** The line under a needs_fix card, when this finding needs its own (§3.7 from 2026-10-19). */
+  fixNote?: string;
   options?: RulingOption[];
   /** §1.9, §3.5 and §3.7 have defaults. §1.4 and §1.5 are fixes, not choices. */
   defaultChoice?: string;
@@ -579,8 +584,7 @@ const RULES_FROM_CUTOVER: Record<string, { title: string; rule: string }> = {
 
 /**
  * Rule text for periods starting on or after OLO_AND_MARKETING_RULES_FROM,
- * where it differs. §3.7 raises no finding there, so its card is not shown;
- * the words are kept so nothing can fall back to the older rule.
+ * where it differs.
  */
 const RULES_FROM_OLO_AND_MARKETING: Record<string, { title: string; rule: string }> = {
   "3.5": {
@@ -588,8 +592,8 @@ const RULES_FROM_OLO_AND_MARKETING: Record<string, { title: string; rule: string
     rule: `${RULES_FROM_CUTOVER["3.5"].rule} A marketing event is exempt too: a deal with a Marketing shift linked to it, or event_type Marketing Event, has marketing hours and no tips (ruled 2026-11-02). If the deal also has a Catering shift with somebody on it, the card stays.`,
   },
   "3.7": {
-    title: "Olo tips",
-    rule: "Not a finding: Olo tips go to the staff member who does the cakes, whether or not a Pastry Opener shift was worked (ruled 2026-11-02). The payroll sheet pays them; nothing to fix or choose here.",
+    title: "No bake shift worked",
+    rule: "a window with zero Pastry Opener shifts worked (scheduled AND punched) is an upstream schedule problem: no default and no picker. A fix: put the bake shift that was worked on the schedule, with the person's punch. The run cannot be submitted until it is cleared. This is about whether baking happened: the Olo tips go to the staff member who does the cakes either way (ruled 2026-11-02).",
   },
 };
 
@@ -1539,13 +1543,12 @@ function eventDealsInWindow(input: VerifyInput): DealRow[] {
  * From the period starting CREW_PUNCH_REQUIRED_FROM there is no picker and no
  * default (bakeShiftFix): the case is a fix.
  *
- * From the period starting OLO_AND_MARKETING_RULES_FROM it is not asked at all:
- * the Olo tips have one payee whether or not a bake shift was worked (ruled
- * 2026-11-02), so there is nothing stranded to find.
+ * From the period starting OLO_AND_MARKETING_RULES_FROM it is the same fix, now
+ * about whether baking happened: the Olo tips have one payee whether or not a
+ * bake shift was worked (ruled 2026-11-02), so nothing is stranded.
  */
 function checkBakeShifts(views: PunchView[], input: VerifyInput, profiles: Map<string, ProfileRow>): Finding[] {
   const { window } = input;
-  if (oloAndMarketingRules(window)) return [];
   const exceptions = input.storeHoursExceptions ?? [];
   const closedRanges = input.closedRanges ?? [];
   const anyOpen = windowDates(window).some(
@@ -1589,6 +1592,9 @@ function checkBakeShifts(views: PunchView[], input: VerifyInput, profiles: Map<s
  * set it counts worked shifts in), prefilled on that shift. With none on the
  * schedule there is nothing to punch against: the shift goes on the schedule
  * first.
+ *
+ * From the period starting OLO_AND_MARKETING_RULES_FROM it behaves the same and
+ * only its words change, because the Olo tips no longer wait on it.
  */
 function bakeShiftFix(unworkedShifts: ShiftRow[], input: VerifyInput, profiles: Map<string, ProfileRow>): Finding {
   const { window } = input;
@@ -1599,19 +1605,43 @@ function bakeShiftFix(unworkedShifts: ShiftRow[], input: VerifyInput, profiles: 
     const form = addPunchOnShift(s, s.employee_id!, input.shifts, profiles);
     return { ...form, label: `Add ${nameOf(profiles, s.employee_id!)}'s ${PASTRY_POSITION} punch (${formatDayLabel(form.date)})` };
   });
-  const how =
-    fixes.length > 0
-      ? `Add the ${PASTRY_POSITION} punch on the Timesheets page, or with the form below, and verify again.`
-      : `There is no ${PASTRY_POSITION} shift on the schedule in this period: put the bake shift that was worked on the schedule, then add the ${PASTRY_POSITION} punch on the Timesheets page and verify again.`;
+  const words = oloAndMarketingRules(window) ? bakeShiftWordsFromOloRuling(fixes.length > 0) : bakeShiftWords(fixes.length > 0);
   return finding("3.7", {
     key: `3.7:olo:${window.end}`,
     status: "needs_fix",
     severity: "error",
-    summary: `No bake shift was worked in this period, so any Olo tips for it have nobody to go to (the norm is at least ${BAKE_SHIFT_NORM_PER_PERIOD} ${PASTRY_POSITION} shifts a period).`,
-    resolution: `No default and no picker from ${CREW_PUNCH_REQUIRED_FROM} (an upstream time clock problem, ruled 2026-10-05). ${how} Once the punch exists the Olo tips split by bake shifts as normal.`,
+    ...words,
     evidence: { shift_ids: unworked.length > 0 ? unworked.map((s) => s.id) : undefined },
     ...(fixes.length > 0 ? { fixes } : {}),
   });
+}
+
+/** The 3.7 card's words for the period starting CREW_PUNCH_REQUIRED_FROM: the Olo tips wait on the punch. */
+function bakeShiftWords(hasForms: boolean): Pick<Finding, "summary" | "resolution"> {
+  const how = hasForms
+    ? `Add the ${PASTRY_POSITION} punch on the Timesheets page, or with the form below, and verify again.`
+    : `There is no ${PASTRY_POSITION} shift on the schedule in this period: put the bake shift that was worked on the schedule, then add the ${PASTRY_POSITION} punch on the Timesheets page and verify again.`;
+  return {
+    summary: `No bake shift was worked in this period, so any Olo tips for it have nobody to go to (the norm is at least ${BAKE_SHIFT_NORM_PER_PERIOD} ${PASTRY_POSITION} shifts a period).`,
+    resolution: `No default and no picker from ${CREW_PUNCH_REQUIRED_FROM} (an upstream time clock problem, ruled 2026-10-05). ${how} Once the punch exists the Olo tips split by bake shifts as normal.`,
+  };
+}
+
+/**
+ * The 3.7 card's words from the period starting OLO_AND_MARKETING_RULES_FROM
+ * (ruled 2026-11-02): nothing waits on the card but the bake shift itself, so
+ * it asks for the bake shift that was worked to go on the schedule. fixNote
+ * replaces the page's footer, which still says the tips split for earlier periods.
+ */
+function bakeShiftWordsFromOloRuling(hasForms: boolean): Pick<Finding, "summary" | "resolution" | "fixNote"> {
+  const how = hasForms
+    ? `Put the bake shift that was worked on the schedule with the person's punch: if it is the ${PASTRY_POSITION} shift below, add the punch with the form or on the Timesheets page, otherwise add the shift that was worked. Then verify again.`
+    : `There is no ${PASTRY_POSITION} shift on the schedule in this period: put the bake shift that was worked on the schedule for the person who worked it. If their punch for it is missing, add it on the Timesheets page. Then verify again.`;
+  return {
+    summary: `No bake shift was worked in this period (the norm is at least ${BAKE_SHIFT_NORM_PER_PERIOD} ${PASTRY_POSITION} shifts a period). The Olo tips go to the staff member who does the cakes either way.`,
+    resolution: `No default and no picker. ${how}`,
+    fixNote: "Put the bake shift that was worked on the schedule, with the person's punch. There is no default, and the run cannot be submitted until it is fixed.",
+  };
 }
 
 /**

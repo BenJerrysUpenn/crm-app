@@ -38,8 +38,9 @@ import PayTable from "./PayTable";
 // adds the event's Catering shift with the punch; and there is no 1.9, so the
 // solo-close card stays empty. Forms write through the Timesheets routes (or
 // /api/payroll/event-punch) and then verify again, so the page never patches
-// a finding itself. From the period starting 2026-10-19 there is no 3.7 card
-// and a marketing event gets no 3.5 card (ruled 2026-11-02).
+// a finding itself. From the period starting 2026-10-19 the 3.7 card is about
+// whether baking happened, not who gets the Olo tips, and a marketing event gets
+// no 3.5 card (ruled 2026-11-02).
 //
 // The pay table (2026-10-05) sits above Submit: the sheet bj-finance built on
 // the Mac, per person, as QBO takes it (components/finance/PayTable.tsx). It is
@@ -461,7 +462,7 @@ function FindingRow({
               : finding.check === "1.12" || finding.check === "3.5"
                 ? "Everyone punches: add the missing punch below. Once it is in, the tip splits by punches. There is no default, and the run cannot be submitted until it is fixed."
                 : finding.check === "3.7"
-                  ? "Add the Pastry Opener punch below or on the Timesheets page. Once it is in, the Olo tips split by bake shifts. There is no default, and the run cannot be submitted until it is fixed."
+                  ? finding.fixNote ?? "Add the Pastry Opener punch below or on the Timesheets page. Once it is in, the Olo tips split by bake shifts. There is no default, and the run cannot be submitted until it is fixed."
                   : "Fix this in the app, then verify again. No ruling can stand in for it."}
           </div>
         )}
