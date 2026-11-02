@@ -249,8 +249,10 @@ test). Moving the cutover is a one-line change to that constant.
   computed from punches only by the payroll sheet. No dropdown and no manager
   pick: the solo-close card on the payroll page stays empty and the rulings
   route refuses a 1.9 choice for these periods. 1.8 is unchanged.
-- **No stranded-Olo payee.** "This should not happen and is an upstream time
-  clock problem" (Alina, 2026-10-05). A period with no Pastry Opener shift
+- **No stranded-Olo payee** (only for the period starting 2026-10-05; from
+  2026-10-19 3.7 is not a finding, see the 2026-11-02 cutover below). "This
+  should not happen and is an upstream time clock problem" (Alina,
+  2026-10-05). A period with no Pastry Opener shift
   worked is a fix with no default and no picker: the card says no bake shift
   was worked, so any Olo tips for the period have nobody to go to, and asks
   for the Pastry Opener punch. Once the punch exists the Olo tips split by
