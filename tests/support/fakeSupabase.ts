@@ -1,8 +1,8 @@
 // A small in-memory stand-in for the supabase-js query builder: enough of
-// select / insert / update / delete with eq, is, not-is-null, in, like, lt and
-// gt filters, order, and maybeSingle for the event-change store to run against
-// real rows. A filter that is not implemented throws, so a store that starts using one fails
-// loudly instead of matching everything.
+// select / insert / update / delete with eq, is, not-is-null, in, like, an or of
+// likes, lt and gt filters, order, and maybeSingle for the event-change store to
+// run against real rows. A filter that is not implemented throws, so a store that
+// starts using one fails loudly instead of matching everything.
 
 type Row = Record<string, unknown>;
 type Filter = (r: Row) => boolean;
@@ -27,6 +27,12 @@ type FakeError = { message: string; code?: string };
 
 export function makeFakeDb(): FakeDb {
   return { tables: {}, failWrites: {}, failReads: {}, failReadsAfter: {}, missingColumns: {}, nextId: {} };
+}
+
+function likeFilter(col: string, pattern: string): Filter {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*");
+  const re = new RegExp(`^${escaped}$`);
+  return (r) => typeof r[col] === "string" && re.test(r[col] as string);
 }
 
 function builder(db: FakeDb, table: string) {
@@ -125,9 +131,16 @@ function builder(db: FakeDb, table: string) {
       return b;
     },
     like(col: string, pattern: string) {
-      const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*");
-      const re = new RegExp(`^${escaped}$`);
-      filters.push((r) => typeof r[col] === "string" && re.test(r[col] as string));
+      filters.push(likeFilter(col, pattern));
+      return b;
+    },
+    or(expression: string) {
+      const alternatives = expression.split(",").map((part) => {
+        const like = /^(\w+)\.like\.(.+)$/.exec(part);
+        if (!like) throw new Error(`fake supabase: or() only supports like, got ${part}`);
+        return likeFilter(like[1], like[2]);
+      });
+      filters.push((r) => alternatives.some((matches) => matches(r)));
       return b;
     },
     // lt and gt compare instants: every column they are used on is a timestamp.

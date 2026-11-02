@@ -225,6 +225,37 @@ describe("people on shifts with no deal at the event's time", () => {
     expect(body.also_on_schedule.map((s: { id: number }) => s.id)).toEqual([808]);
   });
 
+  it("GET lists an unlinked Marketing shift beside a Catering one, through the real read", async () => {
+    h.db.tables.shifts.push(
+      scheduled({ id: 801, position: "Catering" }),
+      scheduled({ id: 802, position: "Marketing" }),
+      scheduled({ id: 803, position: " Marketing " }),
+    );
+    const body = await (await get()).json();
+    expect(body.also_on_schedule.map((s: { id: number }) => s.id)).toEqual([801, 802, 803]);
+  });
+
+  it.each([
+    ["Booked Paid", "Corporate Event"],
+    ["Closed Marketing Event", "Marketing Event"],
+  ])("GET shows both positions whatever the event: %s, %s", async (stage, event_type) => {
+    Object.assign(deal(), { stage, event_type });
+    h.db.tables.shifts.push(scheduled({ id: 801, position: "Catering" }), scheduled({ id: 802, position: "Marketing" }));
+    const body = await (await get()).json();
+    expect(body.also_on_schedule.map((s: { id: number }) => s.id)).toEqual([801, 802]);
+  });
+
+  it("GET leaves out linked, open, unpublished and near-miss Marketing shifts", async () => {
+    h.db.tables.shifts.push(
+      scheduled({ id: 802, position: "Marketing", deal_id: 30002 }),
+      scheduled({ id: 803, position: "Marketing", employee_id: null }),
+      scheduled({ id: 804, position: "Marketing", published: false }),
+      scheduled({ id: 805, position: "Marketing Lead" }),
+      scheduled({ id: 806, position: "marketing" }),
+    );
+    expect((await (await get()).json()).also_on_schedule).toEqual([]);
+  });
+
   it("GET finds a shift that crosses midnight into the event's day", async () => {
     deal().event_start_time = "00:30";
     deal().event_end_time = "02:00";
@@ -265,6 +296,15 @@ describe("people on shifts with no deal at the event's time", () => {
     expect(res.status).toBe(200);
     expect(shift(801)).toMatchObject(scheduled());
     expect(shift(602)).toBeUndefined();
+    expect(String(deal().notes)).not.toContain("Crew Member B");
+  });
+
+  it("POST cancel leaves an unlinked Marketing shift where it is and out of the note", async () => {
+    const marketing = scheduled({ position: "Marketing" });
+    h.db.tables.shifts.push({ ...marketing });
+    const res = await post({ action: "cancel", staffed_shift_ids: [602] });
+    expect(res.status).toBe(200);
+    expect(shift(801)).toMatchObject(marketing);
     expect(String(deal().notes)).not.toContain("Crew Member B");
   });
 

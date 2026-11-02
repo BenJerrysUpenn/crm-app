@@ -6,9 +6,7 @@ import {
   CATERING_POSITION,
   eventReadRange,
   eventSpan,
-  isHandPlacedShift,
   shiftSpan,
-  type CrewShift as HandPlacedShift,
   type Span,
 } from "@/lib/handPlacedCrew";
 import { addDays } from "../time-app/lib/coverage";
@@ -161,7 +159,11 @@ export type CrewShift = {
 };
 
 /** A shift as shiftsAlsoAtEvent judges it: a crew shift and the fields its rule reads. */
-export type UnlinkedShiftRow = CrewShift & Pick<HandPlacedShift, "position" | "published" | "deal_id">;
+export type UnlinkedShiftRow = CrewShift & {
+  position?: string | null;
+  published: boolean;
+  deal_id: number | null;
+};
 
 /** A stretch of instants to read shifts for. */
 export type ReadRange = { fromISO: string; toISO: string };
@@ -396,9 +398,32 @@ function placedEventSpan(
   return span && !Number.isNaN(span.from) ? span : null;
 }
 
+// The time app's MARKETING_POSITION (time-app/lib/metrics/laborPlanning.ts). That
+// file cannot be compiled from this app: it pulls in modules with `.ts` import
+// paths and the time app's own "@/" alias. Change both together.
+const MARKETING_POSITION = "Marketing";
+
+/** The positions the dialog warns about, on any event: a safety net should over-mention. */
+const ALSO_AT_EVENT_POSITIONS: readonly string[] = [CATERING_POSITION, MARKETING_POSITION];
+
+/**
+ * Could this shift need updating by hand when an event moves? Published, a person
+ * on it, linked to no deal, position exactly Catering or Marketing once trimmed.
+ * Wider than handPlacedCrew's isHandPlacedShift, which decides whether a catering
+ * event is staffed and so counts Catering only.
+ */
+function isUnlinkedEventShift(shift: UnlinkedShiftRow): boolean {
+  return (
+    shift.published &&
+    !!shift.employee_id &&
+    shift.deal_id === null &&
+    ALSO_AT_EVENT_POSITIONS.includes((shift.position ?? "").trim())
+  );
+}
+
 /**
  * The shifts added directly on the Schedule page that touch this event, earliest
- * first. Pure. Which shifts count is isHandPlacedShift's rule; the time test is
+ * first. Pure. Which shifts count is isUnlinkedEventShift's rule; the time test is
  * deliberately looser than handPlacedCrew's spanCovers. That one decides whether
  * an event is staffed, and this one is a warning, so any shift that touches the
  * event shows, one that ends as the event starts included.
@@ -415,7 +440,7 @@ export function shiftsAlsoAtEvent(
   if (!span) return [];
   return rows
     .filter((row) => {
-      if (!isHandPlacedShift(row)) return false;
+      if (!isUnlinkedEventShift(row)) return false;
       const shift = shiftSpan(row);
       return shift.from <= span.to && shift.to >= span.from;
     })
@@ -753,7 +778,7 @@ export async function readEventPreview(
 async function readAlsoOnSchedule(store: EventChangeStore, deal: EventDeal): Promise<CrewShift[]> {
   // The range needs a real date, and such an event shows nothing anyway.
   if (!placedEventSpan(deal)) return [];
-  const rows = await store.readUnlinkedCateringShifts(alsoAtEventReadRange(deal.event_date!.trim()));
+  const rows = await store.readUnlinkedEventShifts(alsoAtEventReadRange(deal.event_date!.trim()));
   return shiftsAlsoAtEvent(deal, rows);
 }
 
@@ -767,7 +792,7 @@ export interface EventChangeStore {
    * more than shiftsAlsoAtEvent keeps, and that function decides. Throws when the
    * read fails.
    */
-  readUnlinkedCateringShifts(range: ReadRange): Promise<UnlinkedShiftRow[]>;
+  readUnlinkedEventShifts(range: ReadRange): Promise<UnlinkedShiftRow[]>;
   /**
    * Close the deal's open `create` and `patch` rows in pending_calendar_actions,
    * the way the daemon supersedes them, so a payload queued for the old date
@@ -1062,14 +1087,14 @@ export function supabaseEventChangeStore(admin: SupabaseClient, session: Supabas
       return withPersonNames(admin, (data ?? []) as Array<Omit<CrewShift, "person">>);
     },
 
-    async readUnlinkedCateringShifts({ fromISO, toISO }) {
+    async readUnlinkedEventShifts({ fromISO, toISO }) {
       const { data, error } = await admin
         .from("shifts")
         .select("id, starts_at, ends_at, employee_id, position, published, deal_id")
         .eq("published", true)
         .is("deal_id", null)
         .not("employee_id", "is", null)
-        .like("position", `%${CATERING_POSITION}%`)
+        .or(ALSO_AT_EVENT_POSITIONS.map((position) => `position.like.%${position}%`).join(","))
         .lt("starts_at", toISO)
         .gt("ends_at", fromISO);
       if (error) throw new Error(error.message);

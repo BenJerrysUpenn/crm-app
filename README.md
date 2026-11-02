@@ -202,9 +202,11 @@ to anyone; Alina tells the crew.
 - Every change appends one line to `deals.notes` saying what moved, from what to what.
 - Shifts added directly on the Schedule page have no `shifts.deal_id`, so no change touches them.
   The dialog names the people on them at the event's time, Alina 2026-11-02 (`shiftsAlsoAtEvent`:
-  published, staffed, position Catering, New York time, any shift touching the event, unlike the
-  covers-the-whole-event rule in `lib/handPlacedCrew.ts`). Display only: they are not in the 409 crew
-  check or the note, and a failed read answers 500. No date or no start time shows nothing.
+  published, staffed, position Catering or Marketing on any event, New York time, any shift touching
+  the event). That is wider than `lib/handPlacedCrew.ts`, which the noon reminder and the shift
+  reconciler use: it counts Catering only and needs a shift covering the whole event. Display only:
+  they are not in the 409 crew check or the note, and a failed read answers 500. No date or no start
+  time shows nothing.
 
 The deal is written first, in one update guarded on its stage, date and calendar event id (a
 deal changed since the dialog read it answers 409, as does a crew that changed). A failure after

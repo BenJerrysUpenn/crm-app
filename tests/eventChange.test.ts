@@ -26,6 +26,7 @@ import {
   type EventPreview,
   type UnlinkedShiftRow,
 } from "@/lib/eventChange";
+import { eventSpan, handPlacedCrewCovering, isHandPlacedShift } from "@/lib/handPlacedCrew";
 import DealDetailDrawer from "@/components/DealDetailDrawer";
 import type { Deal } from "@/lib/types";
 
@@ -520,6 +521,35 @@ describe("what the dialog says before anyone confirms", () => {
   });
 });
 
+describe("the rule the noon reminder and the shift reconciler judge by", () => {
+  // Both go through lib/handPlacedCrew.ts. tests/coverageReminder.test.ts and
+  // tests/cateringShiftsHandPlaced.test.ts pin the same thing through each of them.
+  const marketing: UnlinkedShiftRow = {
+    id: 801,
+    starts_at: "2026-11-10T17:30:00+00:00",
+    ends_at: "2026-11-10T21:00:00+00:00",
+    employee_id: "user-a",
+    person: "Crew Member A",
+    position: "Marketing",
+    published: true,
+    deal_id: null,
+  };
+  const EVENT = { event_date: "2026-11-10", event_start_time: "14:30", event_end_time: "15:30" };
+  const EVENT_SPAN = eventSpan(EVENT)!;
+
+  it("still ignores a Marketing shift the dialog mentions", () => {
+    expect(shiftsAlsoAtEvent(EVENT, [marketing]).map((s) => s.id)).toEqual([801]);
+    expect(isHandPlacedShift(marketing)).toBe(false);
+    expect(handPlacedCrewCovering(EVENT_SPAN, [marketing])).toBe(0);
+  });
+
+  it("still counts the same shift at Catering", () => {
+    const catering = { ...marketing, position: "Catering" };
+    expect(isHandPlacedShift(catering)).toBe(true);
+    expect(handPlacedCrewCovering(EVENT_SPAN, [catering])).toBe(1);
+  });
+});
+
 describe("people on shifts with no deal at the event's time", () => {
   // A Tuesday in EST (UTC-5): the event is 14:30-15:30 New York time.
   const EVENT = { event_date: "2026-11-10", event_start_time: "14:30", event_end_time: "15:30" };
@@ -571,8 +601,26 @@ describe("people on shifts with no deal at the event's time", () => {
       expect(kept([row({ position: null })])).toEqual([]);
     });
 
+    it("leaves out a Marketing shift linked to a deal, open or unpublished", () => {
+      expect(kept([row({ position: "Marketing", deal_id: 30001 })])).toEqual([]);
+      expect(kept([row({ position: "Marketing", employee_id: null, person: null })])).toEqual([]);
+      expect(kept([row({ position: "Marketing", published: false })])).toEqual([]);
+    });
+
+    it("takes the position exactly: a near-miss on Marketing stays out", () => {
+      expect(kept([row({ position: "Marketing Lead" })])).toEqual([]);
+      expect(kept([row({ position: "marketing" })])).toEqual([]);
+    });
+
+    it.each(["Catering", "Marketing"])("shows an unlinked %s shift touching the event, and not one before it", (position) => {
+      expect(kept([row({ position })])).toEqual([801]);
+      expect(kept([at("10:00", "14:30", { position })])).toEqual([801]);
+      expect(kept([at("09:00", "14:29", { position })])).toEqual([]);
+    });
+
     it("trims the position before comparing it", () => {
       expect(kept([row({ position: "  Catering " })])).toEqual([801]);
+      expect(kept([row({ position: " Marketing\n" })])).toEqual([801]);
     });
 
     it("judges in New York time, on both sides of the clock change", () => {
@@ -639,7 +687,7 @@ describe("people on shifts with no deal at the event's time", () => {
     const SAME_TIME =
       "Also on the schedule at this time: Crew Member A, Crew Member B, Crew Member C (Tue Nov 10, 12:30 to 4:00 PM). These shifts won't change. Update them on the Schedule page and let them know.";
 
-    function previewWith(rows: UnlinkedShiftRow[], shifts: CrewShift[] = [], eventDate: string | null = "2026-11-10"): EventPreview {
+    function previewWith(rows: CrewShift[], shifts: CrewShift[] = [], eventDate: string | null = "2026-11-10"): EventPreview {
       return {
         deal: {
           id: 30001,
@@ -655,10 +703,22 @@ describe("people on shifts with no deal at the event's time", () => {
         also_on_schedule: rows,
       };
     }
-    const lastLine = (rows: UnlinkedShiftRow[]) => confirmationLines(previewWith(rows), "cancel").at(-1);
+    const lastLine = (rows: CrewShift[]) => confirmationLines(previewWith(rows), "cancel").at(-1);
 
     it("puts people with the same time together", () => {
       expect(lastLine(WARNED)).toBe(SAME_TIME);
+    });
+
+    it("groups Catering and Marketing people at the same time into one", () => {
+      expect(
+        lastLine(
+          shiftsAlsoAtEvent(EVENT, [
+            at("12:30", "16:00", { id: 801, employee_id: "user-a", person: "Crew Member A", position: "Catering" }),
+            at("12:30", "16:00", { id: 802, employee_id: "user-b", person: "Crew Member B", position: "Marketing" }),
+            at("12:30", "16:00", { id: 803, employee_id: "user-c", person: "Crew Member C", position: "Catering" }),
+          ]),
+        ),
+      ).toBe(SAME_TIME);
     });
 
     it("gives each different time its own group", () => {

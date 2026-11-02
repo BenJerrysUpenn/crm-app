@@ -244,25 +244,25 @@ describe("people on shifts with no deal, over the in-memory store", () => {
 
   it("does not read for an event with no date or no start time, and shows nothing", async () => {
     db.shifts.push({ ...SCHEDULED });
-    db.fail.readUnlinkedCateringShifts = "must not be read";
+    db.fail.readUnlinkedEventShifts = "must not be read";
     db.deals = [deal({ event_date: null })];
     expect((await readEventPreview(memoryEventChangeStore(db), DEAL_ID))!.also_on_schedule).toEqual([]);
     db.deals = [deal({ event_date: "   " })];
     expect((await readEventPreview(memoryEventChangeStore(db), DEAL_ID))!.also_on_schedule).toEqual([]);
     db.deals = [deal({ event_start_time: null })];
     expect((await readEventPreview(memoryEventChangeStore(db), DEAL_ID))!.also_on_schedule).toEqual([]);
-    expect(db.fail.readUnlinkedCateringShifts).toBe("must not be read");
+    expect(db.fail.readUnlinkedEventShifts).toBe("must not be read");
   });
 
   it("throws when the read fails, never answering that nobody is there", async () => {
     db.shifts.push({ ...SCHEDULED });
-    db.fail.readUnlinkedCateringShifts = "connection lost";
+    db.fail.readUnlinkedEventShifts = "connection lost";
     await expect(readEventPreview(memoryEventChangeStore(db), DEAL_ID)).rejects.toThrow("connection lost");
   });
 
   it("throws on a shift with a bad timestamp the read answered", async () => {
     const store = memoryEventChangeStore(db);
-    store.readUnlinkedCateringShifts = async () => [
+    store.readUnlinkedEventShifts = async () => [
       { ...SCHEDULED, starts_at: "not a time", position: "Catering", published: true },
     ];
     await expect(readEventPreview(store, DEAL_ID)).rejects.toThrow(/invalid timestamp/);
@@ -270,7 +270,7 @@ describe("people on shifts with no deal, over the in-memory store", () => {
 
   it("a change never reads them, so neither they nor a failed read of them can block it", async () => {
     db.shifts.push({ ...SCHEDULED });
-    db.fail.readUnlinkedCateringShifts = "must not be read";
+    db.fail.readUnlinkedEventShifts = "must not be read";
     const out = await applyEventChange(
       memoryEventChangeStore(db),
       DEAL_ID,
@@ -278,7 +278,7 @@ describe("people on shifts with no deal, over the in-memory store", () => {
       CTX,
     );
     expect(out.ok).toBe(true);
-    expect(db.fail.readUnlinkedCateringShifts).toBe("must not be read");
+    expect(db.fail.readUnlinkedEventShifts).toBe("must not be read");
   });
 });
 

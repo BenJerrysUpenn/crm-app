@@ -81,8 +81,8 @@ export function memoryEventChangeStore(db: MemoryDb): EventChangeStore {
 
     // Every row in the range, linked or not: the interface leaves judging them
     // to shiftsAlsoAtEvent, so this adapter shows that rule doing all the work.
-    async readUnlinkedCateringShifts({ fromISO, toISO }) {
-      maybeFail("readUnlinkedCateringShifts");
+    async readUnlinkedEventShifts({ fromISO, toISO }) {
+      maybeFail("readUnlinkedEventShifts");
       return db.shifts
         .filter((s) => Date.parse(s.starts_at) < Date.parse(toISO) && Date.parse(s.ends_at) > Date.parse(fromISO))
         .map((s) => ({ ...s, position: s.position ?? null, published: s.published ?? false }));
