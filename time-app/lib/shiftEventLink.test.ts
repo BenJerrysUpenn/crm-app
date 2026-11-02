@@ -18,7 +18,7 @@ type Collection = { POST: (request: Request) => Promise<Response> };
 const shiftById = await loadAppModule<{ PATCH: Handler }>("app/api/shifts/[id]/route.ts");
 const shifts = await loadAppModule<Collection>("app/api/shifts/route.ts");
 const eventsRoute = await loadAppModule<{ GET: (request: Request) => Promise<Response> }>("app/api/schedule/events/route.ts");
-const { finishedEventKinds, loadEventNames, loadLinkedEvents, loadScheduleEvents, planEventLink } = await loadAppModule<typeof import("./shiftEventLink.ts")>("lib/shiftEventLink.ts");
+const { finishedEventKinds, loadEventNames, loadLinkedEvents, loadScheduleEvents, planEventLink, writeWithEventLink } = await loadAppModule<typeof import("./shiftEventLink.ts")>("lib/shiftEventLink.ts");
 const { eventBadges, eventDropdown, eventsForPosition, fittingEvents } = await loadAppModule<typeof import("./scheduleEvents.ts")>("lib/scheduleEvents.ts");
 const { createClient } = await loadAppModule<typeof import("./supabase/server.ts")>("lib/supabase/server.ts");
 
@@ -310,6 +310,14 @@ test("a slot taken on every try: the save gives up with an error and the shift i
   assert.equal(shift(1).deal_slot, null);
 });
 
+test("the free slots can't be read: nothing is written and the read's error comes back", async () => {
+  db.missingTables = ["shifts"];
+  // The write the route would run, standing in for a database that would take it.
+  const result = await writeWithEventLink(createClient(), { kind: "link", dealId: 500 }, async (fields) => ({ data: fields, error: null }));
+  assert.equal(result.data, null);
+  assert.equal(result.error?.code, "PGRST205");
+});
+
 test("the events route answers 503 when the events can't be read", async () => {
   db.missingTables = ["deals"];
   const res = await eventsRoute.GET(new Request("http://time.test/api?date=2026-10-23"));
@@ -344,6 +352,26 @@ test("a save that only changes the event tells nobody", async () => {
 test("changing the event along with something else still tells the person", async () => {
   await patch(1, { notes: "bring the cart", deal_id: 500 });
   assert.equal(db.rows("shift_notices").length, 1);
+});
+
+// Each field the person sees on their shift, changed in the same save as the event.
+for (const [what, body] of [
+  ["the time", { starts_at: edt("2026-10-23", "10:00"), deal_id: 500 }],
+  ["the place", { location_id: 2, deal_id: 500 }],
+  ["the position", { position: "Marketing", deal_id: 502 }],
+] as const) {
+  test(`changing the event and ${what} in one save tells the person their shift changed`, async () => {
+    assert.equal((await patch(1, body)).status, 200);
+    assert.equal(shift(1).deal_id, body.deal_id);
+    assert.deepEqual(db.rows("shift_notices").map((n) => n.notice), ["changed"]);
+  });
+}
+
+test("a leftover draft going live with only its event chosen is posted to the person", async () => {
+  db.rows("shifts")[0].published = false;
+  assert.equal((await patch(1, { deal_id: 500 })).status, 200);
+  assert.equal(shift(1).published, true);
+  assert.deepEqual(db.rows("shift_notices").map((n) => n.notice), ["posted"]);
 });
 
 test("a linked shift cannot then be picked up by staff", async () => {
