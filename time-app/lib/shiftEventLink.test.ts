@@ -326,6 +326,13 @@ test("an edit with no deal_id leaves the link alone", async () => {
   assert.equal(shift(1).deal_slot, 3);
 });
 
+test("a linked shift already off its event's day, edited without moving, keeps its event and slot", async () => {
+  Object.assign(db.rows("shifts")[0], { starts_at: edt("2026-10-22", "11:00"), ends_at: edt("2026-10-22", "15:00"), deal_id: 500, deal_slot: 3 });
+  assert.equal((await patch(1, { notes: "bring the cart" })).status, 200);
+  assert.equal(shift(1).deal_id, 500);
+  assert.equal(shift(1).deal_slot, 3);
+});
+
 test("a save that only changes the event tells nobody", async () => {
   const res = await patch(1, { employee_id: SAM, location_id: 1, starts_at: PLACED.starts_at, ends_at: PLACED.ends_at, position: "Catering", notes: null, deal_id: 500 });
   assert.equal(res.status, 200);
@@ -608,20 +615,26 @@ test("a finished deal's kind is payroll's answer, then a staffed Catering shift,
 
 test("a finished deal is marketing exactly when payroll says so", async () => {
   const { isMarketingEvent } = await loadAppModule<typeof import("./payroll/verify.ts")>("lib/payroll/verify.ts");
-  const deals = [asDeal(), asDeal({ event_type: "Marketing Event" }), asDeal({ event_type: "Wedding" })];
-  const shiftSets = [
-    [],
-    [linkedShift("Marketing", SAM)],
-    [linkedShift("Marketing", null)],
-    [linkedShift("Catering", SAM)],
-    [linkedShift("Catering", null)],
-    [linkedShift("Marketing", SAM), linkedShift("Catering", SAM)],
-    [linkedShift("Marketing", SAM), linkedShift("Catering", null)],
+  // Worked out by hand from payroll's rule: a staffed Catering shift says catering,
+  // else any Marketing shift says marketing, else event_type decides.
+  const untyped = asDeal();
+  const typed = asDeal({ event_type: "Marketing Event" });
+  const wedding = asDeal({ event_type: "Wedding" });
+  const cases: [string, ReturnType<typeof linkedShift>[], [boolean, boolean, boolean]][] = [
+    ["no shifts", [], [false, true, false]],
+    ["a staffed Marketing shift", [linkedShift("Marketing", SAM)], [true, true, true]],
+    ["an open Marketing shift", [linkedShift("Marketing", null)], [true, true, true]],
+    ["a staffed Catering shift", [linkedShift("Catering", SAM)], [false, false, false]],
+    ["an open Catering shift", [linkedShift("Catering", null)], [false, true, false]],
+    ["staffed Marketing and staffed Catering", [linkedShift("Marketing", SAM), linkedShift("Catering", SAM)], [false, false, false]],
+    ["staffed Marketing and open Catering", [linkedShift("Marketing", SAM), linkedShift("Catering", null)], [true, true, true]],
   ];
-  for (const deal of deals) {
-    for (const shifts of shiftSets) {
-      assert.equal(finishedEventKinds(deal, shifts).join() === "marketing", isMarketingEvent({ ...deal, staff_count: null }, shifts), JSON.stringify({ deal: deal.event_type, shifts }));
-    }
+  for (const [label, shifts, expected] of cases) {
+    [untyped, typed, wedding].forEach((deal, i) => {
+      const where = `${label}, event_type ${deal.event_type}`;
+      assert.equal(finishedEventKinds(deal, shifts).join() === "marketing", expected[i], where);
+      assert.equal(isMarketingEvent({ ...deal, staff_count: null }, shifts), expected[i], `payroll: ${where}`);
+    });
   }
 });
 
