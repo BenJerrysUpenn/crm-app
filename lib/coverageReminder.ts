@@ -3,7 +3,6 @@ import {
   checkWeekCoverage,
   formatClock,
   formatDayLabel,
-  nyWallClock,
   parseTime,
   shiftsTouchingWeek,
   weekdayOf,
@@ -14,7 +13,8 @@ import {
   type StoreHoursException,
   type StoreHoursRow,
 } from "../time-app/lib/coverage";
-import { BOOKED_STAGES, CATERING_POSITION } from "@/lib/cateringShifts";
+import { BOOKED_STAGES } from "@/lib/cateringShifts";
+import { eventSpan, isHandPlacedShift, shiftSpan, spanCovers } from "@/lib/handPlacedCrew";
 
 // The schedule coverage reminder (bj-finance #709): every day at noon, list
 // every staffed store hour (open hours plus the open-up and close-down
@@ -113,50 +113,20 @@ function formatRange(from: string, to: string): string {
 type Line = { date: string; minute: number; text: string };
 
 /**
- * A New York date and minute of the day as one number, so moments on different
- * days compare. Wall clock for the reason time-app/lib/coverage.ts gives: event
- * times are written in it, and it needs no offset arithmetic on the days the
- * clocks change.
- */
-function wallMinute(date: string, minutes: number): number {
-  return Date.parse(`${date}T00:00:00Z`) / 60000 + minutes;
-}
-
-/**
- * The stretch of time a shift has to span to cover this event, or null when it
- * has no start time and cannot be judged. An end earlier than the start is the
- * next morning. With no end time, the shift has to run past the start.
- */
-function eventSpan(deal: ReminderDeal & { event_date: string }): { from: number; to: number } | null {
-  const starts = parseTime(deal.event_start_time);
-  if (starts === null) return null;
-  const from = wallMinute(deal.event_date, starts);
-  const ends = parseTime(deal.event_end_time);
-  if (ends === null) return { from, to: from + 1 };
-  return { from, to: wallMinute(deal.event_date, ends) + (ends < starts ? 1440 : 0) };
-}
-
-/**
  * The events covered by crew a manager placed by hand: a published Catering
- * shift with a person and no deal_id, spanning the whole event. A shift linked
- * to any deal never counts here, and a shift counts toward one event only.
- * Events take shifts in time order, each the fitting shift that ends soonest,
- * which leaves the longer shifts for the later events that may need them. One
- * person still counts as covered; crew size is not checked.
+ * shift with a person and no deal_id, spanning the whole event
+ * (lib/handPlacedCrew.ts, the rule the shift reconciler uses too). A shift
+ * counts toward one event only, which is this reminder's own step: the
+ * reconciler counts per deal and does not allocate. Events take shifts in time
+ * order, each the fitting shift that ends soonest, which leaves the longer
+ * shifts for the later events that may need them. One person still counts as
+ * covered; crew size is not checked.
  */
 function coveredByHandPlacedShifts(
   deals: (ReminderDeal & { event_date: string })[],
   shifts: ReminderShift[],
 ): Set<number> {
-  const free = shifts
-    .filter(
-      (s) => s.published && s.employee_id && s.deal_id === null && s.position?.trim() === CATERING_POSITION,
-    )
-    .map((s) => {
-      const start = nyWallClock(s.starts_at);
-      const end = nyWallClock(s.ends_at);
-      return { from: wallMinute(start.date, start.minutes), to: wallMinute(end.date, end.minutes) };
-    });
+  const free = shifts.filter(isHandPlacedShift).map(shiftSpan);
   const events = deals
     .flatMap((deal) => {
       const span = eventSpan(deal);
@@ -166,7 +136,7 @@ function coveredByHandPlacedShifts(
 
   const covered = new Set<number>();
   for (const event of events) {
-    const fits = free.filter((s) => s.from <= event.from && s.to >= event.to);
+    const fits = free.filter((s) => spanCovers(s, event));
     if (fits.length === 0) continue;
     const soonest = fits.reduce((a, b) => (b.to < a.to ? b : a));
     free.splice(free.indexOf(soonest), 1);
@@ -179,8 +149,8 @@ function coveredByHandPlacedShifts(
  * Booked events in the window that nobody is on. Covered = at least one
  * published shift on the deal has a person, or a hand-placed Catering shift
  * spans it (coveredByHandPlacedShifts). A partial overlap does not cover. A deal
- * with no shifts at all (no picklist yet, so the reconciler has made none) and
- * nobody placed by hand is a gap.
+ * with no shifts at all (no picklist yet, or the reconciler counted its crew as
+ * placed by hand and made none) and no hand-placed shift left for it is a gap.
  */
 function cateringLines(snapshot: ReminderSnapshot, window: ReminderWindow): Line[] {
   const linked = new Set(

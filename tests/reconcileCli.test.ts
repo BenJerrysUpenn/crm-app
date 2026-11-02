@@ -59,6 +59,10 @@ function memoryStore(deals: DealTimes[], opts: { existing?: ShiftRow[]; failFor?
     async dealHasShifts(dealId) {
       return shifts.some((s) => s.deal_id === dealId);
     },
+    // Nobody is placed by hand in these stories; tests/cateringShiftsHandPlaced.test.ts has those.
+    async handPlacedCateringShifts() {
+      return [];
+    },
     async insertShiftsIgnoringDuplicates(rows) {
       calls.inserts += 1;
       if (rows.some((r) => r.deal_id === opts.failFor)) throw new Error("insert refused");
@@ -267,6 +271,12 @@ function fakeSupabase(deals: DealTimes[], opts: { failFor?: number } = {}) {
           select: () => b,
           eq: () => b,
           limit: async () => ({ data: [], error: null }),
+          // The hand-placed read: .is().not().like().lt().gt(), nobody placed here.
+          is: () => b,
+          not: () => b,
+          like: () => b,
+          lt: () => b,
+          gt: async () => ({ data: [], error: null }),
           upsert: (rows: ShiftRow[], options: unknown) => {
             pending = rows;
             upserts.push({ rows, options });

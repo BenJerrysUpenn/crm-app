@@ -430,11 +430,16 @@ describe("catering", () => {
       ["with no person", { employee_id: null }],
       ["in-store", { position: "PENN Closer" }],
       ["for a marketing shift", { position: "Marketing" }],
+      ["with no position", { position: null }],
     ])("a spanning shift %s does not count", (_what, over) => {
       const dealShifts = "deal_id" in over ? [{ deal_id: 99, employee_id: "emp-1", published: true }] : [];
       expect(lines([satDeal("14:00", "15:00")], [satHandPlaced("12:00", "18:00", over)], dealShifts)).toEqual([
         "Sat Oct 24, 2:00–3:00 PM (catering)",
       ]);
+    });
+
+    it("a Catering position typed with stray spaces still covers", () => {
+      expect(lines([satDeal("14:00", "15:00")], [satHandPlaced("12:00", "18:00", { position: " Catering\n" })])).toEqual([]);
     });
 
     it("the same times on another day do not count", () => {
@@ -598,11 +603,11 @@ describe("selectRecipients", () => {
     return { email, role: "employee", archived_at: null, banned_until: null, ...over } as RecipientRow;
   }
 
-  it("owners only: a manager is no longer a recipient (owner decision, 2026-11-02)", () => {
+  it("owners only: a manager on the schedule is not a recipient (owner decision, 2026-11-02)", () => {
     const rows = [
       person("owner-a@example.test", { role: "owner" }),
       person("owner-b@example.test", { role: "owner" }),
-      // On the schedule: the old rule sent to this manager.
+      // An active manager is still left out.
       person("manager-a@example.test", { role: "manager", active: true }),
       person("staff@example.test"),
     ];
