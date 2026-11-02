@@ -50,7 +50,7 @@ export async function PATCH(
 
   const body = await request.json();
   const asked = requestedEvent(body);
-  if (!asked.ok) return NextResponse.json({ error: "deal_id must be a deal's id." }, { status: 400 });
+  if (!asked.ok) return NextResponse.json({ error: asked.error }, { status: asked.status });
   const supabase = createClient();
 
   // The shift as it stands: the times the patch is applied on top of, and

@@ -24,13 +24,15 @@ export type EventLink = { kind: "keep" } | { kind: "clear" } | { kind: "link"; d
 
 export type EventLinkPlan = { ok: true; link: EventLink } | { ok: false; status: number; error: string };
 
-type RequestedEvent = { ok: true; value: number | null | undefined } | { ok: false };
+type RequestedEvent = { ok: true; value: number | null | undefined } | { ok: false; status: 400; error: string };
+
+const NOT_A_DEAL_ID: RequestedEvent = { ok: false, status: 400, error: "deal_id must be a deal's id." };
 
 /** The body's deal_id: absent (undefined), None (null), or a deal's id. */
 export function requestedEvent(body: Record<string, unknown>): RequestedEvent {
   if (!("deal_id" in body) || body.deal_id === undefined) return { ok: true, value: undefined };
   if (body.deal_id === null) return { ok: true, value: null };
-  return Number.isInteger(body.deal_id) && (body.deal_id as number) > 0 ? { ok: true, value: body.deal_id as number } : { ok: false };
+  return Number.isInteger(body.deal_id) && (body.deal_id as number) > 0 ? { ok: true, value: body.deal_id as number } : NOT_A_DEAL_ID;
 }
 
 const UNREADABLE: EventLinkPlan = { ok: false, status: 503, error: "Couldn't read that event. Try again in a moment." };

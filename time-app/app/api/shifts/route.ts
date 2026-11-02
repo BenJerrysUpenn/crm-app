@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "long_shift", hours: shiftHours(startsAt, endsAt) }, { status: 409 });
 
   const asked = requestedEvent(body);
-  if (!asked.ok) return NextResponse.json({ error: "deal_id must be a deal's id." }, { status: 400 });
+  if (!asked.ok) return NextResponse.json({ error: asked.error }, { status: asked.status });
 
   const supabase = createClient();
 
