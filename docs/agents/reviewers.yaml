@@ -132,6 +132,8 @@ documentation_map:
     docs: [README.md, time-app/SETUP-GUIDE.md]
   - paths: ["lib/dateFormat.ts", "lib/boomerang.ts", "components/MessageTimeline.tsx", "lib/callLog.ts", "app/api/deals/*/calls/**"]
     docs: [README.md]
+  - paths: ["lib/eventChange.ts", "app/api/deals/*/event-change/**", "components/EventChangeDialog.tsx"]
+    docs: [README.md]
   - paths: ["lib/dealUpdate.ts", "components/KanbanBoard.tsx", "components/CalendarView.tsx"]
     docs: [README.md, docs/call-desk.md]
 
