@@ -1,0 +1,1174 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildStagePatch, writeStageChange, type StagePatch, type StageChangeResult } from "@/lib/dealUpdate";
+import { easternInputValue, parseEasternInput } from "@/lib/dateFormat";
+import { nowIso, todayIsoEastern } from "@/lib/callDesk/dealForm";
+import {
+  CATERING_POSITION,
+  eventReadRange,
+  eventSpan,
+  shiftSpan,
+  type Span,
+} from "@/lib/handPlacedCrew";
+import { addDays } from "../time-app/lib/coverage";
+
+// Reschedule event and Cancel event, the two buttons on the deal drawer.
+//
+// The deal is the source of truth and everything downstream follows it:
+//
+//   * Google Calendar mirrors `deals` through Catering-Manager's
+//     `pending_calendar_actions` queue, which the imap_idle daemon drains about
+//     once a minute (create / patch / delete, through modules/calendar_api.py).
+//     This app never calls Google. It queues a `delete` for the old event and
+//     clears `calendar_event_id` and `calendar_event_payload_hash`. Clearing
+//     them, rather than leaving the event to be patched, is what makes a
+//     reschedule end with a live event: someone may already have deleted the
+//     event in Google, and a patch of a deleted event leaves it deleted. With
+//     the id gone the calendar reconcile (the catering sweep, the daemon's
+//     backlog scan) creates a fresh event from the deal. A delete of an event
+//     that is already gone counts as done (calendar_api.delete_event: 404/410).
+//   * Crew shifts are `shifts` rows carrying `deal_id`. They move with the
+//     event, keeping their offset from its start, or are removed.
+//   * Stamps made against the old date are cleared so they do not stand in for
+//     the new one (CLEARED_FOR_NEW_DATE), and the logistics times derived from
+//     the old start time are cleared so they are derived again
+//     (CLEARED_FOR_NEW_START).
+//   * A line is appended to `deals.notes` saying what moved, from what to what.
+//   * Shifts added directly on the Schedule page carry no `deal_id`, so nothing
+//     here moves them or removes them. The dialog names the people on them
+//     (shiftsAlsoAtEvent) so someone can update them by hand.
+//
+// The rules are pure (planEventChange). The reads and writes go through an
+// EventChangeStore: the web route passes the service-role supabase-js store at
+// the bottom of this file, and tests/support/memoryEventChangeStore.ts gives
+// applyEventChange and readEventPreview an in-memory adapter the orchestration
+// tests drive without a database (the two implementations that earn the seam).
+
+/** The stages that show the two buttons. */
+export const EVENT_CHANGE_STAGES = [
+  "Booked Unpaid",
+  "Booked Paid",
+  "Closed Marketing Event",
+] as const;
+
+export function canChangeEvent(stage: string | null | undefined): boolean {
+  return (EVENT_CHANGE_STAGES as readonly string[]).includes(stage ?? "");
+}
+
+/**
+ * Whether the deal has a Google Calendar event, decided once: the linked event
+ * id, or null when none is set. A blank or whitespace id is none. The preview
+ * (readEventPreview) and the plan (planEventChange) both read through this, so
+ * the dialog and the note never disagree about whether there is an event.
+ */
+export function linkedCalendarEventId(deal: { calendar_event_id: string | null }): string | null {
+  return deal.calendar_event_id?.trim() ? deal.calendar_event_id : null;
+}
+
+/**
+ * Deal columns stamped against the event's date, cleared by a reschedule so the
+ * new date is not blocked by them:
+ *   picklist_docx_path       the printed picklist carries the old date; the
+ *                            morning report asks for a picklist while it is NULL
+ *   day_before_draft_sent_at the day-before email went for the old date; the
+ *                            sweep drafts one per event only while it is unset
+ *   coi_sent_at              the certificate's description names the old date
+ *                            (lib/coi.ts); unset, the COI panel asks again
+ */
+export const CLEARED_FOR_NEW_DATE = {
+  picklist_docx_path: "picklist",
+  day_before_draft_sent_at: "day-before draft stamp",
+  coi_sent_at: "COI sent stamp",
+} as const;
+
+type ClearedColumn = keyof typeof CLEARED_FOR_NEW_DATE;
+
+/**
+ * The logistics times Catering-Manager derives from the event's start time
+ * (modules/logistics.py derive_logistics: arrival is the start less the setup
+ * pad, departure is the arrival less drive_minutes; neither reads event_date).
+ * Alina's ruling (2026-10-27): a reschedule clears them so they are derived
+ * again, whenever the start time changes and on Date not set yet. A date-only
+ * change keeps them: the same start time gives the same times on any day.
+ * The next picklist writes departure_time again, Recalculate writes both.
+ */
+export const CLEARED_FOR_NEW_START = {
+  departure_time: "departure",
+  arrival_time: "arrival",
+} as const;
+
+type LogisticsColumn = keyof typeof CLEARED_FOR_NEW_START;
+
+/**
+ * The `_derived` twins (Catering-Manager migration 016) record the value the
+ * system last derived; a live time that differs from its twin is read as the
+ * operator's override (logistics.manual_departure_override). They are cleared
+ * with the live columns, or a stale twin would outlive the time it describes.
+ * 016 is applied by hand, so the store drops them from the update when the
+ * database does not have them yet (isMissingTwinColumn).
+ */
+export const LOGISTICS_TWIN_COLUMNS = ["departure_time_derived", "arrival_time_derived"] as const;
+
+const LOGISTICS_CLEARS: Record<string, null> = Object.fromEntries(
+  [...Object.keys(CLEARED_FOR_NEW_START), ...LOGISTICS_TWIN_COLUMNS].map((c) => [c, null]),
+);
+
+/** What the two actions read off the deal. */
+export type EventDeal = {
+  id: number;
+  stage: string;
+  event_date: string | null;
+  event_start_time: string | null;
+  event_end_time: string | null;
+  calendar_event_id: string | null;
+  amount_paid: number | null;
+  notes: string | null;
+  picklist_docx_path: string | null;
+  day_before_draft_sent_at: string | null;
+  coi_sent_at: string | null;
+  departure_time: string | null;
+  arrival_time: string | null;
+};
+
+// Every EventDeal field, once: a field added to the type and not here (or the
+// reverse) fails to compile instead of reading back undefined.
+const EVENT_DEAL_FIELDS: Record<keyof EventDeal, true> = {
+  id: true,
+  stage: true,
+  event_date: true,
+  event_start_time: true,
+  event_end_time: true,
+  calendar_event_id: true,
+  amount_paid: true,
+  notes: true,
+  picklist_docx_path: true,
+  day_before_draft_sent_at: true,
+  coi_sent_at: true,
+  departure_time: true,
+  arrival_time: true,
+};
+
+export const EVENT_DEAL_COLUMNS = Object.keys(EVENT_DEAL_FIELDS).join(", ");
+
+/** A crew shift on the deal (shifts.deal_id), with the person's name when staffed. */
+export type CrewShift = {
+  id: number;
+  starts_at: string;
+  ends_at: string;
+  employee_id: string | null;
+  person: string | null;
+};
+
+/** A shift as shiftsAlsoAtEvent judges it: a crew shift and the fields its rule reads. */
+export type UnlinkedShiftRow = CrewShift & {
+  position?: string | null;
+  published: boolean;
+  deal_id: number | null;
+};
+
+/** A stretch of instants to read shifts for. */
+export type ReadRange = { fromISO: string; toISO: string };
+
+/**
+ * The staffed shifts' ids: what the dialog sends as `staffed_shift_ids` and
+ * what the change compares them with before writing anything.
+ */
+export function staffedShiftIds(shifts: CrewShift[]): number[] {
+  return shifts.filter((s) => s.employee_id).map((s) => s.id);
+}
+
+export type EventChangeRequest =
+  | {
+      kind: "reschedule";
+      event_date: string;
+      event_start_time: string;
+      event_end_time: string;
+    }
+  | { kind: "reschedule_tbd" }
+  | { kind: "cancel" };
+
+/**
+ * A parsed change and the staffed-shift ids the dialog showed. The two always
+ * travel together — from `parseEventChangeBody` through the route to
+ * `applyEventChange` — so they are one value (CODING_STANDARDS.md:2).
+ */
+export type ParsedEventChange = {
+  request: EventChangeRequest;
+  staffedShiftIds: number[];
+};
+
+export type ShiftMove = {
+  id: number;
+  starts_at: string;
+  ends_at: string;
+};
+
+export type EventChangePlan = {
+  /** One update of `deals`, notes included. Never the stage: see stagePatch. */
+  dealPatch: Record<string, unknown>;
+  /** A cancel's move to Closed Lost, written and logged by writeStageChange. */
+  stagePatch?: StagePatch;
+  noteLine: string;
+  moves: ShiftMove[];
+  deletes: number[];
+  /** The Google event to queue for deletion, when the deal had one. */
+  deleteCalendarEventId: string | null;
+};
+
+export type PlanResult =
+  | { ok: true; plan: EventChangePlan }
+  | { ok: false; status: number; error: string };
+
+// ---------------------------------------------------------------------------
+// Parsing the request
+// ---------------------------------------------------------------------------
+
+const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
+const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function isYmd(value: string): boolean {
+  const m = YMD.exec(value);
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+}
+
+/**
+ * The POST wire body — the one source of truth for its key names. The dialog
+ * builds a value of this type and `parseEventChangeBody` reads the same keys, so
+ * renaming one is a compile error on both sides, not a 400 at runtime.
+ */
+export type EventChangeBody =
+  | { action: "cancel"; staffed_shift_ids: number[] }
+  | { action: "reschedule"; date_not_set: true; staffed_shift_ids: number[] }
+  | {
+      action: "reschedule";
+      event_date: string;
+      event_start_time: string;
+      event_end_time: string;
+      staffed_shift_ids: number[];
+    };
+
+/** Every key any `EventChangeBody` variant carries (distributive `keyof`). */
+type KeysOfUnion<T> = T extends T ? keyof T : never;
+type EventChangeBodyKey = KeysOfUnion<EventChangeBody>;
+
+/**
+ * The POST body: `{ action: "reschedule", event_date, event_start_time,
+ * event_end_time, staffed_shift_ids }`, `{ action: "reschedule", date_not_set:
+ * true, staffed_shift_ids }` or `{ action: "cancel", staffed_shift_ids }`.
+ * `staffed_shift_ids` are the staffed shifts the dialog showed; the change is
+ * refused when the crew no longer matches them. Reads are keyed to
+ * `EventChangeBody`, so a renamed key fails to compile here too.
+ */
+export function parseEventChangeBody(
+  body: unknown,
+): ({ ok: true } & ParsedEventChange) | { ok: false; error: string } {
+  if (!body || typeof body !== "object") return { ok: false, error: "Bad JSON" };
+  const b = body as Partial<Record<EventChangeBodyKey, unknown>>;
+  const ids = b.staffed_shift_ids;
+  if (!Array.isArray(ids) || !ids.every((x) => Number.isInteger(x))) {
+    return { ok: false, error: "staffed_shift_ids must be a list of shift ids" };
+  }
+  const staffedShiftIds = ids as number[];
+
+  if (b.action === "cancel") return { ok: true, request: { kind: "cancel" }, staffedShiftIds };
+  if (b.action !== "reschedule") return { ok: false, error: "action must be reschedule or cancel" };
+  if (b.date_not_set === true) {
+    return { ok: true, request: { kind: "reschedule_tbd" }, staffedShiftIds };
+  }
+
+  const date = typeof b.event_date === "string" ? b.event_date.trim() : "";
+  const start = typeof b.event_start_time === "string" ? b.event_start_time.trim() : "";
+  const end = typeof b.event_end_time === "string" ? b.event_end_time.trim() : "";
+  if (!isYmd(date)) return { ok: false, error: "Pick the new date, or tick Date not set yet." };
+  if (!HHMM.test(start)) return { ok: false, error: "Pick a start time (HH:MM)." };
+  if (!HHMM.test(end)) return { ok: false, error: "Pick an end time (HH:MM)." };
+  if (start === end) return { ok: false, error: "The end time must differ from the start time." };
+  return {
+    ok: true,
+    request: { kind: "reschedule", event_date: date, event_start_time: start, event_end_time: end },
+    staffedShiftIds,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Describing dates and shifts (the note, and the dialog)
+// ---------------------------------------------------------------------------
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function weekday(ymd: string): string {
+  const m = YMD.exec(ymd);
+  if (!m) return "";
+  return WEEKDAYS[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()];
+}
+
+/** "Thu 2026-10-29 12:00-13:30", or "no date". */
+export function describeWhen(
+  date: string | null,
+  start: string | null,
+  end: string | null,
+): string {
+  if (!date) return "no date";
+  const day = `${weekday(date)} ${date}`.trim();
+  if (!start) return day;
+  return end ? `${day} ${start}-${end}` : `${day} ${start}`;
+}
+
+/** A shift's Eastern wall-clock window: "Thu 2026-10-29 11:00-14:30". */
+export function describeShiftTime(startsAt: string, endsAt: string): string {
+  const s = easternInputValue(new Date(startsAt));
+  const e = easternInputValue(new Date(endsAt));
+  const [sDate, sTime] = s.split("T");
+  const [eDate, eTime] = e.split("T");
+  const end = eDate === sDate ? eTime : `${weekday(eDate)} ${eDate} ${eTime}`;
+  return `${weekday(sDate)} ${sDate} ${sTime}-${end}`;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Tue Nov 10", for a YYYY-MM-DD date. */
+function shortDay(ymd: string): string {
+  const [, month, day] = ymd.split("-");
+  return `${weekday(ymd)} ${MONTHS[+month - 1]} ${+day}`;
+}
+
+/** "13:05" as a 12-hour time and which half of the day it is in. */
+function twelveHour(hhmm: string): { time: string; half: "AM" | "PM" } {
+  const [hour, minute] = hhmm.split(":");
+  return { time: `${+hour % 12 || 12}:${minute}`, half: +hour < 12 ? "AM" : "PM" };
+}
+
+/**
+ * A shift's Eastern time in plain words: "Tue Nov 10, 12:30 to 4:00 PM", with
+ * both halves of the day when they differ and both days when it crosses midnight.
+ */
+function describeShiftPlainly(startsAt: string, endsAt: string): string {
+  const [sDate, sTime] = easternInputValue(new Date(startsAt)).split("T");
+  const [eDate, eTime] = easternInputValue(new Date(endsAt)).split("T");
+  const s = twelveHour(sTime);
+  const e = twelveHour(eTime);
+  if (eDate !== sDate) return `${shortDay(sDate)}, ${s.time} ${s.half} to ${shortDay(eDate)}, ${e.time} ${e.half}`;
+  if (e.half !== s.half) return `${shortDay(sDate)}, ${s.time} ${s.half} to ${e.time} ${e.half}`;
+  return `${shortDay(sDate)}, ${s.time} to ${e.time} ${e.half}`;
+}
+
+function shiftLabel(s: CrewShift): string {
+  return s.person ?? (s.employee_id ? UNNAMED_PERSON : "open");
+}
+
+/** "$1,234.50": how the note and the dialog write an amount. */
+export function money(n: number): string {
+  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// ---------------------------------------------------------------------------
+// The rules
+// ---------------------------------------------------------------------------
+
+/** A stamp or time the note reports as cleared: a non-blank string. */
+function isFilled(v: string | null): boolean {
+  return typeof v === "string" && v.trim() !== "";
+}
+
+/** The instant an event starts: its Eastern date and time. */
+function eventStart(date: string, time: string): Date | null {
+  return parseEasternInput(`${date}T${time}`);
+}
+
+/** A positive amount was paid, so a refund must be handled by hand. */
+function hasPaidAmount(amount: number | null | undefined): amount is number {
+  return typeof amount === "number" && amount > 0;
+}
+
+/** A deal with no event date has nothing to move its shifts from. */
+function canMoveShifts(eventDate: string | null): eventDate is string {
+  return Boolean(eventDate);
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** The times a deal's event falls in, or null with no usable date or start time. event_date is text. */
+function placedEventSpan(
+  event: Pick<EventDeal, "event_date" | "event_start_time" | "event_end_time">,
+): Span | null {
+  const span = eventSpan({ ...event, event_date: (event.event_date ?? "").trim() });
+  return span && !Number.isNaN(span.from) ? span : null;
+}
+
+// The time app's MARKETING_POSITION (time-app/lib/metrics/laborPlanning.ts). That
+// file cannot be compiled from this app: it pulls in modules with `.ts` import
+// paths and the time app's own "@/" alias. Change both together.
+const MARKETING_POSITION = "Marketing";
+
+/** The positions the dialog warns about, on any event: a safety net should over-mention. */
+const ALSO_AT_EVENT_POSITIONS: readonly string[] = [CATERING_POSITION, MARKETING_POSITION];
+
+/**
+ * Could this shift need updating by hand when an event moves? Published, a person
+ * on it, linked to no deal, position exactly Catering or Marketing once trimmed.
+ * Wider than handPlacedCrew's isHandPlacedShift, which decides whether a catering
+ * event is staffed and so counts Catering only.
+ */
+function isUnlinkedEventShift(shift: UnlinkedShiftRow): boolean {
+  return (
+    shift.published &&
+    !!shift.employee_id &&
+    shift.deal_id === null &&
+    ALSO_AT_EVENT_POSITIONS.includes((shift.position ?? "").trim())
+  );
+}
+
+/**
+ * The shifts added directly on the Schedule page that touch this event, earliest
+ * first. Pure. Which shifts count is isUnlinkedEventShift's rule; the time test is
+ * deliberately looser than handPlacedCrew's spanCovers. That one decides whether
+ * an event is staffed, and this one is a warning, so any shift that touches the
+ * event shows, one that ends as the event starts included.
+ *
+ * Only ever shown: these shifts are not moved or removed, are not in the
+ * staffed-crew guard and are not in the deal note. An event that cannot be placed
+ * in time (no date, no start time) shows nothing. Throws on a bad shift timestamp.
+ */
+export function shiftsAlsoAtEvent(
+  event: Pick<EventDeal, "event_date" | "event_start_time" | "event_end_time">,
+  rows: UnlinkedShiftRow[],
+): CrewShift[] {
+  const span = placedEventSpan(event);
+  if (!span) return [];
+  return rows
+    .filter((row) => {
+      if (!isUnlinkedEventShift(row)) return false;
+      const shift = shiftSpan(row);
+      return shift.from <= span.to && shift.to >= span.from;
+    })
+    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at) || a.id - b.id)
+    .map(({ id, starts_at, ends_at, employee_id, person }) => ({ id, starts_at, ends_at, employee_id, person }));
+}
+
+/**
+ * The instants to read for shiftsAlsoAtEvent. eventReadRange fits a shift on the
+ * clock at the event's start. A shift that only touches the event can start as
+ * late as the event's end, which may be the next evening, so the range runs a
+ * day further.
+ */
+function alsoAtEventReadRange(eventDate: string): ReadRange {
+  return {
+    fromISO: eventReadRange(eventDate).fromISO,
+    toISO: eventReadRange(addDays(eventDate, 1)).toISO,
+  };
+}
+
+/** The dialog's warning about those shifts, people with the same time together; null when there are none. */
+function alsoOnScheduleLine(shifts: CrewShift[]): string | null {
+  if (!shifts.length) return null;
+  const groups = new Map<string, Map<string, string>>();
+  for (const s of shifts) {
+    const when = describeShiftPlainly(s.starts_at, s.ends_at);
+    const people = groups.get(when) ?? new Map<string, string>();
+    people.set(s.employee_id ?? String(s.id), s.person ?? UNNAMED_PERSON);
+    groups.set(when, people);
+  }
+  const listed = [...groups]
+    .map(([when, people]) => `${[...people.values()].join(", ")} (${when})`)
+    .join("; ");
+  return `Also on the schedule at this time: ${listed}. These shifts won't change. Update them on the Schedule page and let them know.`;
+}
+
+/**
+ * What the dialog says before anyone confirms: what the change does, then who
+ * else is on the schedule at the event's time. Pure.
+ */
+export function confirmationLines(
+  preview: EventPreview,
+  kind: EventChangeRequest["kind"],
+): string[] {
+  const lines = changeLines(preview, kind);
+  const also = alsoOnScheduleLine(preview.also_on_schedule);
+  return also ? [...lines, also] : lines;
+}
+
+/**
+ * What the change will do to the crew and the money. It lives here beside
+ * `planEventChange` so the two cannot drift on the shared decisions — a paid
+ * amount means a by-hand refund (`hasPaidAmount`), and a dateless deal cannot
+ * move its shifts (`canMoveShifts`).
+ */
+function changeLines(preview: EventPreview, kind: EventChangeRequest["kind"]): string[] {
+  const staffed = preview.shifts.filter((s) => s.employee_id);
+  const open = preview.shifts.length - staffed.length;
+  const people = staffed
+    .map((s) => `${s.person ?? UNNAMED_PERSON} (${describeShiftTime(s.starts_at, s.ends_at)})`)
+    .join(", ");
+  const lines: string[] = [];
+  // Cancel and Date not set yet both remove every shift, and say so alike.
+  const removed: string[] = [];
+  if (staffed.length) removed.push(`On the crew: ${people}. Their shifts are removed. Tell them yourself; nothing is sent.`);
+  if (open) removed.push(`${plural(open, "open shift is", "open shifts are")} removed.`);
+
+  if (kind === "cancel") {
+    lines.push(
+      preview.deal.has_calendar_event
+        ? "The deal moves to Closed Lost and its calendar event is deleted."
+        : "The deal moves to Closed Lost.",
+    );
+    lines.push(...removed);
+    const paid = preview.deal.amount_paid;
+    if (hasPaidAmount(paid)) {
+      lines.push(`Paid ${money(paid)}. Any refund is done by hand in Square.`);
+    }
+    return lines;
+  }
+
+  if (kind === "reschedule_tbd") {
+    lines.push(
+      preview.deal.has_calendar_event
+        ? "The date is cleared and the calendar event is deleted."
+        : "The date is cleared.",
+    );
+    lines.push(...removed);
+    return lines;
+  }
+
+  if (!canMoveShifts(preview.deal.event_date) && preview.shifts.length) {
+    lines.push(
+      `The deal has no date to move its shifts from, so ${plural(preview.shifts.length, "shift stays", "shifts stay")} where ${preview.shifts.length === 1 ? "it is" : "they are"}${staffed.length ? ` (${people})` : ""}.`,
+    );
+    return lines;
+  }
+  if (staffed.length) lines.push(`On the crew: ${people}. Their shifts move with the event. Tell them yourself; nothing is sent.`);
+  if (open) lines.push(`${plural(open, "open shift moves", "open shifts move")} with it.`);
+  return lines;
+}
+
+/**
+ * Work out every write a reschedule or cancel makes. Pure.
+ *
+ * `now` stamps updated_at and dates the note; `actor` (the signed-in email)
+ * goes in the note.
+ */
+export function planEventChange(
+  deal: EventDeal,
+  shifts: CrewShift[],
+  request: EventChangeRequest,
+  ctx: { now: Date; actor: string },
+): PlanResult {
+  if (!canChangeEvent(deal.stage)) {
+    return {
+      ok: false,
+      status: 409,
+      error: `Only a deal at ${EVENT_CHANGE_STAGES.join(", ")} can be rescheduled or cancelled; this one is ${deal.stage}.`,
+    };
+  }
+
+  const updatedAt = ctx.now.toISOString();
+  const prefix = `[${todayIsoEastern(ctx.now)}]`;
+  const oldWhen = describeWhen(deal.event_date, deal.event_start_time, deal.event_end_time);
+  const calendarCleared = { calendar_event_id: null, calendar_event_payload_hash: null };
+  const deleteCalendarEventId = linkedCalendarEventId(deal);
+  const calendarSentence = deleteCalendarEventId
+    ? "Calendar event queued for deletion and its link cleared."
+    : "No calendar event was linked.";
+
+  const stampsSet = (Object.keys(CLEARED_FOR_NEW_DATE) as ClearedColumn[]).filter((c) => isFilled(deal[c]));
+  const clears: Record<string, null> = {};
+  for (const c of Object.keys(CLEARED_FOR_NEW_DATE)) clears[c] = null;
+  const stampsSentence = stampsSet.length
+    ? ` Cleared for the old date: ${stampsSet.map((c) => CLEARED_FOR_NEW_DATE[c]).join(", ")}.`
+    : "";
+  const picklistHint = stampsSet.includes("picklist_docx_path") ? " Regenerate the picklist." : "";
+
+  const timesSet = (Object.keys(CLEARED_FOR_NEW_START) as LogisticsColumn[]).filter((c) => isFilled(deal[c]));
+  const logisticsSentence = timesSet.length
+    ? ` Logistics times cleared (were ${timesSet
+        .map((c) => `${CLEARED_FOR_NEW_START[c]} ${(deal[c] as string).trim()}`)
+        .join(", ")}); the next picklist or Recalculate derives them again.`
+    : "";
+
+  const removedSentence = shifts.length
+    ? ` Crew shifts removed: ${shifts
+        .map((s) => `${shiftLabel(s)} ${describeShiftTime(s.starts_at, s.ends_at)}`)
+        .join("; ")}.`
+    : "";
+
+  if (request.kind === "cancel") {
+    const paidAmount = deal.amount_paid;
+    const noteLine =
+      `${prefix} Event cancelled (${ctx.actor}): ${oldWhen}, ${deal.stage} to Closed Lost. ` +
+      calendarSentence +
+      removedSentence +
+      (hasPaidAmount(paidAmount) ? ` Paid ${money(paidAmount)}; any refund is done by hand in Square.` : "");
+    return {
+      ok: true,
+      plan: {
+        dealPatch: {
+          ...calendarCleared,
+          updated_at: updatedAt,
+          notes: appendNote(deal.notes, noteLine),
+        },
+        stagePatch: buildStagePatch("Closed Lost"),
+        noteLine,
+        moves: [],
+        deletes: shifts.map((s) => s.id),
+        deleteCalendarEventId,
+      },
+    };
+  }
+
+  if (request.kind === "reschedule_tbd") {
+    const noteLine =
+      `${prefix} Rescheduled, new date not set (${ctx.actor}). Was ${oldWhen}. ` +
+      calendarSentence +
+      removedSentence +
+      stampsSentence +
+      logisticsSentence +
+      picklistHint;
+    return {
+      ok: true,
+      plan: {
+        dealPatch: {
+          event_date: null,
+          ...calendarCleared,
+          ...clears,
+          ...LOGISTICS_CLEARS,
+          updated_at: updatedAt,
+          notes: appendNote(deal.notes, noteLine),
+        },
+        noteLine,
+        moves: [],
+        deletes: shifts.map((s) => s.id),
+        deleteCalendarEventId,
+      },
+    };
+  }
+
+  const { event_date: date, event_start_time: start, event_end_time: end } = request;
+  if (
+    deal.event_date === date &&
+    deal.event_start_time === start &&
+    deal.event_end_time === end
+  ) {
+    return { ok: false, status: 400, error: "That is the date and time the event already has." };
+  }
+  const newWhen = describeWhen(date, start, end);
+  const startChanged = deal.event_start_time !== start;
+
+  // Every shift keeps its offset from the event's start, so all of them move
+  // by the distance between the old start and the new one. A deal with no old
+  // start time is measured from the new start time on the old date: its
+  // shifts keep their time of day and change day. A deal with no old date
+  // has nothing to measure from, and its shifts stay where they are.
+  const moves: ShiftMove[] = [];
+  let shiftsSentence = "";
+  if (shifts.length && canMoveShifts(deal.event_date)) {
+    const from = eventStart(deal.event_date, deal.event_start_time || start);
+    const to = eventStart(date, start);
+    if (!from || !to) {
+      return { ok: false, status: 400, error: "Could not read the event's start time." };
+    }
+    const delta = to.getTime() - from.getTime();
+    if (delta !== 0) {
+      const parts: string[] = [];
+      for (const s of shifts) {
+        const startsAt = new Date(new Date(s.starts_at).getTime() + delta).toISOString();
+        const endsAt = new Date(new Date(s.ends_at).getTime() + delta).toISOString();
+        moves.push({ id: s.id, starts_at: startsAt, ends_at: endsAt });
+        parts.push(
+          `${shiftLabel(s)} ${describeShiftTime(s.starts_at, s.ends_at)} to ${describeShiftTime(startsAt, endsAt)}`,
+        );
+      }
+      shiftsSentence = ` Crew shifts moved with it: ${parts.join("; ")}.`;
+    }
+  } else if (shifts.length) {
+    shiftsSentence = ` ${shifts.length} crew shift${shifts.length === 1 ? "" : "s"} left where ${shifts.length === 1 ? "it was" : "they were"}: the deal had no date to move them from.`;
+  }
+
+  // Every stage that can be changed is one of Catering-Manager
+  // modules/calendar_sync.py CALENDAR_STAGES (Closed Marketing Event deals go on
+  // the catering calendar too, Alina 2026-10-27), so a rescheduled deal is
+  // always given a fresh event on its new date.
+  const calendarNext = " A fresh event is created on the new date by the calendar reconcile.";
+
+  const noteLine =
+    `${prefix} Rescheduled (${ctx.actor}): ${oldWhen} to ${newWhen}. ` +
+    calendarSentence +
+    calendarNext +
+    shiftsSentence +
+    stampsSentence +
+    (startChanged ? logisticsSentence : "") +
+    picklistHint;
+  return {
+    ok: true,
+    plan: {
+      dealPatch: {
+        event_date: date,
+        event_start_time: start,
+        event_end_time: end,
+        ...calendarCleared,
+        ...clears,
+        ...(startChanged ? LOGISTICS_CLEARS : {}),
+        updated_at: updatedAt,
+        notes: appendNote(deal.notes, noteLine),
+      },
+      noteLine,
+      moves,
+      deletes: [],
+      deleteCalendarEventId,
+    },
+  };
+}
+
+/** deals.notes is an append-only log, one entry per line (as the calls route writes it). */
+export function appendNote(existing: string | null, line: string): string {
+  return existing ? `${existing}\n${line}` : line;
+}
+
+// ---------------------------------------------------------------------------
+// Applying it
+// ---------------------------------------------------------------------------
+
+/** What the dialog shows before anyone confirms (GET /api/deals/:id/event-change). */
+export type EventPreview = {
+  deal: {
+    id: number;
+    stage: string;
+    can_change: boolean;
+    event_date: string | null;
+    event_start_time: string | null;
+    event_end_time: string | null;
+    amount_paid: number | null;
+    has_calendar_event: boolean;
+  };
+  shifts: CrewShift[];
+  /** People on shifts with no deal at the event's time (shiftsAlsoAtEvent). Shown, never changed. */
+  also_on_schedule: CrewShift[];
+};
+
+/**
+ * The deal's event, every crew shift with the person on it, and who else is on
+ * the schedule at its time; null when there is no such deal. A failed read
+ * throws, so it is never taken for nobody being there.
+ */
+export async function readEventPreview(
+  store: EventChangeStore,
+  dealId: number,
+): Promise<EventPreview | null> {
+  const deal = await store.readDeal(dealId);
+  if (!deal) return null;
+  const shifts = await store.readCrewShifts(dealId);
+  const also_on_schedule = await readAlsoOnSchedule(store, deal);
+  return {
+    deal: {
+      id: deal.id,
+      stage: deal.stage,
+      can_change: canChangeEvent(deal.stage),
+      event_date: deal.event_date,
+      event_start_time: deal.event_start_time,
+      event_end_time: deal.event_end_time,
+      amount_paid: deal.amount_paid,
+      has_calendar_event: linkedCalendarEventId(deal) !== null,
+    },
+    shifts,
+    also_on_schedule,
+  };
+}
+
+async function readAlsoOnSchedule(store: EventChangeStore, deal: EventDeal): Promise<CrewShift[]> {
+  // The range needs a real date, and such an event shows nothing anyway.
+  if (!placedEventSpan(deal)) return [];
+  const rows = await store.readUnlinkedEventShifts(alsoAtEventReadRange(deal.event_date!.trim()));
+  return shiftsAlsoAtEvent(deal, rows);
+}
+
+/** The reads and writes, and nothing else. Every rule is above. */
+export interface EventChangeStore {
+  readDeal(dealId: number): Promise<EventDeal | null>;
+  /** The deal's shifts (shifts.deal_id), earliest first, staffed ones named. */
+  readCrewShifts(dealId: number): Promise<CrewShift[]>;
+  /**
+   * Shifts with no deal touching this range, staffed ones named. It may answer
+   * more than shiftsAlsoAtEvent keeps, and that function decides. Throws when the
+   * read fails.
+   */
+  readUnlinkedEventShifts(range: ReadRange): Promise<UnlinkedShiftRow[]>;
+  /**
+   * Close the deal's open `create` and `patch` rows in pending_calendar_actions,
+   * the way the daemon supersedes them, so a payload queued for the old date
+   * cannot recreate or move the event after this change. Open `delete` rows
+   * are left to run.
+   */
+  supersedeOpenCalendarWrites(dealId: number, nowNaiveUtc: string): Promise<void>;
+  /**
+   * Update the deal only if its stage, event_date and calendar_event_id are
+   * still what `deal` read. False when the row had changed (nothing written).
+   */
+  updateDealIfUnchanged(deal: EventDeal, patch: Record<string, unknown>): Promise<boolean>;
+  /** Move the deal to another stage and log it: writeStageChange, the one way the CRM does. */
+  moveStage(dealId: number, patch: StagePatch): Promise<StageChangeResult>;
+  enqueueCalendarDelete(dealId: number, eventId: string): Promise<void>;
+  /** Move one shift of the deal. Throws when it is gone or the write fails. */
+  moveShift(dealId: number, move: ShiftMove, nowIsoUtc: string): Promise<void>;
+  deleteShifts(dealId: number, ids: number[]): Promise<void>;
+}
+
+/**
+ * How a 500 starts when the deal was written but a later step was not: the
+ * dialog tells such an answer from a failed change by it.
+ */
+export const DEAL_SAVED_PREFIX = "The deal was saved";
+
+/**
+ * What a finished change hands the drawer: the note line it appended, or the
+ * error when the deal was saved but a later step was not.
+ */
+export type EventChangeOutcome = { noteLine?: string; error?: string };
+
+/** What the dialog does with the POST answer: finish (closing the dialog) or stay. */
+export type ChangeResponse =
+  | { done: true; outcome: EventChangeOutcome }
+  | { done: false; error: string };
+
+/**
+ * Read the change POST's answer, split out of the dialog so the one
+ * caller-visible branch is tested without a DOM. A 2xx is done, carrying the
+ * note line. A 500 whose error starts with DEAL_SAVED_PREFIX is also done — the
+ * deal changed, so the drawer re-reads it — carrying that error. Anything else
+ * keeps the dialog open with the message (or the status when there is none).
+ */
+export function interpretChangeResponse(
+  ok: boolean,
+  status: number,
+  body: { error?: unknown; noteLine?: unknown },
+): ChangeResponse {
+  if (ok) {
+    return {
+      done: true,
+      outcome: { noteLine: typeof body.noteLine === "string" ? body.noteLine : undefined },
+    };
+  }
+  const error = typeof body.error === "string" && body.error ? body.error : `HTTP ${status}`;
+  if (status === 500 && typeof body.error === "string" && body.error.startsWith(DEAL_SAVED_PREFIX)) {
+    return { done: true, outcome: { error: body.error } };
+  }
+  return { done: false, error };
+}
+
+/** What the drawer shows after an event change: a message, or an error to flag. */
+export type ChangeOutcomeMessage = { error: string } | { message: string };
+
+/**
+ * What the drawer shows once the change finished, given its outcome and whether
+ * the follow-up deal re-read succeeded. Split out of the component so it is
+ * tested without a DOM. A failed re-read is surfaced (the drawer and the board
+ * still show the old date and stage) rather than hidden behind the success note.
+ */
+export function eventChangedMessage(
+  outcome: EventChangeOutcome,
+  reloaded: boolean,
+  reloadError?: string | null,
+): ChangeOutcomeMessage {
+  if (!reloaded) {
+    return {
+      error: `The change was saved, but reloading the deal failed${
+        reloadError ? ` (${reloadError})` : ""
+      }. Refresh to see the new date and stage.`,
+    };
+  }
+  if (outcome.error) return { error: outcome.error };
+  return { message: outcome.noteLine || "Done." };
+}
+
+export type ApplyResult =
+  | { ok: true; noteLine: string; moved: number; removed: number }
+  | { ok: false; status: number; error: string };
+
+function sameIds(a: number[], b: number[]): boolean {
+  const x = [...new Set(a)].sort((p, q) => p - q);
+  const y = [...new Set(b)].sort((p, q) => p - q);
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+
+function message(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** A cancel whose stage moved but whose note, calendar link and shifts were not touched. */
+function closedButNotFinished(plan: EventChangePlan, why: string): string {
+  const event = plan.deleteCalendarEventId ? ` the calendar event (${plan.deleteCalendarEventId}),` : "";
+  const shifts = plan.deletes.length ? ` the crew shifts (${plan.deletes.join(", ")}),` : "";
+  return (
+    `${DEAL_SAVED_PREFIX} at ${plan.stagePatch?.stage}, but nothing else was done (${why}). ` +
+    `Remove${event}${shifts} and add the note by hand: ${plan.noteLine}`
+  );
+}
+
+/**
+ * Reschedule or cancel. The deal is written first, in one update: it is the
+ * source of truth, so a failure after it leaves the deal right and says
+ * exactly what still needs doing by hand.
+ */
+export async function applyEventChange(
+  store: EventChangeStore,
+  dealId: number,
+  change: ParsedEventChange,
+  ctx: { now: Date; actor: string },
+): Promise<ApplyResult> {
+  const { request, staffedShiftIds: staffedIdsShown } = change;
+  const deal = await store.readDeal(dealId);
+  if (!deal) return { ok: false, status: 404, error: "Deal not found" };
+
+  const shifts = await store.readCrewShifts(dealId);
+  if (!sameIds(staffedShiftIds(shifts), staffedIdsShown)) {
+    return {
+      ok: false,
+      status: 409,
+      error: "Who is on this event's crew changed since the dialog opened. Close it and open it again to see the crew.",
+    };
+  }
+
+  const planned = planEventChange(deal, shifts, request, ctx);
+  if (!planned.ok) return planned;
+  const { plan } = planned;
+
+  // The deal is the source of truth and is written first, in one guarded
+  // update. Everything downstream — superseding the old date's queued calendar
+  // writes, queuing the delete, moving or removing shifts — is best-effort and
+  // reported. So a refused update (409 "the deal changed") writes nothing at
+  // all, including the supersede, and a failure after it leaves the deal right
+  // and says what to finish by hand.
+  //
+  // A cancel moves the stage first, through writeStageChange, the one way the
+  // CRM moves a deal and logs it. Stage first because the daemon recreates the
+  // event of any booked deal with no calendar link: clearing the link first
+  // would leave a minute-long window for it to do that.
+  const problems: string[] = [];
+  let guardRow = deal;
+  if (plan.stagePatch) {
+    const { error, historyError } = await store.moveStage(dealId, plan.stagePatch);
+    if (error) return { ok: false, status: 500, error: error.message };
+    if (historyError) problems.push(`the stage change is not in the deal's history (${historyError})`);
+    guardRow = { ...deal, stage: plan.stagePatch.stage };
+  }
+
+  let written: boolean;
+  try {
+    written = await store.updateDealIfUnchanged(guardRow, plan.dealPatch);
+  } catch (e) {
+    if (!plan.stagePatch) throw e;
+    return { ok: false, status: 500, error: closedButNotFinished(plan, message(e)) };
+  }
+  if (!written) {
+    if (plan.stagePatch) {
+      return { ok: false, status: 500, error: closedButNotFinished(plan, "the deal changed at the same moment") };
+    }
+    return {
+      ok: false,
+      status: 409,
+      error: "The deal changed while the dialog was open. Close it and try again.",
+    };
+  }
+
+  try {
+    await store.supersedeOpenCalendarWrites(dealId, nowIso(ctx.now));
+  } catch (e) {
+    problems.push(
+      `the old date's queued calendar writes could not be superseded (${message(e)}); they may recreate the old event — mark them done in pending_calendar_actions by hand`,
+    );
+  }
+  if (plan.deleteCalendarEventId) {
+    try {
+      await store.enqueueCalendarDelete(dealId, plan.deleteCalendarEventId);
+    } catch (e) {
+      problems.push(
+        `the old calendar event (${plan.deleteCalendarEventId}) could not be queued for deletion (${message(e)}); delete it in Google Calendar by hand`,
+      );
+    }
+  }
+
+  let moved = 0;
+  for (const move of plan.moves) {
+    try {
+      await store.moveShift(dealId, move, ctx.now.toISOString());
+      moved += 1;
+    } catch (e) {
+      problems.push(`shift ${move.id} did not move (${message(e)}); move it on the Schedule page`);
+    }
+  }
+
+  let removed = 0;
+  if (plan.deletes.length) {
+    try {
+      await store.deleteShifts(dealId, plan.deletes);
+      removed = plan.deletes.length;
+    } catch (e) {
+      problems.push(
+        `the crew shifts (${plan.deletes.join(", ")}) were not removed (${message(e)}); remove them on the Schedule page`,
+      );
+    }
+  }
+
+  if (problems.length) {
+    return { ok: false, status: 500, error: `${DEAL_SAVED_PREFIX}, but ${problems.join("; ")}.` };
+  }
+  return { ok: true, noteLine: plan.noteLine, moved, removed };
+}
+
+// ---------------------------------------------------------------------------
+// The supabase-js store (service role: shifts and pending_calendar_actions are
+// outside the CRM user's RLS)
+// ---------------------------------------------------------------------------
+
+/**
+ * PostgREST's answer to an update naming a column the table does not have
+ * (PGRST204), when that column is one of the `_derived` twins: Catering-Manager
+ * migration 016 has not been applied to this database yet.
+ */
+export function isMissingTwinColumn(error: { code?: string; message?: string } | null): boolean {
+  if (!error || error.code !== "PGRST204") return false;
+  return LOGISTICS_TWIN_COLUMNS.some((c) => (error.message ?? "").includes(`'${c}'`));
+}
+
+/** The name given to a staffed shift whose person has no name on file. */
+export const UNNAMED_PERSON = "Unnamed person";
+
+/** Who a staffed shift belongs to: the name the schedule shows. */
+export function personName(p: { full_name?: string | null; preferred_name?: string | null }): string {
+  return p.preferred_name?.trim() || p.full_name?.trim() || UNNAMED_PERSON;
+}
+
+/** Each row with the name of the person on it. Throws when the names cannot be read. */
+async function withPersonNames<T extends { employee_id: string | null }>(
+  admin: SupabaseClient,
+  rows: T[],
+): Promise<Array<T & { person: string | null }>> {
+  const people = [...new Set(rows.map((r) => r.employee_id).filter(Boolean))] as string[];
+  const names = new Map<string, string>();
+  if (people.length) {
+    const { data: profiles, error } = await admin
+      .from("profiles")
+      .select("id, full_name, preferred_name")
+      .in("id", people);
+    if (error) throw new Error(error.message);
+    for (const p of (profiles ?? []) as Array<{ id: string; full_name: string | null; preferred_name: string | null }>) {
+      names.set(p.id, personName(p));
+    }
+  }
+  return rows.map((r) => ({
+    ...r,
+    person: r.employee_id ? names.get(r.employee_id) ?? UNNAMED_PERSON : null,
+  }));
+}
+
+/**
+ * `session` is the signed-in user's client: writeStageChange logs the move
+ * under that login, and the service role has none.
+ */
+export function supabaseEventChangeStore(admin: SupabaseClient, session: SupabaseClient): EventChangeStore {
+  return {
+    async readDeal(dealId) {
+      const { data, error } = await admin
+        .from("deals")
+        .select(EVENT_DEAL_COLUMNS)
+        .eq("id", dealId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return (data as EventDeal | null) ?? null;
+    },
+
+    async readCrewShifts(dealId) {
+      const { data, error } = await admin
+        .from("shifts")
+        .select("id, starts_at, ends_at, employee_id")
+        .eq("deal_id", dealId)
+        .order("starts_at", { ascending: true });
+      if (error) throw new Error(error.message);
+      return withPersonNames(admin, (data ?? []) as Array<Omit<CrewShift, "person">>);
+    },
+
+    async readUnlinkedEventShifts({ fromISO, toISO }) {
+      const { data, error } = await admin
+        .from("shifts")
+        .select("id, starts_at, ends_at, employee_id, position, published, deal_id")
+        .eq("published", true)
+        .is("deal_id", null)
+        .not("employee_id", "is", null)
+        .or(ALSO_AT_EVENT_POSITIONS.map((position) => `position.like.%${position}%`).join(","))
+        .lt("starts_at", toISO)
+        .gt("ends_at", fromISO);
+      if (error) throw new Error(error.message);
+      return withPersonNames(admin, (data ?? []) as Array<Omit<UnlinkedShiftRow, "person">>);
+    },
+
+    async supersedeOpenCalendarWrites(dealId, nowNaiveUtc) {
+      const { data, error } = await admin
+        .from("pending_calendar_actions")
+        .select("id, source")
+        .eq("deal_id", dealId)
+        .is("processed_at", null)
+        .in("action", ["create", "patch"]);
+      if (error) throw new Error(error.message);
+      for (const row of (data ?? []) as Array<{ id: number; source: string | null }>) {
+        const { error: uErr } = await admin
+          .from("pending_calendar_actions")
+          .update({ processed_at: nowNaiveUtc, source: `${row.source ?? ""} (superseded)` })
+          .eq("id", row.id)
+          .is("processed_at", null);
+        if (uErr) throw new Error(uErr.message);
+      }
+    },
+
+    moveStage: (dealId, patch) => writeStageChange(session, dealId, patch),
+    async updateDealIfUnchanged(deal, patch) {
+      const attempt = (p: Record<string, unknown>) => {
+        let q = admin.from("deals").update(p).eq("id", deal.id).eq("stage", deal.stage);
+        q = deal.event_date == null ? q.is("event_date", null) : q.eq("event_date", deal.event_date);
+        q =
+          deal.calendar_event_id == null
+            ? q.is("calendar_event_id", null)
+            : q.eq("calendar_event_id", deal.calendar_event_id);
+        return q.select("id");
+      };
+      let { data, error } = await attempt(patch);
+      // Before migration 016 the twins do not exist and there is nothing to
+      // clear: without a twin every stored time already reads as an override,
+      // and clearing the live column is enough for it to be derived again.
+      if (isMissingTwinColumn(error)) {
+        const withoutTwins = { ...patch };
+        for (const c of LOGISTICS_TWIN_COLUMNS) delete withoutTwins[c];
+        ({ data, error } = await attempt(withoutTwins));
+      }
+      if (error) throw new Error(error.message);
+      return (data ?? []).length > 0;
+    },
+
+    async enqueueCalendarDelete(dealId, eventId) {
+      const { error } = await admin.from("pending_calendar_actions").insert({
+        deal_id: dealId,
+        action: "delete",
+        event_id: eventId,
+        payload: {},
+        new_hash: null,
+        source: "crm-app",
+      });
+      if (error) throw new Error(error.message);
+    },
+
+    async moveShift(dealId, move, nowIsoUtc) {
+      const { data, error } = await admin
+        .from("shifts")
+        .update({ starts_at: move.starts_at, ends_at: move.ends_at, updated_at: nowIsoUtc })
+        .eq("id", move.id)
+        .eq("deal_id", dealId)
+        .select("id");
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) throw new Error("the shift is no longer on this deal");
+    },
+
+    async deleteShifts(dealId, ids) {
+      const { error } = await admin.from("shifts").delete().eq("deal_id", dealId).in("id", ids);
+      if (error) throw new Error(error.message);
+    },
+  };
+}
