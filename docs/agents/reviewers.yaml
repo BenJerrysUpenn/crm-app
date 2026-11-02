@@ -106,6 +106,8 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/components/ScheduleLaborLine.tsx", "time-app/components/ScheduleBoard.tsx"]
     docs: [README.md]
+  - paths: ["time-app/components/finance/PayTable.tsx", "time-app/components/finance/PayrollVerify.tsx"]
+    docs: [docs/payroll-verify.md]
   - paths: ["time-app/supabase/migration_46*.sql"]
     docs: [README.md, docs/payroll-verify.md]
   - paths: ["time-app/supabase/migration_49*.sql", "time-app/supabase/migration_50*.sql", "time-app/supabase/migration_52*.sql"]

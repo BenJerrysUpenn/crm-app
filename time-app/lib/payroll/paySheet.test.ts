@@ -12,6 +12,7 @@ import {
   inputsChangedAt,
   micros,
   money,
+  oloEvidenceText,
   payTableBlocker,
   qboCell,
   qboTotal,
@@ -402,4 +403,15 @@ test("a failed build shows its recorded error, or says none was recorded", () =>
   assert.deepEqual(requestView(failed), { tone: "error", text: "The last build failed: FileNotFoundError: Square Reports." });
   assert.equal(inFlight(failed), false);
   assert.match(requestView(state({ latest: meta({ status: "failed", error: null }) })).text, /no error was recorded/);
+});
+
+test("the Olo line: the sheet's reason when it gives one, else the bake-shift count", () => {
+  const base = row().evidence;
+  assert.equal(oloEvidenceText(row({ olo_cents: 0 })), "");
+  assert.equal(oloEvidenceText(row({ olo_cents: 500, evidence: { ...base, pastry_shifts_covered: 1 } })), " over 1 Pastry Opener shift");
+  assert.equal(oloEvidenceText(row({ olo_cents: 500, evidence: { ...base, pastry_shifts_covered: 4 } })), " over 4 Pastry Opener shifts");
+  assert.equal(
+    oloEvidenceText(row({ olo_cents: 500, evidence: { ...base, pastry_shifts_covered: 0, olo_evidence: "all of this period's Olo tips" } })),
+    " · all of this period's Olo tips",
+  );
 });

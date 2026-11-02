@@ -7,6 +7,7 @@ import {
   SHEET_VERSION,
   hoursText,
   money,
+  oloEvidenceText,
   payTableBlocker,
   qboCell,
   qboTotal,
@@ -265,7 +266,7 @@ function RowEvidence({ row, sheet }: { row: SheetRow; sheet: PaySheetJson }) {
           {e.catering_events.length === 0 && <li>Catering $0.00 — no event tips this period</li>}
           <li>
             Olo {money(row.olo_cents)}
-            {row.olo_cents > 0 && ` over ${e.pastry_shifts_covered} Pastry Opener shift${e.pastry_shifts_covered === 1 ? "" : "s"}`}
+            {oloEvidenceText(row)}
           </li>
         </ul>
       </div>

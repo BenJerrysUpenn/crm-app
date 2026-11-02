@@ -57,6 +57,8 @@ Every finding is one of:
   it only when the case needs it, and the change is recorded with who and when
   in `payroll_rulings`. From the pay period starting **2026-10-05** none of
   the three is a choice any more: 1.9 is not asked, and 3.5 and 3.7 are fixes.
+  From the pay period starting **2026-10-19** the 3.7 fix is about whether
+  baking happened, not who gets the Olo tips.
 - **Needs a fix** — the data is wrong and no choice can make it right. Fix it in
   the app and press Verify again. This includes **1.4** (a runaway punch with no
   scheduled shift, or an open punch with no scheduled shift, ruled 2026-09-27)
@@ -67,7 +69,8 @@ Every finding is one of:
   **2026-10-05** this also includes a catering event whose crew did not
   punch: one **"Catering crew didn't punch"** card per event (1.12 and 3.5
   merged, ruled 2026-10-05), with no default payee, and a period with **no
-  bake shift worked** (3.7, ruled 2026-10-05), with no default payee either.
+  bake shift worked** (3.7, ruled 2026-10-05, kept 2026-11-02), with no default
+  payee either.
 
 **The button is green when there is nothing to fix and every case is answered
 by a recorded choice or its default.**
@@ -211,10 +214,11 @@ does migration 36's submittal guard.
 | 1.12 | Each person scheduled on an event who did not punch for it, by name | periods before 2026-10-05: rule, warning. From 2026-10-05: on the 3.5 card |
 | 1.15 | A punch or shift in a submitted run changed after its submittal | rule, warning (never blocks) |
 | 3.4 | Invoice tip with no deal, any date | rule, **flag** (never blocks) |
-| 3.5 | Periods starting **2026-10-05** on, **"Catering crew didn't punch"**: one card per event (a booked event dated in the window, or a deal the window's shifts point at) where somebody scheduled did not punch, or a booked event with no Catering shift at all | **fix**, no default: add each missing punch on the card (or the shift and punch together). Once the punch exists the tip splits by punches. A crew smaller than `staff_count` with nobody unpunched is not a card |
+| 3.5 | Periods starting **2026-10-05** on, **"Catering crew didn't punch"**: one card per event (a booked event dated in the window, or a deal the window's shifts point at) where somebody scheduled did not punch, or a booked event with no Catering shift at all. From **2026-10-19** a marketing event is exempt (`isMarketingEvent`) | **fix**, no default: add each missing punch on the card (or the shift and punch together). Once the punch exists the tip splits by punches. A crew smaller than `staff_count` with nobody unpunched is not a card |
 | 3.5 | Periods before 2026-10-05: booked event in the window that nobody punched for | **choice**: who is paid its tip (**default: the designated tip payee, `DEFAULT_TIP_PAYEE_NAME`**) |
 | 3.7 | Periods before 2026-10-05: no Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: the designated tip payee**); a schedule anomaly (norm ≥ 4 a period) |
-| 3.7 | Periods starting **2026-10-05** on, **"No bake shift worked"**: no Pastry Opener shift worked (scheduled AND punched) in an open period | **fix**, no default and no picker: add the Pastry Opener punch (on the card or the Timesheets page). Once it exists the Olo tips split by bake shifts |
+| 3.7 | Periods starting **2026-10-19** on, **"No bake shift worked"**: no Pastry Opener shift worked (scheduled AND punched) in an open period | **fix**, no default and no picker: put the bake shift that was worked on the schedule, with the person's punch. About whether baking happened, not the tips: the Olo tips go to the staff member who does the cakes either way (ruled 2026-11-02) |
+| 3.7 | The period starting **2026-10-05** only, **"No bake shift worked"**: no Pastry Opener shift worked (scheduled AND punched) in an open period | **fix**, no default and no picker: add the Pastry Opener punch (on the card or the Timesheets page). Once it exists the Olo tips split by bake shifts |
 
 **Not reported** (Alina, 2026-10-05: "useless, kill these"): 0.1 pay window,
 1.10 cover punches, 1.13 deleted rows and 1.14 name hygiene. They are not
@@ -245,8 +249,10 @@ test). Moving the cutover is a one-line change to that constant.
   computed from punches only by the payroll sheet. No dropdown and no manager
   pick: the solo-close card on the payroll page stays empty and the rulings
   route refuses a 1.9 choice for these periods. 1.8 is unchanged.
-- **No stranded-Olo payee.** "This should not happen and is an upstream time
-  clock problem" (Alina, 2026-10-05). A period with no Pastry Opener shift
+- **No stranded-Olo payee** (these words hold for the period starting
+  2026-10-05; from 2026-10-19 nothing is stranded, see the 2026-11-02 cutover
+  below). "This should not happen and is an upstream time clock problem"
+  (Alina, 2026-10-05). A period with no Pastry Opener shift
   worked is a fix with no default and no picker: the card says no bake shift
   was worked, so any Olo tips for the period have nobody to go to, and asks
   for the Pastry Opener punch. Once the punch exists the Olo tips split by
@@ -257,9 +263,45 @@ test). Moving the cutover is a one-line change to that constant.
 - **Pickup events are exempt.** A catering event whose `deals.event_type` is
   a pickup (`isPickupEvent`: "Pickup", "Pick up" or "Pick-up", any case) has
   no Catering shift by design and gets no "Catering crew didn't punch" card.
-  Nothing else is exempt: "Drop Off" and delivery events still need their
-  crew's punches. A pickup's tip, if any, goes to that day's in-store pool
-  on the payroll sheet (ruled 2026-10-05); this app does not see tips.
+  "Drop Off" and delivery events still need their crew's punches. A pickup's
+  tip, if any, goes to that day's in-store pool on the payroll sheet (ruled
+  2026-10-05); this app does not see tips.
+
+**The 2026-11-02 cutover** (the owner's rulings of 2026-11-02). For a pay period
+that **starts on or after `OLO_AND_MARKETING_RULES_FROM`**
+(`time-app/lib/payroll/verify.ts`, 2026-10-19; bj-finance `modules/tips.py` uses
+the same date). Periods before it keep their rules and their words exactly
+(pinned by tests).
+
+- **Olo tips have one payee, and 3.7 stays.** They go to the staff member who
+  now does the cakes, whether or not a Pastry Opener shift was worked. bj-finance
+  decides who and pays it on the sheet (rule recorded in its
+  `docs/specs/payroll-pipeline.md`). The pay table's Olo line shows the sheet's
+  own reason (`evidence.olo_evidence`) in place of a bake-shift count. The owner
+  kept the check: a period with no bake shift worked is still a **fix with no
+  default and no picker, holding Submit** (`bakeShiftFix`), and now it is about
+  whether baking happened. The card tells the reader to put the bake shift that
+  was worked on the schedule. What counts as worked has not changed: a Pastry
+  Opener shift with the person's punch. Counting a punch with no such shift has
+  not been ruled on. `POST /api/payroll/rulings` still refuses a 3.7 choice.
+- **Marketing events are exempt from the crew card.** Marketing events have
+  marketing hours and no tips. `isMarketingEvent` reads the shift link, not
+  `event_type` alone, because a marketing deal can be typed as anything: a deal
+  with a `Marketing` shift linked by `shifts.deal_id` is exempt, and so is
+  `event_type` "Marketing Event" (letters only, any case), for an expo not yet
+  staffed. A linked Catering shift with somebody on it always keeps the card:
+  they are crew or they owe a punch, whatever else is on the deal. An unassigned
+  Catering slot does not, since nobody on it owes a punch. Another event's
+  Catering shift on the same date does not count either: only this deal's links
+  do. Any tip that did land on an exempt deal still surfaces on the payroll
+  sheet, which holds a tip with no crew as an open item.
+
+**The two sides move together.** The 3.7 card says the Olo tips go to the staff
+member who does the cakes on the assumption that the sheet pays them by the same
+rule. Merge and deploy this with bj-finance's change, and move the two dates
+together: with only this side live, the sheet still names the old payee for a
+period with no bake shift; with only the bj-finance side live, the card still
+says the Olo tips have nobody to go to, and a marketing deal still gets a card.
 
 The database submittal trigger (migration 27) does not enforce the catering
 rule or 3.7; the Submit button and route do.

@@ -80,6 +80,8 @@ export type SheetRow = {
     pool_rule: string;
     catering_events: SheetCateringEvent[];
     pastry_shifts_covered: number;
+    /** Why this row has its Olo tips, when bake shifts are not the reason (bj-finance, from 2026-10-19). */
+    olo_evidence?: string;
     owner: boolean;
   };
 };
@@ -430,4 +432,16 @@ export function requestView(state: PaySheetState): RequestView {
 /** Is a build in flight, so the page should look again shortly? */
 export function inFlight(state: PaySheetState): boolean {
   return state.available && (state.latest?.status === "queued" || state.latest?.status === "building");
+}
+
+/**
+ * What the row's Olo line says after the amount. The sheet names the reason from
+ * the period starting 2026-10-19, when bake shifts no longer decide the Olo tips
+ * (ruled 2026-11-02); an earlier sheet carries only the bake-shift count.
+ */
+export function oloEvidenceText(row: Pick<SheetRow, "olo_cents" | "evidence">): string {
+  if (row.olo_cents <= 0) return "";
+  if (row.evidence.olo_evidence) return ` · ${row.evidence.olo_evidence}`;
+  const n = row.evidence.pastry_shifts_covered;
+  return ` over ${n} Pastry Opener shift${n === 1 ? "" : "s"}`;
 }
