@@ -10,12 +10,15 @@ import {
 //
 // It runs reconcileShifts, the same sweep the /api/cron/catering-shifts route
 // runs, so the shifts it creates are identical: the cart rule, the long-shift
-// warning and the idempotency all come from lib/cateringShifts.ts.
+// warning, the count of crew placed by hand and the idempotency all come from
+// lib/cateringShifts.ts.
 //
 // Usage: reconcile-catering-shifts [--dry-run]
 //   DATABASE_URL  Postgres DSN for the Supabase project (required)
 //
-// Prints exactly one summary line. Exit codes:
+// Prints exactly one summary line. A deal skipped because its crew is already
+// placed by hand is counted in "scanned" and nowhere else, like any other deal
+// that needed nothing. Exit codes:
 //   0  swept, every deal that needed shifts got them (or would, in a dry run)
 //   1  the sweep failed, or at least one deal's shifts could not be created
 //   2  bad usage: unknown argument or DATABASE_URL missing
@@ -46,6 +49,7 @@ export function dryRunStore(store: ShiftStore): ShiftStore {
   return {
     bookedDealsWithDeparture: () => store.bookedDealsWithDeparture(),
     dealHasShifts: (id) => store.dealHasShifts(id),
+    handPlacedCateringShifts: (range) => store.handPlacedCateringShifts(range),
     insertShiftsIgnoringDuplicates: async (rows) => {
       await store.rehearseInsert?.(rows);
       return rows.length;

@@ -528,7 +528,8 @@ and one hand-placed shift counts toward one event only, taken in time order. An
 event with no start time stays a gap. Crew size is not checked. Recipients are
 read from the database (`profiles` joined to `auth.users`): every owner, leaving
 out anyone archived or banned. Managers do not get this email (owner decision,
-2026-11-02). Logic: `lib/coverageReminder.ts`;
+2026-11-02). Logic: `lib/coverageReminder.ts`, with the hand-placed rule in
+`lib/handPlacedCrew.ts`;
 command: `lib/coverageReminderCli.ts`; reads: `lib/coverageReminderPg.ts`;
 send: `lib/gmailSend.ts`.
 
@@ -556,6 +557,22 @@ Creates the open crew shifts for booked catering deals that have a
 before departure, 15h+ shifts are flagged CHECK HOURS), run straight against
 Postgres instead of over HTTP.
 
+It creates one shift per crew member nobody has placed by hand: `staff_count`
+minus the distinct people on published Catering shifts with no `deal_id` that
+cover the whole event, on slots 1..n. "Covers" is the schedule coverage
+reminder's rule, shared in `lib/handPlacedCrew.ts`: the shift starts at or before
+the event start and ends at or after the event end; no end time means it must
+run past the start; an end earlier than the start is the next day; no start time
+cannot be judged, so nobody counts. A partial overlap does not count. With the
+whole crew placed it creates nothing and remembers nothing, so if the hand-placed
+shift is removed the open shifts appear on the next sweep. The count is per deal:
+one person on a shift spanning two overlapping events skips both, and the
+reminder, which gives one shift to one event, still lists one as a gap. A failed
+read fails that deal, never reads as "nobody placed". A deal with any linked shift
+is left alone, shifts are never updated or deleted, and `deal_id` is never written
+onto a hand-placed shift (payroll's `eventShifts` falls back to same-day Catering
+shifts only when a deal has no linked shifts with a person).
+
 | Name | Value |
 | --- | --- |
 | `DATABASE_URL` | Postgres DSN for the Supabase project. Never read from the Google Drive |
@@ -565,9 +582,11 @@ npm ci                                   # installs tsx and postgres (both runti
 npm run reconcile-shifts -- --dry-run    # read-only: reports what it would create
 npm run reconcile-shifts                 # creates the shifts
 ```
-Prints one summary line. Exit 0 = ok, 1 = the sweep or a deal failed,
-2 = bad argument or `DATABASE_URL` missing. The dry run runs in a read-only
-transaction and EXPLAINs each insert it would make.
+Prints one summary line, which names the deals that got shifts and the deals
+that failed; a deal skipped for hand-placed crew is only counted as scanned.
+Exit 0 = ok, 1 = the sweep or a deal failed, 2 = bad argument or `DATABASE_URL`
+missing. The dry run runs in a read-only transaction and EXPLAINs each insert it
+would make.
 
 Where it runs: on Alina's Mac, from a clean checkout of `main` at
 `~/systems/crm-app` (the same `~/systems/` convention as the catering
