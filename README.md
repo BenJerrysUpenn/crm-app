@@ -122,8 +122,16 @@ update (`buildStagePatch` in `lib/dealUpdate.ts`):
    Below Min, Closed Marketing Event), else `1`
 3. `updated_at` = current ISO timestamp
 
-A move into `Booked Paid` also sets `payment_status` to `Deposit Paid` when the
-row had none.
+A stage move does not change `payment_status`. A person records payment with the
+card's deposit/paid pill or the drawer.
+
+`writeStageChange` also appends `deal_events` rows for the move (`stage`, plus
+`is_active` when it changed), in the shape Catering-Manager's `db.update_deal`
+writes, with actor `crm:<email>` and source `crm-app`. The two writes are not
+atomic: if the insert fails, the move stands and the person is told. It reads the
+row's current stage first and writes only if the stage is still that one (the
+catering sweep moves deals too); a lost race is an error, and a move to the stage
+the deal is already in writes nothing.
 
 The app does **not** write `deals.boomerang_reason`. The automatic boomerang
 follow-up was retired by bj-finance #333 and the column is dropped by
