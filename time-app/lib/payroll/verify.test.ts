@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import {
   CREW_PUNCH_REQUIRED_FROM,
   DEFAULT_TIP_PAYEE_NAME,
+  OLO_AND_MARKETING_RULES_FROM,
   RULING_CHOICES,
   buildPunchViews,
   caseDate,
@@ -25,6 +26,7 @@ import {
   eventCrew,
   isPickupEvent,
   lockingWindow,
+  oloAndMarketingRules,
   sameNameWords,
   verifyTimesheets,
   nyInputToIso,
@@ -40,6 +42,7 @@ import {
   type ShiftTypeRow,
   type VerifyInput,
 } from "./verify.ts";
+import { submittalBlocker } from "./choices.ts";
 import { payWindowEnding, type PayWindow } from "./window.ts";
 import type { StoreHoursException, StoreHoursRow } from "../coverage.ts";
 
@@ -2165,4 +2168,222 @@ test("fix: a choice, a flag or a report carries no fix", () => {
 
 test("fix: the result lists active staff for the add-a-punch picker", () => {
   assert.deepEqual(run().staff.map((p) => p.id), [CASEY, PAT, DREW]);
+});
+
+// --- the 2026-11-02 rulings, for periods starting 2026-10-19 on -------------
+//
+// (a) Olo tips go to the staff member who now does the cakes, whether or not a
+//     bake shift was worked, so §3.7 is not a finding. bj-finance decides who.
+// (b) Marketing events have marketing hours and no tips, so a marketing deal is
+//     exempt from the §3.5 crew card. The linked shifts decide, not event_type
+//     alone. Periods before keep their rules exactly.
+
+const LATEST: PayWindow = (() => {
+  const r = payWindowEnding("2026-11-01");
+  if (!r.ok) throw new Error(r.error);
+  return r.window;
+})();
+
+/** Wednesday 2026-10-21 open 11:00-22:00; the Wednesday after closed, so one day is judged. */
+const WED_LATEST = {
+  storeHours: openOn(3),
+  storeHoursExceptions: [{ date: "2026-10-28", label: "closed for this fixture", is_closed: true }],
+};
+
+function runLatest(over: Partial<VerifyInput> = {}) {
+  return run({ window: LATEST, today: "2026-11-02", ...over });
+}
+
+function dealOn(id: number, date: string, event_type: string | null): DealRow {
+  return { id, event_date: date, staff_count: 1, company: "Example Client", stage: "Event Complete", event_type };
+}
+
+function linkedShift(deal: DealRow, position: string, employeeId: string | null): ShiftRow {
+  return shift({
+    employee_id: employeeId,
+    starts_at: at(deal.event_date!, "14:00"),
+    ends_at: at(deal.event_date!, "18:00"),
+    position,
+    deal_id: deal.id,
+  });
+}
+
+test("2026-11-02 rulings: the cutover is one date, the period starting 2026-10-19, the day after the 10-05 period ends", () => {
+  assert.equal(OLO_AND_MARKETING_RULES_FROM, "2026-10-19");
+  assert.equal(LATEST.start, OLO_AND_MARKETING_RULES_FROM);
+  assert.equal(oloAndMarketingRules(LATEST), true);
+  assert.equal(oloAndMarketingRules(FIRST_NEW), false);
+  assert.equal(oloAndMarketingRules(NEXT), false);
+});
+
+test("3.7 from 2026-10-19: no bake shift worked is not a finding, and the button is green", () => {
+  const result = runLatest({ ...WED_LATEST });
+  assert.deepEqual(only(result.findings, "3.7"), []);
+  assert.equal(result.counts.needsFix, 0);
+  assert.equal(result.counts.needsRuling, 0);
+  assert.equal(result.ready, true);
+  assert.equal(submittalBlocker(result, true, "2026-11-02"), null);
+});
+
+test("3.7 from 2026-10-19: a scheduled Pastry Opener shift nobody worked is no finding either", () => {
+  const bake = shift({ employee_id: CASEY, starts_at: at("2026-10-21", "06:00"), ends_at: at("2026-10-21", "10:00"), position: "Pastry Opener" });
+  const result = runLatest({ ...WED_LATEST, shifts: [bake] });
+  assert.deepEqual(only(result.findings, "3.7"), []);
+  assert.equal(result.ready, true);
+});
+
+test("3.7 from 2026-10-19: a recorded choice raises nothing and pays nobody", () => {
+  const result = runLatest({
+    ...WED_LATEST,
+    rulings: [{ check_id: "3.7", finding_key: "3.7:olo:2026-11-01", choice: "staff", payee_id: PAT }],
+  });
+  assert.deepEqual(only(result.findings, "3.7"), []);
+  assert.deepEqual(result.flags, []);
+});
+
+test("3.7 before 2026-10-19: the 10-05..10-18 run keeps the fix and its words exactly", () => {
+  const result = runAfter({ ...WED_AFTER, windowDeals: [] });
+  const f = only(result.findings, "3.7")[0];
+  assert.equal(f.status, "needs_fix");
+  assert.equal(f.title, "No bake shift worked");
+  assert.match(f.rule, /strands the Olo tips: no default and no picker/);
+  assert.match(f.summary, /No bake shift was worked in this period/);
+  assert.equal(result.ready, false);
+});
+
+test("marketing: a deal with a Marketing shift gets no card, whatever its event_type", () => {
+  const typed = dealOn(25426, "2026-10-21", "Marketing Event");
+  const twoShifts = dealOn(25427, "2026-10-25", "Marketing Event");
+  const typedOtherwise = dealOn(25430, "2026-10-25", "Birthday Party");
+  const deals = [typed, twoShifts, typedOtherwise];
+  const shifts = [
+    linkedShift(typed, "Marketing", CASEY),
+    linkedShift(twoShifts, "Marketing", CASEY),
+    linkedShift(twoShifts, "Marketing", DREW),
+    linkedShift(typedOtherwise, "Marketing", DREW),
+  ];
+  const result = runLatest({ windowDeals: deals, deals, shifts });
+  assert.deepEqual(only(result.findings, "3.5"), []);
+  assert.equal(result.counts.needsFix, 0);
+});
+
+test("marketing: events with a Catering shift, or none, still get their cards", () => {
+  const unpunched = dealOn(25415, "2026-10-19", "Employee Appreciation");
+  const unpunchedToo = dealOn(25434, "2026-10-22", "Corporate Celebration");
+  const noShifts = dealOn(25472, "2026-10-31", "");
+  const deals = [unpunched, unpunchedToo, noShifts];
+  const shifts = [linkedShift(unpunched, "Catering", CASEY), linkedShift(unpunchedToo, "Catering", DREW)];
+  const result = runLatest({ windowDeals: deals, deals, shifts });
+  assert.deepEqual(only(result.findings, "3.5").map((f) => f.key), ["3.5:deal:25415", "3.5:deal:25434", "3.5:deal:25472"]);
+  assert.ok(only(result.findings, "3.5").every((f) => f.status === "needs_fix"));
+  assert.equal(result.ready, false);
+});
+
+test("marketing: event_type 'Marketing Event' alone is exempt, for an expo not yet staffed; other words are not", () => {
+  for (const t of ["Marketing Event", "marketing event", " MARKETING-EVENT "]) {
+    const expo = dealOn(25500, "2026-10-21", t);
+    assert.deepEqual(only(runLatest({ windowDeals: [expo] }).findings, "3.5"), [], t);
+  }
+  for (const t of ["Marketing", "Marketing Mixer", "Birthday Party", "", null]) {
+    const event = dealOn(25500, "2026-10-21", t);
+    assert.equal(only(runLatest({ windowDeals: [event] }).findings, "3.5").length, 1, String(t));
+  }
+});
+
+test("marketing: a Catering shift with no punch on a deal that also has a Marketing shift keeps the card", () => {
+  const both = dealOn(25500, "2026-10-21", "Birthday Party");
+  const catering = linkedShift(both, "Catering", CASEY);
+  const marketing = linkedShift(both, "Marketing", DREW);
+  const result = runLatest({ windowDeals: [both], deals: [both], shifts: [marketing, catering] });
+  const f = only(result.findings, "3.5")[0];
+  assert.equal(f.key, "3.5:deal:25500");
+  assert.equal(f.status, "needs_fix");
+  assert.deepEqual(f.evidence.shift_ids, [catering.id]);
+  assert.equal(result.ready, false);
+});
+
+test("marketing: event_type 'Marketing Event' with an unpunched Catering shift keeps the card too", () => {
+  const expo = dealOn(25500, "2026-10-21", "Marketing Event");
+  const result = runLatest({ windowDeals: [expo], deals: [expo], shifts: [linkedShift(expo, "Catering", CASEY)] });
+  assert.equal(only(result.findings, "3.5")[0].status, "needs_fix");
+});
+
+test("marketing: a deal with both, whose Catering crew punched, has no card", () => {
+  const both = dealOn(25500, "2026-10-21", "Birthday Party");
+  const catering = linkedShift(both, "Catering", CASEY);
+  const result = runLatest({
+    windowDeals: [both],
+    deals: [both],
+    shifts: [catering, linkedShift(both, "Marketing", DREW)],
+    punches: [punch({ employee_id: CASEY, shift_id: catering.id, clock_in_at: catering.starts_at, clock_out_at: catering.ends_at })],
+  });
+  assert.deepEqual(only(result.findings, "3.5"), []);
+});
+
+test("marketing: another event's Catering shift on the same date neither cancels the exemption nor loses its own card", () => {
+  // eventShifts falls back to the day's Catering shifts when a deal has none
+  // linked, so the exemption must read the link and not the event's crew.
+  const expo = dealOn(25500, "2026-10-25", "Birthday Party");
+  const party = dealOn(25501, "2026-10-25", "Wedding");
+  const deals = [expo, party];
+  const shifts = [linkedShift(expo, "Marketing", DREW), linkedShift(party, "Catering", CASEY)];
+  const result = runLatest({ windowDeals: deals, deals, shifts });
+  assert.deepEqual(only(result.findings, "3.5").map((f) => f.key), ["3.5:deal:25501"]);
+});
+
+test("marketing: an unassigned Catering slot does not cancel the exemption, since nobody on it owes a punch", () => {
+  const expo = dealOn(25500, "2026-10-21", "Marketing Event");
+  const staffed = dealOn(25501, "2026-10-22", "Birthday Party");
+  const deals = [expo, staffed];
+  const shifts = [linkedShift(expo, "Catering", null), linkedShift(staffed, "Marketing", DREW), linkedShift(staffed, "Catering", null)];
+  assert.deepEqual(only(runLatest({ windowDeals: deals, deals, shifts }).findings, "3.5"), []);
+  // With no sign of marketing the same empty slot is the usual card, its form prefilled.
+  const party = dealOn(25502, "2026-10-23", "Wedding");
+  const f = only(runLatest({ windowDeals: [party], deals: [party], shifts: [linkedShift(party, "Catering", null)] }).findings, "3.5")[0];
+  assert.equal(f.status, "needs_fix");
+});
+
+test("marketing: a pickup is still exempt from 2026-10-19", () => {
+  assert.deepEqual(only(runLatest({ windowDeals: [dealOn(25500, "2026-10-21", "Pick-up")] }).findings, "3.5"), []);
+});
+
+test("marketing before 2026-10-19: the 10-05..10-18 run keeps its card and its words exactly", () => {
+  const expo = dealOn(25425, "2026-10-14", "Marketing Event");
+  const result = runAfter({ windowDeals: [expo], deals: [expo], shifts: [linkedShift(expo, "Marketing", CASEY)] });
+  const f = only(result.findings, "3.5")[0];
+  assert.equal(f.key, "3.5:deal:25425");
+  assert.equal(f.status, "needs_fix");
+  assert.doesNotMatch(f.rule, /marketing/i);
+  assert.match(f.rule, /A pickup event .* is exempt/);
+});
+
+test("marketing before 2026-10-05: the crewless picker asks about a marketing deal as before", () => {
+  const expo = dealOn(25200, "2026-09-30", "Marketing Event");
+  const f = only(run({ window: NEXT, today: "2026-10-05", windowDeals: [expo], deals: [expo], shifts: [linkedShift(expo, "Marketing", CASEY)] }).findings, "3.5")[0];
+  assert.equal(f.status, "needs_ruling");
+  assert.deepEqual(f.effective?.payee, { id: PAT, name: "Example, Pat" });
+});
+
+test("rule text from 2026-10-19: the 3.5 card the page shows names the marketing exemption and the pickup one", () => {
+  const event = dealOn(25500, "2026-10-21", "Wedding");
+  const result = runLatest({ windowDeals: [event] });
+  const f = only(result.findings, "3.5")[0];
+  assert.equal(f.title, "Catering crew didn't punch");
+  assert.match(f.rule, /A marketing event is exempt too/);
+  assert.match(f.rule, /the card stays/);
+  assert.match(f.rule, /A pickup event .* is exempt/);
+  assert.equal(result.groups.find((g) => g.check === "3.5")?.rule, f.rule);
+  assert.equal(result.groups.find((g) => g.check === "3.7"), undefined);
+});
+
+test("the button from 2026-10-19: a marketing period with no bake shift submits; any other finding still holds it", () => {
+  const expo = dealOn(25426, "2026-10-21", "Marketing Event");
+  const clean = runLatest({ ...WED_LATEST, windowDeals: [expo], deals: [expo], shifts: [linkedShift(expo, "Marketing", CASEY)] });
+  assert.equal(clean.ready, true);
+  assert.equal(submittalBlocker(clean, true, "2026-11-02"), null);
+
+  const open = punch({ employee_id: CASEY, clock_in_at: at("2026-10-21", "11:00"), clock_out_at: null });
+  const held = runLatest({ ...WED_LATEST, punches: [open] });
+  assert.equal(held.ready, false);
+  assert.ok(submittalBlocker(held, true, "2026-11-02"));
 });

@@ -38,7 +38,8 @@ import PayTable from "./PayTable";
 // adds the event's Catering shift with the punch; and there is no 1.9, so the
 // solo-close card stays empty. Forms write through the Timesheets routes (or
 // /api/payroll/event-punch) and then verify again, so the page never patches
-// a finding itself.
+// a finding itself. From the period starting 2026-10-19 there is no 3.7 card
+// and a marketing event gets no 3.5 card (ruled 2026-11-02).
 //
 // The pay table (2026-10-05) sits above Submit: the sheet bj-finance built on
 // the Mac, per person, as QBO takes it (components/finance/PayTable.tsx). It is
