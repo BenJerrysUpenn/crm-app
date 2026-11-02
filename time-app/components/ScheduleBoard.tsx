@@ -62,17 +62,11 @@ function toLocalInput(iso: string) {
 }
 
 // The popup's start and end are browser-local datetime-local values; the event
-// rule reads instants. An unfinished value reads as no date.
-function localInputDate(value: string): string | null {
+// rule reads instants. An unfinished value is passed through as it is, and the
+// rule reads it as no date.
+function localInputInstant(value: string): string {
   const at = new Date(value);
-  return Number.isNaN(at.getTime()) ? null : shiftDate(at.toISOString());
-}
-function localInputShift(d: { starts_at: string; ends_at: string }) {
-  const iso = (value: string) => {
-    const at = new Date(value);
-    return Number.isNaN(at.getTime()) ? value : at.toISOString();
-  };
-  return { starts_at: iso(d.starts_at), ends_at: iso(d.ends_at) };
+  return Number.isNaN(at.getTime()) ? value : at.toISOString();
 }
 
 type Draft = {
@@ -203,7 +197,7 @@ export default function ScheduleBoard({
 
   // The shift in the popup against that day's events for its position. Null when
   // its position takes no event or its start is not a real time yet.
-  const draftDate = draft && eventKindOf(draft.position) !== null ? localInputDate(draft.starts_at) : null;
+  const draftDate = draft && eventKindOf(draft.position) !== null ? shiftDate(localInputInstant(draft.starts_at)) : null;
   const draftDayEvents: ScheduleEvent[] | "loading" | "failed" | null =
     draftDate === null
       ? null
@@ -231,7 +225,7 @@ export default function ScheduleBoard({
   }, [outsideWeekDate]);
   const draftCurrentEvent = draft?.deal_id != null ? linkedEvents?.find((e) => e.id === draft.deal_id) ?? null : null;
   const draftFitting =
-    draft && Array.isArray(draftEvents) ? fittingEvents(localInputShift(draft), draftEvents) : [];
+    draft && Array.isArray(draftEvents) ? fittingEvents({ starts_at: localInputInstant(draft.starts_at), ends_at: localInputInstant(draft.ends_at) }, draftEvents) : [];
   const draftDropdown =
     draft && draftDate !== null && Array.isArray(draftEvents) && linkedEvents !== null
       ? eventDropdown({
