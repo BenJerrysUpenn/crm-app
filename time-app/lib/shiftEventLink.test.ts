@@ -193,6 +193,17 @@ test("a date boundary is New York's: 11pm on the 23rd is the 23rd", async () => 
   assert.equal(late.status, 200);
 });
 
+test("a linked shift off its event's day, moved onto that day, keeps its event and slot", async () => {
+  db.rows("shifts")[0].starts_at = edt("2026-10-22", "11:00");
+  db.rows("shifts")[0].ends_at = edt("2026-10-22", "15:00");
+  db.rows("shifts")[0].deal_id = 500;
+  db.rows("shifts")[0].deal_slot = 3;
+  const res = await patch(1, { starts_at: edt("2026-10-23", "11:00"), ends_at: edt("2026-10-23", "15:00") });
+  assert.equal(res.status, 200);
+  assert.equal(shift(1).deal_id, 500);
+  assert.equal(shift(1).deal_slot, 3);
+});
+
 test("a linked Marketing shift keeps its link when moved: it is what marks a marketing event", async () => {
   db.rows("shifts")[0].position = "Marketing";
   db.rows("shifts")[0].deal_id = 502;
