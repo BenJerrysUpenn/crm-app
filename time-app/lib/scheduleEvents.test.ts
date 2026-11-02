@@ -11,7 +11,7 @@ import { loadAppModule } from "./testing/fakeSupabase.ts";
 import type * as Events from "./scheduleEvents.ts";
 
 const events = await loadAppModule<typeof Events>("lib/scheduleEvents.ts");
-const { eventBadge, eventBadges, eventBadgeText, eventChipName, eventDropdown, eventFieldLabel, eventKindOf, eventOptionLabel, eventsForPosition, eventsOnDate, fittingEvents, isLinkableDeal, movedOffSavedEvent, selectedEventId, toScheduleEvent } = events;
+const { FINISHED_BADGE_DAYS, eventBadge, eventBadges, eventBadgeText, eventChipName, eventDropdown, eventFieldLabel, eventKindOf, eventOptionLabel, eventsForPosition, eventsOnDate, fittingEvents, isLinkableDeal, movedOffSavedEvent, selectedEventId, toScheduleEvent } = events;
 const { isHandPlacedShift } = await loadAppModule<typeof import("./handPlacedCrew.ts")>("lib/handPlacedCrew.ts");
 const { MARKETING_POSITION } = await loadAppModule<typeof import("./payroll/verify.ts")>("lib/payroll/verify.ts");
 
@@ -26,6 +26,11 @@ const EVENT_B: Event = { id: 102, name: "Event B", stage: "Booked Unpaid", event
 const NEXT_DAY: Event = { id: 103, name: "Event C", stage: "Booked Paid", event_date: "2026-10-24", event_start_time: "12:00", event_end_time: "14:00" };
 const MARKETING_A: Event = { id: 301, name: "Marketing A", stage: "Closed Marketing Event", event_date: "2026-10-23", event_start_time: "12:00", event_end_time: "14:00" };
 const MARKETING_B: Event = { id: 302, name: "Marketing B", stage: "Closed Marketing Event", event_date: "2026-10-23", event_start_time: "13:00", event_end_time: "15:00" };
+const FINISHED_CATERING: Event = { ...EVENT_A, id: 401, name: "Finished catering", stage: "Event Complete", finished_for: ["catering"] };
+const FINISHED_MARKETING: Event = { ...EVENT_A, id: 402, name: "Finished marketing", stage: "Event Complete", finished_for: ["marketing"] };
+const FINISHED_UNCLEAR: Event = { ...EVENT_A, id: 403, name: "Finished, kind unclear", stage: "Event Complete", finished_for: ["catering", "marketing"] };
+/** New York's today in these tests: a week after the shifts' date. */
+const TODAY = "2026-10-30";
 
 function shift(over: Partial<Events.BadgeShift & { id: number }> = {}) {
   return {
@@ -69,16 +74,14 @@ test("a Catering shift can be linked at Booked Unpaid or Booked Paid; a marketin
   assert.equal(isLinkableDeal({ stage: "Booked Paid", archived: 0 }, "Catering"), true);
   assert.equal(isLinkableDeal({ stage: "Closed Marketing Event", archived: 0 }, "Catering"), false);
   assert.equal(isLinkableDeal({ stage: "Booked Paid", archived: 1 }, "Catering"), false);
-  assert.equal(isLinkableDeal({ stage: "Event Complete", archived: 0 }, "Catering"), false);
   assert.equal(isLinkableDeal({ stage: "Sent Quote", archived: 0 }, "Catering"), false);
 });
 
-test("a Marketing shift can be linked only at Closed Marketing Event", () => {
+test("a Marketing shift can be linked at Closed Marketing Event and no booked stage", () => {
   assert.equal(isLinkableDeal({ stage: "Closed Marketing Event", archived: 0 }, "Marketing"), true);
   assert.equal(isLinkableDeal({ stage: "Closed Marketing Event", archived: 1 }, "Marketing"), false);
   assert.equal(isLinkableDeal({ stage: "Booked Paid", archived: 0 }, "Marketing"), false);
   assert.equal(isLinkableDeal({ stage: "Booked Unpaid", archived: 0 }, "Marketing"), false);
-  assert.equal(isLinkableDeal({ stage: "Event Complete", archived: 0 }, "Marketing"), false);
 });
 
 test("any other position can be linked at nothing", () => {
@@ -87,7 +90,7 @@ test("any other position can be linked at nothing", () => {
 });
 
 test("the position says which events are listed, and what the field is called", () => {
-  const all = [EVENT_A, EVENT_B, MARKETING_A, { ...EVENT_A, id: 400, stage: "Event Complete" }];
+  const all = [EVENT_A, EVENT_B, MARKETING_A, { ...EVENT_A, id: 400, stage: "Closed Lost" }];
   assert.deepEqual(eventsForPosition("Catering", all).map((e) => e.id), [101, 102]);
   assert.deepEqual(eventsForPosition(" Marketing ", all).map((e) => e.id), [301]);
   assert.deepEqual(eventsForPosition("PENN Opener", all), []);
@@ -262,58 +265,58 @@ test("a past Marketing shift whose deal is now Event Complete shows that saved l
 // --- the badge ----------------------------------------------------------------
 
 test("one event fits: the badge suggests it", () => {
-  const badge = eventBadge(shift(), [EVENT_A]);
+  const badge = eventBadge(shift(), [EVENT_A], TODAY);
   assert.equal(badge?.kind, "suggest");
   assert.equal(eventBadgeText(badge!), "Event: Event A?");
 });
 
 test("two events fit: the badge says to choose", () => {
-  const badge = eventBadge(shift(), [EVENT_A, EVENT_B]);
+  const badge = eventBadge(shift(), [EVENT_A, EVENT_B], TODAY);
   assert.equal(badge?.kind, "choose");
   assert.equal(eventBadgeText(badge!), "Choose an event");
 });
 
 test("no event that day, like a concession shift: no badge", () => {
-  assert.equal(eventBadge(shift(), []), null);
-  assert.equal(eventBadge(shift(), [NEXT_DAY]), null);
+  assert.equal(eventBadge(shift(), [], TODAY), null);
+  assert.equal(eventBadge(shift(), [NEXT_DAY], TODAY), null);
 });
 
 test("an event that day the shift does not cover: no badge", () => {
-  assert.equal(eventBadge(shift({ ends_at: edt("2026-10-23", "13:00") }), [EVENT_A]), null);
+  assert.equal(eventBadge(shift({ ends_at: edt("2026-10-23", "13:00") }), [EVENT_A], TODAY), null);
 });
 
 test("only a published Catering shift with a person and no link gets a badge", () => {
-  assert.equal(eventBadge(shift({ deal_id: 101 }), [EVENT_A]), null);
-  assert.equal(eventBadge(shift({ employee_id: null }), [EVENT_A]), null);
-  assert.equal(eventBadge(shift({ position: "PENN Opener" }), [EVENT_A]), null);
-  assert.equal(eventBadge(shift({ published: false }), [EVENT_A]), null);
+  assert.equal(eventBadge(shift({ deal_id: 101 }), [EVENT_A], TODAY), null);
+  assert.equal(eventBadge(shift({ employee_id: null }), [EVENT_A], TODAY), null);
+  assert.equal(eventBadge(shift({ position: "PENN Opener" }), [EVENT_A], TODAY), null);
+  assert.equal(eventBadge(shift({ published: false }), [EVENT_A], TODAY), null);
 });
 
 test("a Marketing shift's badge looks only at marketing events", () => {
   const marketing = shift({ position: "Marketing" });
-  const one = eventBadge(marketing, [EVENT_A, MARKETING_A]);
+  const one = eventBadge(marketing, [EVENT_A, MARKETING_A], TODAY);
   assert.equal(one?.kind === "suggest" && one.event.id, 301);
-  assert.equal(eventBadge(marketing, [MARKETING_A, MARKETING_B])?.kind, "choose");
-  assert.equal(eventBadge(marketing, [EVENT_A]), null);
-  assert.equal(eventBadge(shift({ position: " Marketing " }), [MARKETING_A])?.kind, "suggest");
+  assert.equal(eventBadge(marketing, [MARKETING_A, MARKETING_B], TODAY)?.kind, "choose");
+  assert.equal(eventBadge(marketing, [EVENT_A], TODAY), null);
+  assert.equal(eventBadge(shift({ position: " Marketing " }), [MARKETING_A], TODAY)?.kind, "suggest");
 });
 
 test("a Catering shift's badge looks only at booked events", () => {
-  const one = eventBadge(shift(), [EVENT_A, MARKETING_A]);
+  const one = eventBadge(shift(), [EVENT_A, MARKETING_A], TODAY);
   assert.equal(one?.kind === "suggest" && one.event.id, 101);
-  assert.equal(eventBadge(shift(), [MARKETING_A]), null);
+  assert.equal(eventBadge(shift(), [MARKETING_A], TODAY), null);
 });
 
 test("only a published Marketing shift with a person and no link gets a badge", () => {
   const marketing = { position: "Marketing" };
-  assert.equal(eventBadge(shift({ ...marketing, deal_id: 301 }), [MARKETING_A]), null);
-  assert.equal(eventBadge(shift({ ...marketing, employee_id: null }), [MARKETING_A]), null);
-  assert.equal(eventBadge(shift({ ...marketing, published: false }), [MARKETING_A]), null);
+  assert.equal(eventBadge(shift({ ...marketing, deal_id: 301 }), [MARKETING_A], TODAY), null);
+  assert.equal(eventBadge(shift({ ...marketing, employee_id: null }), [MARKETING_A], TODAY), null);
+  assert.equal(eventBadge(shift({ ...marketing, published: false }), [MARKETING_A], TODAY), null);
 });
 
 test("the Marketing badge is its own path: a Marketing shift is still not hand-placed crew", () => {
   const marketing = shift({ position: "Marketing" });
-  assert.notEqual(eventBadge(marketing, [MARKETING_A]), null);
+  assert.notEqual(eventBadge(marketing, [MARKETING_A], TODAY), null);
   assert.equal(isHandPlacedShift(marketing), false);
 });
 
@@ -328,7 +331,7 @@ test("a Marketing shift preselects the one marketing event it covers, and two st
 
 test("a row with no deal_id field reads as unlinked", () => {
   const { deal_id: _unused, ...row } = shift();
-  assert.equal(eventBadge(row, [EVENT_A])?.kind, "suggest");
+  assert.equal(eventBadge(row, [EVENT_A], TODAY)?.kind, "suggest");
 });
 
 test("the count is the number of badged shifts", () => {
@@ -338,7 +341,7 @@ test("the count is the number of badged shifts", () => {
     shift({ id: 3, deal_id: 102 }),
     shift({ id: 4, starts_at: edt("2026-10-25", "11:00"), ends_at: edt("2026-10-25", "16:00") }),
   ];
-  assert.deepEqual([...eventBadges(shifts, [EVENT_A]).keys()], [1, 2]);
+  assert.deepEqual([...eventBadges(shifts, [EVENT_A], TODAY).keys()], [1, 2]);
 });
 
 test("one of three linked: the other two keep their badges until each is done", () => {
@@ -347,11 +350,116 @@ test("one of three linked: the other two keep their badges until each is done", 
     shift({ id: 2, employee_id: "person-2" }),
     shift({ id: 3, employee_id: "person-3" }),
   ];
-  assert.deepEqual([...eventBadges(crew, [EVENT_A]).keys()], [2, 3]);
+  assert.deepEqual([...eventBadges(crew, [EVENT_A], TODAY).keys()], [2, 3]);
   crew[1].deal_id = 101 as never;
-  assert.deepEqual([...eventBadges(crew, [EVENT_A]).keys()], [3]);
+  assert.deepEqual([...eventBadges(crew, [EVENT_A], TODAY).keys()], [3]);
 });
 
 test("a shift saved as None with an event that fits keeps its badge: nothing records the choice", () => {
-  assert.equal(eventBadge(shift({ deal_id: null }), [EVENT_A])?.kind, "suggest");
+  assert.equal(eventBadge(shift({ deal_id: null }), [EVENT_A], TODAY)?.kind, "suggest");
+});
+
+// --- finished events ------------------------------------------------------------
+
+test("a finished event is linkable by the kinds it is for, live only, and Closed Lost and the rest stay out", () => {
+  const finished = (finished_for?: Events.EventKind[], archived = 0) => ({ stage: "Event Complete", archived, finished_for });
+  assert.equal(isLinkableDeal(finished(["catering"]), "Catering"), true);
+  assert.equal(isLinkableDeal(finished(["catering"]), "Marketing"), false);
+  assert.equal(isLinkableDeal(finished(["marketing"]), "Marketing"), true);
+  assert.equal(isLinkableDeal(finished(["marketing"]), "Catering"), false);
+  assert.equal(isLinkableDeal(finished(["catering", "marketing"]), "Catering"), true);
+  assert.equal(isLinkableDeal(finished(["catering", "marketing"]), "Marketing"), true);
+  assert.equal(isLinkableDeal(finished(["catering"], 1), "Catering"), false);
+  assert.equal(isLinkableDeal(finished(["catering", "marketing"]), "PENN Opener"), false);
+  for (const stage of ["Closed Lost", "Closed Below Min", "Open", "Sent Quote", "Quote Review"]) {
+    assert.equal(isLinkableDeal({ stage, archived: 0, finished_for: ["catering", "marketing"] }, "Catering"), false, stage);
+    assert.equal(isLinkableDeal({ stage, archived: 0, finished_for: ["catering", "marketing"] }, "Marketing"), false, stage);
+  }
+});
+
+test("each position lists its own finished events, and one that can't be told shows for both", () => {
+  const all = [FINISHED_CATERING, FINISHED_MARKETING, FINISHED_UNCLEAR];
+  assert.deepEqual(eventsForPosition("Catering", all).map((e) => e.id), [401, 403]);
+  assert.deepEqual(eventsForPosition("Marketing", all).map((e) => e.id), [402, 403]);
+  assert.deepEqual(eventsForPosition("PENN Opener", all), []);
+});
+
+test("a finished event that came with no answer on its kind shows for both", () => {
+  const { finished_for: _ignored, ...bare } = FINISHED_CATERING;
+  assert.deepEqual(eventsForPosition("Catering", [bare]).map((e) => e.id), [401]);
+  assert.deepEqual(eventsForPosition("Marketing", [bare]).map((e) => e.id), [401]);
+});
+
+test("the one finished event a shift covers is listed and preselected", () => {
+  const onDate = eventsForPosition("Catering", [FINISHED_CATERING, FINISHED_MARKETING]);
+  assert.deepEqual(onDate.map((e) => e.id), [401]);
+  assert.equal(preselect(onDate), 401);
+});
+
+test("a finished event beside another that also fits: nothing is preselected", () => {
+  assert.equal(preselect(eventsForPosition("Catering", [EVENT_A, FINISHED_CATERING])), null);
+});
+
+test("a finished event the shift doesn't cover is listed and not preselected", () => {
+  const short = shift({ starts_at: edt("2026-10-23", "13:00") });
+  assert.equal(preselect([FINISHED_CATERING], short), null);
+});
+
+test("a shift linked to a finished event keeps showing it, once, over one the shift also covers", () => {
+  const shown = eventDropdown({ pick: null, currentDealId: 401, currentEvent: FINISHED_CATERING, savedDate: "2026-10-23", date: "2026-10-23", onDate: [EVENT_A, FINISHED_CATERING], fitting: [EVENT_A, FINISHED_CATERING] });
+  assert.equal(shown?.selected, 401);
+  assert.deepEqual(shown?.options.map((e) => e.id), [101, 401]);
+});
+
+test("None beats a finished event's preselect, and a date move takes the shift off one", () => {
+  const onDate = [FINISHED_CATERING];
+  assert.equal(selectedEventId({ pick: "none", currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: onDate }), null);
+  const moved = { currentEvent: FINISHED_CATERING, savedDate: "2026-10-23", date: "2026-10-24" };
+  assert.equal(movedOffSavedEvent(moved), true);
+  assert.equal(eventDropdown({ pick: null, currentDealId: 401, ...moved, onDate: [], fitting: [] })?.selected, null);
+});
+
+test("the badge counts a finished event of its own kind, and one that can't be told for both", () => {
+  const marketing = shift({ position: "Marketing" });
+  assert.equal(eventBadge(shift(), [FINISHED_MARKETING], TODAY), null);
+  assert.equal(eventBadge(marketing, [FINISHED_CATERING], TODAY), null);
+  const own = eventBadge(shift(), [FINISHED_CATERING, FINISHED_MARKETING], TODAY);
+  assert.equal(own?.kind === "suggest" && own.event.id, 401);
+  assert.equal(eventBadge(shift(), [FINISHED_UNCLEAR], TODAY)?.kind, "suggest");
+  assert.equal(eventBadge(marketing, [FINISHED_UNCLEAR], TODAY)?.kind, "suggest");
+});
+
+test("a finished event badges for 14 days after its date and not on the 15th", () => {
+  assert.equal(FINISHED_BADGE_DAYS, 14);
+  assert.equal(eventBadge(shift(), [FINISHED_CATERING], "2026-10-23")?.kind, "suggest");
+  assert.equal(eventBadge(shift(), [FINISHED_CATERING], "2026-11-06")?.kind, "suggest");
+  assert.equal(eventBadge(shift(), [FINISHED_CATERING], "2026-11-07"), null);
+});
+
+test("14 days is read across the clocks going back", () => {
+  // 2026-11-01 is the change; the shift is on the Saturday before it.
+  const event = { ...FINISHED_CATERING, event_date: "2026-10-31" };
+  const saturday = shift({ starts_at: edt("2026-10-31", "11:00"), ends_at: edt("2026-10-31", "16:00") });
+  assert.equal(eventBadge(saturday, [event], "2026-11-14")?.kind, "suggest");
+  assert.equal(eventBadge(saturday, [event], "2026-11-15"), null);
+});
+
+test("the 14 days limit a finished event only: a booked one in the past badges as it did", () => {
+  assert.equal(eventBadge(shift(), [EVENT_A], "2027-06-01")?.kind, "suggest");
+  assert.equal(eventBadge(shift({ position: "Marketing" }), [MARKETING_A], "2027-06-01")?.kind, "suggest");
+});
+
+test("an old finished event beside a booked one that also fits: the badge suggests the booked one", () => {
+  const badge = eventBadge(shift(), [FINISHED_CATERING, EVENT_A], "2026-12-01");
+  assert.equal(badge?.kind === "suggest" && badge.event.id, 101);
+});
+
+test("the person left behind keeps their badge when the event finishes", () => {
+  const crew = [
+    shift({ id: 1, deal_id: 101 }),
+    shift({ id: 2, employee_id: "person-2" }),
+  ];
+  assert.deepEqual([...eventBadges(crew, [EVENT_A], TODAY).keys()], [2]);
+  const finished = { ...EVENT_A, stage: "Event Complete", finished_for: ["catering"] as Events.EventKind[] };
+  assert.deepEqual([...eventBadges(crew, [finished], TODAY).keys()], [2]);
 });

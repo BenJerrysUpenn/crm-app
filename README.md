@@ -569,9 +569,18 @@ lists for the shift's New York date, with `archived = 0`, plus None:
 
 | Position | Field | Deal stages listed |
 | --- | --- | --- |
-| Catering | Catering event | Booked Unpaid, Booked Paid |
-| Marketing | Marketing event | Closed Marketing Event |
+| Catering | Catering event | Booked Unpaid, Booked Paid, finished catering events |
+| Marketing | Marketing event | Closed Marketing Event, finished marketing events |
 | Any other | No dropdown | |
+
+A finished event is a deal at Event Complete, a stage both kinds end at. Which kind it
+was is payroll's own answer, from `isMarketingEvent` in
+`time-app/lib/payroll/verify.ts`: a Marketing shift linked to the deal or `event_type`
+"Marketing Event" makes it marketing, and a staffed Catering shift linked to it makes it
+catering whatever else is true. When neither says, it is listed for both positions and
+the manager picks (`finishedEventKinds` in `time-app/lib/shiftEventLink.ts`). The server
+applies the same answer on save, and refuses every other stage. So a person left
+unlinked when an event finishes can still be linked from the popup.
 
 If exactly one listed event fits, by the covers-the-whole-event rule in
 `time-app/lib/handPlacedCrew.ts`, it is preselected; nothing is written until the
@@ -583,15 +592,17 @@ the popup and on the server. A save that changes only the event tells nobody. A
 linked shift is one only a manager can assign (`time-app/lib/managerAssigns.ts`).
 
 A saved link stays through any save that does not change it, whatever the deal's
-stage is now. A past Marketing shift whose deal is at Event Complete, or a Catering
-shift linked to a marketing event, still shows that event in its dropdown, and the
-manager can change it.
+stage is now. A Catering shift linked to a marketing event, or a shift whose deal has
+since closed some other way, still shows that event in its dropdown, and the manager
+can change it.
 
 A Catering or Marketing shift with a person, no `deal_id` and an event it fits gets a
 badge on the schedule: it suggests the one event, or says to choose between several.
 The count sits on an "Events to choose" button in the schedule's toolbar, which lists
-the shifts. The badge is worked out each time the schedule loads, for the week on
-screen, and writes nothing: every link goes through the popup and a save, one shift
+the shifts. A finished event counts for 14 days after its date, so old weeks do not
+fill up with suggestions; the dropdown has no such limit, since it lists one date. The
+badge is worked out each time the schedule loads, for the week on screen, and writes
+nothing: every link goes through the popup and a save, one shift
 at a time. Nothing records a None, so a shift saved as None that fits an event keeps
 its badge. The Marketing side of the badge is its own path in `scheduleEvents.ts`:
 the hand-placed rule stays Catering-only, so the coverage reminder and the reconciler
@@ -610,6 +621,13 @@ any Catering shift on the deal has one (`time-app/lib/payroll/verify.ts`
 whole crew by hand. A Marketing shift linked to a deal makes it a marketing event,
 exempt from the crew card (`isMarketingEvent`). The coverage reminder treats any deal
 with a person on a linked shift as staffed, whatever that shift's position.
+
+A link on a past shift is an ordinary shift write. Nothing locks it, and a pay table
+already built is not recalculated: `row_audit` records the write, the period's pay table
+line on the Finance tab says it changed after the build and asks for a rebuild, and
+Verify reads the link the next time it runs. A run with a submittal also gets a 1.15
+warning on the next run, which says to correct anything owed in QBO. A tip paid late on
+that event is split by the link as it stands when the later run builds.
 
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a

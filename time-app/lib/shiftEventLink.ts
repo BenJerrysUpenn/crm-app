@@ -8,17 +8,21 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { nextDealSlot } from "./payroll/eventShift";
+import { isMarketingEvent, type DealRow, type ShiftRow } from "./payroll/verify";
+import { isCateringPosition } from "./handPlacedCrew";
 import { createAdminClient } from "./supabase/admin";
 import {
   EVENT_DEAL_COLUMNS,
   EVENT_NAME_COLUMNS,
   EVENT_STAGES,
+  FINISHED_STAGE,
   eventChipName,
   eventKindOf,
   isLinkableDeal,
   shiftDate,
   toScheduleEvent,
   type EventDeal,
+  type EventKind,
   type EventNameDeal,
   type ScheduleEvent,
 } from "./scheduleEvents";
@@ -45,8 +49,8 @@ const UNREADABLE: EventLinkPlan = { ok: false, status: 503, error: "Couldn't rea
  * Decide the link from what was asked and the shift as it will be.
  *
  * deal_id in the body: None clears, an event is checked (a Catering shift takes a
- * live booked event, a Marketing shift a live marketing event, on the shift's New
- * York date). Asking for the event it already has, on the same date, keeps it at
+ * live booked event, a Marketing shift a live marketing event, and either a live
+ * finished event of its kind, on the shift's New York date). Asking for the event it already has, on the same date, keeps it at
  * any stage. No deal_id in the body: the link stays, unless a Catering or Marketing
  * shift moved to a date that is not its event's. That case is here as well as in
  * the popup so no caller can leave such a shift pointing at another day's event.
@@ -82,7 +86,13 @@ export async function planEventLink(
   const { data, error } = await supabase.from("deals").select(EVENT_DEAL_COLUMNS).eq("id", requested).maybeSingle();
   if (error) return UNREADABLE;
   const deal = data as EventDeal | null;
-  if (!deal || !isLinkableDeal(deal, position)) return { ok: false, status: 400, error: "That event can't be chosen for this shift." };
+  let finishedFor: EventKind[] | undefined;
+  if (deal?.stage === FINISHED_STAGE) {
+    const linked = await readLinkedShifts(supabase, [deal.id]);
+    if (linked === null) return UNREADABLE;
+    finishedFor = finishedEventKinds(deal, linked);
+  }
+  if (!deal || !isLinkableDeal({ ...deal, finished_for: finishedFor }, position)) return { ok: false, status: 400, error: "That event can't be chosen for this shift." };
   if (deal.event_date?.slice(0, 10) !== afterDate) return { ok: false, status: 400, error: "That event is on a different day from this shift." };
   return { ok: true, link: { kind: "link", dealId: requested } };
 }
@@ -115,7 +125,31 @@ function toEvents(rows: unknown): ScheduleEvent[] {
   return ((rows ?? []) as EventDeal[]).flatMap((deal) => toScheduleEvent(deal) ?? []);
 }
 
-/** The events a shift can be linked to on these dates. Null when the read failed. */
+/**
+ * Which kinds of shift a finished event is for. The stage can't say, since both
+ * kinds end at it, so this is payroll's own answer (isMarketingEvent in
+ * lib/payroll/verify.ts), read from the shifts linked to the deal. Not marketing
+ * with a staffed Catering shift linked is catering. Neither, so nothing says which,
+ * is both: event_type can't settle it, as a marketing deal can be typed as anything,
+ * and a manager picks by hand.
+ */
+export function finishedEventKinds(deal: EventDeal, linked: ShiftRow[]): EventKind[] {
+  const asPayroll: DealRow = { id: deal.id, event_date: deal.event_date, staff_count: null, event_type: deal.event_type };
+  if (isMarketingEvent(asPayroll, linked)) return ["marketing"];
+  return linked.some((s) => isCateringPosition(s.position) && !!s.employee_id) ? ["catering"] : ["catering", "marketing"];
+}
+
+/** Every shift linked to these deals, in the columns payroll reads them by. Null when the read failed. */
+async function readLinkedShifts(supabase: SupabaseClient, dealIds: number[]): Promise<ShiftRow[] | null> {
+  const { data, error } = await supabase.from("shifts").select("id, employee_id, starts_at, ends_at, position, deal_id").in("deal_id", dealIds);
+  return error ? null : ((data ?? []) as ShiftRow[]);
+}
+
+/**
+ * The events a shift can be linked to on these dates, each finished one saying which
+ * kinds it is for. Null when a read failed: a finished event's kind is not guessed
+ * without its shifts.
+ */
 export async function loadScheduleEvents(supabase: SupabaseClient, from: string, to: string): Promise<ScheduleEvent[] | null> {
   const { data, error } = await supabase
     .from("deals")
@@ -124,7 +158,15 @@ export async function loadScheduleEvents(supabase: SupabaseClient, from: string,
     .lte("event_date", to)
     .in("stage", EVENT_STAGES)
     .eq("archived", 0);
-  return error ? null : toEvents(data);
+  if (error) return null;
+  const deals = (data ?? []) as EventDeal[];
+  const finishedIds = deals.filter((d) => d.stage === FINISHED_STAGE).map((d) => d.id);
+  const linked = finishedIds.length > 0 ? await readLinkedShifts(supabase, finishedIds) : [];
+  if (linked === null) return null;
+  return deals.flatMap((deal) => {
+    const finishedFor = deal.stage === FINISHED_STAGE ? finishedEventKinds(deal, linked.filter((s) => s.deal_id === deal.id)) : undefined;
+    return toScheduleEvent(deal, finishedFor) ?? [];
+  });
 }
 
 /**

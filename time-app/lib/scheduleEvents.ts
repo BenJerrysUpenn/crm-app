@@ -3,7 +3,9 @@
 // shifts.deal_id is what ties a shift to its event.
 //
 // The position says which events: a Catering shift takes a booked catering event,
-// a Marketing shift its marketing event, and any other position none.
+// a Marketing shift its marketing event, and any other position none. Both also take
+// a finished one of their own kind, so a person left unlinked when an event ended
+// can still be linked by a manager, and payroll reads that link.
 //
 // A manager links a shift to an event in the shift popup, one shift at a time.
 // When such a shift with a person has no link and an event it fits, a badge on
@@ -14,7 +16,7 @@
 // Pure, so `node --test` runs it and the browser can use it. The writing side is
 // lib/shiftEventLink.ts.
 
-import { formatClock, nyWallClock, parseTime } from "./coverage";
+import { addDays, formatClock, nyWallClock, parseTime } from "./coverage";
 import { eventSpan, isCateringPosition, isUnlinkedStaffedShift, shiftSpan, spanCovers, type CrewShift } from "./handPlacedCrew";
 
 /** The word lib/payroll/verify.ts reads as a Marketing shift. */
@@ -23,17 +25,30 @@ export const MARKETING_POSITION = "Marketing";
 export type EventKind = "catering" | "marketing";
 
 /**
- * The deal stages each kind of shift can be linked at, and the only ones the
- * dropdown and the badge offer it. A shift already linked to a deal at another
- * stage keeps that link: see eventDropdown.
+ * The deal stages each kind of shift can be linked at while the event is still to
+ * come. A shift already linked to a deal at another stage keeps that link: see
+ * eventDropdown.
  */
 const STAGES_BY_KIND: Record<EventKind, string[]> = {
   catering: ["Booked Unpaid", "Booked Paid"],
   marketing: ["Closed Marketing Event"],
 };
 
+/** The stage an event of either kind ends at, so it says nothing about the kind. */
+export const FINISHED_STAGE = "Event Complete";
+
+/**
+ * A finished event puts a badge on a shift for this many days after its date. The
+ * dropdown has no such limit: it lists one date's events, and a manager has opened
+ * that shift on purpose.
+ */
+export const FINISHED_BADGE_DAYS = 14;
+
 /** Every stage a schedule read needs. eventsForPosition then splits them by position. */
-export const EVENT_STAGES = [...STAGES_BY_KIND.catering, ...STAGES_BY_KIND.marketing];
+export const EVENT_STAGES = [...STAGES_BY_KIND.catering, ...STAGES_BY_KIND.marketing, FINISHED_STAGE];
+
+/** Both kinds: what a finished event is listed for when it can't be told which it was. */
+const EITHER_KIND: EventKind[] = ["catering", "marketing"];
 
 /** Which events this position takes; null for one with no dropdown and no badge. Surrounding spaces do not count. */
 export function eventKindOf(position: unknown): EventKind | null {
@@ -47,7 +62,7 @@ export function eventFieldLabel(position: unknown): string {
 }
 
 /** The deal columns the schedule reads, and nothing else. */
-export const EVENT_DEAL_COLUMNS = "id, event_name, company, venue_name, event_date, event_start_time, event_end_time, stage, archived";
+export const EVENT_DEAL_COLUMNS = "id, event_name, company, venue_name, event_date, event_start_time, event_end_time, stage, archived, event_type";
 
 export type EventDeal = {
   id: number;
@@ -59,6 +74,7 @@ export type EventDeal = {
   event_end_time: string | null;
   stage: string | null;
   archived: number | null;
+  event_type?: string | null;
 };
 
 /** The deal columns a linked shift's chip name comes from, and nothing else. */
@@ -78,22 +94,34 @@ export type ScheduleEvent = {
   event_date: string;
   event_start_time: string | null;
   event_end_time: string | null;
+  /**
+   * Which kinds of shift a finished event is for, as lib/shiftEventLink.ts works it
+   * out from the shifts linked to it. Only a finished event has this. Absent on one
+   * means it can't be told, so it is listed for both.
+   */
+  finished_for?: EventKind[];
 };
 
+/** Does a shift of this kind take this event, going by its stage and, once it is finished, what it was? */
+function takesEvent(kind: EventKind, event: Pick<ScheduleEvent, "stage" | "finished_for">): boolean {
+  if (event.stage === FINISHED_STAGE) return (event.finished_for ?? EITHER_KIND).includes(kind);
+  return STAGES_BY_KIND[kind].includes(event.stage ?? "");
+}
+
 /** Can a shift at this position be linked to this deal? */
-export function isLinkableDeal(deal: Pick<EventDeal, "stage" | "archived">, position: unknown): boolean {
+export function isLinkableDeal(deal: Pick<EventDeal, "stage" | "archived"> & Pick<ScheduleEvent, "finished_for">, position: unknown): boolean {
   const kind = eventKindOf(position);
-  return kind !== null && STAGES_BY_KIND[kind].includes(deal.stage ?? "") && deal.archived === 0;
+  return kind !== null && takesEvent(kind, deal) && deal.archived === 0;
 }
 
 /** The events a shift at this position can be offered. */
 export function eventsForPosition(position: unknown, events: ScheduleEvent[]): ScheduleEvent[] {
   const kind = eventKindOf(position);
-  return kind === null ? [] : events.filter((e) => STAGES_BY_KIND[kind].includes(e.stage ?? ""));
+  return kind === null ? [] : events.filter((e) => takesEvent(kind, e));
 }
 
 /** A deal as the schedule shows it. Null when it has no date to sit on. */
-export function toScheduleEvent(deal: EventDeal): ScheduleEvent | null {
+export function toScheduleEvent(deal: EventDeal, finishedFor?: EventKind[]): ScheduleEvent | null {
   const date = deal.event_date?.slice(0, 10);
   if (!date) return null;
   const name = [deal.event_name, deal.company, deal.venue_name].map((n) => n?.trim()).find(Boolean);
@@ -104,6 +132,7 @@ export function toScheduleEvent(deal: EventDeal): ScheduleEvent | null {
     event_date: date,
     event_start_time: deal.event_start_time,
     event_end_time: deal.event_end_time,
+    ...(finishedFor ? { finished_for: finishedFor } : {}),
   };
 }
 
@@ -201,8 +230,8 @@ export function movedOffSavedEvent(input: SavedLink): boolean {
 /**
  * The dropdown for a shift: what it lists and what it holds. The list is the
  * day's events for its position plus, while it stands, the event the shift is
- * saved on when that is not one on offer (a finished one, or a Catering shift's
- * marketing event), so the link is shown, can be changed, and can be gone back to.
+ * saved on when that is not one on offer (a Catering shift's marketing event, or a
+ * deal since closed some other way), so the link is shown, can be changed, and can be gone back to.
  *
  * Null for a linked shift whose deal was not read (gone, or with no date to sit
  * on). There is nothing to show, and a dropdown would read as None and clear it,
@@ -226,11 +255,15 @@ export type EventBadge =
  * The badge on a shift: a Catering or Marketing shift with a person and no link
  * that fits at least one event of its kind. It judges the shift alone. Whether a
  * colleague on the same event is already linked changes nothing, so the rest of a
- * crew stays badged until each of them is done.
+ * crew stays badged until each of them is done, including after the event finishes.
+ * A finished event counts for FINISHED_BADGE_DAYS after its date, so old weeks do
+ * not fill up with suggestions. `today` is New York's.
  */
-export function eventBadge(shift: BadgeShift, events: ScheduleEvent[]): EventBadge | null {
+export function eventBadge(shift: BadgeShift, events: ScheduleEvent[], today: string): EventBadge | null {
   if (!wantsEventBadge(shift)) return null;
-  const fits = fittingEvents(shift, eventsForPosition(shift.position, events));
+  const oldest = addDays(today, -FINISHED_BADGE_DAYS);
+  const current = events.filter((e) => e.stage !== FINISHED_STAGE || e.event_date >= oldest);
+  const fits = fittingEvents(shift, eventsForPosition(shift.position, current));
   if (fits.length === 0) return null;
   return fits.length === 1 ? { kind: "suggest", event: fits[0] } : { kind: "choose", events: fits };
 }
@@ -246,10 +279,10 @@ function wantsEventBadge(shift: BadgeShift): boolean {
 }
 
 /** Every badged shift's badge, by shift id. Its size is the count on the button. */
-export function eventBadges<T extends BadgeShift & { id: number }>(shifts: T[], events: ScheduleEvent[]): Map<number, EventBadge> {
+export function eventBadges<T extends BadgeShift & { id: number }>(shifts: T[], events: ScheduleEvent[], today: string): Map<number, EventBadge> {
   const badges = new Map<number, EventBadge>();
   for (const shift of shifts) {
-    const badge = eventBadge(shift, events);
+    const badge = eventBadge(shift, events, today);
     if (badge) badges.set(shift.id, badge);
   }
   return badges;

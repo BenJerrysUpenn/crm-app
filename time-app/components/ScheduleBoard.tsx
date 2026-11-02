@@ -104,6 +104,7 @@ export default function ScheduleBoard({
   labor = null,
   weekEvents = [],
   linkedEvents = [],
+  today,
   eventNames = {},
 }: {
   isManager: boolean;
@@ -118,12 +119,14 @@ export default function ScheduleBoard({
   annotations?: Annotation[];
   /** Manager view: the week against the labor target (bj-finance #695). */
   labor?: ScheduleLaborLoad | null;
-  /** Manager view: the catering events this week. Null when they could not be read. */
+  /** Manager view: the events this week, finished ones included. Null when they could not be read. */
   weekEvents?: ScheduleEvent[] | null;
   /** Manager view: the deals this week's shifts are linked to, at any stage. */
   linkedEvents?: ScheduleEvent[] | null;
   /** Everyone: the name of each linked shift's event, by deal id. */
   eventNames?: Record<number, string>;
+  /** New York's date as the server saw it: how far back a finished event still badges a shift. */
+  today: string;
 }) {
   const colorByType = new Map(shiftTypes.map((t) => [t.name, t.color]));
 
@@ -267,7 +270,7 @@ export default function ScheduleBoard({
   const countedShifts = isManager ? weekShifts : weekShifts.filter((s) => s.employee_id);
   const weekHours = countedShifts.reduce((sum, s) => sum + shiftHours(s), 0);
   // Manager only: shifts that look like they are for an event and have none. Worked out fresh from what this page loaded; nothing is written.
-  const badges = isManager && weekEvents ? eventBadges(weekShifts, weekEvents) : new Map<number, EventBadge>();
+  const badges = isManager && weekEvents ? eventBadges(weekShifts, weekEvents, today) : new Map<number, EventBadge>();
   const badgedShifts = weekShifts.filter((s) => badges.has(s.id));
   const weekCost = isManager
     ? weekShifts.reduce((sum, s) => sum + shiftHours(s) * (s.employee_id ? rateById.get(s.employee_id) ?? 0 : 0), 0)

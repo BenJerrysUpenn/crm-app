@@ -174,6 +174,7 @@ export default async function SchedulePage({
             labor={labor}
             weekEvents={weekEvents}
             linkedEvents={linkedEvents}
+            today={nyToday()}
             eventNames={eventNames}
           />
         </div>

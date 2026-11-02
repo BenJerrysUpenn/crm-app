@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  ALERT_STAGES,
   buildReminder,
   reminderEmail,
   reminderWindow,
@@ -342,6 +343,10 @@ describe("catering", () => {
       "Mon Oct 19, 12:00–1:00 PM (catering)",
       "Wed Oct 21, 7:00–10:00 PM (catering)",
     ]);
+  });
+
+  it("the stages the reminder reads are these and no others: a finished event stays out", () => {
+    expect(ALERT_STAGES).toEqual(["Booked Unpaid", "Booked Paid", "Closed Marketing Event"]);
   });
 
   it("only events from the first Sunday to the last Saturday are checked; an undated event is not", () => {

@@ -175,6 +175,31 @@ test("a manager sees one shift to choose an event for: the unlinked Catering shi
   assert.match(html(await boardFor(MANAGER)), chooseButton(1));
 });
 
+test("a manager's count takes in a shift left off a finished event, while it is within 14 days of today", async () => {
+  // A day with one finished event, one person linked to it and one left behind.
+  db.rows("deals").push({ ...DEAL, id: 710, company: "Finished Company", stage: "Event Complete", event_date: "2026-11-06" });
+  const on = (s: ReturnType<typeof shift>) => ({ ...s, starts_at: "2026-11-06T16:00:00.000Z", ends_at: "2026-11-06T20:00:00.000Z" });
+  db.rows("shifts").push(on(shift(20, SAM, 710)), on(shift(21, PAT, null)));
+
+  const board = await boardFor(MANAGER);
+  const within = createElement(ScheduleBoard as never, { ...board.props, today: "2026-11-20" } as never);
+  assert.match(html(within), chooseButton(2));
+  const older = createElement(ScheduleBoard as never, { ...board.props, today: "2026-11-21" } as never);
+  assert.match(html(older), chooseButton(1));
+});
+
+test("the board is told today by the page", async () => {
+  const { nyToday } = await loadAppModule<typeof import("./metrics/dates.ts")>("lib/metrics/dates.ts");
+  assert.equal((await boardFor(MANAGER)).props.today, nyToday());
+});
+
+test("the board gets a finished event's kind, worked out on the server", async () => {
+  db.rows("deals").push({ ...DEAL, id: 710, stage: "Event Complete", event_date: "2026-11-06" });
+  const board = await boardFor(MANAGER);
+  const events = board.props.weekEvents as { id: number; finished_for?: string[] }[];
+  assert.deepEqual(events.find((e) => e.id === 710)?.finished_for, ["catering", "marketing"]);
+});
+
 test("the events can't be read: a manager sees no events-to-choose button and the page still renders", async () => {
   db.missingTables = ["deals"];
   const page = html(await boardFor(MANAGER));

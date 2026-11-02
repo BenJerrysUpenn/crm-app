@@ -111,6 +111,7 @@ function renderBoard(load: ScheduleLaborLoad) {
         dropRequests: [],
         shiftTypes: [{ id: 1, name: "Scooper", color: "#10b981", in_store: true }],
         labor: load,
+        today: WEEK,
       }),
     ),
   );
