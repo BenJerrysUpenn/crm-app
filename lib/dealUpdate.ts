@@ -88,13 +88,30 @@ export async function writeStageChange(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const event = {
-    deal_id: dealId,
+  const rows = stageEventRows(dealId, before, patch, {
     // db.now_iso(): UTC, second precision, no suffix.
     at: new Date().toISOString().slice(0, 19),
     actor: `crm:${user?.email ?? "unknown"}`,
-    source: "crm-app",
-  };
+  });
+  const { error: historyError } = await supabase.from("deal_events").insert(rows);
+  if (historyError) {
+    console.error(
+      `Deal ${dealId} moved to ${patch.stage}, but deal_events was not written: ${historyError.message}`,
+    );
+    return { error: null, historyError: historyError.message, changed: true };
+  }
+  return { error: null, historyError: null, changed: true };
+}
+
+// The deal_events rows for a move from `before` to `patch`: always the stage,
+// and is_active when the move changes it, both as text.
+function stageEventRows(
+  dealId: number,
+  before: { stage: string; is_active: number | null },
+  patch: StagePatch,
+  by: { at: string; actor: string },
+): DealEventRow[] {
+  const event = { deal_id: dealId, ...by, source: "crm-app" };
   const rows: DealEventRow[] = [
     { ...event, field: "stage", old_value: before.stage, new_value: patch.stage },
   ];
@@ -106,14 +123,7 @@ export async function writeStageChange(
       new_value: String(patch.is_active),
     });
   }
-  const { error: historyError } = await supabase.from("deal_events").insert(rows);
-  if (historyError) {
-    console.error(
-      `Deal ${dealId} moved to ${patch.stage}, but deal_events was not written: ${historyError.message}`,
-    );
-    return { error: null, historyError: historyError.message, changed: true };
-  }
-  return { error: null, historyError: null, changed: true };
+  return rows;
 }
 
 function failed(error: { message: string }): StageChangeResult {
