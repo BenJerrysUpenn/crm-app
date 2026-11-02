@@ -214,10 +214,10 @@ export type PayTableColumn = {
  * no cost from the 2026-10-19 period, because the sheet publishes none
  * (the owner, 2026-11-02).
  *
- * Catering hours and Catering premium OT were columns until the owner's rulings
- * of 2026-11-02: "I only need Catering premium not catering hours" and "Catering
- * premium OT isn't a thing". The expanded row still shows how a premium was
- * worked out (premiumDetailText).
+ * There is no Catering hours or Catering premium OT column (the owner,
+ * 2026-11-02: "I only need Catering premium not catering hours" and "Catering
+ * premium OT isn't a thing"). The expanded row shows how a premium was worked
+ * out (premiumDetailText).
  */
 export const PAY_TABLE_COLUMNS: PayTableColumn[] = [
   { key: "regular", label: "Regular hours", qbo: true },
