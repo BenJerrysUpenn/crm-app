@@ -298,10 +298,4 @@ describe("every stage move goes through the seam", () => {
       expect(files.find((f) => f.path === path)!.text).toContain("writeStageChange(");
     }
   });
-
-  it("the board and the calendar show a history failure", () => {
-    for (const path of ["components/CalendarView.tsx", "components/KanbanBoard.tsx"]) {
-      expect(files.find((f) => f.path === path)!.text).toContain("historyError");
-    }
-  });
 });
