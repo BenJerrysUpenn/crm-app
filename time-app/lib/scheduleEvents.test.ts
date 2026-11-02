@@ -11,7 +11,7 @@ import { loadAppModule } from "./testing/fakeSupabase.ts";
 import type * as Events from "./scheduleEvents.ts";
 
 const events = await loadAppModule<typeof Events>("lib/scheduleEvents.ts");
-const { FINISHED_BADGE_DAYS, eventBadge, eventBadges, eventBadgeText, eventChipName, eventDropdown, eventFieldLabel, eventKindOf, eventOptionLabel, eventsForPosition, eventsOnDate, fittingEvents, isLinkableDeal, movedOffSavedEvent, selectedEventId, toScheduleEvent } = events;
+const { FINISHED_BADGE_DAYS, eventBadge, eventBadges, eventBadgeText, eventChipName, eventDropdown, eventFieldLabel, eventKindOf, eventOptionLabel, eventSaveFields, eventsForPosition, eventsOnDate, fittingEvents, isLinkableDeal, movedOffSavedEvent, selectedEventId, toScheduleEvent } = events;
 const { isHandPlacedShift } = await loadAppModule<typeof import("./handPlacedCrew.ts")>("lib/handPlacedCrew.ts");
 const { MARKETING_POSITION } = await loadAppModule<typeof import("./payroll/verify.ts")>("lib/payroll/verify.ts");
 
@@ -253,6 +253,19 @@ test("moved off its event's date in the popup: the link goes and the popup warns
   assert.equal(dropdown({ ...moved, onDate: [], fitting: [] })?.selected, null);
   assert.equal(movedOffSavedEvent(moved), true);
   assert.equal(movedOffSavedEvent({ ...moved, date: "2026-10-23" }), false);
+});
+
+test("a save sends the event only once the dropdown is settled and it differs from what is stored", () => {
+  assert.deepEqual(eventSaveFields(undefined, 101), {});
+  assert.deepEqual(eventSaveFields(undefined, null), {});
+  assert.deepEqual(eventSaveFields(101, 101), {});
+  assert.deepEqual(eventSaveFields(null, null), {});
+});
+
+test("a save sends a new event, an untouched preselect, and None over a stored link", () => {
+  assert.deepEqual(eventSaveFields(102, 101), { deal_id: 102 });
+  assert.deepEqual(eventSaveFields(101, null), { deal_id: 101 });
+  assert.deepEqual(eventSaveFields(null, 101), { deal_id: null });
 });
 
 test("a past Marketing shift whose deal is now Event Complete shows that saved link", () => {

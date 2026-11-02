@@ -244,6 +244,16 @@ export function eventDropdown(input: DropdownInput): { selected: number | null; 
   return { selected: selectedEventId(input), options: notOnOffer ? [...onDate, currentEvent] : onDate };
 }
 
+/**
+ * The event part of the popup's save body. deal_id goes in only when the dropdown
+ * is settled (`selected` is undefined while there is none, or it is still loading)
+ * and differs from what is stored, so a save that did not touch it cannot disturb
+ * it, and an untouched preselect on an unlinked shift is saved.
+ */
+export function eventSaveFields(selected: number | null | undefined, storedDealId: number | null): { deal_id?: number | null } {
+  return selected !== undefined && selected !== storedDealId ? { deal_id: selected } : {};
+}
+
 /** A shift as the badge reads it. A row can come back without deal_id. */
 export type BadgeShift = Omit<CrewShift, "deal_id"> & { deal_id?: number | null };
 

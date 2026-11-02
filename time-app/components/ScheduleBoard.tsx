@@ -25,6 +25,7 @@ import {
   eventFieldLabel,
   eventKindOf,
   eventOptionLabel,
+  eventSaveFields,
   eventsForPosition,
   eventsOnDate,
   fittingEvents,
@@ -441,10 +442,6 @@ export default function ScheduleBoard({
     setErr(null);
     if (!confirmLong) setLongSave(null);
     try {
-      // The event goes in only when the dropdown is settled and differs from
-      // what is stored, so a save that did not touch it cannot disturb it.
-      const eventChange =
-        draftEventId !== undefined && draftEventId !== draft.deal_id ? { deal_id: draftEventId } : {};
       const payload = {
         employee_id: draft.employee_id || null,
         location_id: draft.location_id ? Number(draft.location_id) : null,
@@ -454,7 +451,7 @@ export default function ScheduleBoard({
         notes: draft.notes || null,
         confirmLong,
         confirmAvailability,
-        ...eventChange,
+        ...eventSaveFields(draftEventId, draft.deal_id),
       };
       // Open shifts can be created in bulk (How Many).
       const count = !draft.id && !draft.employee_id ? Math.max(1, Math.min(20, howMany)) : 1;
