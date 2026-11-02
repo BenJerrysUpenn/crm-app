@@ -1,10 +1,10 @@
 // A stage move in the CRM writes deal_events, the same rows Catering-Manager's
 // db.update_deal writes (modules/db.py _log_deal_events), and moving a deal to
-// Booked Paid no longer says anything about money.
+// Booked Paid says nothing about money.
 //
-// Before this, CRM moves left no history, so the hand restores after the
-// catering sweep's wrong flips could not be seen (bj-finance #750), and a
-// restore to Booked Paid stamped Deposit Paid on a deal nobody had paid.
+// The history is what lets the hand restores after the catering sweep's wrong
+// flips be seen (bj-finance #750), and a restore to Booked Paid must not stamp
+// Deposit Paid on a deal nobody has paid.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
