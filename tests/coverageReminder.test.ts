@@ -603,11 +603,11 @@ describe("selectRecipients", () => {
     return { email, role: "employee", archived_at: null, banned_until: null, ...over } as RecipientRow;
   }
 
-  it("owners only: a manager is no longer a recipient (owner decision, 2026-11-02)", () => {
+  it("owners only: a manager on the schedule is not a recipient (owner decision, 2026-11-02)", () => {
     const rows = [
       person("owner-a@example.test", { role: "owner" }),
       person("owner-b@example.test", { role: "owner" }),
-      // On the schedule: the old rule sent to this manager.
+      // An active manager is still left out.
       person("manager-a@example.test", { role: "manager", active: true }),
       person("staff@example.test"),
     ];
