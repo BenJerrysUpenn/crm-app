@@ -22,8 +22,6 @@ export type StageChangeResult = {
   error: { message: string } | null;
   /** The move happened and its history did not. Show this to the person. */
   historyError: string | null;
-  /** False when the deal was already in that stage, so nothing was written. */
-  changed: boolean;
 };
 
 // Build the exact patch the database expects for a stage change.
@@ -69,8 +67,8 @@ export async function writeStageChange(
     .maybeSingle();
   if (readError) return failed(readError);
   if (!before) return failed({ message: `Deal ${dealId} was not found.` });
-  if (before.stage === patch.stage)
-    return { error: null, historyError: null, changed: false };
+  // Already in that stage: nothing to write, and nothing went wrong.
+  if (before.stage === patch.stage) return { error: null, historyError: null };
 
   const { data: moved, error: moveError } = await supabase
     .from("deals")
@@ -98,9 +96,9 @@ export async function writeStageChange(
     console.error(
       `Deal ${dealId} moved to ${patch.stage}, but deal_events was not written: ${historyError.message}`,
     );
-    return { error: null, historyError: historyError.message, changed: true };
+    return { error: null, historyError: historyError.message };
   }
-  return { error: null, historyError: null, changed: true };
+  return { error: null, historyError: null };
 }
 
 // The deal_events rows for a move from `before` to `patch`: always the stage,
@@ -127,5 +125,5 @@ function stageEventRows(
 }
 
 function failed(error: { message: string }): StageChangeResult {
-  return { error, historyError: null, changed: false };
+  return { error, historyError: null };
 }

@@ -147,7 +147,6 @@ describe("writeStageChange writes the history", () => {
     });
     const res = await writeStageChange(client, 7, buildStagePatch("Booked Paid"));
     expect(res.error?.message).toMatch(/changed while this was saving/);
-    expect(res.changed).toBe(false);
     expect(calls.inserts).toEqual([]);
   });
 
@@ -156,7 +155,7 @@ describe("writeStageChange writes the history", () => {
       row: { stage: "Booked Paid", is_active: 1 },
     });
     const res = await writeStageChange(client, 7, buildStagePatch("Booked Paid"));
-    expect(res).toMatchObject({ error: null, historyError: null, changed: false });
+    expect(res).toEqual({ error: null, historyError: null });
     expect(calls.updates).toEqual([]);
     expect(calls.inserts).toEqual([]);
   });
@@ -171,7 +170,6 @@ describe("writeStageChange writes the history", () => {
     const { client, calls } = fakeSupabase({ insertError: "permission denied" });
     const res = await writeStageChange(client, 7, buildStagePatch("Booked Paid"));
     expect(res.error).toBeNull();
-    expect(res.changed).toBe(true);
     expect(res.historyError).toContain("permission denied");
     expect(calls.updates).toHaveLength(1);
     expect(console.error).toHaveBeenCalled();
