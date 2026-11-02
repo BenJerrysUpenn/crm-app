@@ -65,6 +65,7 @@ function deal(over: Record<string, unknown> = {}) {
     event_date: "2026-10-24",
     event_start_time: "14:00",
     event_end_time: "18:00",
+    staff_count: null,
     ...over,
   };
 }
@@ -272,6 +273,26 @@ describe("catering", () => {
   it("a booked event with no shifts yet is a gap, timed from the deal", () => {
     const lines = buildReminder(snapshot({ storeHours: [], deals: [deal()] }), RUN_DATE);
     expect(lines).toEqual(["Sat Oct 24, 2:00–6:00 PM (catering)"]);
+  });
+
+  // Owner decision, 2026-11-02: exactly 0 means the deal needs nobody (a customer
+  // pickup at the store). No count recorded is not the same answer.
+  describe("staff count", () => {
+    const gap = ["Sat Oct 24, 2:00–6:00 PM (catering)"];
+
+    it("a staff count of 0 needs nobody, so no line", () => {
+      const pickup = deal({ stage: "Booked Unpaid", staff_count: 0 });
+      expect(buildReminder(snapshot({ storeHours: [], deals: [pickup] }), RUN_DATE)).toEqual([]);
+    });
+
+    it("no staff count recorded is still a gap", () => {
+      const marketing = deal({ stage: "Closed Marketing Event", staff_count: null });
+      expect(buildReminder(snapshot({ storeHours: [], deals: [marketing] }), RUN_DATE)).toEqual(gap);
+    });
+
+    it("a positive staff count with nobody on it is a gap", () => {
+      expect(buildReminder(snapshot({ storeHours: [], deals: [deal({ staff_count: 2 })] }), RUN_DATE)).toEqual(gap);
+    });
   });
 
   it("an event is covered when one of its three slots has a person", () => {
@@ -485,6 +506,16 @@ describe("catering", () => {
         satDeal("14:00", "15:00", { id: 3 }),
       ];
       expect(lines(deals, [satHandPlaced("12:00", "18:00")])).toEqual([]);
+    });
+
+    it("a staff count of 0 does not use up the shift another event in the same window needs", () => {
+      // The pickup comes first in time order, so it would take the only shift.
+      const deals = [satDeal("14:00", "14:15", { id: 1, staff_count: 0 }), satDeal("14:30", "15:30", { id: 2, staff_count: 1 })];
+      expect(lines(deals, [satHandPlaced("12:00", "18:00")])).toEqual([]);
+    });
+
+    it("hand-placed crew still covers an event with no staff count recorded", () => {
+      expect(lines([satDeal("14:00", "15:00", { staff_count: null })], [satHandPlaced("12:00", "18:00")])).toEqual([]);
     });
 
     describe("an event with no end time", () => {
