@@ -162,6 +162,26 @@ test("a staff member's cards show the name on their own shift and on open ones",
   assert.match(page, nameLine("Marketing Company"));
 });
 
+// --- the badge count on a manager's schedule ----------------------------------------
+
+/** The "Events to choose (n)" button; React marks the text joins with empty comments. */
+function chooseButton(count: number) {
+  return new RegExp(`Events to choose \\((?:<!-- -->)?${count}(?:<!-- -->)?\\)`);
+}
+
+test("a manager sees one shift to choose an event for: the unlinked Catering shift with a person that covers the day's events", async () => {
+  // Shift 6 (Sam, no link, 11:00-15:00) covers the four 12:00-14:00 booked events.
+  // Linked shifts, open shifts and the Marketing shift with its link are not counted.
+  assert.match(html(await boardFor(MANAGER)), chooseButton(1));
+});
+
+test("the events can't be read: a manager sees no events-to-choose button and the page still renders", async () => {
+  db.missingTables = ["deals"];
+  const page = html(await boardFor(MANAGER));
+  assert.doesNotMatch(page, /Events to choose/);
+  assert.match(page, /whitespace-nowrap truncate/);
+});
+
 test("a staff response carries the names of the shifts they can see and nothing else of a deal", async () => {
   const board = await boardFor(SAM);
   assert.deepEqual(board.props.eventNames, { 700: "Sam Company", 701: "Only Contact", 702: LONG_NAME, 704: "Marketing Company" });
