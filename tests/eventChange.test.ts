@@ -300,12 +300,11 @@ describe("Reschedule event, date not set yet", () => {
 describe("Cancel event", () => {
   it("moves the deal to Closed Lost, clears the calendar link and removes every crew shift", () => {
     const p = plan(mkDeal(), [OPEN, STAFFED], { kind: "cancel" });
-    expect(p.dealPatch).toMatchObject({
-      stage: "Closed Lost",
-      is_active: 0,
-      calendar_event_id: null,
-      calendar_event_payload_hash: null,
-    });
+    expect(p.stagePatch).toMatchObject({ stage: "Closed Lost", is_active: 0 });
+    expect(p.dealPatch).toMatchObject({ calendar_event_id: null, calendar_event_payload_hash: null });
+    // The stage only moves through writeStageChange, which logs it.
+    expect(p.dealPatch).not.toHaveProperty("stage");
+    expect(p.dealPatch).not.toHaveProperty("is_active");
     // A cancel does not reschedule: the date and its stamps stay as they were.
     expect(p.dealPatch).not.toHaveProperty("event_date");
     expect(p.dealPatch).not.toHaveProperty("picklist_docx_path");

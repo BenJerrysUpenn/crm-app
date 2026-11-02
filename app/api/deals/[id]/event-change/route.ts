@@ -47,7 +47,7 @@ export async function GET(
   if (caller instanceof NextResponse) return caller;
   const { dealId } = caller;
 
-  const store = supabaseEventChangeStore(createAdminClient());
+  const store = supabaseEventChangeStore(createAdminClient(), createClient());
   try {
     const preview = await readEventPreview(store, dealId);
     if (!preview) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
@@ -79,7 +79,7 @@ export async function POST(
 
   try {
     const result = await applyEventChange(
-      supabaseEventChangeStore(createAdminClient()),
+      supabaseEventChangeStore(createAdminClient(), createClient()),
       dealId,
       parsed,
       { now: new Date(), actor: email ?? "unknown" },

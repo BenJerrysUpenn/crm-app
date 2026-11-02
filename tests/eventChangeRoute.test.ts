@@ -519,6 +519,60 @@ describe("POST cancel", () => {
     expect(queuedDeletes()).toHaveLength(1);
   });
 
+  it("logs the move under the signed-in login, as every other stage move is", async () => {
+    const res = await post({ action: "cancel", staffed_shift_ids: [602] });
+    expect(res.status).toBe(200);
+    const rows = h.db.tables.deal_events.map((e) => [e.field, e.old_value, e.new_value, e.actor, e.source]);
+    expect(rows).toEqual([
+      ["stage", "Booked Paid", "Closed Lost", "crm:manager@example.com", "crm-app"],
+      ["is_active", "1", "0", "crm:manager@example.com", "crm-app"],
+    ]);
+  });
+
+  it("says the history is missing and still finishes the cancel when the log cannot be written", async () => {
+    h.db.failWrites.deal_events = "permission denied";
+    const res = await post({ action: "cancel", staffed_shift_ids: [602] });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe(
+      "The deal was saved, but the stage change is not in the deal's history (permission denied).",
+    );
+    expect(deal()).toMatchObject({ stage: "Closed Lost", calendar_event_id: null });
+    expect(h.db.tables.shifts.map((s) => s.id)).toEqual([700]);
+    expect(queuedDeletes()).toHaveLength(1);
+  });
+
+  it("writes nothing else when the stage cannot be moved", async () => {
+    h.db.failWrites.deals = "permission denied";
+    const res = await post({ action: "cancel", staffed_shift_ids: [602] });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("permission denied");
+    expect(deal()).toMatchObject({ stage: "Booked Paid", calendar_event_id: "evt_old_123" });
+    expect(h.db.tables.shifts).toHaveLength(3);
+    expect(queuedDeletes()).toHaveLength(0);
+  });
+
+  it("says what is left when the stage moved and the rest of the deal could not be written", async () => {
+    const realFrom = h.db;
+    const store = supabaseEventChangeStore(
+      fakeClient(realFrom, () => h.user) as never,
+      fakeClient(realFrom, () => h.user) as never,
+    );
+    const failing = { ...store, updateDealIfUnchanged: async () => false };
+    const { applyEventChange } = await import("@/lib/eventChange");
+    const result = await applyEventChange(
+      failing,
+      DEAL_ID,
+      { ok: true, request: { kind: "cancel" }, staffedShiftIds: [602] } as never,
+      { now: new Date("2026-10-27T15:00:00Z"), actor: "manager@example.com" },
+    );
+    expect(result).toMatchObject({ ok: false, status: 500 });
+    const error = (result as { error: string }).error;
+    expect(error).toContain("The deal was saved at Closed Lost, but nothing else was done (the deal changed at the same moment).");
+    expect(error).toContain("Remove the calendar event (evt_old_123), the crew shifts (601, 602), and add the note by hand: ");
+    expect(deal().stage).toBe("Closed Lost");
+    expect(h.db.tables.shifts).toHaveLength(3);
+  });
+
   it("supersedes the deal's open calendar create, so a cancelled event is not recreated", async () => {
     queue().push({ id: 13, deal_id: DEAL_ID, action: "create", event_id: null, processed_at: null, source: "sweep" });
     const res = await post({ action: "cancel", staffed_shift_ids: [602] });
@@ -559,7 +613,7 @@ describe("POST cancel", () => {
 
 describe("the store's guards against a row that changed or is not the deal's", () => {
   it("writes nothing when the deal's date or calendar event changed since it was read", async () => {
-    const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never);
+    const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never, fakeClient(h.db, () => h.user) as never);
     const read = (await store.readDeal(DEAL_ID))!;
     deal().calendar_event_id = "evt_made_by_the_daemon";
     expect(await store.updateDealIfUnchanged(read, { event_date: null })).toBe(false);
@@ -580,7 +634,7 @@ describe("the store's guards against a row that changed or is not the deal's", (
   });
 
   it("refuses to move a shift that is not on the deal, leaving it where it was", async () => {
-    const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never);
+    const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never, fakeClient(h.db, () => h.user) as never);
     await expect(
       store.moveShift(DEAL_ID, { id: 700, starts_at: "2026-11-05T17:00:00.000Z", ends_at: "2026-11-05T20:30:00.000Z" }, "2026-10-27T16:00:00.000Z"),
     ).rejects.toThrow("the shift is no longer on this deal");
@@ -604,13 +658,13 @@ describe("the store's guards against a row that changed or is not the deal's", (
         return b;
       },
     };
-    const store = supabaseEventChangeStore(racing as never);
+    const store = supabaseEventChangeStore(racing as never, fakeClient(h.db, () => h.user) as never);
     await store.supersedeOpenCalendarWrites(DEAL_ID, "2026-10-27T16:00:00");
     expect(queue().find((r) => r.id === 10)).toMatchObject({ processed_at: "2026-10-27T15:59:00", source: "imap_idle" });
   });
 
   it("removes only the deal's own shifts, even when handed another deal's shift id", async () => {
-    const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never);
+    const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never, fakeClient(h.db, () => h.user) as never);
     await store.deleteShifts(DEAL_ID, [601, 700]);
     expect(h.db.tables.shifts.map((s) => s.id)).toEqual([602, 700]);
   });
@@ -618,7 +672,7 @@ describe("the store's guards against a row that changed or is not the deal's", (
   it("refuses with 409, removing no shifts and queuing no delete, when the deal changes between the read and the write", async () => {
     // A store whose read is stale: the row changes between the read and the write.
     const { applyEventChange } = await import("@/lib/eventChange");
-    const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never);
+    const store = supabaseEventChangeStore(fakeClient(h.db, () => h.user) as never, fakeClient(h.db, () => h.user) as never);
     const staleRead = store.readDeal.bind(store);
     store.readDeal = async (id) => {
       const d = await staleRead(id);

@@ -167,6 +167,17 @@ describe("applyEventChange over the in-memory store", () => {
     expect(stored(602)!.starts_at).toBe("2026-10-29T15:00:00+00:00");
   });
 
+  it("says what is left when a cancel's stage moved and the rest of the deal's write throws", async () => {
+    db.fail.updateDealIfUnchanged = "connection lost";
+    const r = await applyEventChange(memoryEventChangeStore(db), DEAL_ID, { request: { kind: "cancel" }, staffedShiftIds: [602] }, CTX);
+    expect(r).toMatchObject({ ok: false, status: 500 });
+    expect((r as { error: string }).error).toContain(
+      "The deal was saved at Closed Lost, but nothing else was done (connection lost).",
+    );
+    expect(db.deals[0].stage).toBe("Closed Lost");
+    expect(db.shifts.map((s) => s.id)).toEqual([601, 602, 700]);
+  });
+
   it("names every step left to do by hand when several fail after a cancel is saved", async () => {
     db.fail.enqueueCalendarDelete = "queue offline";
     db.fail.deleteShifts = "permission denied";

@@ -319,6 +319,7 @@ describe("every stage move goes through the seam", () => {
       "components/DealDetailDrawer.tsx", // the field editor's edits, below
       "components/KanbanBoard.tsx", // the payment pill
       "lib/dealUpdate.ts",
+      "lib/eventChange.ts", // the event's date, times, note and calendar link; never the stage
     ]);
     for (const { path, arg } of writers) {
       if (path !== "lib/dealUpdate.ts") expect(arg).not.toMatch(/\bstage\b/);
@@ -339,6 +340,7 @@ describe("every stage move goes through the seam", () => {
       "app/api/call-desk/calls/[eventId]/route.ts",
       "components/CalendarView.tsx",
       "components/KanbanBoard.tsx",
+      "lib/eventChange.ts",
     ]);
     for (const path of callers) {
       expect(files.find((f) => f.path === path)!.text).toContain("writeStageChange(");

@@ -88,6 +88,14 @@ export function memoryEventChangeStore(db: MemoryDb): EventChangeStore {
       }
     },
 
+    async moveStage(dealId, patch) {
+      maybeFail("moveStage");
+      const current = db.deals.find((d) => d.id === dealId);
+      if (!current) return { error: { message: `Deal ${dealId} was not found.` }, historyError: null };
+      Object.assign(current, patch);
+      return { error: null, historyError: null };
+    },
+
     async updateDealIfUnchanged(deal, patch) {
       maybeFail("updateDealIfUnchanged");
       const current = db.deals.find((d) => d.id === deal.id);

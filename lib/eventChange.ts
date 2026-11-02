@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildStagePatch } from "@/lib/dealUpdate";
+import { buildStagePatch, writeStageChange, type StagePatch, type StageChangeResult } from "@/lib/dealUpdate";
 import { easternInputValue, parseEasternInput } from "@/lib/dateFormat";
 import { nowIso, todayIsoEastern } from "@/lib/callDesk/dealForm";
 
@@ -182,8 +182,10 @@ export type ShiftMove = {
 };
 
 export type EventChangePlan = {
-  /** One update of `deals`, notes included. */
+  /** One update of `deals`, notes included. Never the stage: see stagePatch. */
   dealPatch: Record<string, unknown>;
+  /** A cancel's move to Closed Lost, written and logged by writeStageChange. */
+  stagePatch?: StagePatch;
   noteLine: string;
   moves: ShiftMove[];
   deletes: number[];
@@ -457,11 +459,11 @@ export function planEventChange(
       ok: true,
       plan: {
         dealPatch: {
-          ...buildStagePatch("Closed Lost"),
           ...calendarCleared,
           updated_at: updatedAt,
           notes: appendNote(deal.notes, noteLine),
         },
+        stagePatch: buildStagePatch("Closed Lost"),
         noteLine,
         moves: [],
         deletes: shifts.map((s) => s.id),
@@ -637,6 +639,8 @@ export interface EventChangeStore {
    * still what `deal` read. False when the row had changed (nothing written).
    */
   updateDealIfUnchanged(deal: EventDeal, patch: Record<string, unknown>): Promise<boolean>;
+  /** Move the deal to another stage and log it: writeStageChange, the one way the CRM does. */
+  moveStage(dealId: number, patch: StagePatch): Promise<StageChangeResult>;
   enqueueCalendarDelete(dealId: number, eventId: string): Promise<void>;
   /** Move one shift of the deal. Throws when it is gone or the write fails. */
   moveShift(dealId: number, move: ShiftMove, nowIsoUtc: string): Promise<void>;
@@ -724,6 +728,16 @@ function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** A cancel whose stage moved but whose note, calendar link and shifts were not touched. */
+function closedButNotFinished(plan: EventChangePlan, why: string): string {
+  const event = plan.deleteCalendarEventId ? ` the calendar event (${plan.deleteCalendarEventId}),` : "";
+  const shifts = plan.deletes.length ? ` the crew shifts (${plan.deletes.join(", ")}),` : "";
+  return (
+    `${DEAL_SAVED_PREFIX} at ${plan.stagePatch?.stage}, but nothing else was done (${why}). ` +
+    `Remove${event}${shifts} and add the note by hand: ${plan.noteLine}`
+  );
+}
+
 /**
  * Reschedule or cancel. The deal is written first, in one update: it is the
  * source of truth, so a failure after it leaves the deal right and says
@@ -758,8 +772,31 @@ export async function applyEventChange(
   // reported. So a refused update (409 "the deal changed") writes nothing at
   // all, including the supersede, and a failure after it leaves the deal right
   // and says what to finish by hand.
-  const written = await store.updateDealIfUnchanged(deal, plan.dealPatch);
+  //
+  // A cancel moves the stage first, through writeStageChange, the one way the
+  // CRM moves a deal and logs it. Stage first because the daemon recreates the
+  // event of any booked deal with no calendar link: clearing the link first
+  // would leave a minute-long window for it to do that.
+  const problems: string[] = [];
+  let guardRow = deal;
+  if (plan.stagePatch) {
+    const { error, historyError } = await store.moveStage(dealId, plan.stagePatch);
+    if (error) return { ok: false, status: 500, error: error.message };
+    if (historyError) problems.push(`the stage change is not in the deal's history (${historyError})`);
+    guardRow = { ...deal, stage: plan.stagePatch.stage };
+  }
+
+  let written: boolean;
+  try {
+    written = await store.updateDealIfUnchanged(guardRow, plan.dealPatch);
+  } catch (e) {
+    if (!plan.stagePatch) throw e;
+    return { ok: false, status: 500, error: closedButNotFinished(plan, message(e)) };
+  }
   if (!written) {
+    if (plan.stagePatch) {
+      return { ok: false, status: 500, error: closedButNotFinished(plan, "the deal changed at the same moment") };
+    }
     return {
       ok: false,
       status: 409,
@@ -767,7 +804,6 @@ export async function applyEventChange(
     };
   }
 
-  const problems: string[] = [];
   try {
     await store.supersedeOpenCalendarWrites(dealId, nowIso(ctx.now));
   } catch (e) {
@@ -836,7 +872,11 @@ export function personName(p: { full_name?: string | null; preferred_name?: stri
   return p.preferred_name?.trim() || p.full_name?.trim() || UNNAMED_PERSON;
 }
 
-export function supabaseEventChangeStore(admin: SupabaseClient): EventChangeStore {
+/**
+ * `session` is the signed-in user's client: writeStageChange logs the move
+ * under that login, and the service role has none.
+ */
+export function supabaseEventChangeStore(admin: SupabaseClient, session: SupabaseClient): EventChangeStore {
   return {
     async readDeal(dealId) {
       const { data, error } = await admin
@@ -892,6 +932,7 @@ export function supabaseEventChangeStore(admin: SupabaseClient): EventChangeStor
       }
     },
 
+    moveStage: (dealId, patch) => writeStageChange(session, dealId, patch),
     async updateDealIfUnchanged(deal, patch) {
       const attempt = (p: Record<string, unknown>) => {
         let q = admin.from("deals").update(p).eq("id", deal.id).eq("stage", deal.stage);

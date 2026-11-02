@@ -203,8 +203,9 @@ to anyone; Alina tells the crew.
 
 The deal is written first, in one update guarded on its stage, date and calendar event id (a
 deal changed since the dialog read it answers 409, as does a crew that changed). A failure after
-that answers 500 naming what is left to do by hand. Like the drawer's other writes, this one does
-not reach Catering-Manager's `deal_events` log.
+that answers 500 naming what is left to do by hand. A cancel moves the stage first, through
+`writeStageChange`, so the move is in `deal_events` under the signed-in login like any other. The
+date, time and note writes are not logged there, like the drawer's other writes.
 
 ## Winter menu (deal drawer)
 No winter package exists: a winter item is an existing package plus extras (bj-finance
