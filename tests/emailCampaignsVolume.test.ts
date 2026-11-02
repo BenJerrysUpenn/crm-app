@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import EmailCampaignsPrototype from "@/components/emailCampaignsPrototype/EmailCampaignsPrototype";
 import { compute, type ProspectRow, type SentRow } from "@/lib/emailCampaignsPrototype/model";
-import { WARM_TEMPLATE_KEY } from "@/lib/emailCampaignsPrototype/sequences";
+import { WARM_COORDINATOR_TEMPLATE_KEY, WARM_TEMPLATE_KEY } from "@/lib/emailCampaignsPrototype/sequences";
 
 // The "Reach everyone" verdict when a tier has nobody left to send to
 // (bj-finance #670): a tier with people but no sequence says so, instead of
@@ -57,6 +57,15 @@ describe("Email campaigns volume verdict: why nothing is sent", () => {
   it("says 'nobody has a step left' when everyone in Warm already had its one email", () => {
     const p = prospect({ last_outreach_at: "2026-09-01T12:00:00Z" });
     const html = page([p], [{ prospect_id: p.id, template: WARM_TEMPLATE_KEY }]);
+    expect(count(html, NO_SEQUENCE)).toBe(0);
+    expect(count(html, NO_STEP_LEFT)).toBe(3);
+  });
+
+  it("counts the news.* mailboxes' coordinator copy of the warm email as that email", () => {
+    // Emailed well before any cadence period, so only the send history can
+    // say they already had Warm's one email.
+    const p = prospect({ last_outreach_at: "2026-04-01T12:00:00Z" });
+    const html = page([p], [{ prospect_id: p.id, template: WARM_COORDINATOR_TEMPLATE_KEY }]);
     expect(count(html, NO_SEQUENCE)).toBe(0);
     expect(count(html, NO_STEP_LEFT)).toBe(3);
   });

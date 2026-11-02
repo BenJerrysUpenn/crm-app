@@ -19,8 +19,10 @@ import SequenceEditor, { type EditorTarget } from "./SequenceEditor";
 import TierConnections from "./TierConnections";
 import {
   SEED_SEQUENCES,
+  isWrittenStep,
   sequenceKey,
   stepKeys,
+  stepSpec,
   type LaneBlocks,
   type SequenceDoc,
 } from "@/lib/emailCampaignsPrototype/sequences";
@@ -47,6 +49,8 @@ import {
   everyoneOf,
   groupStanding,
   statesAt,
+  unsentSteps,
+  stepEngagement,
   volumeAt,
   type Cadence,
   type CategoryStat,
@@ -99,15 +103,15 @@ function stateHelp(state: StateKey, cadence: Cadence): string {
     case "upNext":
       return `Still have a step of their sequence they have not had, and not emailed ${periodPhrase(cadence)}. People talked to since May are listed last: lowest priority, still emailed.`;
     case "emailed":
-      return `Got a step ${periodPhrase(cadence)} and still have steps left. They move back to Up next when the period ends.`;
+      return `Got a step ${periodPhrase(cadence)} and still have steps left. They move back to Up next when the period ends, or to Held while their next step's copy is not written yet.`;
     case "held":
-      return "Not sent to: Yahoo/Microsoft addresses (blocked until warm mailboxes are ready), or they already had every step of their sequence and there is nothing new to send. Nobody gets the same email twice; adding a step they have not had moves them back to Up next.";
+      return "Not sent to: Yahoo/Microsoft addresses (blocked until warm mailboxes are ready), or they already had every step of their sequence and there is nothing new to send, or their next step's copy is not written yet. Nobody gets the same email twice; adding a step they have not had moves them back to Up next.";
     case "unaccounted":
       return "People in no state. This should never happen.";
   }
 }
 
-const HELD_ORDER: HeldReason[] = ["blocked", "finished", "noSequence", "moved"];
+const HELD_ORDER: HeldReason[] = ["blocked", "finished", "notWritten", "noSequence", "moved"];
 
 /** "1,904 blocked provider · 216 finished sequence" (non-zero reasons only). */
 function HeldReasons({ heldBy }: { heldBy: Record<HeldReason, number> }) {
@@ -276,10 +280,25 @@ function peopleIn(
   const bottom: Row[] = [];
   const dueOld: Row[] = [];
   const never: Row[] = [];
-  const held: Record<HeldReason, Row[]> = { blocked: [], finished: [], noSequence: [], moved: [] };
+  const held: Record<HeldReason, Row[]> = { blocked: [], finished: [], noSequence: [], moved: [], notWritten: [] };
   for (const g of cat.groups) {
     const steps = stepsFor(g.cat);
     const standing = groupStanding(g, steps);
+    if (standing === "waiting") {
+      // Next step has no copy: Emailed this period, else Held; never Up next.
+      const reason = HELD_REASON_LABEL.notWritten;
+      if (state === "emailed")
+        top.push(...g.sample.newest.filter((p) => !due(p)).map((p) => ({ ...p, reason, low: false })));
+      else if (state === "held") {
+        const seen = new Set<number>();
+        for (const p of [...g.sample.never, ...g.sample.oldest])
+          if (due(p) && !seen.has(p.id)) {
+            seen.add(p.id);
+            held.notWritten.push({ ...p, reason, low: false });
+          }
+      }
+      continue;
+    }
     if (standing !== "open") {
       if (state !== "held") continue;
       const seen = new Set<number>();
@@ -290,7 +309,7 @@ function peopleIn(
         }
       continue;
     }
-    const left = steps.filter((keys) => !keys.some((k) => g.received.includes(k))).length;
+    const left = unsentSteps(g, steps);
     const stepsLeft = `${left} ${plural(left, "step")} left`;
     if (state === "upNext") {
       const rows = [
@@ -659,9 +678,17 @@ function SequenceDots({ doc, edited, onClick }: { doc: SequenceDoc; edited: bool
       title="Open the sequence editor"
       className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 hover:bg-slate-800"
     >
-      {doc.steps.map((s) => (
-        <span key={s.id} className="h-2.5 w-2.5 shrink-0 rounded-full bg-sky-400" />
-      ))}
+      {doc.steps.map((s, i) =>
+        isWrittenStep(s) ? (
+          <span key={s.id} className="h-2.5 w-2.5 shrink-0 rounded-full bg-sky-400" />
+        ) : (
+          <span
+            key={s.id}
+            title={`Step ${i + 1}: copy not written yet`}
+            className="h-2.5 w-2.5 shrink-0 rounded-full border border-sky-400"
+          />
+        ),
+      )}
       <span className="ml-1 truncate text-[11px] text-slate-400">
         {n} {plural(n, "email")}
         {doc.name ? ` · ${doc.name}` : ""}
@@ -675,15 +702,44 @@ function SequenceDots({ doc, edited, onClick }: { doc: SequenceDoc; edited: bool
   );
 }
 
+/** One small line per step that has something to say: opens and clicks of
+ * its tracked sends on this card, or that its copy is not written yet. */
+function StepLines({ doc, cat }: { doc: SequenceDoc; cat: CategoryStat }) {
+  const lines = doc.steps.flatMap((s, i): { id: string; i: number; text: string; tracked?: number }[] => {
+    if (!isWrittenStep(s)) return [{ id: s.id, i, text: "copy not written yet" }];
+    const e = stepEngagement(cat, stepKeys(s));
+    return e ? [{ id: s.id, i, text: `opened ${fmt(e.opened)} · clicked ${fmt(e.clicked)}`, tracked: e.tracked }] : [];
+  });
+  if (!lines.length) return null;
+  return (
+    <div className="space-y-0.5 px-1.5 text-[10px] leading-tight text-slate-500">
+      {lines.map((l) => (
+        <div
+          key={l.id}
+          title={
+            l.tracked !== undefined
+              ? `Of ${fmt(l.tracked)} tracked sends. Mail privacy proxies open every image, so opens run high (docs/tracking.md).`
+              : undefined
+          }
+        >
+          <span className="text-slate-400">Step {l.i + 1}</span> · {l.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** One sequence control per card: the clickable dots when the card has a
  * sequence, otherwise a single "+ Add sequence" button. Both open the editor. */
 function SequenceControl({
   tier,
+  cat,
   catKey,
   catLabel,
   cadence,
 }: {
   tier: TierPayload;
+  cat: CategoryStat;
   catKey: string;
   catLabel: string;
   cadence: Cadence;
@@ -692,7 +748,13 @@ function SequenceControl({
   const key = sequenceKey(tier.key, catKey);
   const doc = store.get(key);
   const open = () => store.open({ tier, catKey, catLabel, cadence });
-  if (doc && doc.steps.length > 0) return <SequenceDots doc={doc} edited={store.edited(key)} onClick={open} />;
+  if (doc && doc.steps.length > 0)
+    return (
+      <div className="min-w-0">
+        <SequenceDots doc={doc} edited={store.edited(key)} onClick={open} />
+        <StepLines doc={doc} cat={cat} />
+      </div>
+    );
   return (
     <button
       type="button"
@@ -783,7 +845,7 @@ function EveryoneCard({
 
       <Unaccounted n={st.unaccounted} />
       <div className="flex items-center justify-between gap-2 border-t border-slate-800 pt-1.5">
-        <SequenceControl tier={tier} catKey="everyone" catLabel="Everyone" cadence={cadence} />
+        <SequenceControl tier={tier} cat={e} catKey="everyone" catLabel="Everyone" cadence={cadence} />
       </div>
       <NoteArea note={note} editing={editing} setEditing={setEditing} save={saveNote} />
     </div>
@@ -852,7 +914,7 @@ function CategoryCard({
       {cat.hold ? <HeldReasons heldBy={st.heldBy} /> : null}
       <Unaccounted n={st.unaccounted} />
       <div className="mt-auto pt-0.5">
-        <SequenceControl tier={tier} catKey={cat.key} catLabel={cat.label} cadence={cadence} />
+        <SequenceControl tier={tier} cat={cat} catKey={cat.key} catLabel={cat.label} cadence={cadence} />
       </div>
       <NoteArea note={note} editing={editing} setEditing={setEditing} save={saveNote} />
     </div>
@@ -1038,9 +1100,9 @@ export default function EmailCampaignsPrototype({
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   const closeEditor = useCallback(() => setEditor(null), []);
   const stepsFor = (tier: TierKey): StepsFor => {
-    const everyone = (seqs.get(sequenceKey(tier, "everyone"))?.steps ?? []).map(stepKeys);
+    const everyone = (seqs.get(sequenceKey(tier, "everyone"))?.steps ?? []).map(stepSpec);
     return (catKey: string) =>
-      categorySteps(catKey, (seqs.get(sequenceKey(tier, catKey))?.steps ?? []).map(stepKeys), everyone);
+      categorySteps(catKey, (seqs.get(sequenceKey(tier, catKey))?.steps ?? []).map(stepSpec), everyone);
   };
   const store: SeqStore = { get: seqs.get, edited: seqs.edited, open: setEditor, stepsFor };
   const editorKey = editor ? sequenceKey(editor.tier.key, editor.catKey) : null;
@@ -1117,8 +1179,9 @@ export default function EmailCampaignsPrototype({
             A tier&apos;s period is its &ldquo;Reach everyone&rdquo; cadence. Up next: still has a step they have not
             had, and not emailed this period. Emailed: got a step inside the period and still has steps left. Held:
             Yahoo/Microsoft addresses (until warm mailboxes are ready), or finished the sequence with nothing new to
-            send. Everyone is in exactly one of the three. Every sequence is a single email today, so anyone who got
-            it is Held until a new step is added.
+            send, or their next step&apos;s copy is not written yet. Everyone is in exactly one of the three. Every
+            sequence but Offer&apos;s wedding one is a single email today, so anyone who got it is Held until a new
+            step is added.
           </li>
           <li>
             People talked to since May are in Up next, at the bottom of the list: lowest priority, still emailed.

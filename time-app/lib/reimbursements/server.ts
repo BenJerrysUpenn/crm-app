@@ -11,7 +11,7 @@ import { notify, emailForUser } from "@/lib/notify";
 import { emailConfigured, sendEmail, type EmailAttachment } from "@/lib/email";
 import { isMissingTable } from "@/lib/storeHours";
 import { money } from "@/lib/payroll/paySheet";
-import { amountsBeforeAdjustments, reimbursementCents, type Amounts, type BeforeAdjustments, type MileageRate } from "./money";
+import { amountsBeforeAdjustments, reimbursementCents, type Amounts, type BeforeAdjustments, type MileageCap, type MileageRate } from "./money";
 import {
   CATERING_EVENT_STAGES,
   EVENT_DEAL_COLUMNS,
@@ -27,6 +27,7 @@ import { FIELD_LABEL, approversToNotify, type AdjustmentField, type Person, type
 import { RECEIPTS_TO, lyftRideReportEmail, travelReimbursementReceiptEmail } from "./receiptsEmail";
 import { BUCKET, type ReasonValue, type ReimbursementValue } from "./submission";
 import { routeEnds, routeMiles, type RouteEnds, type RouteResult } from "./routeMiles";
+import { MILES_JOB_KINDS, RECALC_KIND, RECALC_REQUESTED_BY, noMilesDeals, planRecalc, withRecalcState, type RecalcJob } from "./milesRecalc";
 
 export const NEEDS_MIGRATION = "Travel Reimbursements need migration 37 in Supabase.";
 
@@ -99,6 +100,8 @@ export type LyftRow = {
 };
 
 export type WithAmounts = ReimbursementRow & {
+  /** Its Catering Event's cap per mile, as the database said when it was read; null for errands. */
+  mileage_cap: MileageCap | null;
   amounts: Amounts;
   adjustments: AdjustmentRow[];
   /** The amounts before the Adjustments that still stand, shown old -> new (ruling 40); null when none. */
@@ -113,20 +116,134 @@ export async function loadRates(db: Db): Promise<{ ok: true; rates: MileageRate[
   return { ok: true, rates: ((data ?? []) as MileageRate[]).map((r) => ({ starts_on: r.starts_on, cents_per_mile: Number(r.cents_per_mile) })) };
 }
 
-/** Rows with their amounts at today's reading of the rates, and their Adjustments, oldest first. */
-export function withAmounts(rows: ReimbursementRow[], rates: MileageRate[], adjustments: AdjustmentRow[]): WithAmounts[] {
+/** The caps, by deal id (event_mileage_caps()). */
+export type MileageCaps = ReadonlyMap<number, MileageCap>;
+
+/**
+ * Each deal's cap per mile: the most a staff mile on its Catering Event pays,
+ * from what its quote charged the customer (event_mileage_caps(), migration
+ * 49, which reads the quotes staff cannot). Before migration 49 there is no
+ * such function and no cap, so every trip is at the IRS rate, as it was.
+ */
+export async function loadMileageCaps(db: Db, dealIds: (number | null)[]): Promise<{ ok: true; caps: MileageCaps } | { ok: false; error: string }> {
+  const ids = Array.from(new Set(dealIds.filter((d): d is number => d != null)));
+  if (!ids.length) return { ok: true, caps: new Map() };
+  const { data, error } = await db.rpc("event_mileage_caps", { p_deal_ids: ids });
+  if (error) {
+    if (isMissingTable(error)) return { ok: true, caps: new Map() };
+    return { ok: false, error: `What the Catering Events' quotes charged per mile could not be read: ${error.message}` };
+  }
+  const caps = new Map<number, MileageCap>();
+  for (const c of (data ?? []) as { deal_id: number | string; cap_cents_per_mile: number | string | null; basis: MileageCap["basis"] }[]) {
+    caps.set(Number(c.deal_id), { cap_cents_per_mile: c.cap_cents_per_mile == null ? null : Number(c.cap_cents_per_mile), basis: c.basis });
+  }
+  return { ok: true, caps };
+}
+
+type CapKey = Pick<ReimbursementRow, "reason_kind" | "deal_id">;
+
+/** The deal whose cap a row is paid under: its Catering Event's; null for errands. */
+function capDeal(r: CapKey): number | null {
+  return r.reason_kind === "catering_event" ? r.deal_id : null;
+}
+
+/** The deals whose caps these rows are priced under, for loadMileageCaps. */
+export function capDealIds(rows: CapKey[]): (number | null)[] {
+  return rows.map(capDeal);
+}
+
+/** A row's cap: its Catering Event's, or null for errands or a deal the database did not answer for. */
+export function capFor(r: CapKey, caps: MileageCaps): MileageCap | null {
+  const deal = capDeal(r);
+  return deal != null ? caps.get(deal) ?? null : null;
+}
+
+/**
+ * Rows with their amounts at today's reading of the rates and caps, and their
+ * Adjustments, oldest first.
+ */
+export function withAmounts(rows: ReimbursementRow[], rates: MileageRate[], adjustments: AdjustmentRow[], caps: MileageCaps): WithAmounts[] {
   return rows.map((r) => {
     const own = adjustments.filter((a) => a.reimbursement_id === r.id).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
-    return { ...r, amounts: reimbursementCents(r, rates), adjustments: own, before_adjustments: amountsBeforeAdjustments(r, own, rates) };
+    const mileage_cap = capFor(r, caps);
+    const priced = { ...r, cap_cents_per_mile: mileage_cap?.cap_cents_per_mile ?? null };
+    return { ...r, mileage_cap, amounts: reimbursementCents(priced, rates), adjustments: own, before_adjustments: amountsBeforeAdjustments(priced, own, rates) };
   });
+}
+
+/**
+ * After a submit or resubmit: one row's total for the Approvers' notice, at
+ * its Catering Event's cap (null when the cap could not be read); and when
+ * that deal has no round-trip miles, one miles recalculation queued for it
+ * (recalculateMissingMiles).
+ */
+export async function afterSubmit(db: Db, row: ReimbursementRow, rates: MileageRate[]): Promise<number | null> {
+  const caps = await loadMileageCaps(db, capDealIds([row]));
+  if (!caps.ok) return null;
+  const priced = withAmounts([row], rates, [], caps.caps)[0];
+  await recalculateMissingMiles([priced], { queue: true });
+  return priced.amounts.total_cents;
+}
+
+// ---------- miles recalculation for a deal with no round-trip miles (./milesRecalc.ts) -------------
+
+/**
+ * The priced rows, with `recalc_failed` on the cap of each trip whose deal
+ * has no round-trip miles and for which a miles job ('miles' or the CRM's
+ * 'retriage') has finished and the miles are still missing (withRecalcState); and with
+ * `queue`, a 'miles' job queued for each such deal where planRecalc says so:
+ * round-trip miles only. Service role: staff cannot read deals or
+ * quote_jobs. Never throws, and a failure leaves the trip as it is (still
+ * refused, still repriced on every read), logged: when the jobs could not
+ * be read no deal is marked; a failed insert is logged and changes nothing.
+ */
+export async function recalculateMissingMiles<T extends WithAmounts>(rows: T[], opts: { queue: boolean }): Promise<T[]> {
+  return withRecalcState(rows, await failedMilesJobs(noMilesDeals(rows), opts.queue));
+}
+
+/** recalculateMissingMiles's I/O: the deals among `dealIds` with a finished miles job and still no miles, queueing where the plan says. */
+async function failedMilesJobs(dealIds: number[], queue: boolean): Promise<Set<number>> {
+  const failed = new Set<number>();
+  if (!dealIds.length) return failed;
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin.from("quote_jobs").select("id, deal_id, status, created_at").in("kind", [...MILES_JOB_KINDS]).in("deal_id", dealIds);
+    if (error) {
+      console.error(`Miles jobs could not be read: ${error.message}`);
+      return failed;
+    }
+    const jobs = ((data ?? []) as RecalcJob[]).map((j) => ({ ...j, id: Number(j.id), deal_id: Number(j.deal_id) }));
+    const now = Date.now();
+    for (const dealId of dealIds) {
+      const plan = planRecalc(jobs.filter((j) => j.deal_id === dealId), now);
+      if (plan.queue && queue) {
+        const { data: job, error: insertError } = await admin
+          .from("quote_jobs")
+          .insert({ deal_id: dealId, status: "pending", kind: RECALC_KIND, requested_by: RECALC_REQUESTED_BY })
+          .select("id")
+          .single();
+        if (insertError || !job) console.error(`Miles recalculation for deal ${dealId} was not queued: ${insertError?.message ?? "no row returned"}`);
+      }
+      if (plan.failed) failed.add(dealId);
+    }
+  } catch (e) {
+    console.error(`Miles recalculation was not queued: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  return failed;
 }
 
 // ---------- Catering Events (staff cannot read deals) ------------------------------
 
-/** Every Catering Event in the picker's window, newest first. Service role: deals are managers-only. */
-export async function listCateringEvents(today: string): Promise<{ ok: true; events: CateringEvent[] } | { ok: false; error: string }> {
+/**
+ * Every Catering Event in the picker's window, newest first, each with its cap
+ * per mile. Service role: deals are managers-only.
+ */
+export async function listCateringEvents(
+  today: string,
+): Promise<{ ok: true; events: (CateringEvent & { mileage_cap: MileageCap | null })[] } | { ok: false; error: string }> {
   const { from, to } = eventWindow(today);
-  const { data, error } = await createAdminClient()
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .from("deals")
     .select(EVENT_DEAL_COLUMNS)
     .in("stage", CATERING_EVENT_STAGES)
@@ -134,7 +251,10 @@ export async function listCateringEvents(today: string): Promise<{ ok: true; eve
     .lte("event_date", to)
     .order("event_date", { ascending: false });
   if (error) return { ok: false, error: error.message };
-  return { ok: true, events: cateringEventsFromDeals((data ?? []) as EventDeal[], today) };
+  const events = cateringEventsFromDeals((data ?? []) as EventDeal[], today);
+  const caps = await loadMileageCaps(admin, events.map((e) => e.id));
+  if (!caps.ok) return caps;
+  return { ok: true, events: events.map((e) => ({ ...e, mileage_cap: caps.caps.get(e.id) ?? null })) };
 }
 
 /** One Catering Event by its deal id, or null unless it is in the picker's window today. */

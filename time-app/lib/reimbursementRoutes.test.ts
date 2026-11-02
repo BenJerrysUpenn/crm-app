@@ -92,8 +92,13 @@ beforeEach(() => {
     sent.push({ url: request.url, body });
     if (request.url.startsWith("https://routes.googleapis.com/")) {
       if (googleStatus !== 200) return new Response(JSON.stringify({ error: { message: "API key not valid" } }), { status: googleStatus });
-      const legs = 1 + (body.intermediates?.length ?? 0);
-      return new Response(JSON.stringify({ routes: [{ legs: Array.from({ length: legs }, () => ({ distanceMeters: 1609.344 * 2.04 })) }] }));
+      // The whole-trip request (no alternatives): every leg 2.2 mi on the default route.
+      if (body.computeAlternativeRoutes === false) {
+        const legs = 1 + (body.intermediates?.length ?? 0);
+        return new Response(JSON.stringify({ routes: [{ legs: Array.from({ length: legs }, () => ({ distanceMeters: 1609.344 * 2.2 })) }] }));
+      }
+      // A leg's own request: Google's default route and a longer alternative. The leg pays the lowest, 2.04 mi.
+      return new Response(JSON.stringify({ routes: [{ distanceMeters: 1609.344 * 2.04 }, { distanceMeters: 1609.344 * 2.6 }] }));
     }
     return new Response("{}", { status: resendStatus });
   };
@@ -167,6 +172,123 @@ test("submit: a Catering Event records how staff saw it, and the trip date is th
   assert.match(String(r.event_label), /Acme at Houston Hall, 3417 Spruce St$/);
 });
 
+test("events and submit: each Catering Event carries its cap a mile, and the Approvers' notice is at it (migration 49)", async () => {
+  db.rpc.event_mileage_caps = (args) =>
+    ((args.p_deal_ids as number[]) ?? []).map((id) => ({ deal_id: id, cap_cents_per_mile: id === 501 ? 72.5 : null, basis: id === 501 ? "quote_derived" : "uber_flat_fee" }));
+  db.signIn(DONTE);
+  const listed = await (await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events"))).json();
+  assert.deepEqual(listed.events.map((e: { id: number; mileage_cap: unknown }) => [e.id, e.mileage_cap]), [
+    [501, { cap_cents_per_mile: 72.5, basis: "quote_derived" }],
+    [505, { cap_cents_per_mile: null, basis: "uber_flat_fee" }],
+  ]);
+  const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
+  assert.equal(res.status, 200);
+  const notices = db.rows("notifications").filter((n) => n.title === "Travel Reimbursement submitted");
+  assert.ok(notices.length > 0);
+  for (const n of notices) assert.match(String(n.body), /\$7\.25\./, "10 mi at the quote's 72.5c");
+});
+
+// ---------- a deal with no round-trip miles gets a miles recalculation (the owner, 2026-10-29) ----------
+
+/** 501's quote charged mileage but the deal has no round-trip miles; every other deal is capped at its quote's rate. */
+function noMilesOn501() {
+  db.rpc.event_mileage_caps = (args) =>
+    ((args.p_deal_ids as number[]) ?? []).map((id) => (id === 501 ? { deal_id: id, cap_cents_per_mile: 0, basis: "no_miles_on_deal" } : { deal_id: id, cap_cents_per_mile: 72.5, basis: "quote_derived" }));
+}
+const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+
+test("submit: a Catering Event whose deal has no round-trip miles queues one miles-only recalculation for the deal (kind 'miles', not the CRM's Recalculate)", async () => {
+  noMilesOn501();
+  db.signIn(DONTE);
+  const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
+  assert.equal(res.status, 200);
+  const jobs = db.rows("quote_jobs");
+  assert.deepEqual(
+    jobs.map(({ deal_id, status, kind, requested_by }) => ({ deal_id, status, kind, requested_by })),
+    [{ deal_id: 501, status: "pending", kind: "miles", requested_by: "withers-time:no-miles-on-deal" }],
+  );
+  // Written with the service role: staff cannot touch quote_jobs (lib/testing/fakeSupabase.ts).
+  const { createClient } = await loadAppModule<typeof import("./supabase/server.ts")>("lib/supabase/server.ts");
+  assert.deepEqual((await createClient().from("quote_jobs").select("*")).data, []);
+  // A second trip on the same event while it is pending queues none.
+  assert.equal((await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }))).status, 200);
+  assert.equal(db.rows("quote_jobs").length, 1);
+});
+
+test("submit: once a miles recalculation has finished without miles, the next is queued only an hour after it", async () => {
+  noMilesOn501();
+  db.tables.quote_jobs = [{ id: 7, deal_id: 501, status: "error", kind: "retriage", created_at: minutesAgo(20), requested_by: null }];
+  db.signIn(DONTE);
+  const trip = { ...errands, reason: { kind: "catering_event", event_id: 501 } };
+  assert.equal((await create.POST(req("POST", trip))).status, 200);
+  assert.equal(db.rows("quote_jobs").length, 1, "20 minutes since the last");
+  db.tables.quote_jobs[0].created_at = minutesAgo(60);
+  assert.equal((await create.POST(req("POST", trip))).status, 200);
+  assert.deepEqual(db.rows("quote_jobs").map((j) => [j.id, j.status]), [[7, "error"], [8, "pending"]]);
+});
+
+test("submit: errands, or a Catering Event whose deal has its miles, queue no miles recalculation", async () => {
+  noMilesOn501();
+  db.signIn(DONTE);
+  assert.equal((await create.POST(req("POST", errands))).status, 200);
+  assert.equal((await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 505 } }))).status, 200);
+  assert.equal(db.rows("quote_jobs").length, 0);
+});
+
+test("submit: when the miles recalculation cannot be queued the trip is still Submitted and the Approvers told", async () => {
+  noMilesOn501();
+  db.missingTables = ["quote_jobs"];
+  db.signIn(DONTE);
+  const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
+  assert.equal(res.status, 200);
+  assert.equal(db.rows("travel_reimbursements")[0].status, "submitted");
+  assert.ok(db.rows("notifications").some((n) => n.title === "Travel Reimbursement submitted"));
+});
+
+test("edit: moving a trip onto, or resubmitting one on, a deal with no round-trip miles queues its miles recalculation", async () => {
+  noMilesOn501();
+  db.tables.travel_reimbursements.push(row(), row({ id: 2, status: "rejected", rejection_reason: "Which event?" }));
+  db.signIn(DONTE);
+  const onto501 = { ...errands, reason: { kind: "catering_event", event_id: 501 } };
+  assert.equal((await one.PATCH(req("PATCH", onto501), { params: { id: "1" } })).status, 200);
+  assert.deepEqual(db.rows("quote_jobs").map((j) => [j.deal_id, j.kind]), [[501, "miles"]]);
+  db.tables.quote_jobs = [];
+  assert.equal((await one.PATCH(req("PATCH", onto501), { params: { id: "2" } })).status, 200);
+  assert.deepEqual(db.rows("quote_jobs").map((j) => [j.deal_id, j.kind]), [[501, "miles"]]);
+});
+
+test("events: before migration 49 every Catering Event has no cap", async () => {
+  db.signIn(DONTE);
+  const listed = await (await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events"))).json();
+  for (const e of listed.events) assert.equal(e.mileage_cap, null);
+});
+
+test("events: when the caps cannot be read the picker says so, rather than offer uncapped events", async () => {
+  db.rpc.event_mileage_caps = () => {
+    throw new Error("connection reset");
+  };
+  db.signIn(DONTE);
+  const res = await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events"));
+  assert.equal(res.status, 500);
+  assert.match((await res.json()).error, /could not be read/);
+});
+
+test("submit: when the cap cannot be read it is still saved, and the Approvers' notice gives no amount rather than the IRS one", async () => {
+  db.rpc.event_mileage_caps = () => {
+    throw new Error("connection reset");
+  };
+  db.signIn(DONTE);
+  const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
+  assert.equal(res.status, 200);
+  assert.equal(db.rows("travel_reimbursements").length, 1);
+  const notices = db.rows("notifications").filter((n) => n.title === "Travel Reimbursement submitted");
+  assert.ok(notices.length > 0);
+  for (const n of notices) {
+    assert.doesNotMatch(String(n.body), /\$7\.60/, "not 10 mi at the uncapped IRS 76c");
+    assert.match(String(n.body), /, —\. Approve/);
+  }
+});
+
 test("submit: a Catering Event outside the picker (future, too old, not booked) is refused", async () => {
   db.signIn(DONTE);
   for (const id of [502, 503, 504, 999]) {
@@ -209,8 +331,24 @@ test("submit: destinations mode computes the miles on the server, from the store
   assert.equal(r.start_at_store, true);
   assert.equal(r.end_at_store, true);
   assert.equal((r.route_legs as unknown[]).length, 2);
-  const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
-  assert.deepEqual(google?.body.destination, { address: "218 S 40th St, Philadelphia, PA 19104" });
+  const google = sent.filter((s) => s.url.startsWith("https://routes.googleapis.com/"));
+  const store = { address: "218 S 40th St, Philadelphia, PA 19104" };
+  const depot = { address: "Restaurant Depot" };
+  const legCalls = google.filter((g) => g.body.computeAlternativeRoutes === true);
+  const tripCalls = google.filter((g) => g.body.computeAlternativeRoutes === false);
+  assert.equal(google.length, 3, "a request per leg and one for the whole trip");
+  assert.deepEqual(legCalls.map((g) => [g.body.origin, g.body.destination]), [[store, depot], [depot, store]], "one request per leg");
+  assert.deepEqual(
+    tripCalls.map((g) => [g.body.origin, g.body.intermediates, g.body.destination]),
+    [[store, [depot], store]],
+    "one request through every stop",
+  );
+  // Essentials only (Alina, 2026-10-29): traffic-unaware, untimed; intermediates only on the whole-trip request.
+  for (const g of google) {
+    assert.equal(g.body.routingPreference, undefined);
+    assert.equal(g.body.departureTime, undefined);
+  }
+  for (const g of legCalls) assert.equal(g.body.intermediates, undefined);
 });
 
 test("submit: destinations mode when Google cannot route the trip is refused, with nothing written and nobody told", async () => {
@@ -234,8 +372,9 @@ test("submit: Start at the store off pays only from the first stop (home -> Depo
   assert.equal(r.start_at_store, false);
   assert.equal(r.end_at_store, true);
   assert.deepEqual(r.route_legs, [{ from: "Restaurant Depot", to: "218 S 40th St, Philadelphia, PA 19104", miles: 2 }]);
-  const google = sent.find((s) => s.url.startsWith("https://routes.googleapis.com/"));
-  assert.deepEqual(google?.body.origin, { address: "Restaurant Depot" });
+  const google = sent.filter((s) => s.url.startsWith("https://routes.googleapis.com/"));
+  assert.equal(google.length, 2);
+  for (const g of google) assert.deepEqual(g.body.origin, { address: "Restaurant Depot" });
 });
 
 test("submit and route-miles: with neither end at the store, one stop is refused", async () => {

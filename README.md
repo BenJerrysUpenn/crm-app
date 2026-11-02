@@ -122,8 +122,16 @@ update (`buildStagePatch` in `lib/dealUpdate.ts`):
    Below Min, Closed Marketing Event), else `1`
 3. `updated_at` = current ISO timestamp
 
-A move into `Booked Paid` also sets `payment_status` to `Deposit Paid` when the
-row had none.
+A stage move does not change `payment_status`. A person records payment with the
+card's deposit/paid pill or the drawer.
+
+`writeStageChange` also appends `deal_events` rows for the move (`stage`, plus
+`is_active` when it changed), in the shape Catering-Manager's `db.update_deal`
+writes, with actor `crm:<email>` and source `crm-app`. The two writes are not
+atomic: if the insert fails, the move stands and the person is told. It reads the
+row's current stage first and writes only if the stage is still that one (the
+catering sweep moves deals too); a lost race is an error, and a move to the stage
+the deal is already in writes nothing.
 
 The app does **not** write `deals.boomerang_reason`. The automatic boomerang
 follow-up was retired by bj-finance #333 and the column is dropped by
@@ -288,6 +296,42 @@ them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. 
 `docs/adr/0001` (Receipts go to receipts@ but are never bank-matched) and `0002` (files live
 in a private Supabase Storage bucket). The lifecycle is enforced twice, in
 `time-app/lib/reimbursements/lifecycle.ts` and in the database trigger of migration 37.
+
+"Compute miles from stops" pays each leg the lower of two Routes API answers, asked for in parallel:
+(a) the leg on its own with alternative routes on, the shortest route Google returns, and (b) the leg's
+distance on Google's default route through every stop in one request (the stops as intermediates).
+Google's default route favors time and on short city trips takes the expressway, so (a) is often
+shorter; on some legs (b) is, so no leg pays more than (b). If (b)
+fails every leg pays (a); if a leg's (a) fails that leg pays (b); if both fail for a leg, staff type the
+miles. Each leg is rounded to 0.1 mi after the choice and the legs are summed. Typed miles stay and are
+preferred when staff have them. Every request stays on the Compute Routes Essentials SKU: at most 10
+intermediates, no traffic-aware routing, no departure time. Rules, sources and the billing triggers:
+the header of `time-app/lib/reimbursements/routeMiles.ts`.
+
+Mileage is paid at the IRS rate for the trip date (`mileage_rates`), and for a Catering Event at no more
+a mile than its quote charged the customer (owner's ruling 2026-10-29): `deal_mileage_cap()` in
+`time-app/supabase/migration_49.sql`, as `migration_50.sql` and `migration_52.sql` redefine it, reads the deal's latest
+quote (no quote, or the Uber flat fee: no cap; else a transportation subtotal of $0: 0c; else the quote's stored
+`mileage_rate`, else its transportation subtotal over the deal's round-trip miles to the half cent), and the payable
+view and `lib/reimbursements/money.ts` pay the lower of the two. A quote that is not the Uber flat fee and charged $0
+mileage, or has no mileage line, caps at 0c: it charged the customer nothing (owner's ruling 2026-10-29). The $0 is
+read before the stored rate because every quote since Catering-Manager #112 stores `mileage_rate`, a $0 one too
+(migration 52). A quote that charged mileage on a deal with no
+round-trip miles also caps at 0c, never more than charged, until the miles land; the trip is
+priced when read, so it reprices until paid. Submitting such a trip, or loading the Approver's queue, queues a
+miles recalculation for that deal: a `quote_jobs` row of kind `miles`, with the service role
+(`lib/reimbursements/milesRecalc.ts`). Catering-Manager's quote worker writes the deal's round-trip miles from the
+venue address and changes nothing else on the deal (owner's ruling 2026-10-29), unlike the CRM's Recalculate
+(`retriage`), which also redoes drive time, staffing and times. The dedupe counts both kinds, since a manager's
+Recalculate fills the miles too: none while one is pending or running, and at most one per deal an
+hour. When a miles job has finished and the deal still has none, staff and the Approver are told a manager should check the venue
+address. Meanwhile the decide route refuses Approve and Paid outside payroll
+on that trip (`decideRefusal` in `lib/reimbursements/money.ts`; the queue disables the same buttons), unless the
+trip has no miles or carries a Mileage Adjustment; Send back, Reject and Adjust are never refused. Staff and the Approver see why a trip's miles pay $0, and tolls
+and parking are paid either way. Deploy the app, then apply migration 49, then 50, then 52 (each has `_verify.sql` and
+`_down.sql` beside it). The `miles` kind needs Catering-Manager's quote worker with `_process_miles_job`
+pulled first and its migration 027 applied, before this app deploys: an older worker would treat `miles` as a quote
+job, and before 027 the insert fails its CHECK (logged; the trip stays refused).
 
 Setup, in the `time` Vercel project:
 
@@ -466,7 +510,7 @@ availability answers 503 with a message.
   an in-app row on each scheduler's bell and queues the dates or weekdays whose blocks changed in
   `availability_notices`. The same 8pm cron claims the day's queue once
   (`claim_availability_digest`) and emails each scheduler one list, by person. Schedulers: every
-  owner plus every active manager, not archived or banned (the coverage reminder's rule). Off with
+  owner plus every active manager, not archived or banned. Off with
   notif_prefs `availability_change` or `email`. Time-off requests, a scheduler's own changes and a
   manager's edits to someone else's rows are left out.
 - **Repeat-until** (`lib/repeatUntil.ts`): `availability.repeat_until` is the last date, inclusive,
@@ -475,11 +519,45 @@ availability answers 503 with a message.
   auto-fill checks, the schedule cells and the team grid all stop there; the personal calendar
   uses `weeklyRowApplies`. Null means open-ended: every row saved before migration 48.
 
+## Cash count reminders in Slack (droplet command, crm-app #129)
+Every 5 minutes on bj-box (`bj-cash-count-reminders.timer`, Software-Factory `droplet/`), reminds
+staff in Slack #cash-count to post the cash counts: the opener once they clock in, one closer just
+after closing (of several on the clock, the one on the closing shift, else the latest clock-in;
+nobody on the clock, the scheduled closer), and that same person once more in the reminder's thread
+if nobody has posted 30 minutes later. Each message is written by Claude Code (`claude -p`,
+`claude-haiku-5-5`, no tools, hard timeout) on the owner's Claude subscription from the live "Cash
+count steps" message, validated, and replaced by a plain message on any failure. Who and when:
+`time-app/lib/cashCount/plan.ts`; one pass: `run.ts`; the words: `message.ts` and `claudeCli.ts`;
+Slack: `slack.ts`; command: `cli.ts`; reads and writes: `lib/cashCountPg.ts`; wiring:
+`scripts/cash-count-reminders.ts`.
+
+Each reminder (`open`, `close`) and its one follow-up is recorded in `cash_count_reminders`
+(migration 51) BEFORE it is posted, so it goes out once per store day; a Slack refusal removes the
+record so the next tick retries, and no answer at all keeps it. Apply
+`time-app/supabase/migration_51.sql` by hand in the Supabase SQL editor, after migration 50
+(`_verify.sql` and `_down.sql` beside it). Before it, the command posts nothing and exits 1.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project (the unit maps it from `BJ_DATABASE_URL`) |
+| Vault `slack_cash_count_bot_token` | The "Cash Count" Slack app's bot token, read at run time. Required |
+| Vault `claude_usage_token` | The owner's Claude subscription token, read at run time and passed to Claude Code as `CLAUDE_CODE_OAUTH_TOKEN` in its environment only. Missing means plain messages |
+| `CASH_COUNT_CLAUDE_BIN` | The `claude` executable (default: `claude` on `PATH`). Set in the droplet's systemd unit |
+| `CASH_COUNT_SLACK_CHANNEL`, `CASH_COUNT_RULES_TS` | Optional: move the channel and the steps message |
+
+```
+npm run cash-count-reminders -- --dry-run   # prints the plan and the Claude-written messages; posts and writes nothing
+npm run cash-count-reminders                # posts what is due
+```
+Exit 0 = ran (posted what was due, or nothing was due), 1 = a failure (database, Vault, Slack,
+migration 51 missing, or a failed step; each printed), 2 = bad argument or no `DATABASE_URL`.
+Neither token is ever printed or put on a command line.
+
 ## Schedule coverage reminder (droplet command)
-Every day at noon ET, emails the owners and on-schedule managers every staffed
-store hour (open hours plus the open-up and close-down minutes on the Targets
-tab) and every booked catering event in two Sun–Sat weeks that nobody is
-scheduled for (bj-finance #709, daily since #753). No gaps, no email. The two
+Every day at noon ET, emails the owners every staffed store hour (open hours
+plus the open-up and close-down minutes on the Targets tab) and every booked
+catering event in two Sun–Sat weeks that nobody is scheduled for (bj-finance
+#709, daily since #753). No gaps, no email. The two
 weeks start the Sunday after the most recent Thursday (a Thursday run counts
 itself), because the schedule is made on Wednesdays: Thursday, Friday and
 Saturday runs check the next two weeks; Sunday to Wednesday runs check the
@@ -489,9 +567,16 @@ weeks (`reminderWindow`). Store hours are judged by `checkWeekCoverage` in
 `time-app/lib/coverage.ts`, the function the schedule board's "Check week"
 button runs, so the two cannot disagree. Catering events are deals at Booked
 Paid, Booked Unpaid or Closed Marketing Event (`archived = 0`); one counts as
-covered when a published shift on it has a person. Recipients are read from
-the database (`profiles` joined to `auth.users`): every owner plus every active
-manager, leaving out anyone archived or banned. Logic: `lib/coverageReminder.ts`;
+covered when a published shift on it has a person, or when a manager placed
+crew by hand: a published Catering shift with a person and no `deal_id` that
+spans the whole event in New York time (or, with no end time, spans its start).
+A partial overlap does not cover, a shift linked to another deal never counts,
+and one hand-placed shift counts toward one event only, taken in time order. An
+event with no start time stays a gap. Crew size is not checked. Recipients are
+read from the database (`profiles` joined to `auth.users`): every owner, leaving
+out anyone archived or banned. Managers do not get this email (owner decision,
+2026-11-02). Logic: `lib/coverageReminder.ts`, with the hand-placed rule in
+`lib/handPlacedCrew.ts`;
 command: `lib/coverageReminderCli.ts`; reads: `lib/coverageReminderPg.ts`;
 send: `lib/gmailSend.ts`.
 
@@ -519,6 +604,22 @@ Creates the open crew shifts for booked catering deals that have a
 before departure, 15h+ shifts are flagged CHECK HOURS), run straight against
 Postgres instead of over HTTP.
 
+It creates one shift per crew member nobody has placed by hand: `staff_count`
+minus the distinct people on published Catering shifts with no `deal_id` that
+cover the whole event, on slots 1..n. "Covers" is the schedule coverage
+reminder's rule, shared in `lib/handPlacedCrew.ts`: the shift starts at or before
+the event start and ends at or after the event end; no end time means it must
+run past the start; an end earlier than the start is the next day; no start time
+cannot be judged, so nobody counts. A partial overlap does not count. With the
+whole crew placed it creates nothing and remembers nothing, so if the hand-placed
+shift is removed the open shifts appear on the next sweep. The count is per deal:
+one person on a shift spanning two overlapping events skips both, and the
+reminder, which gives one shift to one event, still lists one as a gap. A failed
+read fails that deal, never reads as "nobody placed". A deal with any linked shift
+is left alone, shifts are never updated or deleted, and `deal_id` is never written
+onto a hand-placed shift (payroll's `eventShifts` falls back to same-day Catering
+shifts only when a deal has no linked shifts with a person).
+
 | Name | Value |
 | --- | --- |
 | `DATABASE_URL` | Postgres DSN for the Supabase project. Never read from the Google Drive |
@@ -528,9 +629,11 @@ npm ci                                   # installs tsx and postgres (both runti
 npm run reconcile-shifts -- --dry-run    # read-only: reports what it would create
 npm run reconcile-shifts                 # creates the shifts
 ```
-Prints one summary line. Exit 0 = ok, 1 = the sweep or a deal failed,
-2 = bad argument or `DATABASE_URL` missing. The dry run runs in a read-only
-transaction and EXPLAINs each insert it would make.
+Prints one summary line, which names the deals that got shifts and the deals
+that failed; a deal skipped for hand-placed crew is only counted as scanned.
+Exit 0 = ok, 1 = the sweep or a deal failed, 2 = bad argument or `DATABASE_URL`
+missing. The dry run runs in a read-only transaction and EXPLAINs each insert it
+would make.
 
 Where it runs: on Alina's Mac, from a clean checkout of `main` at
 `~/systems/crm-app` (the same `~/systems/` convention as the catering

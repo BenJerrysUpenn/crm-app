@@ -14,8 +14,8 @@ architecture_ground_truth:
       created by hand under Authentication > Users with Auto Confirm User ticked — "No
       public sign-up page exists." :70-80 the stage write contract — a stage change
       writes stage, is_active (0 for the four terminal stages, else 1) and updated_at in
-      a single update via buildStagePatch in lib/dealUpdate.ts, and a move into Booked
-      Paid also sets payment_status to Deposit Paid when the row had none. :82-85 the
+      a single update via buildStagePatch in lib/dealUpdate.ts, a stage move does not
+      change payment_status, and writeStageChange appends deal_events rows. :82-85 the
       app does NOT write deals.boomerang_reason — writing it would make every stage
       change fail, and nothing in the app reads it either (bj-finance #466); the most
       directly gradeable rule in the file. :91 the board loads archived = 0 rows only.
@@ -108,6 +108,8 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/supabase/migration_46*.sql"]
     docs: [README.md, docs/payroll-verify.md]
+  - paths: ["time-app/supabase/migration_49*.sql", "time-app/supabase/migration_50*.sql", "time-app/supabase/migration_52*.sql"]
+    docs: [README.md, GLOSSARY.md, docs/payroll-verify.md]
   - paths: ["time-app/supabase/migration_47*.sql", "time-app/lib/coverage.ts", "time-app/lib/weekCoverage.ts", "time-app/lib/storeHours*.ts", "time-app/lib/localPreview.ts", "time-app/components/StoreHoursAdmin.tsx", "time-app/app/api/store-hours/**", "time-app/app/api/dev/**", "time-app/app/dev/**"]
     docs: [README.md, GLOSSARY.md]
   - paths: ["time-app/app/api/schedule/check-week/**", "time-app/components/CheckWeekButton.tsx"]
@@ -124,10 +126,14 @@ documentation_map:
     docs: [README.md]
   - paths: ["lib/callDesk/options.ts", "components/callDesk/GenerateDealForm.tsx"]
     docs: [docs/call-desk.md, docs/manual-deal-intake.md]
+  - paths: ["time-app/lib/cashCount/**", "time-app/lib/testing/cashCountStore.ts", "time-app/supabase/migration_51*.sql", "lib/cashCountPg.ts", "scripts/cash-count-reminders.ts"]
+    docs: [README.md, time-app/SETUP-GUIDE.md]
   - paths: ["lib/dateFormat.ts", "lib/boomerang.ts", "components/MessageTimeline.tsx", "lib/callLog.ts", "app/api/deals/*/calls/**"]
     docs: [README.md]
   - paths: ["lib/eventChange.ts", "app/api/deals/*/event-change/**", "components/EventChangeDialog.tsx"]
     docs: [README.md]
+  - paths: ["lib/dealUpdate.ts", "components/KanbanBoard.tsx", "components/CalendarView.tsx"]
+    docs: [README.md, docs/call-desk.md]
 
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the

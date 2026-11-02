@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --test lib/*.test.ts lib/payroll/*.test.ts lib/reimbursements/*.test.ts lib/metrics/*.test.ts lib/controlBoard/*.test.ts",
+    "test": "node --test lib/*.test.ts lib/payroll/*.test.ts lib/reimbursements/*.test.ts lib/metrics/*.test.ts lib/controlBoard/*.test.ts lib/cashCount/*.test.ts",
     "test:db": "supabase/local/verify.sh",
     "typecheck": "tsc --noEmit"
   },

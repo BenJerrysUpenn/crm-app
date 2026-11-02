@@ -282,7 +282,9 @@ emailing)**, does exactly that and nothing more:
   `Closed Lost` through the CRM's own stage-change path (`buildStagePatch` +
   `writeStageChange` in `lib/dealUpdate.ts` — the same code the Kanban board and
   the calendar use), so `is_active` stays consistent with what
-  Catering-Manager's automation expects.
+  Catering-Manager's automation expects. The move also writes its `deal_events`
+  rows; if only that history insert fails the deal is still closed and the route
+  answers 500 `Call saved and deal N closed, but its history was not saved`.
 - The row is **not** hidden. It stays on the desk with a "Lost (still emailed)"
   badge, Call now greyed with "Marked lost, reopen to call", and a **Reopen for
   calling** button that posts to `/api/call-desk/prospects/[id]/reopen`. The

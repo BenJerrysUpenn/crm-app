@@ -15,6 +15,7 @@ import {
   reminderEmail,
   reminderWindow,
   selectRecipients,
+  type RecipientRow,
   type ReminderSnapshot,
 } from "@/lib/coverageReminder";
 
@@ -34,6 +35,7 @@ function shift(starts: string, ends: string, over: Record<string, unknown> = {})
     employee_id: "emp-1",
     position: "PENN Closer",
     published: true,
+    deal_id: null,
     ...over,
   };
 }
@@ -361,6 +363,225 @@ describe("catering", () => {
       "Sat Oct 24, 2:00–6:00 PM",
     ]);
   });
+  // A manager can place crew by hand: a published Catering shift with a person
+  // and no deal_id. It covers an event only if it spans the whole event, and
+  // only one event. Every name and id here is made up: this repository is public.
+  describe("hand-placed Catering shifts", () => {
+    const sat24 = (hhmm: string) => `2026-10-24T${hhmm}:00-04:00`;
+    const handPlaced = (from: string, to: string, over: Record<string, unknown> = {}) =>
+      shift(from, to, { position: "Catering", deal_id: null, ...over });
+    const satHandPlaced = (from: string, to: string, over: Record<string, unknown> = {}) =>
+      handPlaced(sat24(from), sat24(to), over);
+    const satDeal = (from: string | null, to: string | null, over: Record<string, unknown> = {}) =>
+      deal({ event_start_time: from, event_end_time: to, ...over });
+
+    function lines(
+      deals: ReturnType<typeof deal>[],
+      shifts: ReturnType<typeof shift>[],
+      dealShifts: ReminderSnapshot["dealShifts"] = [],
+      runDate = RUN_DATE,
+    ) {
+      return buildReminder(snapshot({ storeHours: [], deals, shifts, dealShifts }), runDate);
+    }
+
+    it("three people spanning the event cover it, with its open auto-created shifts beside them", () => {
+      const event = satDeal("14:30", "15:30");
+      const open = (slot: number) =>
+        shift(sat24("13:00"), sat24("17:00"), { employee_id: null, position: "Catering", deal_id: 1, deal_slot: slot });
+      const shifts = [
+        satHandPlaced("12:30", "16:00", { employee_id: "emp-1" }),
+        satHandPlaced("12:30", "16:00", { employee_id: "emp-2" }),
+        satHandPlaced("12:30", "16:00", { employee_id: "emp-3" }),
+        open(1),
+        open(2),
+        open(3),
+      ];
+      const dealShifts = [1, 2, 3].map(() => ({ deal_id: 1, employee_id: null, published: true }));
+      expect(lines([event], shifts, dealShifts)).toEqual([]);
+    });
+
+    it("a shift that ends before the event does stays a gap", () => {
+      const event = satDeal("19:30", "21:00");
+      expect(lines([event], [satHandPlaced("15:00", "20:00")])).toEqual(["Sat Oct 24, 7:30–9:00 PM (catering)"]);
+    });
+
+    it("a shift that starts after the event does stays a gap", () => {
+      const event = satDeal("14:00", "15:00");
+      expect(lines([event], [satHandPlaced("14:30", "18:00")])).toEqual(["Sat Oct 24, 2:00–3:00 PM (catering)"]);
+    });
+
+    it("a shift matching the event to the minute covers it; a minute short either way does not", () => {
+      const event = satDeal("14:00", "15:00");
+      expect(lines([event], [satHandPlaced("14:00", "15:00")])).toEqual([]);
+      const gap = ["Sat Oct 24, 2:00–3:00 PM (catering)"];
+      expect(lines([event], [satHandPlaced("14:01", "15:00")])).toEqual(gap);
+      expect(lines([event], [satHandPlaced("14:00", "14:59")])).toEqual(gap);
+    });
+
+    it("an open shift linked to the event, and nobody else, is a gap", () => {
+      const open = shift(sat24("13:00"), sat24("17:00"), { employee_id: null, position: "Catering", deal_id: 1 });
+      const dealShifts = [{ deal_id: 1, employee_id: null, published: true }];
+      expect(lines([satDeal("14:00", "15:00")], [open], dealShifts)).toEqual(["Sat Oct 24, 2:00–3:00 PM (catering)"]);
+    });
+
+    it.each([
+      ["linked to another deal", { deal_id: 99 }],
+      ["unpublished", { published: false }],
+      ["with no person", { employee_id: null }],
+      ["in-store", { position: "PENN Closer" }],
+      ["for a marketing shift", { position: "Marketing" }],
+      ["with no position", { position: null }],
+    ])("a spanning shift %s does not count", (_what, over) => {
+      const dealShifts = "deal_id" in over ? [{ deal_id: 99, employee_id: "emp-1", published: true }] : [];
+      expect(lines([satDeal("14:00", "15:00")], [satHandPlaced("12:00", "18:00", over)], dealShifts)).toEqual([
+        "Sat Oct 24, 2:00–3:00 PM (catering)",
+      ]);
+    });
+
+    it("a Catering position typed with stray spaces still covers", () => {
+      expect(lines([satDeal("14:00", "15:00")], [satHandPlaced("12:00", "18:00", { position: " Catering\n" })])).toEqual([]);
+    });
+
+    it("the same times on another day do not count", () => {
+      const friday = handPlaced("2026-10-23T12:00:00-04:00", "2026-10-23T18:00:00-04:00");
+      expect(lines([satDeal("14:00", "15:00")], [friday])).toEqual(["Sat Oct 24, 2:00–3:00 PM (catering)"]);
+    });
+
+    it("one shift covers the earlier of two overlapping events, whatever order they are read in", () => {
+      const early = satDeal("14:00", "15:00", { id: 2 });
+      const late = satDeal("14:30", "15:30", { id: 1 });
+      const shifts = [satHandPlaced("12:00", "18:00")];
+      expect(lines([late, early], shifts)).toEqual(["Sat Oct 24, 2:30–3:30 PM (catering)"]);
+      expect(lines([early, late], shifts)).toEqual(["Sat Oct 24, 2:30–3:30 PM (catering)"]);
+    });
+
+    it("one shift covers only one event even when the events do not overlap", () => {
+      const deals = [satDeal("13:00", "14:00", { id: 1 }), satDeal("16:00", "17:00", { id: 2 })];
+      expect(lines(deals, [satHandPlaced("12:00", "18:00")])).toEqual(["Sat Oct 24, 4:00–5:00 PM (catering)"]);
+    });
+
+    it("two shifts cover two overlapping events", () => {
+      const deals = [satDeal("14:00", "15:00", { id: 1 }), satDeal("14:30", "15:30", { id: 2 })];
+      const shifts = [satHandPlaced("12:00", "18:00", { employee_id: "emp-1" }), satHandPlaced("12:00", "18:00", { employee_id: "emp-2" })];
+      expect(lines(deals, shifts)).toEqual([]);
+    });
+
+    it("an event takes the shift that ends soonest, leaving the longer one for the event that needs it", () => {
+      const deals = [satDeal("14:00", "15:00", { id: 1 }), satDeal("14:30", "19:00", { id: 2 })];
+      const shifts = [satHandPlaced("13:00", "20:00", { employee_id: "emp-1" }), satHandPlaced("13:00", "16:00", { employee_id: "emp-2" })];
+      expect(lines(deals, shifts)).toEqual([]);
+    });
+
+    it("an event covered by its own shift leaves the hand-placed shift for another event", () => {
+      const deals = [satDeal("14:00", "15:00", { id: 1 }), satDeal("14:30", "15:30", { id: 2 })];
+      const dealShifts = [{ deal_id: 1, employee_id: "emp-2", published: true }];
+      expect(lines(deals, [satHandPlaced("12:00", "18:00")], dealShifts)).toEqual([]);
+    });
+
+    it("an event the reminder does not check leaves the shift alone", () => {
+      const deals = [
+        satDeal("13:00", "14:00", { id: 1, stage: "Closed Lost" }),
+        satDeal("13:30", "14:30", { id: 2, archived: 1 }),
+        satDeal("14:00", "15:00", { id: 3 }),
+      ];
+      expect(lines(deals, [satHandPlaced("12:00", "18:00")])).toEqual([]);
+    });
+
+    describe("an event with no end time", () => {
+      const event = satDeal("14:00", null);
+      const gap = ["Sat Oct 24, 2:00 PM (catering)"];
+
+      it("is covered by a shift spanning its start", () => {
+        expect(lines([event], [satHandPlaced("13:00", "14:30")])).toEqual([]);
+        expect(lines([event], [satHandPlaced("14:00", "14:30")])).toEqual([]);
+      });
+
+      it("stays a gap when the shift ends at the start or starts after it", () => {
+        expect(lines([event], [satHandPlaced("12:00", "14:00")])).toEqual(gap);
+        expect(lines([event], [satHandPlaced("14:01", "18:00")])).toEqual(gap);
+      });
+    });
+
+    describe("an event with no start time", () => {
+      it("cannot be judged, so it stays a gap, with or without an end time", () => {
+        const allDay = satHandPlaced("00:00", "23:00");
+        expect(lines([satDeal(null, null)], [allDay])).toEqual(["Sat Oct 24 (catering, time not set)"]);
+        expect(lines([satDeal(null, "15:00")], [allDay])).toEqual(["Sat Oct 24 (catering, time not set)"]);
+      });
+
+      it("does not use up the shift", () => {
+        const deals = [satDeal(null, null, { id: 1 }), satDeal("14:00", "15:00", { id: 2 })];
+        expect(lines(deals, [satHandPlaced("12:00", "18:00")])).toEqual(["Sat Oct 24 (catering, time not set)"]);
+      });
+    });
+
+    describe("in New York time", () => {
+      it("reads a shift stored in UTC on its New York clock, across the UTC date", () => {
+        // 2:00–9:00 PM EDT on Oct 24 ends on Oct 25 in UTC.
+        const utc = handPlaced("2026-10-24T18:00:00Z", "2026-10-25T01:00:00Z");
+        expect(lines([satDeal("19:30", "21:00")], [utc])).toEqual([]);
+        // 2:00–8:00 PM EDT.
+        const short = handPlaced("2026-10-24T18:00:00Z", "2026-10-25T00:00:00Z");
+        expect(lines([satDeal("19:30", "21:00")], [short])).toEqual(["Sat Oct 24, 7:30–9:00 PM (catering)"]);
+      });
+
+      it("a shift crossing midnight covers an event just after midnight", () => {
+        const overnight = handPlaced("2026-10-23T22:00:00-04:00", "2026-10-24T02:00:00-04:00");
+        expect(lines([satDeal("00:30", "01:30")], [overnight])).toEqual([]);
+        expect(lines([satDeal("01:30", "02:30")], [overnight])).toEqual(["Sat Oct 24, 1:30–2:30 AM (catering)"]);
+      });
+
+      it("an event ending after midnight ends the next day", () => {
+        const event = satDeal("22:00", "00:30");
+        const through = handPlaced(sat24("21:00"), "2026-10-25T01:00:00-04:00");
+        expect(lines([event], [through])).toEqual([]);
+        expect(lines([event], [satHandPlaced("21:00", "23:59")])).toEqual(["Sat Oct 24, 10:00 PM–12:30 AM (catering)"]);
+      });
+
+      // Thursday Oct 29 checks from Sunday Nov 1, when the clocks go back at 2 AM.
+      describe("on the day the clocks go back", () => {
+        const THURSDAY = "2026-10-29";
+        const est = (hhmm: string) => `2026-11-01T${hhmm}:00-05:00`;
+        const nov1 = (from: string, to: string) => deal({ event_date: "2026-11-01", event_start_time: from, event_end_time: to });
+
+        it("compares the afternoon on the winter clock", () => {
+          expect(lines([nov1("14:30", "15:30")], [handPlaced(est("12:30"), est("16:00"))], [], THURSDAY)).toEqual([]);
+          expect(lines([nov1("14:30", "15:30")], [handPlaced(est("11:30"), est("15:00"))], [], THURSDAY)).toEqual([
+            "Sun Nov 1, 2:30–3:30 PM (catering)",
+          ]);
+        });
+
+        it("compares the small hours right after the change", () => {
+          expect(lines([nov1("03:00", "04:00")], [handPlaced(est("02:30"), est("05:00"))], [], THURSDAY)).toEqual([]);
+          expect(lines([nov1("03:00", "04:00")], [handPlaced(est("03:30"), est("05:00"))], [], THURSDAY)).toEqual([
+            "Sun Nov 1, 3:00–4:00 AM (catering)",
+          ]);
+        });
+      });
+
+      // Thursday Mar 11 checks from Sunday Mar 14, when the clocks go forward at 2 AM.
+      describe("on the day the clocks go forward", () => {
+        const THURSDAY = "2027-03-11";
+        const edt = (hhmm: string) => `2027-03-14T${hhmm}:00-04:00`;
+        const mar14 = (from: string, to: string) => deal({ event_date: "2027-03-14", event_start_time: from, event_end_time: to });
+
+        it("compares the afternoon on the summer clock", () => {
+          expect(lines([mar14("14:30", "15:30")], [handPlaced(edt("12:30"), edt("16:00"))], [], THURSDAY)).toEqual([]);
+          expect(lines([mar14("14:30", "15:30")], [handPlaced(edt("11:00"), edt("15:00"))], [], THURSDAY)).toEqual([
+            "Sun Mar 14, 2:30–3:30 PM (catering)",
+          ]);
+        });
+
+        it("a shift from before midnight across the change covers an event right after it", () => {
+          const overnight = handPlaced("2027-03-13T23:00:00-05:00", edt("04:00"));
+          expect(lines([mar14("03:30", "03:45")], [overnight], [], THURSDAY)).toEqual([]);
+          expect(lines([mar14("03:30", "04:30")], [overnight], [], THURSDAY)).toEqual([
+            "Sun Mar 14, 3:30–4:30 AM (catering)",
+          ]);
+        });
+      });
+    });
+  });
 });
 
 describe("reminderEmail", () => {
@@ -379,37 +600,38 @@ describe("reminderEmail", () => {
 describe("selectRecipients", () => {
   // Fake addresses only: this repository is public.
   function person(email: string, over: Record<string, unknown> = {}) {
-    return { email, role: "employee", active: true, archived_at: null, banned_until: null, ...over };
+    return { email, role: "employee", archived_at: null, banned_until: null, ...over } as RecipientRow;
   }
 
-  it("owners and on-schedule managers, nobody else", () => {
+  it("owners only: a manager on the schedule is not a recipient (owner decision, 2026-11-02)", () => {
     const rows = [
-      // Owners are active = false by design (they are not on the schedule);
-      // a blanket active filter would drop them.
-      person("owner-a@example.test", { role: "owner", active: false }),
-      person("owner-b@example.test", { role: "owner", active: false }),
-      person("manager-a@example.test", { role: "manager" }),
-      person("manager-b@example.test", { role: "manager" }),
-      // A manager who is off the schedule.
-      person("manager-off@example.test", { role: "manager", active: false }),
-      person("archived-manager@example.test", { role: "manager", archived_at: "2026-09-01T00:00:00Z" }),
-      person("banned-owner@example.test", { role: "owner", banned_until: "2999-01-01T00:00:00Z" }),
-      person("archived-owner@example.test", { role: "owner", active: false, archived_at: "2026-09-01T00:00:00Z" }),
+      person("owner-a@example.test", { role: "owner" }),
+      person("owner-b@example.test", { role: "owner" }),
+      // An active manager is still left out.
+      person("manager-a@example.test", { role: "manager", active: true }),
       person("staff@example.test"),
-      person("", { role: "manager" }),
     ];
-    expect(selectRecipients(rows)).toEqual([
-      "manager-a@example.test",
-      "manager-b@example.test",
-      "owner-a@example.test",
-      "owner-b@example.test",
-    ]);
+    expect(selectRecipients(rows)).toEqual(["owner-a@example.test", "owner-b@example.test"]);
+  });
+
+  it("no owners means nobody, even with managers on file", () => {
+    expect(selectRecipients([person("manager-a@example.test", { role: "manager", active: true })])).toEqual([]);
+  });
+
+  it("leaves out an archived or banned owner", () => {
+    const rows = [
+      person("owner-a@example.test", { role: "owner" }),
+      person("banned-owner@example.test", { role: "owner", banned_until: "2999-01-01T00:00:00Z" }),
+      person("archived-owner@example.test", { role: "owner", archived_at: "2026-09-01T00:00:00Z" }),
+    ];
+    expect(selectRecipients(rows)).toEqual(["owner-a@example.test"]);
   });
 
   it("each address once, trimmed, and a row with no address is skipped", () => {
     const rows = [
-      person(" owner-a@example.test\n", { role: "owner", active: false }),
-      person("owner-a@example.test", { role: "manager" }),
+      person(" owner-a@example.test\n", { role: "owner" }),
+      person("owner-a@example.test", { role: "owner" }),
+      person("", { role: "owner" }),
       { ...person("", { role: "owner" }), email: null },
     ];
     expect(selectRecipients(rows)).toEqual(["owner-a@example.test"]);

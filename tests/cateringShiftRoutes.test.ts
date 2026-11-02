@@ -69,6 +69,9 @@ const db = vi.hoisted(() => {
     index: null as null | { columns: string[]; where: string | null },
     infers: null as null | ((i: { columns: string[]; where: string | null }, c: string) => boolean),
     upserts: [] as Array<{ options: unknown }>,
+    // Every filter call of the last hand-placed read, in order.
+    shiftReadFilters: [] as Array<unknown[]>,
+    shiftReadError: null as null | string,
     adminClients: 0,
     user: { id: "manager-1" } as { id: string } | null,
   };
@@ -98,15 +101,30 @@ const db = vi.hoisted(() => {
   }
 
   function shiftsTable() {
-    let dealId: unknown = null;
+    const filters: Array<(r: Record<string, unknown>) => boolean> = [];
+    const calls: unknown[][] = [];
+    const filter = (call: unknown[], test: (r: Record<string, unknown>) => boolean) => {
+      calls.push(call);
+      filters.push(test);
+      return b;
+    };
     const b = {
       select: () => b,
-      eq: (_col: string, v: unknown) => {
-        dealId = v;
-        return b;
+      eq: (col: string, v: unknown) => filter(["eq", col, v], (r) => r[col] === v),
+      is: (col: string, v: unknown) => filter(["is", col, v], (r) => (r[col] ?? null) === v),
+      not: (col: string, op: string, v: unknown) => filter(["not", col, op, v], (r) => (r[col] ?? null) !== v),
+      like: (col: string, pattern: string) =>
+        filter(["like", col, pattern], (r) => String(r[col] ?? "").includes(pattern.replace(/%/g, ""))),
+      lt: (col: string, v: string) => filter(["lt", col, v], (r) => Date.parse(String(r[col])) < Date.parse(v)),
+      // The last filter of the hand-placed read, so it is the one awaited.
+      gt: async (col: string, v: string) => {
+        filter(["gt", col, v], (r) => Date.parse(String(r[col])) > Date.parse(v));
+        state.shiftReadFilters = calls;
+        if (state.shiftReadError) return { data: null, error: { message: state.shiftReadError } };
+        return { data: state.shifts.filter((s) => filters.every((f) => f(s))), error: null };
       },
       limit: async () => ({
-        data: state.shifts.filter((s) => s.deal_id === dealId).map((_, i) => ({ id: i })),
+        data: state.shifts.filter((s) => filters.every((f) => f(s))).map((_, i) => ({ id: i })),
         error: null,
       }),
       upsert: (rows: Array<Record<string, unknown>>, options: { onConflict: string; ignoreDuplicates: boolean }) => {
@@ -187,6 +205,8 @@ beforeEach(() => {
   db.state.index = MIGRATION_29;
   db.state.infers = infers;
   db.state.upserts = [];
+  db.state.shiftReadFilters = [];
+  db.state.shiftReadError = null;
   db.state.adminClients = 0;
   db.state.user = { id: "manager-1" };
   process.env.CRON_SECRET = SECRET;
@@ -340,5 +360,118 @@ describe("POST /api/deals/:id/booked-shifts", () => {
 
     expect(response.status).toBe(401);
     expect(db.state.shifts).toEqual([]);
+  });
+
+  // The single-deal path goes through createCateringShifts, so it counts crew
+  // placed by hand exactly as a sweep does.
+  describe("with crew placed by hand", () => {
+    const placed = (employee_id: string, over: Record<string, unknown> = {}) => ({
+      employee_id,
+      starts_at: "2026-10-10T12:30:00-04:00",
+      ends_at: "2026-10-10T20:00:00-04:00",
+      position: "Catering",
+      published: true,
+      deal_id: null,
+      ...over,
+    });
+    const TIMED = { ...DEAL, event_start_time: "15:00", event_end_time: "18:00" };
+
+    beforeEach(() => {
+      db.state.deals = [{ ...TIMED }];
+    });
+
+    it("answers skipped with the reason and writes nothing when the whole crew is placed", async () => {
+      const crew = [placed("emp-a"), placed("emp-b")];
+      db.state.shifts = [...crew];
+
+      const response = await post(DEAL.id);
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        ok: true,
+        created: 0,
+        skipped: true,
+        reason: "crew already placed by hand (2 of 2)",
+      });
+      expect(db.state.shifts).toEqual(crew);
+      expect(db.state.upserts).toEqual([]);
+    });
+
+    it("creates only the slots still open", async () => {
+      db.state.shifts = [placed("emp-a")];
+
+      const response = await post(DEAL.id);
+
+      expect(await response.json()).toEqual({ ok: true, created: 1 });
+      expect(db.state.shifts.filter((s) => s.deal_id === DEAL.id).map((s) => s.deal_slot)).toEqual([1]);
+    });
+
+    it("answers 500 with the database's words when the read fails, and writes nothing", async () => {
+      db.state.shiftReadError = "read refused";
+
+      const response = await post(DEAL.id);
+
+      expect(response.status).toBe(500);
+      expect((await response.json()).error).toBe("read refused");
+      expect(db.state.upserts).toEqual([]);
+    });
+  });
+});
+
+describe("the supabase-js store's hand-placed read", () => {
+  const RANGE = { fromISO: "2026-10-09T00:00:00Z", toISO: "2026-10-12T00:00:00Z" };
+  const row = (over: Record<string, unknown> = {}) => ({
+    employee_id: "emp-a",
+    starts_at: "2026-10-10T12:30:00-04:00",
+    ends_at: "2026-10-10T20:00:00-04:00",
+    position: "Catering",
+    published: true,
+    deal_id: null,
+    ...over,
+  });
+
+  it("asks only for published, unlinked Catering shifts with a person, overlapping the range", async () => {
+    await supabaseShiftStore(db.client as any).handPlacedCateringShifts(RANGE);
+
+    expect(db.state.shiftReadFilters).toEqual([
+      ["eq", "published", true],
+      ["is", "deal_id", null],
+      ["not", "employee_id", "is", null],
+      ["like", "position", "%Catering%"],
+      ["lt", "starts_at", RANGE.toISO],
+      ["gt", "ends_at", RANGE.fromISO],
+    ]);
+  });
+
+  it("brings back a padded position, so the rule can trim it as the reminder does", async () => {
+    const padded = row({ position: " Catering " });
+    db.state.shifts = [padded, row({ position: "PENN Closer" }), row({ published: false }), row({ deal_id: 7 })];
+
+    expect(await supabaseShiftStore(db.client as any).handPlacedCateringShifts(RANGE)).toEqual([padded]);
+  });
+
+  it("throws on a failed read, unlike the already-exists read beside it", async () => {
+    db.state.shiftReadError = "read refused";
+
+    await expect(supabaseShiftStore(db.client as any).handPlacedCateringShifts(RANGE)).rejects.toThrow("read refused");
+  });
+});
+
+describe("the cron sweep with crew placed by hand", () => {
+  it("creates nothing and answers as usual", async () => {
+    db.state.deals = [{ ...DEAL, event_start_time: "15:00", event_end_time: "18:00" }];
+    db.state.shifts = ["emp-a", "emp-b"].map((employee_id) => ({
+      employee_id,
+      starts_at: "2026-10-10T12:30:00-04:00",
+      ends_at: "2026-10-10T20:00:00-04:00",
+      position: "Catering",
+      published: true,
+      deal_id: null,
+    }));
+
+    const response = await GET(cron("", { authorization: `Bearer ${SECRET}` }));
+
+    expect(await response.json()).toEqual({ ok: true, scanned: 1, created: 0, deals: 0, warnings: [] });
+    expect(db.state.upserts).toEqual([]);
   });
 });

@@ -45,7 +45,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const ctx = await approverContext(params.id);
   if (ctx.res) return ctx.res;
-  const { row, subject, rates, supabase } = ctx;
+  const { row, subject, rates, caps, supabase } = ctx;
 
   const evidence = typeof body?.evidence_path === "string" ? body.evidence_path : "";
   if (!evidence.startsWith(`adjustments/${row.id}/`) || evidence.includes(".."))
@@ -78,7 +78,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (error) return NextResponse.json({ error: error.message }, { status: 409 });
   if (!data) return NextResponse.json({ error: CHANGED }, { status: 409 });
   const { reimbursement, adjustment } = data as { reimbursement: ReimbursementRow; adjustment: AdjustmentRow };
-  const [updated] = withAmounts([reimbursement], rates, [...row.adjustments, adjustment]);
+  const [updated] = withAmounts([reimbursement], rates, [...row.adjustments, adjustment], caps);
 
   await notifyEmployee(
     subject,

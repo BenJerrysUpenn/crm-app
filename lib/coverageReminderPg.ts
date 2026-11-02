@@ -53,7 +53,7 @@ function pgReminderStore(sql: postgres.TransactionSql): ReminderStore {
           select to_json(t) as row from (select name, in_store from public.shift_types) t`),
         jsonRows<ReminderShift>(sql`
           select to_json(s) as row from (
-            select starts_at, ends_at, employee_id, position, published from public.shifts
+            select starts_at, ends_at, employee_id, position, published, deal_id from public.shifts
             where starts_at >= ${qStart}::timestamptz and starts_at < ${qEnd}::timestamptz
           ) s`),
         jsonRows<ReminderSnapshot["closedRanges"][number]>(sql`
@@ -116,11 +116,11 @@ function pgReminderStore(sql: postgres.TransactionSql): ReminderStore {
     },
 
     // Everyone with a login; lib/coverageReminder.ts selectRecipients picks
-    // the owners and on-schedule managers.
+    // the owners.
     async recipientRows() {
       return jsonRows<RecipientRow>(sql`
         select to_json(r) as row from (
-          select u.email, p.role, p.active, p.archived_at, u.banned_until
+          select u.email, p.role, p.archived_at, u.banned_until
           from public.profiles p
           join auth.users u on u.id = p.id
         ) r`);

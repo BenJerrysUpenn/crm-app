@@ -49,6 +49,27 @@
 // does not fall back to the tier's Everyone sequence), and they are left out
 // of the Everyone card, Needed and capacity. isCakeOnly is that clause, line
 // for line.
+//
+// Wedding leads (owners' rulings 2026-10-27): archived people (archived_at
+// set) are dropped before counting, like suppressed people, with no archived
+// count shown. In Warm and Offer a prospect whose own category is 'wedding' is
+// in the wedding card even with no deal. A wedding contact whose event date
+// (the prospect's event_date, else the category-setting deal's) is before
+// today counts as archived, as the sender treats them.
+//
+// The wedding sequence (2026-10-27): Offer's Weddings & showers card has the
+// wedding sender's three touches as its seed (sequences.ts), wired like Warm's
+// warm_sender step, by the send-history templates each step counts. Touches 2
+// and 3 have no copy yet. A step with no copy (empty subject and body) is an
+// unwritten step: whoever had the steps before it is not finished, but it is
+// sent to nobody, so it never makes anyone Up next (the sender's
+// ready_touches() rule). Opens and clicks per template come from the
+// 'opened'/'clicked' rows, joined to the send on its tracking id, as
+// Catering-Manager's outreach_send_engagement view does (the view is not
+// granted to the app). Two of the sender's facts hold for its own list (own
+// category 'wedding'): it mails Yahoo/Microsoft addresses, so they are not
+// held as blocked, and it dates the last email from the send history, so a
+// logged send with no last_outreach_at stamped still counts as emailed then.
 
 export type ProspectRow = {
   id: number;
@@ -70,6 +91,10 @@ export type ProspectRow = {
   // The Salesforce lead status in `notes` is 'Cake Order' (leadStatusOf).
   // Filled by the loader; absent counts as false.
   cake_lead_status?: boolean;
+  // The prospect's own event date (wedding imports), 'YYYY-MM-DD'.
+  event_date?: string | null;
+  // Set when the person is archived: out of every tier and every number.
+  archived_at?: string | null;
 };
 
 export type DealRow = {
@@ -88,13 +113,27 @@ export type MailboxRow = {
   frozen: boolean;
 };
 
-/** One 'sequenced' outreach_events row: who got which template. */
-export type SentRow = { prospect_id: number; template: string | null };
+/** One 'sequenced' outreach_events row: who got which template. A tracked
+ * send carries the tracking id its open pixel and links report. */
+export type SentRow = {
+  prospect_id: number;
+  template: string | null;
+  tracking_id?: string | null;
+  sent_at?: string | null; // occurred_at
+};
+
+/** One 'opened' or 'clicked' outreach_events row (docs/tracking.md). */
+export type HitRow = { prospect_id: number; event: "opened" | "clicked"; tracking_id: string | null };
+
+/** Tracked sends of one template, and how many were opened or clicked at
+ * least once (outreach_engagement_by_template's opened_sends/clicked_sends). */
+export type Engagement = { tracked: number; opened: number; clicked: number };
 
 export type RawData = {
   prospects: ProspectRow[];
   deals: DealRow[];
   sent: SentRow[];
+  hits?: HitRow[];
   suppressedEmails: string[];
   blockedDomains: string[];
   mailboxes: MailboxRow[];
@@ -135,6 +174,8 @@ export type CategoryStat = {
   // A held category (Cake only): no sequence unless it gets its own, and left
   // out of the Everyone card, Needed and capacity.
   hold?: boolean;
+  // Opens and clicks of the sends to the people in it, by template.
+  engagement?: Record<string, Engagement>;
 };
 
 export type Sequence = {
@@ -239,6 +280,8 @@ const EVENT_BUCKETS: { key: string; label: string; re: RegExp }[] = [
   { key: "cake", label: "Cake orders", re: /cake/ },
 ];
 
+const WEDDING = EVENT_BUCKETS.find((b) => b.key === "wedding")!;
+
 export function eventBucket(eventType: string | null | undefined): { key: string; label: string } {
   const t = (eventType ?? "").toLowerCase().trim();
   if (!t || t.startsWith("--")) return { key: "unknown_event", label: "Event type unknown" };
@@ -285,35 +328,51 @@ export function countBelow(ages: number[], max: number): number {
   return ages.length - countAtLeast(ages, max);
 }
 
-/** The steps that apply to a category: each step as the history keys that
- * mean "already had it". Supplied by the client (sequences are edited there). */
-export type StepsFor = (catKey: string) => string[][];
+/** A step with no copy yet: part of the sequence, sent to nobody. */
+export type UnwrittenStep = { keys: string[]; unwritten: true };
+/** One step: the history keys that mean "already had it", or an unwritten
+ * step with its keys. */
+export type StepSpec = string[] | UnwrittenStep;
+export const specKeys = (s: StepSpec): string[] => (Array.isArray(s) ? s : s.keys);
+export const isUnwritten = (s: StepSpec): s is UnwrittenStep => !Array.isArray(s);
 
-export type HeldReason = "blocked" | "finished" | "noSequence" | "moved";
+/** The steps that apply to a category, in order. Supplied by the client
+ * (sequences are edited there). */
+export type StepsFor = (catKey: string) => StepSpec[];
+
+export type HeldReason = "blocked" | "finished" | "noSequence" | "moved" | "notWritten";
 export const HELD_REASON_LABEL: Record<HeldReason, string> = {
   blocked: "blocked provider",
   finished: "finished sequence, nothing new to send",
   noSequence: "no sequence yet, nothing to send",
   moved: "moved tiers, no new step",
+  notWritten: "next step's copy not written yet, nothing to send",
 };
 export const HELD_REASON_SHORT: Record<HeldReason, string> = {
   blocked: "blocked provider",
   finished: "finished sequence",
   noSequence: "no sequence yet",
   moved: "moved tiers, no new step",
+  notWritten: "copy not written yet",
 };
 
-/** Steps of `steps` this group has not had yet. */
-export function unsentSteps(g: Group, steps: string[][]): number {
-  return steps.filter((keys) => !keys.some((k) => g.received.includes(k))).length;
+const hadStep = (g: Group, s: StepSpec) => specKeys(s).some((k) => g.received.includes(k));
+
+/** Steps of `steps` this group has not had yet, written or not. */
+export function unsentSteps(g: Group, steps: StepSpec[]): number {
+  return steps.filter((s) => !hadStep(g, s)).length;
 }
 
-/** A group's standing, independent of the period: held (and why) or open. */
-export function groupStanding(g: Group, steps: string[][]): HeldReason | "open" {
+/** A group's standing, independent of the period: held (and why), open (its
+ * next step can be sent), or waiting (its next step has no copy yet: emailed
+ * this period, else held as notWritten; never Up next). */
+export function groupStanding(g: Group, steps: StepSpec[]): HeldReason | "open" | "waiting" {
   if (g.blocked) return "blocked";
   if (g.unknown) return "moved";
   if (steps.length === 0) return "noSequence";
-  return unsentSteps(g, steps) > 0 ? "open" : "finished";
+  const next = steps.find((s) => !hadStep(g, s));
+  if (!next) return "finished";
+  return isUnwritten(next) ? "waiting" : "open";
 }
 
 export const groupSize = (g: Group) => g.never + g.ages.length;
@@ -325,9 +384,17 @@ export function statesAt(c: CategoryStat, cadence: Cadence, stepsFor: StepsFor) 
   let emailed = 0;
   let lowPriority = 0;
   let upNextNeedsReveal = 0;
-  const heldBy: Record<HeldReason, number> = { blocked: 0, finished: 0, noSequence: 0, moved: 0 };
+  let emailedWaiting = 0;
+  const heldBy: Record<HeldReason, number> = { blocked: 0, finished: 0, noSequence: 0, moved: 0, notWritten: 0 };
   for (const g of c.groups) {
     const standing = groupStanding(g, stepsFor(g.cat));
+    if (standing === "waiting") {
+      const recent = countBelow(g.ages, period);
+      emailed += recent;
+      emailedWaiting += recent;
+      heldBy.notWritten += groupSize(g) - recent;
+      continue;
+    }
     if (standing !== "open") {
       heldBy[standing] += groupSize(g);
       continue;
@@ -338,7 +405,7 @@ export function statesAt(c: CategoryStat, cadence: Cadence, stepsFor: StepsFor) 
     if (g.talked) lowPriority += due;
     upNextNeedsReveal += g.needsReveal;
   }
-  const held = heldBy.blocked + heldBy.finished + heldBy.noSequence + heldBy.moved;
+  const held = heldBy.blocked + heldBy.finished + heldBy.noSequence + heldBy.moved + heldBy.notWritten;
   return {
     upNext,
     emailed,
@@ -347,8 +414,9 @@ export function statesAt(c: CategoryStat, cadence: Cadence, stepsFor: StepsFor) 
     // Talked to since May: part of Up next, listed last.
     lowPriority,
     upNextNeedsReveal,
-    // Everyone who still has something to send (Needed counts these).
-    withStepsLeft: upNext + emailed,
+    // Everyone who still has something to send (Needed counts these); not
+    // those whose next step has no copy yet.
+    withStepsLeft: upNext + emailed - emailedWaiting,
     // Invariant: every person is in exactly one state. Shown only if > 0.
     unaccounted: Math.abs(c.total - upNext - emailed - held),
   };
@@ -359,19 +427,42 @@ export function statesAt(c: CategoryStat, cadence: Cadence, stepsFor: StepsFor) 
  * capacity are worked out from this card, so they leave held people out too. */
 export function everyoneOf(t: TierPayload): CategoryStat {
   const sendable = t.categories.filter((c) => !c.hold);
+  const engagement: Record<string, Engagement> = {};
+  for (const c of sendable)
+    for (const [k, e] of Object.entries(c.engagement ?? {})) {
+      const acc = (engagement[k] ??= { tracked: 0, opened: 0, clicked: 0 });
+      acc.tracked += e.tracked;
+      acc.opened += e.opened;
+      acc.clicked += e.clicked;
+    }
   return {
     key: "everyone",
     label: "Everyone",
     total: sendable.reduce((s, c) => s + c.total, 0),
     groups: sendable.flatMap((c) => c.groups),
     sources: t.sources,
+    engagement,
   };
+}
+
+/** Opens and clicks of one step on one card: its templates' tracked sends
+ * summed. Null when none of them was tracked (nothing to show). */
+export function stepEngagement(c: CategoryStat, keys: string[]): Engagement | null {
+  const out: Engagement = { tracked: 0, opened: 0, clicked: 0 };
+  for (const k of keys) {
+    const e = c.engagement?.[k];
+    if (!e) continue;
+    out.tracked += e.tracked;
+    out.opened += e.opened;
+    out.clicked += e.clicked;
+  }
+  return out.tracked > 0 ? out : null;
 }
 
 /** The steps that apply to a category: its own sequence if it has steps,
  * otherwise the tier's Everyone sequence. A held category never falls back to
  * Everyone, so with no sequence of its own it has nothing to send. */
-export function categorySteps(catKey: string, own: string[][], everyone: string[][]): string[][] {
+export function categorySteps(catKey: string, own: StepSpec[], everyone: StepSpec[]): StepSpec[] {
   if (own.length) return own;
   return HOLD_CATEGORIES.has(catKey) ? [] : everyone;
 }
@@ -517,6 +608,7 @@ export function compute(data: RawData, now: Date): Payload {
   const twelveMonthsAgo = new Date(now);
   twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
   const twelveMonthsAgoISO = twelveMonthsAgo.toISOString().slice(0, 10);
+  const todayISO = now.toISOString().slice(0, 10);
 
   const suppressed = new Set(data.suppressedEmails.map(lc));
   const blocked = new Set(data.blockedDomains.map(lc));
@@ -524,12 +616,25 @@ export function compute(data: RawData, now: Date): Payload {
   // Send history, per prospect row, then shared by every row with that email
   // (a person can have a cold row and a warm row).
   const histById = new Map<number, Set<string>>();
+  const lastSentById = new Map<number, string>();
   for (const r of data.sent ?? []) {
     if (!r.template) continue;
+    if (r.sent_at && r.sent_at > (lastSentById.get(r.prospect_id) ?? "")) lastSentById.set(r.prospect_id, r.sent_at);
     let h = histById.get(r.prospect_id);
     if (!h) histById.set(r.prospect_id, (h = new Set()));
     h.add(r.template);
   }
+  // Tracked sends per prospect row, and which of them were opened / clicked.
+  const trackedById = new Map<number, { template: string; tid: string }[]>();
+  for (const r of data.sent ?? []) {
+    if (!r.template || !r.tracking_id) continue;
+    let t = trackedById.get(r.prospect_id);
+    if (!t) trackedById.set(r.prospect_id, (t = []));
+    t.push({ template: r.template, tid: r.tracking_id });
+  }
+  const hitKeys = { opened: new Set<string>(), clicked: new Set<string>() };
+  for (const h of data.hits ?? []) if (h.tracking_id) hitKeys[h.event]?.add(`${h.prospect_id}:${h.tracking_id}`);
+
   const histByEmail = new Map<string, Set<string>>();
   for (const p of data.prospects) {
     const h = histById.get(p.id);
@@ -569,10 +674,11 @@ export function compute(data: RawData, now: Date): Payload {
     total: number;
     needsReveal: number;
     cats: Map<string, CatAcc>;
-    routed: number; // everyone who landed in this tier, suppressed included
+    routed: number; // everyone who landed in this tier, suppressed and archived included
     suppressed: number;
+    archived: number; // for the invariant only; never shown (owners, 2026-10-27)
   };
-  const mk = (): TierAcc => ({ total: 0, needsReveal: 0, cats: new Map(), routed: 0, suppressed: 0 });
+  const mk = (): TierAcc => ({ total: 0, needsReveal: 0, cats: new Map(), routed: 0, suppressed: 0, archived: 0 });
   const tiers: Record<TierKey, TierAcc> = { cold: mk(), warm: mk(), offer: mk() };
   // Seed cold categories so empty segments still show.
   for (const [k, l] of Object.entries(COLD_LABELS)) tiers.cold.cats.set(k, newCat(k, l));
@@ -612,41 +718,33 @@ export function compute(data: RawData, now: Date): Payload {
       if (email && dealEmails.has(email)) flows.coldToDeal++;
     }
 
-    // Suppressed people leave the system before anything is counted.
-    if (p.status === "suppressed" || p.status === "dead" || (email && suppressed.has(email))) {
-      acc.suppressed++;
-      continue;
-    }
-    acc.total++;
-
-    // Category
+    // Category. Warm/Offer flows are counted once the person is known to be in.
     let catKey: string;
     let catLabel: string;
+    // The deal the tier reads the event type from (none for cold).
+    const catDeal =
+      tier === "warm" ? latestDeal.get(email) : tier === "offer" ? (latestBooked.get(email) ?? latestDeal.get(email)) : undefined;
     if (tier === "cold") {
       catKey = p.category ?? "uncategorised";
       catLabel = COLD_LABELS[catKey] ?? "Uncategorised";
+    } else if (lc(p.category) === WEDDING.key) {
+      // Their own category: Weddings & showers even with no deal (2026-10-27).
+      catKey = WEDDING.key;
+      catLabel = tier === "warm" ? `Enquired: ${WEDDING.label}` : WEDDING.label;
     } else if (tier === "warm") {
       if (p.ever_booked) {
         catKey = "past_booker";
         catLabel = "Past bookers (12 mo+)";
-        flows.offerToWarm++;
+      } else if (!catDeal) {
+        catKey = "no_deal";
+        catLabel = "Salesforce lead, no deal on file";
       } else {
-        const d = latestDeal.get(email);
-        if (!d) {
-          catKey = "no_deal";
-          catLabel = "Salesforce lead, no deal on file";
-        } else {
-          const b = eventBucket(d.event_type);
-          catKey = b.key;
-          catLabel = `Enquired: ${b.label}`;
-          flows.dealToWarm++;
-        }
+        const b = eventBucket(catDeal.event_type);
+        catKey = b.key;
+        catLabel = `Enquired: ${b.label}`;
       }
     } else {
-      if (recentBooker) flows.offerBookedRecent++;
-      else flows.offerOptedIn++;
-      const d = latestBooked.get(email) ?? latestDeal.get(email);
-      const b = eventBucket(d?.event_type);
+      const b = eventBucket(catDeal?.event_type);
       catKey = b.key;
       catLabel = b.label;
     }
@@ -655,6 +753,29 @@ export function compute(data: RawData, now: Date): Payload {
       catKey = CAKE_ONLY.key;
       catLabel = CAKE_ONLY.label;
     }
+
+    // Suppressed people leave the system before anything is counted.
+    if (p.status === "suppressed" || p.status === "dead" || (email && suppressed.has(email))) {
+      acc.suppressed++;
+      continue;
+    }
+    // So do archived people, and wedding contacts whose date has passed (the
+    // sender's rule), whether or not archived_at is stamped yet.
+    const eventDate = (catKey === WEDDING.key && (p.event_date ?? catDeal?.event_date)) || "";
+    if (p.archived_at || (/^\d{4}-\d{2}-\d{2}/.test(eventDate) && eventDate.slice(0, 10) < todayISO)) {
+      acc.archived++;
+      continue;
+    }
+    acc.total++;
+
+    if (tier === "warm") {
+      if (p.ever_booked) flows.offerToWarm++;
+      else if (catDeal) flows.dealToWarm++;
+    } else if (tier === "offer") {
+      if (recentBooker) flows.offerBookedRecent++;
+      else flows.offerOptedIn++;
+    }
+
     let cat = acc.cats.get(catKey);
     if (!cat) {
       cat = newCat(catKey, catLabel);
@@ -663,10 +784,14 @@ export function compute(data: RawData, now: Date): Payload {
 
     // Group inputs. The period split and the sequence check happen in
     // statesAt (cadence and sequences are client state).
-    const touchedMs = p.last_outreach_at ? Date.parse(p.last_outreach_at) : NaN;
+    // The wedding sender's own list (outreach_wedding_schedule: engine warm,
+    // category wedding).
+    const onWeddingSender = lc(p.category) === WEDDING.key;
+    const lastTouch = p.last_outreach_at ?? (onWeddingSender ? (lastSentById.get(p.id) ?? null) : null);
+    const touchedMs = lastTouch ? Date.parse(lastTouch) : NaN;
     const ageDays = Number.isNaN(touchedMs) ? null : Math.max(0, Math.floor((nowMs - touchedMs) / DAY));
     const domain = email.split("@")[1] ?? "";
-    const isBlocked = tier !== "cold" && !!email && blocked.has(domain);
+    const isBlocked = tier !== "cold" && !onWeddingSender && !!email && blocked.has(domain);
     const talked = tier !== "cold" && !!email && !isBlocked && talkedRecently.has(email);
     const hist = new Set<string>([...(histById.get(p.id) ?? []), ...((email && histByEmail.get(email)) || [])]);
     const received = Array.from(hist).sort();
@@ -690,7 +815,7 @@ export function compute(data: RawData, now: Date): Payload {
       name: p.name || p.company || "(no name)",
       email: p.email,
       status: p.status,
-      last_touch: p.last_outreach_at,
+      last_touch: lastTouch,
       age_days: ageDays,
       why: facts.join(" · "),
     };
@@ -716,6 +841,13 @@ export function compute(data: RawData, now: Date): Payload {
     }
     cat.stat.total++;
     g.people.push(person);
+    for (const s of trackedById.get(p.id) ?? []) {
+      const eng = (cat.stat.engagement ??= {});
+      const e = (eng[s.template] ??= { tracked: 0, opened: 0, clicked: 0 });
+      e.tracked++;
+      if (hitKeys.opened.has(`${p.id}:${s.tid}`)) e.opened++;
+      if (hitKeys.clicked.has(`${p.id}:${s.tid}`)) e.clicked++;
+    }
     if (ageDays === null) {
       g.group.never++;
       if (!p.email) {
@@ -772,13 +904,13 @@ export function compute(data: RawData, now: Date): Payload {
     const sources: TierPayload["sources"] =
       key === "cold" ? [{ label: "Apollo", n: acc.total }] : undefined;
 
-    // Invariant: routed = everyone + suppressed; everyone = sum of the
+    // Invariant: routed = everyone + suppressed + archived; everyone = sum of the
     // categories = sum of the groups; and (checked per card, cadence and
     // sequence in statesAt) everyone = Up next + Emailed + Held.
     const catSum = categories.reduce((s, c) => s + c.total, 0);
     const groupSum = categories.reduce((s, c) => s + c.groups.reduce((t, g) => t + groupSize(g), 0), 0);
     const unaccounted =
-      Math.abs(acc.total - groupSum) + Math.abs(acc.total - catSum) + Math.abs(acc.routed - acc.suppressed - acc.total);
+      Math.abs(acc.total - groupSum) + Math.abs(acc.total - catSum) + Math.abs(acc.routed - acc.suppressed - acc.archived - acc.total);
 
     let capacity: TierPayload["capacity"];
     if (key === "cold") {
@@ -803,7 +935,7 @@ export function compute(data: RawData, now: Date): Payload {
         mailboxes: 0,
         perMailboxDay: warmPerMailbox,
         capDay: null,
-        source: `No offer lane yet, so 0 mailboxes. A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Today warm_sender mails offer people the warm template.`,
+        source: `No offer lane yet, so 0 mailboxes. A mailbox is assumed to carry ${warmPerMailbox}/day like the warm ones. Wedding contacts in Offer are sent through the warm lane.`,
       };
     }
 
@@ -847,9 +979,10 @@ export function compute(data: RawData, now: Date): Payload {
     notes: [
       "Tiers and warm/offer categories are worked out by this page from existing columns; there are no tier or category columns yet.",
       "Cold categories are the Apollo segments stored on each prospect.",
-      "People who opted out, bounced or are on the suppression list are left out of every number.",
-      "The Offer tier is carved out of the warm list, so warm_sender treats offer people as warm today.",
+      "People who opted out, bounced, are on the suppression list or are archived (wedding contacts past their date) are left out of every number.",
+      "The Offer tier is carved out of the warm list; only its wedding contacts are sent, through the warm lane.",
       "Who got which email comes from the send history, across every tier and every contact record with the same email. Nobody is sent an email they already had.",
+      "Offer › Weddings & showers shows the wedding sender's sequence (Catering-Manager outreach/wedding_copy.py): step 1 is V2, filled in per couple with the expo, the wedding date and a season paragraph; steps 2 and 3 have no copy yet, so nobody is sent them and nobody is Up next for them. Opens and clicks count tracked sends opened or clicked at least once.",
       "Personal cake (Warm and Offer): never booked, only ever asked us about a cake (Salesforce lead status Cake Order or a Cake Order deal, and no deal of any other type), and on a personal mailbox such as Gmail or iCloud; a cake-only contact on a company, school or government domain is a catering prospect instead. They are held out of the catering email (bj-finance #286), are in no other category, have no sequence of their own, and are not counted in Everyone, Needed or capacity.",
     ],
   };

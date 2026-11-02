@@ -160,8 +160,7 @@ export default function KanbanBoard({
 
       const previousStage = deal.stage;
       const previousActive = deal.is_active;
-      const previousPaymentStatus = deal.payment_status;
-      const patch = buildStagePatch(newStage, deal.payment_status);
+      const patch = buildStagePatch(newStage);
 
       setDeals((prev) =>
         prev.map((d) =>
@@ -171,13 +170,16 @@ export default function KanbanBoard({
                 stage: patch.stage,
                 is_active: patch.is_active,
                 updated_at: patch.updated_at,
-                payment_status: patch.payment_status ?? d.payment_status,
               }
             : d,
         ),
       );
 
-      const { error } = await writeStageChange(supabase, deal.id, patch);
+      const { error, historyError } = await writeStageChange(
+        supabase,
+        deal.id,
+        patch,
+      );
 
       if (error) {
         setDeals((prev) =>
@@ -187,7 +189,6 @@ export default function KanbanBoard({
                   ...d,
                   stage: previousStage,
                   is_active: previousActive,
-                  payment_status: previousPaymentStatus,
                 }
               : d,
           ),
@@ -201,6 +202,12 @@ export default function KanbanBoard({
         // in the time-app. Idempotent server-side, so an unpaid→paid move that
         // already made shifts is a harmless no-op.
         requestBookedShifts(deal.id);
+      }
+      if (historyError) {
+        setToast({
+          message: `Deal moved, but its history was not saved: ${historyError}`,
+          kind: "error",
+        });
       }
     },
     [supabase],

@@ -14,6 +14,7 @@ import {
   type StoreHoursRow,
 } from "../time-app/lib/coverage";
 import { BOOKED_STAGES } from "@/lib/cateringShifts";
+import { eventSpan, isHandPlacedShift, shiftSpan, spanCovers } from "@/lib/handPlacedCrew";
 
 // The schedule coverage reminder (bj-finance #709): every day at noon, list
 // every staffed store hour (open hours plus the open-up and close-down
@@ -57,7 +58,7 @@ export function reminderWindow(runDate: string): ReminderWindow {
 }
 
 /** A shifts row as the reminder reads it. Only published rows cover. */
-export type ReminderShift = CoverageShift & { published: boolean };
+export type ReminderShift = CoverageShift & { published: boolean; deal_id: number | null };
 
 /**
  * The catering stages that mean an event is happening, matching
@@ -88,7 +89,7 @@ export type ReminderSnapshot = {
   closedRanges: ClosedDateRange[];
   /** shift_types rows as read; an in_store that is not false reads as in-store. */
   shiftTypes: { name: string; in_store: boolean | null }[];
-  /** Shifts around the window, for the store check. */
+  /** Shifts around the window, for the store check and hand-placed catering crew. */
   shifts: ReminderShift[];
   /** Deals whose event_date falls in the window, any stage. */
   deals: ReminderDeal[];
@@ -112,19 +113,60 @@ function formatRange(from: string, to: string): string {
 type Line = { date: string; minute: number; text: string };
 
 /**
+ * The events covered by crew a manager placed by hand: a published Catering
+ * shift with a person and no deal_id, spanning the whole event
+ * (lib/handPlacedCrew.ts, the rule the shift reconciler uses too). A shift
+ * counts toward one event only, which is this reminder's own step: the
+ * reconciler counts per deal and does not allocate. Events take shifts in time
+ * order, each the fitting shift that ends soonest, which leaves the longer
+ * shifts for the later events that may need them. One person still counts as
+ * covered; crew size is not checked.
+ */
+function coveredByHandPlacedShifts(
+  deals: (ReminderDeal & { event_date: string })[],
+  shifts: ReminderShift[],
+): Set<number> {
+  const free = shifts.filter(isHandPlacedShift).map(shiftSpan);
+  const events = deals
+    .flatMap((deal) => {
+      const span = eventSpan(deal);
+      return span ? [{ id: deal.id, ...span }] : [];
+    })
+    .sort((a, b) => a.from - b.from);
+
+  const covered = new Set<number>();
+  for (const event of events) {
+    const fits = free.filter((s) => spanCovers(s, event));
+    if (fits.length === 0) continue;
+    const soonest = fits.reduce((a, b) => (b.to < a.to ? b : a));
+    free.splice(free.indexOf(soonest), 1);
+    covered.add(event.id);
+  }
+  return covered;
+}
+
+/**
  * Booked events in the window that nobody is on. Covered = at least one
- * published shift on the deal has a person; a deal with no shifts at all (no
- * picklist yet, so the reconciler has made none) is a gap.
+ * published shift on the deal has a person, or a hand-placed Catering shift
+ * spans it (coveredByHandPlacedShifts). A partial overlap does not cover. A deal
+ * with no shifts at all (no picklist yet, or the reconciler counted its crew as
+ * placed by hand and made none) and no hand-placed shift left for it is a gap.
  */
 function cateringLines(snapshot: ReminderSnapshot, window: ReminderWindow): Line[] {
-  const covered = new Set(
+  const linked = new Set(
     snapshot.dealShifts.filter((s) => s.published && s.employee_id).map((s) => s.deal_id),
   );
-  const lines: Line[] = [];
-  for (const deal of snapshot.deals) {
+  const booked = snapshot.deals.flatMap((deal) => {
     const date = deal.event_date;
-    if (!date || date < window.start || date > window.end) continue;
-    if (!ALERT_STAGES.includes(deal.stage) || deal.archived !== 0 || covered.has(deal.id)) continue;
+    if (!date || date < window.start || date > window.end) return [];
+    if (!ALERT_STAGES.includes(deal.stage) || deal.archived !== 0 || linked.has(deal.id)) return [];
+    return [{ ...deal, event_date: date }];
+  });
+  const handPlaced = coveredByHandPlacedShifts(booked, snapshot.shifts);
+  const lines: Line[] = [];
+  for (const deal of booked) {
+    if (handPlaced.has(deal.id)) continue;
+    const date = deal.event_date;
     const starts = parseTime(deal.event_start_time);
     const ends = parseTime(deal.event_end_time);
     const day = formatDayLabel(date);
@@ -182,20 +224,18 @@ export function reminderEmail(lines: string[]): { subject: string; body: string 
 export type RecipientRow = {
   email: string | null;
   role: string;
-  active: boolean;
   archived_at: string | null;
   banned_until: string | null;
 };
 
 /**
- * Who gets the reminder: every owner, plus every manager who is on the
- * schedule (active), leaving out anyone archived or banned. Owners are
- * active = false by design, so the active test applies to managers only.
- * notif_prefs is ignored. Addresses come from the database, never from code.
+ * Who gets the reminder: every owner, leaving out anyone archived or banned.
+ * Managers do not (owner decision, 2026-11-02). notif_prefs is ignored.
+ * Addresses come from the database, never from code.
  */
 export function selectRecipients(rows: RecipientRow[]): string[] {
   const emails = rows
-    .filter((r) => r.role === "owner" || (r.role === "manager" && r.active))
+    .filter((r) => r.role === "owner")
     .filter((r) => r.archived_at === null && r.banned_until === null)
     .map((r) => r.email?.trim() ?? "")
     .filter((e) => e !== "");

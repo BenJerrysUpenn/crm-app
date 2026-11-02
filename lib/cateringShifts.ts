@@ -1,22 +1,41 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  CATERING_POSITION,
+  eventReadRange,
+  eventSpan,
+  handPlacedCrewCovering,
+  type CrewShift,
+} from "@/lib/handPlacedCrew";
 
 // Auto-creates open shifts in the time-app when a catering deal is booked. An
 // open shift is employee_id=null; it is written live (published=true), like
 // every shift: the time-app has no drafts, so staff see it on the schedule.
 // They cannot claim or request it: the deal_id stamped below marks it as one a
 // manager assigns (time-app lib/managerAssigns.ts). We create one shift per crew
-// member (staff_count), each running for the deal's labor_hours, starting ~1
-// hour before the crew's departure_time.
+// member (staff_count) a manager has not already placed by hand, each running
+// for the deal's labor_hours, starting ~1 hour before the crew's departure_time.
 //
 // Cart events are the exception: the crew has to collect the ice cream cart
 // from the storage unit first, so their shift starts two hours before departure
 // instead of one. See CART_STORAGE_PICKUP_MIN.
 //
+// Hand-placed crew: a manager can put people on published Catering shifts with
+// no deal_id. Before creating anything for a deal with no shifts, we count the
+// distinct people on such shifts covering the whole event, by the rule the noon
+// reminder uses (lib/handPlacedCrew.ts), and create max(0, crew - placed). When
+// that is zero the deal is skipped and nothing is remembered: the next sweep
+// counts again, so if the hand-placed shift is removed the open shifts appear
+// then. We never write deal_id onto a hand-placed shift: payroll falls back to
+// same-day Catering shifts only when a deal has no linked shifts with a person
+// (time-app lib/payroll/verify.ts eventShifts), so linking would narrow its crew.
+//
 // Idempotent: every shift is stamped with deal_id, and we skip creation if any
 // shift already exists for that deal. That makes the endpoint safe to call on
-// any transition into Booked Unpaid without ever double-creating.
+// any transition into Booked Unpaid without ever double-creating. It also means
+// a deal is counted only until it first gets a shift: crew placed by hand after
+// that changes nothing here, and no shift is ever updated or deleted.
 
-const CATERING_POSITION = "Catering";
+export { CATERING_POSITION };
 const PRE_DEPARTURE_MIN = 60; // start this many minutes before departure
 const DEFAULT_STAFF = 1;
 const DEFAULT_LABOR_HOURS = 4;
@@ -236,7 +255,7 @@ export type ShiftRow = {
   deal_slot: number;
 };
 
-// The three things the shift logic needs from the database, and nothing else.
+// The four things the shift logic needs from the database, and nothing else.
 // This is the seam between the rules (this file) and a database client: the
 // web routes pass a supabase-js adapter (supabaseShiftStore below), and the
 // local reconcile CLI passes a direct Postgres adapter
@@ -248,6 +267,13 @@ export interface ShiftStore {
   bookedDealsWithDeparture(): Promise<DealTimes[]>;
   // Does any shift already carry this deal_id?
   dealHasShifts(dealId: number): Promise<boolean>;
+  // Published shifts with a person and no deal_id, whose position mentions
+  // Catering, overlapping the range. A candidate list, not an answer:
+  // lib/handPlacedCrew.ts decides which of them count, so an adapter holds no
+  // rule. Position is a substring match because the rule trims it, and a padded
+  // " Catering " has to come back. Throws if the read fails: a failed read must
+  // never pass for "nobody placed" or "crew placed".
+  handPlacedCateringShifts(range: { fromISO: string; toISO: string }): Promise<CrewShift[]>;
   // Insert the rows, skipping any (deal_id, deal_slot) that already exists.
   // Returns how many rows were actually inserted. Throws on failure.
   insertShiftsIgnoringDuplicates(rows: ShiftRow[]): Promise<number>;
@@ -258,9 +284,9 @@ export interface ShiftStore {
 }
 
 // The supabase-js adapter, used by the web routes with the service-role
-// client. Behaviour is exactly what those routes have always had, including
-// that a failed "already exists?" read is treated as "no shifts yet" and left
-// for the unique index to catch.
+// client. A failed "already exists?" read is treated as "no shifts yet" and
+// left for the unique index to catch, as it always has been. A failed
+// hand-placed read throws: the index cannot catch that one.
 export function supabaseShiftStore(admin: SupabaseClient): ShiftStore {
   return {
     async bookedDealsWithDeparture() {
@@ -280,6 +306,19 @@ export function supabaseShiftStore(admin: SupabaseClient): ShiftStore {
         .limit(1);
       return !!existing && existing.length > 0;
     },
+    async handPlacedCateringShifts({ fromISO, toISO }) {
+      const { data, error } = await admin
+        .from("shifts")
+        .select("employee_id, starts_at, ends_at, position, published, deal_id")
+        .eq("published", true)
+        .is("deal_id", null)
+        .not("employee_id", "is", null)
+        .like("position", `%${CATERING_POSITION}%`)
+        .lt("starts_at", toISO)
+        .gt("ends_at", fromISO);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as CrewShift[];
+    },
     // PostgREST sends this as ON CONFLICT (deal_id, deal_slot) DO NOTHING and
     // has no way to add a WHERE, so it needs a PLAIN unique index on exactly
     // those columns: shifts_deal_slot_uidx as migration 29 left it
@@ -296,8 +335,9 @@ export function supabaseShiftStore(admin: SupabaseClient): ShiftStore {
   };
 }
 
-// Build the shift rows a deal should get, or say why it gets none yet.
-// Pure: no database. Shared by every store so the rows cannot drift.
+// Build the shift rows a deal's full crew would get, or say why it gets none
+// yet. Pure: no database. Shared by every store so the rows cannot drift.
+// createCateringShifts takes the first of these, less anyone placed by hand.
 export function planCateringShifts(
   deal: DealTimes,
 ): { rows: ShiftRow[]; warning?: string } | { skipped: true; reason: string } {
@@ -350,8 +390,27 @@ export function planCateringShifts(
   return { rows, ...(marker ? { warning: `Deal #${deal.id}: ${marker}` } : {}) };
 }
 
-// Create the shifts for a booked deal through any store. Idempotent by
-// deal_id.
+// How many of this deal's crew a manager already placed by hand.
+//
+// Per deal, deliberately. The reconciler does not allocate one shift across
+// overlapping events. If one person's shift spans two overlapping events, both
+// count that person and both skip, and the noon reminder, which does allocate
+// one shift to one event, still flags one of them as a gap. That is how a
+// manager hears about it.
+//
+// No start time means it cannot be judged, so nobody counts. A date no calendar
+// has gets the same answer rather than a read over a range that does not exist.
+async function handPlacedCrewFor(store: ShiftStore, deal: DealTimes): Promise<number> {
+  const event_date = (deal.event_date ?? "").trim();
+  const span = eventSpan({ ...deal, event_date });
+  if (!span || Number.isNaN(span.from)) return 0;
+  return handPlacedCrewCovering(span, await store.handPlacedCateringShifts(eventReadRange(event_date)));
+}
+
+// Create the shifts for a booked deal through any store: one per crew member
+// nobody has placed by hand, on slots 1..n of the plan. Idempotent by deal_id.
+// Throws if a read or the insert fails, so a sweep records the deal in `failed`
+// and a route reports it.
 export async function createCateringShifts(
   store: ShiftStore,
   deal: DealTimes,
@@ -364,12 +423,23 @@ export async function createCateringShifts(
   const plan = planCateringShifts(deal);
   if ("skipped" in plan) return { created: 0, skipped: true, reason: plan.reason };
 
-  const created = await store.insertShiftsIgnoringDuplicates(plan.rows);
+  const placed = await handPlacedCrewFor(store, deal);
+  const rows = plan.rows.slice(0, Math.max(0, plan.rows.length - placed));
+  if (rows.length === 0) {
+    return {
+      created: 0,
+      skipped: true,
+      reason: `crew already placed by hand (${placed} of ${plan.rows.length})`,
+    };
+  }
+
+  const created = await store.insertShiftsIgnoringDuplicates(rows);
   return { created, ...(plan.warning ? { warning: plan.warning } : {}) };
 }
 
-// Create the shifts for a booked deal. Idempotent by deal_id. The
-// supabase-js entry point the booked-shifts route calls.
+// createCateringShifts through the supabase-js client, so the single-deal path
+// counts hand-placed crew exactly as a sweep does. The entry point the
+// booked-shifts route calls.
 export async function createCateringShiftsForDeal(
   admin: SupabaseClient,
   deal: DealTimes,
@@ -398,6 +468,7 @@ export type ReconcileReport = {
 // been generated) and create any missing shifts. Idempotent and safe to
 // run on a schedule; it's how a deal gets its shifts when the picklist is
 // generated AFTER booking (the moment the stage-change trigger can't catch).
+// A deal skipped for hand-placed crew is simply looked at again next time.
 //
 // One deal failing never stops the sweep: its error is recorded in `failed`
 // and the next deal is tried.
