@@ -14,8 +14,8 @@ architecture_ground_truth:
       created by hand under Authentication > Users with Auto Confirm User ticked — "No
       public sign-up page exists." :70-80 the stage write contract — a stage change
       writes stage, is_active (0 for the four terminal stages, else 1) and updated_at in
-      a single update via buildStagePatch in lib/dealUpdate.ts, and a move into Booked
-      Paid also sets payment_status to Deposit Paid when the row had none. :82-85 the
+      a single update via buildStagePatch in lib/dealUpdate.ts, a stage move does not
+      change payment_status, and writeStageChange appends deal_events rows. :82-85 the
       app does NOT write deals.boomerang_reason — writing it would make every stage
       change fail, and nothing in the app reads it either (bj-finance #466); the most
       directly gradeable rule in the file. :91 the board loads archived = 0 rows only.
