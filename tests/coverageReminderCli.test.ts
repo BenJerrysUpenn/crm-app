@@ -2,7 +2,7 @@
 // end to end against an in-memory schedule and a recording mailer.
 //
 // The stories:
-//   * gaps -> one "Schedule gaps" email to the recipients the database names;
+//   * gaps -> one "Schedule gaps" email to the owners the database names;
 //   * no gaps -> nothing sent;
 //   * --dry-run prints the recipients and the email and sends nothing;
 //   * any failure (DB read, recipient lookup, Gmail send) emails
@@ -26,7 +26,7 @@ import {
 const NOON_THURSDAY = new Date("2026-10-15T16:00:00Z");
 const FROM = "sender@example.test";
 
-const OWNER = { email: "owner@example.test", role: "owner", active: false, archived_at: null, banned_until: null };
+const OWNER = { email: "owner@example.test", role: "owner", archived_at: null, banned_until: null };
 const MANAGER = { email: "manager@example.test", role: "manager", active: true, archived_at: null, banned_until: null };
 
 // Saturdays open 2–6 PM; Sat Oct 31 is covered, Sat Oct 24 is not.
@@ -42,6 +42,7 @@ const WITH_GAP: ReminderSnapshot = {
       employee_id: "emp-1",
       position: "PENN Closer",
       published: true,
+      deal_id: null,
     },
   ],
   deals: [],
@@ -91,18 +92,18 @@ function harness(
 }
 
 describe("a live run", () => {
-  it("emails the gap list to the database's recipients, from the configured sender", async () => {
+  it("emails the gap list to the database's owners and no manager, from the configured sender", async () => {
     const h = harness();
     expect(await runCoverageReminderCli([], h.deps)).toBe(0);
     expect(h.sent).toEqual([
       {
         from: FROM,
-        to: ["manager@example.test", "owner@example.test"],
+        to: ["owner@example.test"],
         subject: "Schedule gaps",
         body: "Sat Oct 24, 2:00–6:00 PM\n",
       },
     ]);
-    expect(h.out.join("\n")).toContain("sent 1 gap to 2 recipients");
+    expect(h.out.join("\n")).toContain("sent 1 gap to 1 recipients");
   });
 
   it("counts every gap in the summary line", async () => {
@@ -110,7 +111,7 @@ describe("a live run", () => {
     const h = harness({ snapshot: twoGaps });
     expect(await runCoverageReminderCli([], h.deps)).toBe(0);
     expect(h.sent[0].body).toBe("Sat Oct 24, 2:00–6:00 PM\nSat Oct 31, 2:00–6:00 PM\n");
-    expect(h.out.join("\n")).toContain("sent 2 gaps to 2 recipients");
+    expect(h.out.join("\n")).toContain("sent 2 gaps to 1 recipients");
   });
 
   it("sends nothing when nothing is missing", async () => {
@@ -128,7 +129,7 @@ describe("--dry-run", () => {
     expect(h.sent).toEqual([]);
     const printed = h.out.join("\n");
     expect(printed).toContain("2026-10-18 to 2026-10-31");
-    expect(printed).toContain("recipients (2): manager@example.test, owner@example.test");
+    expect(printed).toContain("recipients (1): owner@example.test");
     expect(printed).toContain(`From: ${FROM}`);
     expect(printed).toContain("Subject: Schedule gaps");
     expect(printed).toContain("Sat Oct 24, 2:00–6:00 PM");
@@ -196,8 +197,8 @@ describe("failures email the failure address and exit 1", () => {
     expect(h.sent.map((e) => e.from)).toEqual(["sender@example.test"]);
   });
 
-  it("a recipient lookup that finds nobody", async () => {
-    const h = harness({ recipients: [{ ...MANAGER, active: false }] });
+  it("a recipient lookup that finds no owner, even with a manager on file", async () => {
+    const h = harness({ recipients: [MANAGER] });
     expect(await runCoverageReminderCli([], h.deps)).toBe(1);
     expect(h.sent.map((e) => e.subject)).toEqual(["Coverage reminder could not run"]);
     expect(h.sent[0].body).toContain("no recipients");
