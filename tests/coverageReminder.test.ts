@@ -430,11 +430,16 @@ describe("catering", () => {
       ["with no person", { employee_id: null }],
       ["in-store", { position: "PENN Closer" }],
       ["for a marketing shift", { position: "Marketing" }],
+      ["with no position", { position: null }],
     ])("a spanning shift %s does not count", (_what, over) => {
       const dealShifts = "deal_id" in over ? [{ deal_id: 99, employee_id: "emp-1", published: true }] : [];
       expect(lines([satDeal("14:00", "15:00")], [satHandPlaced("12:00", "18:00", over)], dealShifts)).toEqual([
         "Sat Oct 24, 2:00–3:00 PM (catering)",
       ]);
+    });
+
+    it("a Catering position typed with stray spaces still covers", () => {
+      expect(lines([satDeal("14:00", "15:00")], [satHandPlaced("12:00", "18:00", { position: " Catering\n" })])).toEqual([]);
     });
 
     it("the same times on another day do not count", () => {
