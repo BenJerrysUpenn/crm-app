@@ -121,10 +121,6 @@ export async function writeWithEventLink<T>(
   return result;
 }
 
-function toEvents(rows: unknown): ScheduleEvent[] {
-  return ((rows ?? []) as EventDeal[]).flatMap((deal) => toScheduleEvent(deal) ?? []);
-}
-
 /**
  * Which kinds of shift a finished event is for. The stage can't say, since both
  * kinds end at it, so this is payroll's own answer (isMarketingEvent in
@@ -177,7 +173,7 @@ export async function loadScheduleEvents(supabase: SupabaseClient, from: string,
 export async function loadLinkedEvents(supabase: SupabaseClient, dealIds: number[]): Promise<ScheduleEvent[] | null> {
   if (dealIds.length === 0) return [];
   const { data, error } = await supabase.from("deals").select(EVENT_DEAL_COLUMNS).in("id", dealIds);
-  return error ? null : toEvents(data);
+  return error ? null : ((data ?? []) as EventDeal[]).flatMap((deal) => toScheduleEvent(deal) ?? []);
 }
 
 /**
