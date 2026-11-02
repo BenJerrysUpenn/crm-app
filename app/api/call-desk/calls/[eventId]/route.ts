@@ -228,7 +228,7 @@ export async function PATCH(
       // way Catering-Manager's automation expects. Never a raw stage write.
       const { data: deal, error: dealErr } = await supabase
         .from("deals")
-        .select("id, stage, payment_status, contact_email")
+        .select("id, stage, contact_email")
         .eq("id", closeDealId)
         .maybeSingle();
 
@@ -267,16 +267,22 @@ export async function PATCH(
           { status: 409 },
         );
 
-      const stagePatch = buildStagePatch("Closed Lost", deal.payment_status);
-      const { error: stageErr } = await writeStageChange(
+      const { error: stageErr, historyError } = await writeStageChange(
         supabase,
         closeDealId,
-        stagePatch,
+        buildStagePatch("Closed Lost"),
       );
       if (stageErr)
         return NextResponse.json(
           {
             error: `Call saved and marked lost, but closing deal ${closeDealId} failed: ${stageErr.message}`,
+          },
+          { status: 500 },
+        );
+      if (historyError)
+        return NextResponse.json(
+          {
+            error: `Call saved and deal ${closeDealId} closed, but its history was not saved: ${historyError}`,
           },
           { status: 500 },
         );
