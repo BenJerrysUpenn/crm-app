@@ -25,9 +25,13 @@ import {
 // reminder uses (lib/handPlacedCrew.ts), and create max(0, crew - placed). When
 // that is zero the deal is skipped and nothing is remembered: the next sweep
 // counts again, so if the hand-placed shift is removed the open shifts appear
-// then. We never write deal_id onto a hand-placed shift: payroll falls back to
-// same-day Catering shifts only when a deal has no linked shifts with a person
-// (time-app lib/payroll/verify.ts eventShifts), so linking would narrow its crew.
+// then. This file never writes deal_id onto a hand-placed shift. A manager can,
+// in the time app's shift popup (time-app lib/shiftEventLink.ts). That shift is
+// then linked, so it stops counting here and the deal has a shift, which is what
+// the check below skips on. Payroll falls back to same-day Catering shifts only
+// when a deal has no linked shifts with a person (time-app lib/payroll/verify.ts
+// eventShifts), so linking narrows its crew to the linked shifts: the schedule
+// badges the rest of the crew until each is linked.
 //
 // Idempotent: every shift is stamped with deal_id, and we skip creation if any
 // shift already exists for that deal. That makes the endpoint safe to call on

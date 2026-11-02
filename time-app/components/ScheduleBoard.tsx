@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
 import CheckWeekButton from "./CheckWeekButton";
@@ -18,6 +18,19 @@ import { managerAssignsOnly } from "@/lib/managerAssigns";
 import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 import type { ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
 import ScheduleLaborLine from "./ScheduleLaborLine";
+import { CATERING_POSITION } from "@/lib/handPlacedCrew";
+import {
+  eventBadgeText,
+  eventBadges,
+  eventOptionLabel,
+  eventsOnDate,
+  fittingEvents,
+  selectedEventId,
+  shiftDate,
+  type EventBadge,
+  type EventPick,
+  type ScheduleEvent,
+} from "@/lib/scheduleEvents";
 
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -45,6 +58,20 @@ function toLocalInput(iso: string) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// The popup's start and end are browser-local datetime-local values; the event
+// rule reads instants. An unfinished value reads as no date.
+function localInputDate(value: string): string | null {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? null : shiftDate(at.toISOString());
+}
+function localInputShift(d: { starts_at: string; ends_at: string }) {
+  const iso = (value: string) => {
+    const at = new Date(value);
+    return Number.isNaN(at.getTime()) ? value : at.toISOString();
+  };
+  return { starts_at: iso(d.starts_at), ends_at: iso(d.ends_at) };
+}
+
 type Draft = {
   id?: number;
   employee_id: string;
@@ -53,6 +80,8 @@ type Draft = {
   ends_at: string;
   position: string;
   notes: string;
+  /** The event the shift is linked to as stored. Null on a new shift. */
+  deal_id: number | null;
 };
 
 type DropReq = ShiftRequest & { profiles?: Pick<Profile, "id" | "full_name"> };
@@ -68,6 +97,8 @@ export default function ScheduleBoard({
   availability = [],
   annotations = [],
   labor = null,
+  weekEvents = [],
+  linkedEvents = [],
 }: {
   isManager: boolean;
   weekStart: string; // YYYY-MM-DD (Sunday)
@@ -81,6 +112,10 @@ export default function ScheduleBoard({
   annotations?: Annotation[];
   /** Manager view: the week against the labor target (bj-finance #695). */
   labor?: ScheduleLaborLoad | null;
+  /** Manager view: the catering events this week. Null when they could not be read. */
+  weekEvents?: ScheduleEvent[] | null;
+  /** Manager view: the deals this week's shifts are linked to, at any stage. */
+  linkedEvents?: ScheduleEvent[] | null;
 }) {
   const colorByType = new Map(shiftTypes.map((t) => [t.name, t.color]));
 
@@ -114,6 +149,12 @@ export default function ScheduleBoard({
     | { key: string; kind: "mismatch"; mismatch: AvailabilityMismatch }
     | { key: string; kind: "unavailable" }
   >(null);
+  // The Catering event dropdown. eventPick is the manager's own choice, null
+  // until they touch it (lib/scheduleEvents.ts selectedEventId works out what
+  // it shows until then). A date outside the week on screen is fetched.
+  const [eventPick, setEventPick] = useState<EventPick>(null);
+  const [otherDayEvents, setOtherDayEvents] = useState<Record<string, ScheduleEvent[] | "loading" | "failed">>({});
+  const [eventListOpen, setEventListOpen] = useState(false);
   const draftKey = (d: Draft | null) => (d ? `${d.employee_id}|${d.starts_at}|${d.ends_at}` : "");
   const availConfirmed = availSave !== null && availSave.key === draftKey(draft);
 
@@ -149,6 +190,48 @@ export default function ScheduleBoard({
   const myPendingDrops = new Set(dropOnly.map((r) => r.shift_id));
   const myPendingPickups = new Set(pickupOnly.map((r) => r.shift_id));
 
+  // The shift in the popup against that day's catering events. Null when it is
+  // not a Catering shift or its start is not a real time yet.
+  const draftDate = draft && draft.position.trim() === CATERING_POSITION ? localInputDate(draft.starts_at) : null;
+  const draftEvents: ScheduleEvent[] | "loading" | "failed" | null =
+    draftDate === null
+      ? null
+      : dates.includes(draftDate)
+        ? (weekEvents === null ? "failed" : eventsOnDate(weekEvents, draftDate))
+        : (otherDayEvents[draftDate] ?? "loading");
+  const outsideWeekDate = draftDate !== null && !dates.includes(draftDate) ? draftDate : null;
+  useEffect(() => {
+    if (outsideWeekDate === null) return;
+    let stale = false;
+    setOtherDayEvents((known) => (known[outsideWeekDate] ? known : { ...known, [outsideWeekDate]: "loading" }));
+    fetch(`/api/schedule/catering-events?date=${outsideWeekDate}`, { cache: "no-store" })
+      .then(async (res) => {
+        const j = await res.json().catch(() => ({}));
+        if (stale) return;
+        setOtherDayEvents((known) => ({ ...known, [outsideWeekDate]: res.ok ? eventsOnDate(j.events ?? [], outsideWeekDate) : "failed" }));
+      })
+      .catch(() => {
+        if (!stale) setOtherDayEvents((known) => ({ ...known, [outsideWeekDate]: "failed" }));
+      });
+    return () => {
+      stale = true;
+    };
+  }, [outsideWeekDate]);
+  const draftCurrentEvent = draft?.deal_id != null ? linkedEvents?.find((e) => e.id === draft.deal_id) ?? null : null;
+  const draftFitting =
+    draft && Array.isArray(draftEvents) ? fittingEvents(localInputShift(draft), draftEvents) : [];
+  const draftEventId =
+    draft && draftDate !== null && Array.isArray(draftEvents) && linkedEvents !== null
+      ? selectedEventId({
+          pick: eventPick,
+          currentDealId: draft.deal_id,
+          currentEvent: draftCurrentEvent,
+          date: draftDate,
+          onDate: draftEvents,
+          fitting: draftFitting,
+        })
+      : undefined;
+
   async function ack(id: number) {
     setAckingId(id);
     setCopyMsg(null);
@@ -172,6 +255,10 @@ export default function ScheduleBoard({
   // pick up). Managers: count all assigned coverage.
   const countedShifts = isManager ? weekShifts : weekShifts.filter((s) => s.employee_id);
   const weekHours = countedShifts.reduce((sum, s) => sum + shiftHours(s), 0);
+  // Manager only: shifts that look like they are for a catering event and have
+  // none. Worked out fresh from what this page loaded; nothing is written.
+  const badges = isManager && weekEvents ? eventBadges(weekShifts, weekEvents) : new Map<number, EventBadge>();
+  const badgedShifts = weekShifts.filter((s) => badges.has(s.id));
   const weekCost = isManager
     ? weekShifts.reduce((sum, s) => sum + shiftHours(s) * (s.employee_id ? rateById.get(s.employee_id) ?? 0 : 0), 0)
     : 0;
@@ -293,6 +380,8 @@ export default function ScheduleBoard({
     setLongSave(null);
     setAvailSave(null);
     setHowMany(1);
+    setEventPick(null);
+    setOtherDayEvents({});
     setDraft({
       employee_id: employeeId ?? employees[0]?.id ?? "",
       location_id: String(locations.find((l) => l.is_default)?.id ?? locations[0]?.id ?? ""),
@@ -300,6 +389,7 @@ export default function ScheduleBoard({
       ends_at: `${dateStr}T17:00`,
       position: "",
       notes: "",
+      deal_id: null,
     });
   }
 
@@ -307,6 +397,9 @@ export default function ScheduleBoard({
     setErr(null);
     setLongSave(null);
     setAvailSave(null);
+    setEventPick(null);
+    setOtherDayEvents({});
+    setEventListOpen(false);
     setDraft({
       id: s.id,
       employee_id: s.employee_id ?? "",
@@ -315,6 +408,7 @@ export default function ScheduleBoard({
       ends_at: toLocalInput(s.ends_at),
       position: s.position ?? "",
       notes: s.notes ?? "",
+      deal_id: s.deal_id ?? null,
     });
   }
 
@@ -338,6 +432,10 @@ export default function ScheduleBoard({
     setErr(null);
     if (!confirmLong) setLongSave(null);
     try {
+      // The event goes in only when the dropdown is settled and differs from
+      // what is stored, so a save that did not touch it cannot disturb it.
+      const eventChange =
+        draftEventId !== undefined && draftEventId !== draft.deal_id ? { deal_id: draftEventId } : {};
       const payload = {
         employee_id: draft.employee_id || null,
         location_id: draft.location_id ? Number(draft.location_id) : null,
@@ -347,6 +445,7 @@ export default function ScheduleBoard({
         notes: draft.notes || null,
         confirmLong,
         confirmAvailability,
+        ...eventChange,
       };
       // Open shifts can be created in bulk (How Many).
       const count = !draft.id && !draft.employee_id ? Math.max(1, Math.min(20, howMany)) : 1;
@@ -401,6 +500,11 @@ export default function ScheduleBoard({
         <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Schedule</h1>
         <div className="flex flex-wrap items-center gap-2">
           <CheckWeekButton isManager={isManager} weekStart={weekStart} />
+          {badgedShifts.length > 0 && (
+            <button onClick={() => setEventListOpen(true)} className="px-2.5 py-1 text-sm rounded-md border border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/60">
+              Catering events to choose ({badgedShifts.length})
+            </button>
+          )}
           {isManager && (
             <>
               <button onClick={autoFill} disabled={copying} className="px-2.5 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
@@ -556,6 +660,7 @@ export default function ScheduleBoard({
           dayLabel={dayLabel}
           DAYS={DAYS}
           availability={availability}
+          badges={badges}
         />
       )}
 
@@ -689,6 +794,30 @@ export default function ScheduleBoard({
         </Modal>
       )}
 
+      {eventListOpen && (
+        <Modal onClose={() => setEventListOpen(false)} className="max-w-md space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">Catering events to choose</h2>
+          <p className="text-xs text-slate-500">These Catering shifts don&apos;t say which event they are for yet. Open one, check the event, and save it.</p>
+          <div className="space-y-2">
+            {badgedShifts.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => editShift(s)}
+                className="w-full text-left rounded-md border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <div className="text-slate-800 dark:text-slate-200">
+                  {dayLabel(nyDate(s.starts_at))} {fmtTime(s.starts_at)}–{fmtTime(s.ends_at)} · {nameById.get(s.employee_id ?? "") ?? s.profiles?.full_name ?? "—"}
+                </div>
+                <div className="text-xs text-amber-700 dark:text-amber-300">{eventBadgeText(badges.get(s.id)!)}</div>
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-end pt-1">
+            <button onClick={() => setEventListOpen(false)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
+          </div>
+        </Modal>
+      )}
+
       {draft && (
         <Modal onClose={() => setDraft(null)} className="max-w-md space-y-3">
           <h2 className="font-semibold text-slate-900 dark:text-slate-100">{draft.id ? "Edit shift" : "New shift"}</h2>
@@ -776,6 +905,40 @@ export default function ScheduleBoard({
               </select>
             </label>
           </div>
+          {draftEvents !== null && (
+            <div>
+              {draftEventId === undefined ? (
+                <div className="text-xs text-slate-500">
+                  {draftEvents === "loading" ? "Looking up that day's catering events…" : "Couldn't load that day's catering events. Saving won't change this shift's event."}
+                </div>
+              ) : (
+                <>
+                  <label className="block text-xs text-slate-600 dark:text-slate-400">Catering event
+                    <select
+                      value={draftEventId ?? "none"}
+                      onChange={(e) => setEventPick(e.target.value === "none" ? "none" : Number(e.target.value))}
+                      className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100"
+                    >
+                      <option value="none">None</option>
+                      {(draftEvents as ScheduleEvent[]).map((ev) => <option key={ev.id} value={ev.id}>{eventOptionLabel(ev)}</option>)}
+                      {draftCurrentEvent && draftEventId === draftCurrentEvent.id && !(draftEvents as ScheduleEvent[]).some((ev) => ev.id === draftCurrentEvent.id) && (
+                        <option value={draftCurrentEvent.id}>{eventOptionLabel(draftCurrentEvent)}</option>
+                      )}
+                    </select>
+                  </label>
+                  {draftCurrentEvent && draftCurrentEvent.event_date !== draftDate && (
+                    <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">This shift was on {draftCurrentEvent.name}, which is on another day. Saving takes it off that event.</div>
+                  )}
+                  {eventPick === null && draft.deal_id === null && draftEventId !== null && (
+                    <div className="text-xs text-slate-500 mt-1">Picked because this shift covers the whole event. Nothing changes until you save.</div>
+                  )}
+                  {draftEventId === null && draftFitting.length > 1 && (
+                    <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">More than one event fits this shift. Choose the right one, or None if it is for neither.</div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <label className="block text-xs text-slate-600 dark:text-slate-400">Notes
             <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
           </label>
@@ -843,6 +1006,7 @@ function ManagerMatrix({
   dayLabel,
   DAYS,
   availability,
+  badges,
 }: {
   dates: string[];
   employees: Profile[];
@@ -855,6 +1019,7 @@ function ManagerMatrix({
   dayLabel: (d: string) => string;
   DAYS: string[];
   availability: AvailabilityRow[];
+  badges: Map<number, EventBadge>;
 }) {
   function cellShifts(date: string, employeeId: string | null) {
     return shiftsForDay(date).filter((s) =>
@@ -875,6 +1040,7 @@ function ManagerMatrix({
 
   function Chip({ s }: { s: ShiftWithEmployee }) {
     const color = s.position ? colorByType.get(s.position) : undefined;
+    const badge = badges.get(s.id);
     return (
       <button
         onClick={() => editShift(s)}
@@ -886,6 +1052,11 @@ function ManagerMatrix({
         {s.employee_id && (
           <div className={`truncate ${s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}`}>
             {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
+          </div>
+        )}
+        {badge && (
+          <div title={eventBadgeText(badge)} className="mt-0.5 truncate rounded bg-amber-100 dark:bg-amber-900/40 px-1 text-[10px] text-amber-800 dark:text-amber-200">
+            {eventBadgeText(badge)}
           </div>
         )}
       </button>

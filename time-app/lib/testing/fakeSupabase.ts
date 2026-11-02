@@ -20,6 +20,8 @@
 // function is whatever a test puts in `rpc`, else one of the RPC functions
 // below; one in neither answers PGRST202, as hosted PostgREST does before the
 // migration that creates it.
+// shifts_deal_slot_uidx (migration 29) is enforced: two shifts cannot share a
+// (deal_id, deal_slot), and a null in either column never clashes.
 // Row Level Security is emulated for time_entries only, with the policies
 // migrations 12 and 30 install (supabase/migration_30_verify.sql proves those
 // against a real Postgres): anyone signed in reads their own punches, only a
@@ -282,6 +284,15 @@ function duplicateViewName(all: Row[], row: Row): boolean {
 
 const UNIQUE_VIOLATION = () =>
   json(409, { code: "23505", details: null, hint: null, message: 'duplicate key value violates unique constraint "metric_views_owner_name_live"' });
+
+// Migration 29's plain unique index on shifts (deal_id, deal_slot).
+function dealSlotTaken(all: Row[], row: Row): boolean {
+  if (row.deal_id == null || row.deal_slot == null) return false;
+  return all.some((r) => r !== row && r.id !== row.id && r.deal_id === row.deal_id && r.deal_slot === row.deal_slot);
+}
+
+const DEAL_SLOT_VIOLATION = () =>
+  json(409, { code: "23505", details: null, hint: null, message: 'duplicate key value violates unique constraint "shifts_deal_slot_uidx"' });
 
 function compare(a: unknown, b: string): number {
   const x = String(a);
@@ -684,6 +695,14 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
         batch.push(candidate);
       }
     }
+    if (table === "shifts") {
+      const batch: Row[] = [];
+      for (const r of Array.isArray(input) ? input : [input]) {
+        const candidate = { ...r, id: -1 - batch.length };
+        if (dealSlotTaken([...all, ...batch], candidate)) return DEAL_SLOT_VIOLATION();
+        batch.push(candidate);
+      }
+    }
     // upsert(..., { onConflict }): a row matching on the conflict columns is
     // merged into, as Prefer: resolution=merge-duplicates does.
     const conflict = headers.get("prefer")?.includes("resolution=merge-duplicates")
@@ -711,6 +730,7 @@ async function handle(url: URL, method: string, headers: Headers, body: string |
     const patch = JSON.parse(body ?? "{}") as Row;
     const hit = all.filter((r) => canWrite(table, caller) && canRead(table, caller, r) && matches(r, url.searchParams));
     if (table === "metric_views" && hit.some((r) => duplicateViewName(all, { ...r, ...patch }))) return UNIQUE_VIOLATION();
+    if (table === "shifts" && hit.some((r) => dealSlotTaken(all, { ...r, ...patch }))) return DEAL_SLOT_VIOLATION();
     for (const r of hit) Object.assign(r, patch);
     return represent(hit, headers, 200);
   }

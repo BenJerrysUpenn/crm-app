@@ -540,7 +540,7 @@ event. Crew size is not otherwise checked. Recipients are
 read from the database (`profiles` joined to `auth.users`): every owner, leaving
 out anyone archived or banned. Managers do not get this email (owner decision,
 2026-11-02). Logic: `lib/coverageReminder.ts`, with the hand-placed rule in
-`lib/handPlacedCrew.ts`;
+`time-app/lib/handPlacedCrew.ts` (re-exported by `lib/handPlacedCrew.ts`);
 command: `lib/coverageReminderCli.ts`; reads: `lib/coverageReminderPg.ts`;
 send: `lib/gmailSend.ts`.
 
@@ -561,6 +561,35 @@ Gmail send) is also emailed to the fixed failure address with the subject
 run in a read-only transaction. Where it runs: bj-box, from
 `bj-coverage-reminder.timer` (Software-Factory `droplet/systemd/`).
 
+## Catering event on a shift (time app)
+A shift added on the Schedule page says which event it is for through
+`shifts.deal_id`, the same column the shifts made for a booked deal carry. Managers
+and owners set it in the shift popup. When the position is Catering, a "Catering
+event" dropdown lists the shift's New York date's events (deals at Booked Unpaid,
+Booked Paid or Closed Marketing Event, `archived = 0`) and None. If exactly one
+event fits, by the covers-the-whole-event rule in `time-app/lib/handPlacedCrew.ts`,
+it is preselected; nothing is written until the save. A date outside the week on
+screen is read from `GET /api/schedule/catering-events`.
+
+Saving writes `deal_id` and the next free `deal_slot`; None clears both. Moving a
+linked Catering shift to a date that is not its event's clears both, in the popup
+and on the server. A save that changes only the event tells nobody. A linked shift
+is one only a manager can assign (`time-app/lib/managerAssigns.ts`).
+
+A Catering shift with a person, no `deal_id` and an event it fits gets a badge on
+the schedule: it suggests the one event, or says to choose between several. The
+count sits on a "Catering events to choose" button in the schedule's toolbar, which
+lists the shifts. The badge is worked out each time the schedule loads, for the week
+on screen, and writes nothing: every link goes through the popup and a save, one
+shift at a time. Nothing records a None, so a shift saved as None that fits an event
+keeps its badge. Logic: `time-app/lib/scheduleEvents.ts` (pure) and
+`time-app/lib/shiftEventLink.ts` (reads and writes).
+
+Link the whole crew. Payroll reads only the linked shifts with a person once any
+Catering shift on the deal has one (`time-app/lib/payroll/verify.ts` `eventShifts`,
+bj-finance `modules/tips.py` `event_crew`), so until the rest of the crew is linked
+payroll sees only the linked people on that event.
+
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
@@ -571,7 +600,7 @@ Postgres instead of over HTTP.
 It creates one shift per crew member nobody has placed by hand: `staff_count`
 minus the distinct people on published Catering shifts with no `deal_id` that
 cover the whole event, on slots 1..n. "Covers" is the schedule coverage
-reminder's rule, shared in `lib/handPlacedCrew.ts`: the shift starts at or before
+reminder's rule, shared in `time-app/lib/handPlacedCrew.ts`: the shift starts at or before
 the event start and ends at or after the event end; no end time means it must
 run past the start; an end earlier than the start is the next day; no start time
 cannot be judged, so nobody counts. A partial overlap does not count. With the
@@ -580,9 +609,10 @@ shift is removed the open shifts appear on the next sweep. The count is per deal
 one person on a shift spanning two overlapping events skips both, and the
 reminder, which gives one shift to one event, still lists one as a gap. A failed
 read fails that deal, never reads as "nobody placed". A deal with any linked shift
-is left alone, shifts are never updated or deleted, and `deal_id` is never written
-onto a hand-placed shift (payroll's `eventShifts` falls back to same-day Catering
-shifts only when a deal has no linked shifts with a person).
+is left alone, shifts are never updated or deleted, and the reconciler never writes
+`deal_id` onto a hand-placed shift. A manager can (see "Catering event on a shift"
+below): that shift then counts as linked, so the deal is left alone from then on and
+no more open shifts are made for it, however many of its crew are still unlinked.
 
 | Name | Value |
 | --- | --- |

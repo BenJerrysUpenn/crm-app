@@ -6,9 +6,16 @@ import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilit
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
 import { isManager } from "@/lib/roles";
+import type { ShiftWithEmployee } from "@/lib/types";
+import { planEventLink, requestedEvent, writeWithEventLink } from "@/lib/shiftEventLink";
+
+// force-dynamic alone does not stop Next caching the fetches a route makes (see
+// lib/supabase/admin.ts). The free deal_slot has to come from a live read.
+export const fetchCache = "force-no-store";
 
 // PATCH: edit a shift (manager only). Body carries any of employee_id,
-// location_id, starts_at, ends_at, position, notes, plus confirmLong.
+// location_id, starts_at, ends_at, position, notes, plus confirmLong and
+// deal_id.
 //
 // There are no drafts: an edit always leaves the shift live (published =
 // true), whatever the body says, and the assigned employee is told: on their
@@ -27,6 +34,12 @@ import { isManager } from "@/lib/roles";
 // (503 "availability_unavailable" if availability cannot be read). An edit
 // that touches neither — notes, location — is not re-asked, so a
 // shift the manager already confirmed does not nag on every save.
+//
+// deal_id is the shift's Catering event (lib/shiftEventLink.ts): an event's id
+// links it on a free deal_slot, null clears both. Without it the link stays,
+// unless a Catering shift moved to a date that is not its event's, which clears
+// it. An edit that changes nothing but the event tells nobody: the person's
+// shift has not changed for them.
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } },
@@ -36,13 +49,15 @@ export async function PATCH(
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await request.json();
+  const asked = requestedEvent(body);
+  if (!asked.ok) return NextResponse.json({ error: "deal_id must be a deal's id." }, { status: 400 });
   const supabase = createClient();
 
   // The shift as it stands: the times the patch is applied on top of, and
   // whether it was still a draft written before drafts were removed.
   const { data: before } = await supabase
     .from("shifts")
-    .select("published, starts_at, ends_at, employee_id, position")
+    .select("published, starts_at, ends_at, employee_id, position, location_id, notes, deal_id")
     .eq("id", params.id)
     .single();
 
@@ -84,18 +99,39 @@ export async function PATCH(
     }
   }
 
+  const positionAfter = "position" in body ? body.position : before?.position;
+  const plan = await planEventLink(supabase, {
+    requested: asked.value,
+    before: before ? { deal_id: before.deal_id ?? null, starts_at: before.starts_at } : null,
+    startsAt,
+    position: positionAfter,
+  });
+  if (!plan.ok) return NextResponse.json({ error: plan.error }, { status: plan.status });
+
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), published: true };
   for (const k of ["employee_id", "location_id", "starts_at", "ends_at", "position", "notes"]) {
     if (k in body) patch[k] = body[k];
   }
 
-  const { data, error } = await supabase
-    .from("shifts")
-    .update(patch)
-    .eq("id", params.id)
-    .select("*, profiles(id, full_name, phone)")
-    .single();
+  const { data, error } = await writeWithEventLink<ShiftWithEmployee>(supabase, plan.link, (eventFields) =>
+    supabase
+      .from("shifts")
+      .update({ ...patch, ...eventFields })
+      .eq("id", params.id)
+      .select("*, profiles(id, full_name, phone)")
+      .single(),
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  const unchanged = (k: "location_id" | "position" | "notes") => !(k in body) || (body[k] || null) === (before?.[k] || null);
+  const onlyTheEventChanged =
+    plan.link.kind !== "keep" &&
+    before?.published !== false &&
+    !whoOrWhenChanged &&
+    unchanged("location_id") &&
+    unchanged("position") &&
+    unchanged("notes");
+  if (onlyTheEventChanged) return NextResponse.json({ shift: data });
 
   // A shift that is new to this person (a leftover draft going live, or one
   // just assigned to them) reads as a new shift. Any other edit of an assigned
@@ -111,10 +147,10 @@ export async function PATCH(
     });
   }
   if (newToThem && data?.employee_id) {
-    await tellEmployeeAboutShift("posted", data);
+    await tellEmployeeAboutShift("posted", { ...data, employee_id: data.employee_id });
   } else if (data?.employee_id) {
     // An assigned shift was edited -> tell the employee.
-    await tellEmployeeAboutShift("changed", data);
+    await tellEmployeeAboutShift("changed", { ...data, employee_id: data.employee_id });
   }
   return NextResponse.json({ shift: data });
 }
