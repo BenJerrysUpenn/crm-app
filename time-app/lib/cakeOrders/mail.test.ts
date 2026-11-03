@@ -33,11 +33,15 @@ afterEach(() => {
 
 type Fake = { commands: string[]; port: number };
 
-/** A scripted Gmail: `loginOk` decides LOGIN; `uids` is what SEARCH finds. */
-async function fakeGmail(opts: { loginOk?: boolean; uids?: number[] } = {}): Promise<Fake> {
+/**
+ * A scripted Gmail: `loginOk` decides LOGIN; `uids` is what SEARCH finds;
+ * `greeting` replaces its hello; `byeOnLogout` hangs up on LOGOUT without
+ * finishing the command, as a server may.
+ */
+async function fakeGmail(opts: { loginOk?: boolean; uids?: number[]; greeting?: string; byeOnLogout?: boolean } = {}): Promise<Fake> {
   const fake: Fake = { commands: [], port: 0 };
   server = createServer((sock: Socket) => {
-    sock.write("* OK Gimap ready\r\n");
+    sock.write(`${opts.greeting ?? "* OK Gimap ready"}\r\n`);
     let buf = "";
     sock.on("data", (chunk) => {
       buf += chunk.toString("latin1");
@@ -67,7 +71,7 @@ async function fakeGmail(opts: { loginOk?: boolean; uids?: number[] } = {}): Pro
           sock.write(two);
           sock.write(`)\r\n${tag} OK Success\r\n`);
         } else if (cmd.startsWith("LOGOUT")) {
-          sock.write(`* BYE LOGOUT Requested\r\n${tag} OK 73 good day\r\n`);
+          sock.write(opts.byeOnLogout ? "* BYE LOGOUT Requested\r\n" : `* BYE LOGOUT Requested\r\n${tag} OK 73 good day\r\n`);
           sock.end();
         } else {
           sock.write(`${tag} BAD unexpected\r\n`);
@@ -128,6 +132,36 @@ test("a server that never answers times out", async () => {
 test("IMAP strings are quoted and escaped; a line break is refused", () => {
   assert.equal(imapQuote('a"b\\c'), '"a\\"b\\\\c"');
   assert.throws(() => imapQuote("a\r\nb"));
+});
+
+test("a server that does not greet as IMAP is refused before the login is sent", async () => {
+  const fake = await fakeGmail({ greeting: "* BYE too many connections" });
+  await assert.rejects(reader(fake).search("x"), /^Error: IMAP greeting: \* BYE too many connections/);
+  assert.deepEqual(fake.commands, []);
+});
+
+test("only the newest 50 matching emails are fetched", async () => {
+  const fake = await fakeGmail({ uids: Array.from({ length: 60 }, (_, i) => i + 1) });
+  await reader(fake).search("x");
+  const fetch = fake.commands.find((c) => c.startsWith("UID FETCH"))!;
+  assert.equal(fetch.split(" ")[2], Array.from({ length: 50 }, (_, i) => i + 11).join(","));
+});
+
+test("a server that hangs up on LOGOUT still returns what was read", async () => {
+  const fake = await fakeGmail({ byeOnLogout: true });
+  assert.deepEqual((await reader(fake).search("x")).map((m) => m.uid), [41, 42]);
+});
+
+test("an IMAP date that cannot be read throws rather than guess", () => {
+  assert.throws(() => imapDate("2026-11-03 15:40:07"), /unreadable IMAP date/);
+  assert.throws(() => imapDate("03-Foo-2026 15:40:07 -0500"), /unreadable IMAP date/);
+});
+
+test("encoded headers: Q and B words decoded and joined, an unknown charset left as it is", () => {
+  const raw = (subject: string) => `Subject: ${subject}\r\n\r\nbody\r\n`;
+  assert.equal(headerOf(raw("=?iso-8859-1?Q?Caf=E9_order?="), "Subject"), "Café order");
+  assert.equal(headerOf(raw("=?UTF-8?B?Q2FrZQ==?= =?UTF-8?B?IG9yZGVy?="), "Subject"), "Cake order");
+  assert.equal(headerOf(raw("=?koi8-r?B?8NLJ18XU?="), "Subject"), "=?koi8-r?B?8NLJ18XU?=");
 });
 
 test("IMAP dates and headers", () => {
