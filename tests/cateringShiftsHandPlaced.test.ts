@@ -194,7 +194,7 @@ describe("which shifts count as hand-placed crew", () => {
     ["unpublished", { published: false }],
     ["empty (no person)", { employee_id: null }],
     ["not Catering", { position: "PENN Closer" }],
-    ["at Marketing, which only the event dialog mentions", { position: "Marketing" }],
+    ["at Marketing, which only the event dialog and the schedule's badge read", { position: "Marketing" }],
     ["no position", { position: null }],
     ["a position that only mentions Catering", { position: "Catering Lead" }],
     ["linked to another deal", { deal_id: 900999, deal_slot: 1 }],

@@ -344,6 +344,13 @@ describe("catering", () => {
     ]);
   });
 
+  it("a finished event stays out: the same event Booked Paid is a gap, at Event Complete it is not", () => {
+    const booked = deal({ id: 1, stage: "Booked Paid" });
+    const finished = deal({ id: 1, stage: "Event Complete" });
+    expect(buildReminder(snapshot({ storeHours: [], deals: [booked] }), RUN_DATE)).toEqual(["Sat Oct 24, 2:00–6:00 PM (catering)"]);
+    expect(buildReminder(snapshot({ storeHours: [], deals: [finished] }), RUN_DATE)).toEqual([]);
+  });
+
   it("only events from the first Sunday to the last Saturday are checked; an undated event is not", () => {
     const deals = ["2026-10-17", "2026-10-18", "2026-10-31", "2026-11-01", null].map((event_date, i) =>
       deal({ id: i + 1, event_date }),
@@ -437,6 +444,12 @@ describe("catering", () => {
       const gap = ["Sat Oct 24, 2:00–3:00 PM (catering)"];
       expect(lines([event], [satHandPlaced("14:01", "15:00")])).toEqual(gap);
       expect(lines([event], [satHandPlaced("14:00", "14:59")])).toEqual(gap);
+    });
+
+    it("a marketing event with a person on any linked shift is not a gap: the reminder never reads the linked shift's position", () => {
+      const marketing = satDeal("14:00", "15:00", { stage: "Closed Marketing Event" });
+      expect(lines([marketing], [], [{ deal_id: 1, employee_id: "emp-1", published: true }])).toEqual([]);
+      expect(lines([marketing], [], [])).toEqual(["Sat Oct 24, 2:00–3:00 PM (catering)"]);
     });
 
     it("an open shift linked to the event, and nobody else, is a gap", () => {

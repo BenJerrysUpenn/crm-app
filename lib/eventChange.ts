@@ -10,6 +10,7 @@ import {
   type Span,
 } from "@/lib/handPlacedCrew";
 import { addDays } from "../time-app/lib/coverage";
+import { MARKETING_POSITION } from "../time-app/lib/scheduleEvents";
 
 // Reschedule event and Cancel event, the two buttons on the deal drawer.
 //
@@ -33,9 +34,11 @@ import { addDays } from "../time-app/lib/coverage";
 //     the old start time are cleared so they are derived again
 //     (CLEARED_FOR_NEW_START).
 //   * A line is appended to `deals.notes` saying what moved, from what to what.
-//   * Shifts added directly on the Schedule page carry no `deal_id`, so nothing
-//     here moves them or removes them. The dialog names the people on them
-//     (shiftsAlsoAtEvent) so someone can update them by hand.
+//   * A shift added directly on the Schedule page carries no `deal_id` until a
+//     manager links it to the event in its popup (time-app lib/shiftEventLink.ts).
+//     Linked, it is a crew shift like any other. Unlinked, nothing here moves it or
+//     removes it, and the dialog names the people on it (shiftsAlsoAtEvent) so
+//     someone can update it by hand.
 //
 // The rules are pure (planEventChange). The reads and writes go through an
 // EventChangeStore: the web route passes the service-role supabase-js store at
@@ -397,11 +400,6 @@ function placedEventSpan(
   const span = eventSpan({ ...event, event_date: (event.event_date ?? "").trim() });
   return span && !Number.isNaN(span.from) ? span : null;
 }
-
-// The time app's MARKETING_POSITION (time-app/lib/metrics/laborPlanning.ts). That
-// file cannot be compiled from this app: it pulls in modules with `.ts` import
-// paths and the time app's own "@/" alias. Change both together.
-const MARKETING_POSITION = "Marketing";
 
 /** The positions the dialog warns about, on any event: a safety net should over-mention. */
 const ALSO_AT_EVENT_POSITIONS: readonly string[] = [CATERING_POSITION, MARKETING_POSITION];

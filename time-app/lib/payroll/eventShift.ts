@@ -28,6 +28,15 @@ export type NewEventShift = {
   deal_slot: number;
 };
 
+/**
+ * The next free deal_slot on a deal, for shifts_deal_slot_uidx (deal_id,
+ * deal_slot). Pass every shift on the deal, whatever its position: the index
+ * does not look at position.
+ */
+export function nextDealSlot(shifts: { deal_slot: number | null }[]): number {
+  return Math.max(0, ...shifts.map((s) => s.deal_slot ?? 0)) + 1;
+}
+
 export type EventShiftPlan = { action: "assign"; shiftId: number } | { action: "insert"; row: NewEventShift };
 
 /**
@@ -49,7 +58,7 @@ export function planEventShift(input: {
     .sort((a, b) => (a.deal_slot ?? Infinity) - (b.deal_slot ?? Infinity) || a.id - b.id)[0];
   if (open) return { action: "assign", shiftId: open.id };
 
-  const slot = Math.max(0, ...input.eventShifts.map((s) => s.deal_slot ?? 0)) + 1;
+  const slot = nextDealSlot(input.eventShifts);
   const where = input.deal.venue_name?.trim() || input.deal.company?.trim() || "Catering event";
   const notes = [
     `Added on the payroll page for booked deal #${input.deal.id}`,

@@ -6,9 +6,18 @@ import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilit
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
 import { isManager } from "@/lib/roles";
+import type { ShiftWithEmployee } from "@/lib/types";
+import { planEventLink, requestedEvent, writeWithEventLink } from "@/lib/shiftEventLink";
+
+// force-dynamic alone does not stop Next caching the fetches a route makes (see
+// lib/supabase/admin.ts). The free deal_slot has to come from a live read.
+export const fetchCache = "force-no-store";
 
 // POST: create a shift (manager only). Body: employee_id, starts_at, ends_at,
-// position, notes, location_id, confirmLong.
+// position, notes, location_id, confirmLong, deal_id.
+//
+// deal_id is the shift's event: it is checked and given a free
+// deal_slot by lib/shiftEventLink.ts. Absent or null, the shift has no event.
 //
 // There are no drafts: every shift is written live (published = true). An
 // assigned employee sees it on their bell straight away and gets it by email
@@ -43,7 +52,18 @@ export async function POST(request: Request) {
   if (isLongShift(startsAt, endsAt) && body.confirmLong !== true)
     return NextResponse.json({ error: "long_shift", hours: shiftHours(startsAt, endsAt) }, { status: 409 });
 
+  const asked = requestedEvent(body);
+  if (!asked.ok) return NextResponse.json({ error: asked.error }, { status: asked.status });
+
   const supabase = createClient();
+
+  const plan = await planEventLink(supabase, {
+    requested: asked.value ?? undefined,
+    before: null,
+    startsAt,
+    position: body.position,
+  });
+  if (!plan.ok) return NextResponse.json({ error: plan.error }, { status: plan.status });
 
   if (body.employee_id && body.confirmAvailability !== true) {
     const candidate = { employee_id: String(body.employee_id), position: body.position ?? null, starts_at: startsAt, ends_at: endsAt };
@@ -56,19 +76,22 @@ export async function POST(request: Request) {
     }
   }
 
-  const { data, error } = await supabase
-    .from("shifts")
-    .insert({
-      employee_id: body.employee_id,
-      location_id: body.location_id ?? null,
-      starts_at: body.starts_at,
-      ends_at: body.ends_at,
-      position: body.position ?? null,
-      notes: body.notes ?? null,
-      published: true,
-    })
-    .select("*, profiles(id, full_name, phone)")
-    .single();
+  const { data, error } = await writeWithEventLink<ShiftWithEmployee>(supabase, plan.link, (eventFields) =>
+    supabase
+      .from("shifts")
+      .insert({
+        employee_id: body.employee_id,
+        location_id: body.location_id ?? null,
+        starts_at: body.starts_at,
+        ends_at: body.ends_at,
+        position: body.position ?? null,
+        notes: body.notes ?? null,
+        published: true,
+        ...eventFields,
+      })
+      .select("*, profiles(id, full_name, phone)")
+      .single(),
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   if (data && body.employee_id) {
