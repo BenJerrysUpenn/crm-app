@@ -53,6 +53,16 @@ export async function middleware(request: NextRequest, event?: NextFetchEvent) {
   if (pathname === CRON_CATERING_SHIFTS) {
     return NextResponse.next();
   }
+  // THROWAWAY PROTOTYPE (bj-finance #811): the one-screen console renders a
+  // synthetic fixture with no login in local dev only, when
+  // CONSOLE_PROTO_SYNTHETIC=1. Production and previews keep the normal gate.
+  if (
+    process.env.NODE_ENV === "development" &&
+    process.env.CONSOLE_PROTO_SYNTHETIC === "1" &&
+    pathname === "/email-campaigns/console"
+  ) {
+    return NextResponse.next();
+  }
   const isPfRoute = isPfPath(pathname);
 
   if (host === PF_HOST) {
