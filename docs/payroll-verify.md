@@ -149,8 +149,8 @@ onto the row: `status` 'qbo_previewed' (waiting on a person at Preview),
 'qbo_submitted', 'qbo_outcome_unknown' (Submit was pressed and QBO did not
 confirm it: check QBO), 'qbo_stopped' (stopped before Submit, nothing sent) or
 'qbo_paystubs_sent', with `qbo_outcome` in words and `qbo_outcome_at`. Once a
-row reads 'qbo_submitted' it only moves on to 'qbo_paystubs_sent', and no qbo_
-status goes back to pending. Until migration 53 is applied the chain writes
+row reads 'qbo_submitted' it only moves on to 'qbo_paystubs_sent', which never
+moves, and no qbo_ status goes back to pending. Until migration 53 is applied the chain writes
 nothing here and its record on the Mac is the only trace. The page does not show
 these statuses yet.
 

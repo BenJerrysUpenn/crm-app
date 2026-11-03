@@ -292,15 +292,15 @@ export type RulingRow = {
 /**
  * The one submittal a pay run gets (migration 27, payroll_run_submittals).
  * FINAL (ruled 2026-09-22): it cannot be undone, and it locks every choice
- * in its fourteen days. The pay run is then keyed in QBO by hand; the §6
- * staging script is not built.
+ * in its fourteen days. bj-finance's submit chain then takes the run to QBO
+ * (or, while its switch is off, it is keyed in QBO by hand).
  */
 export type SubmittalRow = {
   submitted_by: string | null;
   submitted_at: string;
   /** The period's last day. Always set for rows read from the database. */
   window_end?: string;
-  /** 'submitted_pending_stage' until the §6 staging script (not built) takes it. */
+  /** 'submitted_pending_stage' until bj-finance's submit chain takes it; then a 'qbo_' status (migration 53). */
   status?: string;
 };
 
