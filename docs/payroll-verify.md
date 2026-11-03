@@ -116,9 +116,10 @@ The payroll sheet (bj-finance `modules/payroll_sheet.py`) will not produce a
 keyable sheet until the run is submitted.
 
 **Submittal is final** (ruled 2026-09-22, reworded 2026-09-27). It sends
-money, and it cannot be cancelled or undone. The QBO staging script (§6) is
-not built, so what submitting does today is submit and lock the run; the pay
-run is then keyed in QBO by hand:
+money, and it cannot be cancelled or undone. It submits and locks the run;
+bj-finance's submit chain (below, "The seam to §6") then takes the run to QBO
+on the Mac, or, while that chain is switched off, the run is keyed in QBO by
+hand:
 
 - **Only after the period ends.** Before the Monday after the period's last
   Sunday the button is disabled and says when it can be submitted. The submit
@@ -137,10 +138,21 @@ run is then keyed in QBO by hand:
   be submitted.
 
 **The seam to §6.** The submittal row is written with
-`status = 'submitted_pending_stage'`. That row is what the QBO staging script
-(spec §6) will consume. It is not built: nothing in this app starts it or
-touches QBO (`TODO(bj-finance #519, spec §6)` in the submit route and
-migration 27).
+`status = 'submitted_pending_stage'`. bj-finance `modules/qbo_payroll_submit.py`
+(#213) reads it on the Mac, once a minute from the runner daemon: it stages the
+run in QBO's Run Payroll grid, opens Preview and compares it with the pay table,
+presses QBO's Submit only while its switch (`SUBMIT_CONFIRMED_ON`) is set and
+QBO lists no paycheck for the run, then saves the paystub PDF to the Drive and
+emails it to the store's printer. Nothing in this app starts it or touches QBO;
+the app only writes the row. Migration 53 lets the chain write what it did back
+onto the row: `status` 'qbo_previewed' (waiting on a person at Preview),
+'qbo_submitted', 'qbo_outcome_unknown' (Submit was pressed and QBO did not
+confirm it: check QBO), 'qbo_stopped' (stopped before Submit, nothing sent) or
+'qbo_paystubs_sent', with `qbo_outcome` in words and `qbo_outcome_at`. Once a
+row reads 'qbo_submitted' it only moves on to 'qbo_paystubs_sent', and no qbo_
+status goes back to pending. Until migration 53 is applied the chain writes
+nothing here and its record on the Mac is the only trace. The page does not show
+these statuses yet.
 
 **Flags** never block; they are shown to the submitter and on the sheet:
 
@@ -391,18 +403,20 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_49.sql` | redefines `travel_reimbursements_payable`, the view payroll pays travel reimbursements from: a Catering Event trip is paid at the lower of the IRS rate and `deal_mileage_cap()`, what its deal's quote charged a mile; every other trip at the IRS rate. Nothing in the verify reads it; see README, "Travel Reimbursements" |
 | `time-app/supabase/migration_50.sql` | redefines `deal_mileage_cap()`, which the payable view reads: a quote that charged no mileage, or charged it on a deal with no round-trip miles, caps a Catering Event trip at 0c; the May 2026 quote keys for the Uber flat fee and a stored rate are read. Nothing in the verify reads it; see README, "Travel Reimbursements" |
 | `time-app/supabase/migration_52.sql` | redefines `deal_mileage_cap()` again: a quote whose transportation subtotal is $0 caps at 0c before any stored per-mile rate is read, since every quote now stores one. Nothing in the verify reads it; see README, "Travel Reimbursements" |
+| `time-app/supabase/migration_53.sql` | `payroll_run_submittals`: the bj-finance submit chain's statuses (`qbo_previewed`, `qbo_submitted`, `qbo_outcome_unknown`, `qbo_stopped`, `qbo_paystubs_sent`), `qbo_outcome` and `qbo_outcome_at`, and a trigger that keeps a submitted run from moving back. See "The seam to §6" |
 
 All of these are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_N_verify.sql` to run afterwards (in a
 transaction that rolls back) and a `migration_N_down.sql` that reverses it;
 the header of each down script says what data it loses. Roll back in reverse
-order: 52, 50, 49, 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
+order: 53, 52, 50, 49, 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
 not payroll; see README) rolls back before 42, whose `is_owner()` its policies call. Until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 
 ## Not built yet
 
-Build items 9.5–9.6 of the spec: the QBO staging automation behind a
-Preview-only boundary (§6), and the run emails, paystub PDF and HP ePrint
-receipt (§7). Item 9.4, the staged sheet, is bj-finance `modules/payroll_sheet.py`
+Of build items 9.5–9.6 of the spec, the QBO stage and submit and the paystub
+PDF to the Drive and the printer are bj-finance `modules/qbo_payroll_stage.py`
+and `modules/qbo_payroll_submit.py` (#213); the run summary email and the HP
+ePrint receipt (§7.2, §7.4) are not built. Item 9.4, the staged sheet, is bj-finance `modules/payroll_sheet.py`
 (bj-finance PR #541), which reads the choices and the submittal recorded here.
