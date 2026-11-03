@@ -213,6 +213,17 @@ test("moving to another day and choosing that day's event in one save links the 
   assert.equal(shift(1).deal_slot, 1);
 });
 
+test("moving a linked shift to another day while still asking for its event is refused, and nothing changes", async () => {
+  db.rows("shifts")[0].deal_id = 500;
+  db.rows("shifts")[0].deal_slot = 3;
+  const res = await patch(1, { starts_at: edt("2026-10-24", "11:00"), ends_at: edt("2026-10-24", "15:00"), deal_id: 500 });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "That event is on a different day from this shift.");
+  assert.equal(shift(1).starts_at, PLACED.starts_at);
+  assert.equal(shift(1).deal_id, 500);
+  assert.equal(shift(1).deal_slot, 3);
+});
+
 test("an event on another day is refused and nothing changes", async () => {
   const res = await patch(1, { deal_id: 501 });
   assert.equal(res.status, 400);
@@ -832,6 +843,7 @@ test("the same goes for a Marketing crew: the colleague's link is what says it i
   const badge = eventBadges(db.rows("shifts") as never, await dayEvents(), TODAY).get(1);
   assert.equal(badge?.kind, "choose"); // this one and the typed marketing event both fit
   assert.equal((await patch(1, { deal_id: 503 })).status, 200);
+  assert.equal(eventBadges(db.rows("shifts") as never, await dayEvents(), TODAY).size, 0);
 });
 
 test("an event finished more than 14 days ago badges nobody and can still be linked from the popup", async () => {
