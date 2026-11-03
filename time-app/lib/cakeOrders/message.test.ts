@@ -41,17 +41,24 @@ test("a good first line passes: each mention once, asks to pack and react or rep
 });
 
 test("a first line is rejected for a missing or doubled mention, another mention, a link, a number, money, or not asking", () => {
-  const bad = (text: string) => validateLead(text, [ANA]).ok;
-  assert.equal(bad("A cake order! Please pack it and react when done."), false, "no mention");
-  assert.equal(bad("<@U0ANA> <@U0ANA> please pack it and react when done."), false, "twice");
-  assert.equal(bad("<@U0ANA> and <@U0CY> please pack it and react when done."), false, "someone else");
-  assert.equal(bad("<@U0ANA> <!here> please pack it and react when done."), false, "@here");
-  assert.equal(bad("<@U0ANA> pickup at 3, please pack it and react when done."), false, "a time");
-  assert.equal(bad("<@U0ANA> a $40 cake, please pack it and react when done."), false, "money");
-  assert.equal(bad("<@U0ANA> see https://x.test and pack it, react when done."), false, "a link");
-  assert.equal(bad("<@U0ANA> a cake order came in, react when you see it."), false, "does not ask to pack");
-  assert.equal(bad("<@U0ANA> a cake order came in, please pack it."), false, "does not ask for a reaction or reply");
-  assert.equal(bad(`<@U0ANA> please pack it and react when done.${" so good".repeat(40)}`), false, "too long");
+  // Each case breaks one rule, and the reason names that rule (it is the note the run records).
+  const why = (text: string) => {
+    const v = validateLead(text, [ANA]);
+    return v.ok ? "accepted" : v.reason;
+  };
+  assert.equal(why("A cake order! Please pack it and react when done."), "mention <@U0ANA> appears 0 times");
+  assert.equal(why("<@U0ANA> <@U0ANA> please pack it and react when done."), "mention <@U0ANA> appears 2 times");
+  assert.equal(why("<@U0ANA> and <@U0CY> please pack it and react when done."), "another mention");
+  assert.equal(why("<@U0ANA> <!here> please pack it and react when done."), "another mention");
+  assert.equal(why("<@U0ANA> @channel please pack it and react when done."), "another mention");
+  assert.equal(why("<@U0ANA> pickup at 3, please pack it and react when done."), "a number");
+  assert.equal(why("<@U0ANA> a $$ cake, please pack it and react when done."), "a dollar sign");
+  assert.equal(why("<@U0ANA> see https://x.test and pack it, react when done."), "a link");
+  assert.equal(why("<@U0ANA> a cake order came in, react when you see it."), "does not ask them to pack it");
+  assert.equal(why("<@U0ANA> a cake order came in, please pack it."), "does not ask them to react or reply");
+  assert.equal(why(`<@U0ANA> please pack it and react when done.${" so good".repeat(40)}`), "longer than 240 characters");
+  assert.equal(why("<@U0ANA> a cake order!\nPlease pack it\nand react when done."), "more than 2 lines");
+  assert.equal(why("   "), "empty");
 });
 
 test("the follow-up has no mention at all", () => {
@@ -61,16 +68,27 @@ test("the follow-up has no mention at all", () => {
   assert.equal(validateFollowup(FALLBACK_FOLLOWUP).ok, true, "the plain reply passes its own check");
 });
 
+const DETAILS = '*Pat Placeholder*, pickup Wed Nov 4, 3:00 PM\n• 8" round, Cookie Dough &amp; Fudge\n• Message: Happy &lt;b&gt;day&lt;/b&gt;';
+
 test("the order details are copied from the email, escaped for Slack, pickup in New York time", () => {
-  assert.equal(orderDetails(ORDER), '*Pat Placeholder*, pickup Wed Nov 4, 3:00 PM\n• 8" round, Cookie Dough &amp; Fudge\n• Message: Happy &lt;b&gt;day&lt;/b&gt;');
+  assert.equal(orderDetails(ORDER), DETAILS);
   assert.equal(orderDetails({ ...ORDER, pickupAt: null }).split("\n")[0], "*Pat Placeholder*, pickup Nov 4, 3:00 PM");
+});
+
+test("one odd email cannot flood the channel: at most 8 cake lines, each cut at 300 characters", () => {
+  const cake = [`Message: ${"x".repeat(400)}`, ...Array.from({ length: 9 }, (_, i) => `Cake ${String.fromCharCode(65 + i)}`)];
+  const lines = orderDetails({ ...ORDER, cake }).split("\n");
+  assert.equal(lines.length, 1 + 8 + 1, "the customer line, 8 cake lines, and the count of the rest");
+  assert.equal(lines[1], `• Message: ${"x".repeat(290)}…`);
+  assert.equal(lines[8], "• Cake G");
+  assert.equal(lines[9], "• and 2 more on the order");
 });
 
 test("writePost: Claude's line, then the details; Claude never sees the order", async () => {
   const claude = claudeSaying("<@U0ANA> new cake order! Please pack it and react when it's done 📦");
   const w = await writePost({ ask: claude.ask, people: [ANA], order: ORDER, random: () => 0 });
   assert.equal(w.source, "ai");
-  assert.equal(w.text, `<@U0ANA> new cake order! Please pack it and react when it's done 📦\n${orderDetails(ORDER)}`);
+  assert.equal(w.text, `<@U0ANA> new cake order! Please pack it and react when it's done 📦\n${DETAILS}`);
   assert.equal(claude.seen.length, 1);
   assert.ok(!claude.seen[0].prompt.includes("Pat") && !claude.seen[0].prompt.includes("Cookie"), "no order details in the prompt");
   assert.match(claude.seen[0].prompt, /Mention text: <@U0ANA>/);
@@ -82,7 +100,7 @@ test("writePost falls back to the plain line on any failure, with the details st
   assert.equal(w.source, "fallback");
   assert.equal(w.note, "claude timed out after 45s");
   assert.ok(w.text.startsWith("<@U0ANA> and <@U0BEN> a new cake order just came in. Please pack it"));
-  assert.ok(w.text.endsWith(orderDetails(ORDER)));
+  assert.ok(w.text.endsWith(`when it is done.\n${DETAILS}`));
 
   const rejected = await writePost({ ask: claudeSaying("Pack the cake at 3pm!").ask, people: [ANA], order: ORDER });
   assert.equal(rejected.source, "fallback");
@@ -96,5 +114,8 @@ test("writeFollowup: Claude's reply, or the plain one", async () => {
   const ok = await writeFollowup({ ask: claudeSaying("Gentle nudge: please pack this one and reply here when done 🙏").ask });
   assert.deepEqual(ok, { text: "Gentle nudge: please pack this one and reply here when done 🙏", source: "ai" });
   const mentioned = await writeFollowup({ ask: claudeSaying("<@U0ANA> please pack it and reply here when done.").ask });
-  assert.deepEqual([mentioned.text, mentioned.source], [FALLBACK_FOLLOWUP, "fallback"]);
+  assert.deepEqual([mentioned.text, mentioned.source, mentioned.note], [FALLBACK_FOLLOWUP, "fallback", "AI message rejected: a mention"]);
+  const failed = await writeFollowup({ ask: claudeSaying({ ok: false, reason: "claude timed out after 45s" }).ask });
+  assert.deepEqual(failed, { text: FALLBACK_FOLLOWUP, source: "fallback", note: "claude timed out after 45s" });
+  assert.deepEqual(await writeFollowup({ ask: null }), { text: FALLBACK_FOLLOWUP, source: "fallback", note: "no Claude subscription token" });
 });
