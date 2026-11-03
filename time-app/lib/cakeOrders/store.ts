@@ -12,22 +12,7 @@ import type { PackedHow, PlanEntry, PlanShift } from "./plan";
 
 export type { Person };
 
-/** A cake_order_reminders row (migration 54). */
-export type OrderRow = {
-  id: number;
-  order_key: string;
-  message_id: string;
-  received_at: string;
-  pickup_at: string | null;
-  profile_ids: string[];
-  slack_user_ids: string[];
-  channel_id: string;
-  post_ts: string | null;
-  post_source: string | null;
-  posted_at: string | null;
-  followup_outcome: string | null;
-};
-
+/** What an order is recorded with before it is posted. */
 export type NewOrder = {
   order_key: string;
   message_id: string;
@@ -36,6 +21,15 @@ export type NewOrder = {
   profile_ids: string[];
   slack_user_ids: string[];
   channel_id: string;
+};
+
+/** A cake_order_reminders row (migration 54): the recorded order, plus its post and follow-up. */
+export type OrderRow = NewOrder & {
+  id: number;
+  post_ts: string | null;
+  post_source: string | null;
+  posted_at: string | null;
+  followup_outcome: string | null;
 };
 
 export type CakeOrderStore = {
