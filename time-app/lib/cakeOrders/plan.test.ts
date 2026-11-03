@@ -34,7 +34,7 @@ const punch = (id: number, who: string, inAt: string, outAt: string | null = nul
   clock_in_at: inAt,
   clock_out_at: outAt,
 });
-const order = (receivedAt: string, pickupAt: string | null = null) => ({ key: "1001", receivedAt: Date.parse(receivedAt), pickupAt: pickupAt ? Date.parse(pickupAt) : null });
+const order = (receivedAt: string, pickupAt: string | null = null) => ({ receivedAt: Date.parse(receivedAt), pickupAt: pickupAt ? Date.parse(pickupAt) : null });
 
 test("an order that arrives while people are on store punches goes to all of them at once", () => {
   const s = snap([punch(1, "ana", at("10:00")), punch(2, "ben", at("12:00")), punch(3, "cy", at("09:00"), at("11:00"))]);

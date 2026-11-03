@@ -89,7 +89,7 @@ export function firstStoreClockIn(snap: PunchSnapshot, from: number, until: numb
 // ---- when an order is posted ---------------------------------------------------
 
 /** What the plan needs to know about an order: when its email arrived and when it is picked up. */
-export type PlannedOrder = { key: string; receivedAt: number; pickupAt: number | null };
+export type PlannedOrder = { receivedAt: number; pickupAt: number | null };
 
 export type PostDecision =
   | { action: "post"; profileIds: string[]; why: "on_clock" | "after_first_clock_in" }

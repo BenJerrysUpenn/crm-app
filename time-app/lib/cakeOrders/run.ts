@@ -222,7 +222,7 @@ export async function runCakeOrderReminders(deps: RunDeps): Promise<CakeOrderRes
   if (snap) {
     for (const f of fresh) {
       const key = f.order.key;
-      const decision = decidePost({ key, receivedAt: f.receivedAt, pickupAt: f.order.pickupAt ? ms(f.order.pickupAt) : null }, snap, now);
+      const decision = decidePost({ receivedAt: f.receivedAt, pickupAt: f.order.pickupAt ? ms(f.order.pickupAt) : null }, snap, now);
       if (decision.action !== "post") {
         const until = decision.action === "hold" && decision.until ? ` until ${clock(nyWallClock(new Date(decision.until).toISOString()).minutes)}` : "";
         result.held.push({ order: key, why: `${decision.why}${until}` });
