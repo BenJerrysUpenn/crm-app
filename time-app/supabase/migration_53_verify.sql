@@ -12,7 +12,8 @@
 -- WHAT IS CHECKED
 --   1. A submittal still starts as 'submitted_pending_stage'.
 --   2. It moves through the chain's statuses, and its qbo_outcome and
---      qbo_outcome_at can be written, while what was submitted stays frozen.
+--      qbo_outcome_at can be written, while what was submitted stays frozen;
+--      a write that names the status the row already reads is let through.
 --   3. A status outside the list is refused.
 --   4. 'qbo_submitted' only moves to 'qbo_paystubs_sent'; 'qbo_paystubs_sent'
 --      never moves; no qbo_ status goes back to 'submitted_pending_stage'.
@@ -54,6 +55,9 @@ begin
   if (select qbo_outcome from public.payroll_run_submittals where window_end = v_end)
      <> 'step qbo_paystubs_sent' then
     raise exception '2: qbo_outcome was not written';
+  end if;
+  if (select qbo_outcome_at from public.payroll_run_submittals where window_end = v_end) is null then
+    raise exception '2: qbo_outcome_at was not written';
   end if;
   refused := false;
   begin
@@ -97,14 +101,17 @@ begin
   end;
   if not refused then raise exception '3: status ''paid'' was accepted'; end if;
 
-  -- 4. Back to pending is refused from any qbo_ status.
-  update public.payroll_run_submittals set status = 'qbo_previewed' where window_end = v_end;
-  refused := false;
-  begin
-    update public.payroll_run_submittals set status = 'submitted_pending_stage' where window_end = v_end;
-  exception when raise_exception then refused := true;
-  end;
-  if not refused then raise exception '4: qbo_previewed went back to pending'; end if;
+  -- 4. Back to pending is refused from any qbo_ status (qbo_submitted and
+  -- qbo_paystubs_sent are tried below and above).
+  foreach v_st in array array['qbo_previewed', 'qbo_stopped', 'qbo_outcome_unknown'] loop
+    update public.payroll_run_submittals set status = v_st where window_end = v_end;
+    refused := false;
+    begin
+      update public.payroll_run_submittals set status = 'submitted_pending_stage' where window_end = v_end;
+    exception when raise_exception then refused := true;
+    end;
+    if not refused then raise exception '4: % went back to pending', v_st; end if;
+  end loop;
 
   -- 4. qbo_submitted only moves forward.
   update public.payroll_run_submittals set status = 'qbo_submitted' where window_end = v_end;
@@ -117,7 +124,15 @@ begin
     end;
     if not refused then raise exception '4: qbo_submitted moved to %', v_st; end if;
   end loop;
-  update public.payroll_run_submittals set qbo_outcome = 'same status, new words' where window_end = v_end;
+  -- 2. The chain may rewrite its words under the status a row already reads,
+  -- even one that can no longer move.
+  update public.payroll_run_submittals
+     set status = 'qbo_submitted', qbo_outcome = 'same status, new words'
+   where window_end = v_end;
+  if (select qbo_outcome from public.payroll_run_submittals where window_end = v_end)
+     <> 'same status, new words' then
+    raise exception '2: a same-status write did not land';
+  end if;
 
   -- 5. No API role can execute the trigger function.
   foreach r in array array['anon', 'authenticated', 'service_role'] loop
