@@ -39,6 +39,7 @@ let db: MemoryCakeOrderStore;
 let vault: Record<string, string>;
 let vaultDown: boolean;
 let dbDown: boolean;
+let mailDown: boolean;
 let posts: string[];
 let logins: { user: string; password: string }[];
 let claudeTokens: string[];
@@ -57,6 +58,8 @@ async function fakeSlack(input: string | URL | Request, init?: RequestInit): Pro
   }
   if (method === "users.lookupByEmail") return Response.json({ ok: true, user: { id: "U0ANA" } });
   if (method === "users.list") return Response.json({ ok: true, members: [] });
+  if (method === "reactions.get") return Response.json({ ok: true, message: { reactions: [] } });
+  if (method === "conversations.replies" || method === "conversations.history") return Response.json({ ok: true, messages: [] });
   throw new Error(`unexpected Slack method ${method}`);
 }
 
@@ -79,6 +82,7 @@ function deps(at: string, env: Record<string, string | undefined> = ENV): CliMod
       logins.push(login);
       return {
         async search() {
+          if (mailDown) throw new Error("IMAP login failed: NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)");
           return [{ uid: 7, receivedAt: est("12:00"), raw: "From: Someone <a@example.test>\r\nSubject: Weekly summary\r\n\r\nhi\r\n" }];
         },
       };
@@ -102,6 +106,7 @@ beforeEach(() => {
   vault = { slack_cake_orders_bot_token: SLACK_TOKEN, gmail_sender_address: MAIL_USER, gmail_app_password: MAIL_PASSWORD, claude_usage_token: CLAUDE_TOKEN };
   vaultDown = false;
   dbDown = false;
+  mailDown = false;
   posts = [];
   logins = [];
   claudeTokens = [];
@@ -163,6 +168,12 @@ test("no Slack token, no mailbox login, Vault or the database unreadable, or mig
   assert.deepEqual(errs, ["[cake-orders] ERROR: Vault has no gmail_app_password; the order emails cannot be read, nothing was posted"]);
 
   vault.gmail_app_password = MAIL_PASSWORD;
+  delete vault.gmail_sender_address;
+  errs = [];
+  assert.equal(await runCakeOrderCli([], deps("12:05")), 1);
+  assert.deepEqual(errs, ["[cake-orders] ERROR: Vault has no gmail_sender_address; the order emails cannot be read, nothing was posted"]);
+
+  vault.gmail_sender_address = MAIL_USER;
   vaultDown = true;
   errs = [];
   assert.equal(await runCakeOrderCli([], deps("12:05")), 1);
@@ -197,4 +208,35 @@ test("a bad argument, no DATABASE_URL or no order address exits 2", async () => 
   assert.equal(await runCakeOrderCli([], deps("12:05", { DATABASE_URL: "postgresql://cli.test/db" })), 2);
   assert.match(errs[2], /CAKE_ORDERS_ORDER_ADDRESS is not set/);
   assert.deepEqual(posts, []);
+});
+
+test("a follow-up that went out is printed in the run's line", async () => {
+  const id = await db.claimOrder({
+    order_key: "1001",
+    message_id: "<m1@example.test>",
+    received_at: est("11:00"),
+    pickup_at: null,
+    profile_ids: [ANA],
+    slack_user_ids: ["U0ANA"],
+    channel_id: "C0B5QDB7RH8",
+  });
+  await db.markPosted(id!, { post_ts: "1793376000.000001", post_source: "ai", posted_at: est("11:00") });
+  vault.claude_usage_token = "";
+  assert.equal(await runCakeOrderCli([], deps("12:05")), 0);
+  assert.equal(out[0], "[cake-orders] 2026-11-04 12:05, mail 1 read, 0 cake orders, 1 not readable: follow-up 1001 sent (fallback: no Claude subscription token)");
+  assert.equal(posts.length, 1);
+});
+
+test("the mailbox cannot be read: the run says so and exits 1", async () => {
+  mailDown = true;
+  assert.equal(await runCakeOrderCli([], deps("12:05")), 1);
+  assert.equal(out[0], "[cake-orders] 2026-11-04 12:05, mail unreadable: nothing due");
+  assert.deepEqual(errs, ["[cake-orders] ERROR: mail: IMAP login failed: NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)"]);
+});
+
+test("a dry run with nobody on the clock says there is nothing to preview", async () => {
+  db.entries = [];
+  assert.equal(await runCakeOrderCli(["--dry-run"], deps("12:05")), 0);
+  assert.equal(out[0], "[cake-orders] DRY RUN: 2026-11-04 12:05, mail 1 read, 0 cake orders, 1 not readable, 0 on the clock: planned");
+  assert.equal(out.at(-1), "[cake-orders] nothing to post, and nobody on the clock to preview for");
 });
