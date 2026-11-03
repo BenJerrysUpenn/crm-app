@@ -9,10 +9,12 @@ import {
   money,
   oloEvidenceText,
   payTableBlocker,
+  premiumDetailText,
   qboCell,
   qboTotal,
   rateCell,
   requestView,
+  separatePremiumOtNote,
   wagesCell,
   whenText,
   type PaySheetJson,
@@ -122,6 +124,7 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
       return next;
     });
   const unpriced = sheet.totals.wages_unpriced ?? [];
+  const separateOt = separatePremiumOtNote(sheet.totals);
   const columns = PAY_TABLE_COLUMNS.length + 3;
 
   return (
@@ -197,7 +200,7 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
               <td className="sticky left-0 z-10 bg-white dark:bg-slate-900 px-3 py-2">Total</td>
               {PAY_TABLE_COLUMNS.map((c) => (
                 <td key={c.key} className="text-right px-3 py-2 whitespace-nowrap">
-                  {qboTotal(sheet.totals, c.key, sheet.rows)}
+                  {qboTotal(sheet.totals, c.key)}
                 </td>
               ))}
               <td />
@@ -211,6 +214,7 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
           Wages leave out {unpriced.join(", ")}: no hourly rate in Withers-time. Set it on the Team page, then rebuild.
         </div>
       )}
+      {separateOt && <div className="px-4 pt-2 text-xs text-amber-700 dark:text-amber-500">{separateOt}</div>}
 
       <SoloNights sheet={sheet} />
       <Items sheet={sheet} />
@@ -286,15 +290,7 @@ function RowEvidence({ row, sheet }: { row: SheetRow; sheet: PaySheetJson }) {
       {row.catering_hours > 0 && (
         <div>
           <div className="font-semibold text-slate-900 dark:text-slate-100">Catering hours · {hoursText(row.catering_hours)}h</div>
-          <div className="mt-0.5">
-            Premium hours {hoursText(row.premium_hours)}h → {money(row.premium_cents)}
-            {row.premium_ot.map((l) => (
-              <span key={l.week_start}>
-                {" "}
-                · premium OT {l.week_start}–{l.week_end}: {money(l.cents)}
-              </span>
-            ))}
-          </div>
+          <div className="mt-0.5">{premiumDetailText(row)}</div>
         </div>
       )}
     </div>

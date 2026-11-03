@@ -15,7 +15,7 @@
 import { addDays, type PayWindow } from "./window.ts";
 import type { AuditRow } from "./verify.ts";
 
-// ---------- the published sheet (render_json, sheet_version 2) ----------------
+// ---------- the published sheet (render_json, up to sheet_version 4) ----------
 
 export type SheetPunch = {
   id: number;
@@ -40,6 +40,15 @@ export type SheetCateringEvent = {
   paid_on?: string | null;
 };
 
+/** One workweek's overtime owed on the catering premium. */
+export type SheetPremiumOvertime = {
+  week_start: string;
+  week_end: string;
+  week_hours: number;
+  overtime_hours: number;
+  cents: number;
+};
+
 export type SheetRow = {
   person: string;
   display: string;
@@ -60,11 +69,14 @@ export type SheetRow = {
   hourly_rate: number | null;
   wages_cents?: number | null;
   wages_basis?: "hourly" | "salary" | "no_rate";
+  /** No column on the page (the owner, 2026-11-02). The expanded row still shows them: the premium needs them. */
   catering_hours: number;
   premium_hours: number;
+  /** The whole Catering premium line. From the 2026-10-19 period, any overtime on the premium is inside it. */
   premium_cents: number;
-  premium_ot_cents: number;
-  premium_ot: { week_start: string; week_end: string; week_hours: number; overtime_hours: number; cents: number }[];
+  /** A separate overtime line on a period before 2026-10-19. Empty or missing from then on. */
+  premium_ot_cents?: number;
+  premium_ot?: SheetPremiumOvertime[];
   /** Marketing labour, booked as a marketing cost too (the 2% obligation). Not a pay line. */
   marketing_hours?: number;
   marketing_cents?: number;
@@ -82,6 +94,9 @@ export type SheetRow = {
     pastry_shifts_covered: number;
     /** Why this row has its Olo tips, when bake shifts are not the reason (bj-finance, from 2026-10-19). */
     olo_evidence?: string;
+    /** How the premium was worked out, when overtime is inside it (bj-finance, from 2026-10-19). */
+    premium_base_cents?: number;
+    premium_overtime?: SheetPremiumOvertime[];
     owner: boolean;
   };
 };
@@ -114,10 +129,9 @@ export type PaySheetJson = {
     tips_cents: number;
     solo_close_cents: number;
     travel_cents: number;
-    /** Everyone's catering hours. Optional so a sheet without it still renders: the table adds the rows up instead. */
     catering_hours?: number;
     premium_cents: number;
-    premium_ot_cents: number;
+    premium_ot_cents?: number;
     marketing_hours?: number;
     marketing_cents?: number;
   };
@@ -177,9 +191,7 @@ export type PayTableColumn = {
     | "overtime"
     | "tips"
     | "solo"
-    | "catering_hours"
     | "premium"
-    | "premium_ot"
     | "marketing_hours"
     | "marketing"
     | "travel";
@@ -195,23 +207,24 @@ export type PayTableColumn = {
  * spec §5/§6): hours first, then the flat amounts. Travel is the non-taxable
  * Travel Reimbursement line. The page adds the rate and the wages after these.
  *
- * Three columns are information only, never keyed and never in a pay total:
- *   * Catering hours (Alina, 2026-10-12): everyone's catering hours, whatever
- *     their rate or pay type, so a person at $20+/h or on salary shows them
- *     too. They are already in Regular and Overtime. The Catering premium
- *     dollars right after it stay their own lines, keyed as flat amounts.
- *   * Marketing hours and Marketing cost (Alina, 2026-10-12): marketing labour
- *     is booked as a marketing cost toward the 2% marketing obligation on top
- *     of being payroll. They follow the catering lines.
+ * Two columns are information only, never keyed and never in a pay total:
+ * Marketing hours and Marketing cost (2026-10-12): marketing labour is booked
+ * as a marketing cost toward the 2% marketing obligation on top of being
+ * payroll. They follow the Catering premium. A salaried row shows its hours and
+ * no cost from the 2026-10-19 period, because the sheet publishes none
+ * (the owner, 2026-11-02).
+ *
+ * There is no Catering hours or Catering premium OT column (the owner,
+ * 2026-11-02: "I only need Catering premium not catering hours" and "Catering
+ * premium OT isn't a thing"). The expanded row shows how a premium was worked
+ * out (premiumDetailText).
  */
 export const PAY_TABLE_COLUMNS: PayTableColumn[] = [
   { key: "regular", label: "Regular hours", qbo: true },
   { key: "overtime", label: "Overtime hours", qbo: true },
   { key: "tips", label: "Paycheck tips", qbo: true },
   { key: "solo", label: "Solo close", qbo: true },
-  { key: "catering_hours", label: "Catering hours", qbo: false },
   { key: "premium", label: "Catering premium", qbo: true },
-  { key: "premium_ot", label: "Catering premium OT", qbo: true },
   { key: "marketing_hours", label: "Marketing hours", qbo: false },
   { key: "marketing", label: "Marketing cost", qbo: false },
   { key: "travel", label: "Travel reimbursement", qbo: true },
@@ -246,12 +259,8 @@ export function qboCell(row: SheetRow, key: PayTableColumn["key"]): string {
       return row.tips_cents ? money(row.tips_cents) : "";
     case "solo":
       return row.solo_close_cents ? money(row.solo_close_cents) : "";
-    case "catering_hours":
-      return row.catering_hours ? hoursText(row.catering_hours) : "";
     case "premium":
       return row.premium_cents ? money(row.premium_cents) : "";
-    case "premium_ot":
-      return row.premium_ot_cents ? money(row.premium_ot_cents) : "";
     case "marketing_hours":
       return row.marketing_hours ? hoursText(row.marketing_hours) : "";
     case "marketing":
@@ -262,12 +271,10 @@ export function qboCell(row: SheetRow, key: PayTableColumn["key"]): string {
 }
 
 /**
- * The totals row's cell for a column. Catering hours are the sheet's own
- * total; only a sheet without one falls back to the rows' figures added up.
- * A sheet built before marketing was published leaves the marketing totals
- * blank.
+ * The totals row's cell for a column. A sheet built before marketing was
+ * published leaves the marketing totals blank.
  */
-export function qboTotal(totals: PaySheetJson["totals"], key: PayTableColumn["key"], rows: SheetRow[] = []): string {
+export function qboTotal(totals: PaySheetJson["totals"], key: PayTableColumn["key"]): string {
   switch (key) {
     case "regular":
       return hoursText(totals.regular_hours ?? totals.hours);
@@ -277,12 +284,8 @@ export function qboTotal(totals: PaySheetJson["totals"], key: PayTableColumn["ke
       return money(totals.tips_cents);
     case "solo":
       return money(totals.solo_close_cents);
-    case "catering_hours":
-      return hoursText(totals.catering_hours ?? rows.reduce((sum, r) => sum + r.catering_hours, 0));
     case "premium":
       return money(totals.premium_cents);
-    case "premium_ot":
-      return money(totals.premium_ot_cents);
     case "marketing_hours":
       return totals.marketing_hours == null ? "" : hoursText(totals.marketing_hours);
     case "marketing":
@@ -290,6 +293,31 @@ export function qboTotal(totals: PaySheetJson["totals"], key: PayTableColumn["ke
     case "travel":
       return money(totals.travel_cents);
   }
+}
+
+/**
+ * How a row's Catering premium was worked out, for its expanded detail. From
+ * the 2026-10-19 period any overtime on the premium is inside the one amount
+ * and the sheet says how much; an earlier period's separate line reads as it
+ * always did. Every figure is the sheet's own.
+ */
+export function premiumDetailText(row: SheetRow): string {
+  const inside = row.evidence.premium_overtime ?? [];
+  const parts = [`Premium hours ${hoursText(row.premium_hours)}h → ${money(row.evidence.premium_base_cents ?? row.premium_cents)}`];
+  for (const l of inside) parts.push(`overtime on the premium ${l.week_start}–${l.week_end}: ${money(l.cents)}`);
+  if (inside.length > 0) parts.push(`Catering premium ${money(row.premium_cents)}, with that overtime inside it`);
+  for (const l of row.premium_ot ?? []) parts.push(`premium OT ${l.week_start}–${l.week_end}: ${money(l.cents)}`);
+  return parts.join(" · ");
+}
+
+/**
+ * A pay table built for a period before 2026-10-19 can carry a separate
+ * premium overtime amount, which has no column now. Say so under the table
+ * rather than let the money drop out of sight. Null when there is none.
+ */
+export function separatePremiumOtNote(totals: PaySheetJson["totals"]): string | null {
+  if (!totals.premium_ot_cents) return null;
+  return `This pay table also has ${money(totals.premium_ot_cents)} of premium overtime on its own line, shown when you open the row.`;
 }
 
 /** The wages cell: a figure, "salary", or why there is none. */
