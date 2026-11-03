@@ -11,7 +11,8 @@
     "test": "vitest run",
     "reconcile-shifts": "tsx scripts/reconcile-catering-shifts.ts",
     "coverage-reminder": "tsx scripts/coverage-reminder.ts",
-    "cash-count-reminders": "tsx scripts/cash-count-reminders.ts"
+    "cash-count-reminders": "tsx scripts/cash-count-reminders.ts",
+    "cake-order-reminders": "tsx scripts/cake-order-reminders.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

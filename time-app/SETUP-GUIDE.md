@@ -354,6 +354,32 @@ are matched to Slack by the email they sign in with, else by their name on the
 Team page. To stop it, ask for the `bj-cash-count-reminders.timer` kill switch
 on bj-box.
 
+### Cake order packing reminders in Slack #cake-orders-and-ideas
+
+A job on bj-box reads the copy of each Olo order that Olo emails to the order
+address, and for each cake order @mentions everyone clocked in on a store shift
+in #cake-orders-and-ideas: who it is for, the pickup time and what the cake is,
+asking them to pack it and react or reply when done. If nobody is clocked in
+(an overnight order), it waits until 30 minutes after the first person clocks
+in. If nobody marks it packed within an hour (a 📦 ✅ 👍 reaction, a reply in
+the thread, or their next message in the channel), it replies once in the
+thread. Cake ideas from people it did not mention do not count. The words are
+written by Claude on your subscription, with a plain message if that fails.
+
+It does not post anything yet: it needs the first real Olo cake order email to
+learn how to read one.
+
+What you do, once:
+
+1. Create the "Cake Orders" Slack app (scopes `chat:write`, `channels:history`,
+   `reactions:read`, `users:read`, `users:read.email`) and save its bot token
+   to Supabase Vault as `slack_cake_orders_bot_token`.
+2. In Slack, open #cake-orders-and-ideas and send `/invite @Cake Orders`.
+
+The job reads the mailbox with the Gmail login already in Vault and changes
+nothing in it. To stop it, ask for the `bj-cake-order-reminders.timer` kill
+switch on bj-box.
+
 ---
 
 ## Part 8: The missed-clock-in checker (one note about your Vercel plan)
