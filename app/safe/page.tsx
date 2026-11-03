@@ -21,7 +21,7 @@ export default async function SafePage() {
               className="pfviz"
               style={{ paddingBottom: 0, textAlign: "center" }}
             >
-              <MetaBanner meta={feed.data.meta} />
+              <MetaBanner meta={feed.data.meta} stamp />
             </div>
             <SafeToSpend data={feed.data.safe_to_spend} />
           </>

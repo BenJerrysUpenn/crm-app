@@ -25,6 +25,23 @@ export function isPfPath(pathname: string): boolean {
   return PF_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+// The personal-finance API, under one prefix: the /money change-category
+// button posts to /api/pf/overrides (bj-finance #223). "/api/pfx" and the like
+// are not pf routes.
+const PF_API_PREFIX = "/api/pf";
+
+// The whole pf route set — the pages above and the API — named once, here. The
+// PF-host bounce and the CRM-host redirect (middleware.ts) decide "which paths
+// are pf" from this function instead of repeating the /api/pf prefix inline, so
+// the two cannot drift apart — the same reason isGateExempt lives here.
+export function isPfRoute(pathname: string): boolean {
+  return (
+    isPfPath(pathname) ||
+    pathname === PF_API_PREFIX ||
+    pathname.startsWith(`${PF_API_PREFIX}/`)
+  );
+}
+
 // Paths a signed-in person the role gate refuses must still reach: the
 // no-access page they are sent to, and sign-out. Listed once here so the
 // PF-host bounce (middleware.ts) and the role gate (lib/supabase/middleware.ts)
