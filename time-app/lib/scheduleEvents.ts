@@ -8,6 +8,9 @@
 // can still be linked by a manager, and payroll reads that link.
 //
 // A manager links a shift to an event in the shift popup, one shift at a time.
+// The popup chooses the one event that fits by itself only when it was opened to
+// choose one (a badge or the "Events to choose" list) or for a new shift; opened
+// any other way it suggests that event and leaves the dropdown on None.
 // When such a shift with a person has no link and an event it fits, a badge on
 // the schedule says so. The badge is worked out here each time the schedule loads
 // and never writes anything. "Fits" is the covers-the-whole-event rule in
@@ -195,6 +198,14 @@ export type DropdownInput = {
   date: string;
   onDate: ScheduleEvent[];
   fitting: ScheduleEvent[];
+  /**
+   * May the popup choose the one event that fits by itself? True when it was opened
+   * from a badge or the "Events to choose" list, or for a new shift. False when an
+   * existing shift was opened any other way, perhaps to fix its hours: every save
+   * writes what the dropdown holds, and payroll reads a link as who was on the crew,
+   * so a link has to be someone's choice.
+   */
+  preselect: boolean;
 };
 
 /** The part of DropdownInput that says whether the saved link still stands. */
@@ -207,14 +218,24 @@ type SavedLink = Pick<DropdownInput, "currentEvent" | "savedDate" | "date">;
  * the event the shift is already linked to, unless this popup moved it onto a day
  * that is not the event's: a shift moved off its event's date must not stay
  * pointing at it, and a shift not moved has its link left alone. Then the one
- * event that fits, if exactly one does. Two or more is the manager's call, and so
- * is none, so both start at None.
+ * event that fits, if exactly one does and this popup may preselect. Two or more is
+ * the manager's call, and so is none, so both start at None.
  */
 export function selectedEventId(input: DropdownInput): number | null {
   if (input.pick === "none") return null;
   if (typeof input.pick === "number" && input.onDate.some((e) => e.id === input.pick)) return input.pick;
   if (input.currentDealId !== null && savedLinkStands(input)) return input.currentDealId;
-  return input.fitting.length === 1 ? input.fitting[0].id : null;
+  return input.preselect && input.fitting.length === 1 ? input.fitting[0].id : null;
+}
+
+/**
+ * The event to name beside a dropdown on None, for a shift with no link opened
+ * without a preselect: the one that fits, if exactly one does. Naming it writes
+ * nothing. Choosing it takes a change of the dropdown.
+ */
+function suggestedEvent(input: DropdownInput): ScheduleEvent | null {
+  if (input.preselect || input.currentDealId !== null || input.fitting.length !== 1) return null;
+  return selectedEventId(input) === null ? input.fitting[0] : null;
 }
 
 /** Is the saved event still the shift's at this date: on that date, or the shift not moved? */
@@ -228,7 +249,7 @@ export function movedOffSavedEvent(input: SavedLink): boolean {
 }
 
 /**
- * The dropdown for a shift: what it lists and what it holds. The list is the
+ * The dropdown for a shift: what it lists, what it holds and what it suggests. The list is the
  * day's events for its position plus, while it stands, the event the shift is
  * saved on when that is not one on offer (a Catering shift's marketing event, or a
  * deal since closed some other way), so the link is shown, can be changed, and can be gone back to.
@@ -237,11 +258,11 @@ export function movedOffSavedEvent(input: SavedLink): boolean {
  * on). There is nothing to show, and a dropdown would read as None and clear it,
  * so the popup leaves the link alone.
  */
-export function eventDropdown(input: DropdownInput): { selected: number | null; options: ScheduleEvent[] } | null {
+export function eventDropdown(input: DropdownInput): { selected: number | null; options: ScheduleEvent[]; suggested: ScheduleEvent | null } | null {
   const { currentDealId, currentEvent, onDate } = input;
   if (currentDealId !== null && currentEvent === null) return null;
   const notOnOffer = currentEvent !== null && savedLinkStands(input) && !onDate.some((e) => e.id === currentEvent.id);
-  return { selected: selectedEventId(input), options: notOnOffer ? [...onDate, currentEvent] : onDate };
+  return { selected: selectedEventId(input), options: notOnOffer ? [...onDate, currentEvent] : onDate, suggested: suggestedEvent(input) };
 }
 
 /**

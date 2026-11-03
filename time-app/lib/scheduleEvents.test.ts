@@ -1,5 +1,5 @@
 // The event selector and badge on the schedule: which events each position takes,
-// what the popup preselects and which shifts get a badge. The saving side is
+// what the popup preselects or suggests and which shifts get a badge. The saving side is
 // lib/shiftEventLink.test.ts.
 //
 //   npm test        (node --test; Node runs TypeScript directly)
@@ -47,6 +47,7 @@ function shift(over: Partial<Events.BadgeShift & { id: number }> = {}) {
 
 function preselect(onDate: Event[], s = shift()) {
   return selectedEventId({
+    preselect: true,
     pick: null,
     currentDealId: null,
     currentEvent: null,
@@ -152,7 +153,7 @@ test("no event fits: nothing is preselected, and the day's events can still be p
   const partial = shift({ starts_at: edt("2026-10-23", "12:30"), ends_at: edt("2026-10-23", "16:00") });
   assert.deepEqual(fittingEvents(partial, [EVENT_A]), []);
   assert.equal(preselect([EVENT_A], partial), null);
-  assert.equal(selectedEventId({ pick: 101, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate: [EVENT_A], fitting: [] }), 101);
+  assert.equal(selectedEventId({ preselect: true, pick: 101, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate: [EVENT_A], fitting: [] }), 101);
 });
 
 test("no event that day: nothing is preselected", () => {
@@ -173,28 +174,77 @@ test("an unfinished time fits nothing and does not throw", () => {
 });
 
 test("choosing None beats the preselect", () => {
-  assert.equal(selectedEventId({ pick: "none", currentDealId: null, currentEvent: null, date: "2026-10-23", onDate: [EVENT_A], fitting: [EVENT_A] }), null);
+  assert.equal(selectedEventId({ preselect: true, pick: "none", currentDealId: null, currentEvent: null, date: "2026-10-23", onDate: [EVENT_A], fitting: [EVENT_A] }), null);
 });
 
 test("a linked shift shows its own event, not the preselect", () => {
   assert.equal(
-    selectedEventId({ pick: null, currentDealId: 102, currentEvent: EVENT_B, date: "2026-10-23", onDate: [EVENT_A, EVENT_B], fitting: [EVENT_A] }),
+    selectedEventId({ preselect: false, pick: null, currentDealId: 102, currentEvent: EVENT_B, date: "2026-10-23", onDate: [EVENT_A, EVENT_B], fitting: [EVENT_A] }),
     102,
   );
 });
 
 test("a linked event that is no longer offered stays selected while it is on the shift's date", () => {
   const finished = { ...EVENT_A, id: 200 };
-  assert.equal(selectedEventId({ pick: null, currentDealId: 200, currentEvent: finished, date: "2026-10-23", onDate: [], fitting: [] }), 200);
+  assert.equal(selectedEventId({ preselect: false, pick: null, currentDealId: 200, currentEvent: finished, date: "2026-10-23", onDate: [], fitting: [] }), 200);
 });
 
-test("moved to another day: the old event is dropped and the new day is judged afresh", () => {
-  assert.equal(selectedEventId({ pick: null, currentDealId: 101, currentEvent: EVENT_A, date: "2026-10-24", onDate: [], fitting: [] }), null);
-  assert.equal(selectedEventId({ pick: null, currentDealId: 101, currentEvent: EVENT_A, date: "2026-10-24", onDate: [NEXT_DAY], fitting: [NEXT_DAY] }), 103);
+test("moved to another day: the old event is dropped and the new day's event that fits is not chosen for it", () => {
+  assert.equal(selectedEventId({ preselect: false, pick: null, currentDealId: 101, currentEvent: EVENT_A, date: "2026-10-24", onDate: [], fitting: [] }), null);
+  assert.equal(selectedEventId({ preselect: false, pick: null, currentDealId: 101, currentEvent: EVENT_A, date: "2026-10-24", onDate: [NEXT_DAY], fitting: [NEXT_DAY] }), null);
 });
 
 test("a choice made before the date changed does not follow the shift to another day", () => {
-  assert.equal(selectedEventId({ pick: 101, currentDealId: null, currentEvent: null, date: "2026-10-24", onDate: [NEXT_DAY], fitting: [] }), null);
+  assert.equal(selectedEventId({ preselect: true, pick: 101, currentDealId: null, currentEvent: null, date: "2026-10-24", onDate: [NEXT_DAY], fitting: [] }), null);
+});
+
+// --- opened without a preselect: a suggestion only --------------------------------
+
+/** An unlinked shift's dropdown on 2026-10-23, opened from its chip, not its badge. */
+function opened(onDate: Event[], over: Partial<Parameters<typeof eventDropdown>[0]> = {}) {
+  return eventDropdown({ preselect: false, pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: fittingEvents(shift(), onDate), ...over });
+}
+
+test("opened without a preselect, one event fits: the dropdown stays on None and names it as a suggestion", () => {
+  const shown = opened([EVENT_A]);
+  assert.equal(shown?.selected, null);
+  assert.equal(shown?.suggested?.id, 101);
+  assert.deepEqual(shown?.options.map((e) => e.id), [101]);
+});
+
+test("the suggestion saves nothing: a save from that dropdown sends no deal_id", () => {
+  assert.deepEqual(eventSaveFields(opened([EVENT_A])?.selected, null), {});
+});
+
+test("choosing the suggested event takes one change of the dropdown, and then it is no longer a suggestion", () => {
+  const chosen = opened([EVENT_A], { pick: 101 });
+  assert.equal(chosen?.selected, 101);
+  assert.equal(chosen?.suggested, null);
+  assert.deepEqual(eventSaveFields(chosen?.selected, null), { deal_id: 101 });
+});
+
+test("no suggestion when no event fits, or when two do", () => {
+  const partial = shift({ starts_at: edt("2026-10-23", "12:30") });
+  assert.equal(opened([EVENT_A], { fitting: fittingEvents(partial, [EVENT_A]) })?.suggested, null);
+  assert.equal(opened([])?.suggested, null);
+  const two = opened([EVENT_A, EVENT_B]);
+  assert.equal(two?.selected, null);
+  assert.equal(two?.suggested, null);
+});
+
+test("from a badge or for a new shift the one event that fits is preselected, with no suggestion beside it", () => {
+  const shown = opened([EVENT_A], { preselect: true });
+  assert.equal(shown?.selected, 101);
+  assert.equal(shown?.suggested, null);
+  assert.equal(opened([EVENT_A, EVENT_B], { preselect: true })?.selected, null);
+});
+
+test("a linked shift shows its link either way, and suggests nothing", () => {
+  for (const preselect of [false, true]) {
+    const shown = opened([EVENT_A, EVENT_B], { preselect, currentDealId: 102, currentEvent: EVENT_B, savedDate: "2026-10-23", fitting: [EVENT_A] });
+    assert.equal(shown?.selected, 102);
+    assert.equal(shown?.suggested, null);
+  }
 });
 
 // --- a saved link the day does not offer -----------------------------------------
@@ -202,7 +252,7 @@ test("a choice made before the date changed does not follow the shift to another
 const SAVED_MARKETING: Event = { id: 300, name: "Marketing Event", stage: "Closed Marketing Event", event_date: "2026-10-23", event_start_time: "12:00", event_end_time: "14:00" };
 
 function dropdown(over: Partial<Parameters<typeof eventDropdown>[0]> = {}) {
-  return eventDropdown({ pick: null, currentDealId: 300, currentEvent: SAVED_MARKETING, date: "2026-10-23", onDate: [EVENT_A], fitting: [EVENT_A], ...over });
+  return eventDropdown({ preselect: false, pick: null, currentDealId: 300, currentEvent: SAVED_MARKETING, date: "2026-10-23", onDate: [EVENT_A], fitting: [EVENT_A], ...over });
 }
 
 test("a Catering shift saved on a marketing event shows it, listed and selected, over a Booked event that fits", () => {
@@ -230,7 +280,7 @@ test("a saved event the day already lists is not listed twice", () => {
 });
 
 test("a shift with no link lists only what the day offers", () => {
-  const shown = dropdown({ currentDealId: null, currentEvent: null });
+  const shown = dropdown({ currentDealId: null, currentEvent: null, preselect: true });
   assert.equal(shown?.selected, 101);
   assert.deepEqual(shown?.options.map((e) => e.id), [101]);
 });
@@ -270,7 +320,7 @@ test("a save sends a new event, an untouched preselect, and None over a stored l
 
 test("a past Marketing shift whose deal is now Event Complete shows that saved link", () => {
   const finished = { ...MARKETING_A, stage: "Event Complete" };
-  const shown = eventDropdown({ pick: null, currentDealId: 301, currentEvent: finished, savedDate: "2026-10-23", date: "2026-10-23", onDate: [], fitting: [] });
+  const shown = eventDropdown({ preselect: false, pick: null, currentDealId: 301, currentEvent: finished, savedDate: "2026-10-23", date: "2026-10-23", onDate: [], fitting: [] });
   assert.equal(shown?.selected, 301);
   assert.deepEqual(shown?.options.map((e) => e.id), [301]);
 });
@@ -336,7 +386,7 @@ test("the Marketing badge is its own path: a Marketing shift is still not hand-p
 test("a Marketing shift preselects the one marketing event it covers, and two start at None", () => {
   const marketing = shift({ position: "Marketing" });
   const pickFrom = (onDate: Event[]) =>
-    selectedEventId({ pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: fittingEvents(marketing, onDate) });
+    selectedEventId({ preselect: true, pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: fittingEvents(marketing, onDate) });
   assert.equal(pickFrom(eventsForPosition("Marketing", [EVENT_A, MARKETING_A])), 301);
   assert.equal(pickFrom(eventsForPosition("Marketing", [MARKETING_A, MARKETING_B])), null);
   assert.equal(pickFrom(eventsForPosition("Marketing", [EVENT_A])), null);
@@ -419,17 +469,17 @@ test("a finished event the shift doesn't cover is listed and not preselected", (
 });
 
 test("a shift linked to a finished event keeps showing it, once, over one the shift also covers", () => {
-  const shown = eventDropdown({ pick: null, currentDealId: 401, currentEvent: FINISHED_CATERING, savedDate: "2026-10-23", date: "2026-10-23", onDate: [EVENT_A, FINISHED_CATERING], fitting: [EVENT_A, FINISHED_CATERING] });
+  const shown = eventDropdown({ preselect: false, pick: null, currentDealId: 401, currentEvent: FINISHED_CATERING, savedDate: "2026-10-23", date: "2026-10-23", onDate: [EVENT_A, FINISHED_CATERING], fitting: [EVENT_A, FINISHED_CATERING] });
   assert.equal(shown?.selected, 401);
   assert.deepEqual(shown?.options.map((e) => e.id), [101, 401]);
 });
 
 test("None beats a finished event's preselect, and a date move takes the shift off one", () => {
   const onDate = [FINISHED_CATERING];
-  assert.equal(selectedEventId({ pick: "none", currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: onDate }), null);
+  assert.equal(selectedEventId({ preselect: true, pick: "none", currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: onDate }), null);
   const moved = { currentEvent: FINISHED_CATERING, savedDate: "2026-10-23", date: "2026-10-24" };
   assert.equal(movedOffSavedEvent(moved), true);
-  assert.equal(eventDropdown({ pick: null, currentDealId: 401, ...moved, onDate: [], fitting: [] })?.selected, null);
+  assert.equal(eventDropdown({ preselect: false, pick: null, currentDealId: 401, ...moved, onDate: [], fitting: [] })?.selected, null);
 });
 
 test("the badge counts a finished event of its own kind, and one that can't be told for both", () => {

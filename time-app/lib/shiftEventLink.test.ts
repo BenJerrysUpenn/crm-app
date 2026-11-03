@@ -424,12 +424,12 @@ test("a day with only a marketing event offers a Catering shift nothing and badg
   assert.equal(eventBadges([covering], events!, TODAY).size, 0);
 });
 
-test("a marketing event beside one Booked event: the Booked event still preselects and is the one the badge suggests", async () => {
+test("a marketing event beside one Booked event: the Booked event still preselects from the badge and is the one the badge suggests", async () => {
   db.tables.deals = [{ ...DEAL }, { ...MARKETING }];
   const onDate = eventsForPosition("Catering", (await loadScheduleEvents(createClient(), "2026-10-23", "2026-10-23"))!);
   assert.deepEqual(onDate.map((e) => e.id), [500]);
   const fitting = fittingEvents(PLACED, onDate);
-  assert.equal(eventDropdown({ pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting })?.selected, 500);
+  assert.equal(eventDropdown({ preselect: true, pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting })?.selected, 500);
   const badge = eventBadges([PLACED], onDate, TODAY).get(1);
   assert.equal(badge?.kind === "suggest" && badge.event.id, 500);
 });
@@ -439,7 +439,7 @@ test("a marketing event beside one Booked event: the Booked event still preselec
 async function popupFor(linked: number) {
   const onDate = eventsForPosition("Catering", (await loadScheduleEvents(createClient(), "2026-10-23", "2026-10-23"))!);
   const [current] = (await loadLinkedEvents(createClient(), [linked]))!;
-  return eventDropdown({ pick: null, currentDealId: linked, currentEvent: current ?? null, date: "2026-10-23", onDate, fitting: fittingEvents(PLACED, onDate) });
+  return eventDropdown({ preselect: false, pick: null, currentDealId: linked, currentEvent: current ?? null, date: "2026-10-23", onDate, fitting: fittingEvents(PLACED, onDate) });
 }
 
 function linkToMarketing() {
@@ -491,11 +491,11 @@ test("a Marketing shift is offered that day's marketing events and no booked one
   assert.deepEqual(onDate.map((e) => e.id), [502]);
 });
 
-test("a Marketing shift covering one marketing event gets it preselected and badged", async () => {
+test("a Marketing shift covering one marketing event gets it badged, and preselected from the badge", async () => {
   const placed = { ...PLACED, ...MARKETING_BODY };
   const all = (await loadScheduleEvents(createClient(), "2026-10-23", "2026-10-23"))!;
   const onDate = eventsForPosition("Marketing", all);
-  const popup = eventDropdown({ pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: fittingEvents(placed, onDate) });
+  const popup = eventDropdown({ preselect: true, pick: null, currentDealId: null, currentEvent: null, date: "2026-10-23", onDate, fitting: fittingEvents(placed, onDate) });
   assert.equal(popup?.selected, 502);
   const badge = eventBadges([placed], all, TODAY).get(1);
   assert.equal(badge?.kind === "suggest" && badge.event.id, 502);
@@ -570,7 +570,7 @@ test("a past Marketing shift whose deal is now Event Complete keeps its link and
   assert.equal(shift(1).notes, "bring the table");
   const [saved] = (await loadLinkedEvents(createClient(), [503]))!;
   const onDate = eventsForPosition("Marketing", (await loadScheduleEvents(createClient(), FINISHED_DAY, FINISHED_DAY))!);
-  const popup = eventDropdown({ pick: null, currentDealId: 503, currentEvent: saved, savedDate: FINISHED_DAY, date: FINISHED_DAY, onDate, fitting: [] });
+  const popup = eventDropdown({ preselect: false, pick: null, currentDealId: 503, currentEvent: saved, savedDate: FINISHED_DAY, date: FINISHED_DAY, onDate, fitting: [] });
   assert.equal(popup?.selected, 503);
   assert.equal(popup?.options.filter((e) => e.id === 503).length, 1);
 });
@@ -701,10 +701,10 @@ test("a finished event nothing says the kind of shows for both, and a position w
   assert.deepEqual(await idsFor("PENN Opener"), []);
 });
 
-test("a finished event a Catering shift covers is preselected", async () => {
+test("a finished event a Catering shift covers is preselected from its badge", async () => {
   placeOnFinishedDay();
   const onDate = eventsForPosition("Catering", await dayEvents());
-  const popup = eventDropdown({ pick: null, currentDealId: null, currentEvent: null, date: FINISHED_DAY, onDate, fitting: fittingEvents(shift(1) as never, onDate) });
+  const popup = eventDropdown({ preselect: true, pick: null, currentDealId: null, currentEvent: null, date: FINISHED_DAY, onDate, fitting: fittingEvents(shift(1) as never, onDate) });
   assert.equal(popup?.selected, 503);
 });
 

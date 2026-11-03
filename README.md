@@ -630,8 +630,15 @@ applies the same answer on save, and refuses every other stage. So a person left
 unlinked when an event finishes can still be linked from the popup.
 
 If exactly one listed event fits, by the covers-the-whole-event rule in
-`time-app/lib/handPlacedCrew.ts`, it is preselected; nothing is written until the
-save. A date outside the week on screen is read from `GET /api/schedule/events`.
+`time-app/lib/handPlacedCrew.ts`, it is preselected only when the popup was opened
+to choose an event (the badge on a shift's chip, or a shift in the "Events to choose"
+list) or for a new shift. Opened any other way, from the rest of the chip to fix the
+hours for example, an unlinked shift's dropdown stays on None with "Suggested:" and
+the event's name beside it; the suggestion writes nothing, and choosing the event
+takes a change of the dropdown. A save writes what the dropdown holds, and payroll
+reads a link as who was on the crew, so a link is always someone's choice. Two or
+more events that fit are never preselected. Nothing is written until the save. A
+date outside the week on screen is read from `GET /api/schedule/events`.
 
 Saving writes `deal_id` and the next free `deal_slot`; None clears both. Moving a
 linked Catering or Marketing shift to a date that is not its event's clears both, in

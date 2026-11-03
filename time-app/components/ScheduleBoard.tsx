@@ -82,6 +82,8 @@ type Draft = {
   deal_id: number | null;
   /** The New York date the shift is saved on. Null on a new shift. */
   saved_date: string | null;
+  /** May the event dropdown choose the one event that fits (lib/scheduleEvents.ts)? Set by how the popup was opened. */
+  preselect_event: boolean;
 };
 
 type DropReq = ShiftRequest & { profiles?: Pick<Profile, "id" | "full_name"> };
@@ -237,6 +239,7 @@ export default function ScheduleBoard({
           date: draftDate,
           onDate: draftEvents,
           fitting: draftFitting,
+          preselect: draft.preselect_event,
         })
       : null;
   const draftEventId = draftDropdown?.selected;
@@ -399,10 +402,12 @@ export default function ScheduleBoard({
       notes: "",
       deal_id: null,
       saved_date: null,
+      preselect_event: true,
     });
   }
 
-  function editShift(s: ShiftWithEmployee) {
+  // fromBadge: opened from a shift's badge or the "Events to choose" list, to choose its event.
+  function editShift(s: ShiftWithEmployee, fromBadge = false) {
     setErr(null);
     setLongSave(null);
     setAvailSave(null);
@@ -419,6 +424,7 @@ export default function ScheduleBoard({
       notes: s.notes ?? "",
       deal_id: s.deal_id ?? null,
       saved_date: shiftDate(s.starts_at),
+      preselect_event: fromBadge,
     });
   }
 
@@ -810,7 +816,7 @@ export default function ScheduleBoard({
             {badgedShifts.map((s) => (
               <button
                 key={s.id}
-                onClick={() => editShift(s)}
+                onClick={() => editShift(s, true)}
                 className="w-full text-left rounded-md border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <div className="text-slate-800 dark:text-slate-200">
@@ -937,6 +943,9 @@ export default function ScheduleBoard({
                   {eventPick === null && draft.deal_id === null && draftEventId !== null && (
                     <div className="text-xs text-slate-500 mt-1">Picked because this shift covers the whole event. Nothing changes until you save.</div>
                   )}
+                  {draftDropdown.suggested && (
+                    <div className="text-xs text-slate-500 mt-1">Suggested: {draftDropdown.suggested.name}</div>
+                  )}
                   {draftEventId === null && draftFitting.length > 1 && (
                     <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">More than one event fits this shift. Choose the right one, or None if it is for neither.</div>
                   )}
@@ -1019,7 +1028,7 @@ function ManagerMatrix({
   shiftsForDay: (d: string) => ShiftWithEmployee[];
   shiftHours: (s: ShiftWithEmployee) => number;
   colorByType: Map<string, string>;
-  editShift: (s: ShiftWithEmployee) => void;
+  editShift: (s: ShiftWithEmployee, fromBadge?: boolean) => void;
   newShift: (d: string, employeeId?: string) => void;
   fmtTime: (iso: string | null) => string;
   dayLabel: (d: string) => string;
@@ -1049,25 +1058,32 @@ function ManagerMatrix({
     const color = s.position ? colorByType.get(s.position) : undefined;
     const badge = badges.get(s.id);
     return (
-      <button
-        onClick={() => editShift(s)}
+      <div
         style={color ? { borderLeft: `4px solid ${color}` } : undefined}
-        className="w-full text-left rounded-md px-2 py-1 text-[11px] mb-1 border bg-slate-100 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+        className="rounded-md text-[11px] mb-1 border bg-slate-100 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200"
       >
-        <div className="font-medium whitespace-nowrap truncate">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
-        {s.position && <div className="text-slate-500 truncate">{s.position}</div>}
-        <EventName shift={s} names={eventNames} />
-        {s.employee_id && (
-          <div className={`truncate ${s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}`}>
-            {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
-          </div>
-        )}
+        <button onClick={() => editShift(s)} className="w-full text-left px-2 py-1">
+          <div className="font-medium whitespace-nowrap truncate">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
+          {s.position && <div className="text-slate-500 truncate">{s.position}</div>}
+          <EventName shift={s} names={eventNames} />
+          {s.employee_id && (
+            <div className={`truncate ${s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}`}>
+              {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
+            </div>
+          )}
+        </button>
         {badge && (
-          <div title={eventBadgeText(badge)} className="mt-0.5 truncate rounded bg-amber-100 dark:bg-amber-900/40 px-1 text-[10px] text-amber-800 dark:text-amber-200">
-            {eventBadgeText(badge)}
+          <div className="px-2 pb-1">
+            <button
+              onClick={() => editShift(s, true)}
+              title={eventBadgeText(badge)}
+              className="block w-full text-left truncate rounded bg-amber-100 dark:bg-amber-900/40 px-1 text-[10px] text-amber-800 dark:text-amber-200"
+            >
+              {eventBadgeText(badge)}
+            </button>
           </div>
         )}
-      </button>
+      </div>
     );
   }
 
