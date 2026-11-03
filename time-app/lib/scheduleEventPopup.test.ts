@@ -54,6 +54,7 @@ const { default: SchedulePage } = await loadAppModule<{
 const { default: ScheduleBoard } = await loadAppModule<{ default: (props: never) => React.ReactElement }>("components/ScheduleBoard.tsx");
 const shiftById = await loadAppModule<{ PATCH: Handler }>("app/api/shifts/[id]/route.ts");
 const shiftsRoute = await loadAppModule<{ POST: (request: Request) => Promise<Response> }>("app/api/shifts/route.ts");
+const eventsRoute = await loadAppModule<{ GET: (request: Request) => Promise<Response> }>("app/api/schedule/events/route.ts");
 const { fmtTime } = await loadAppModule<typeof import("./format.ts")>("lib/format.ts");
 
 after(async () => {
@@ -138,6 +139,7 @@ beforeEach(() => {
     const byId = url.match(/^\/api\/shifts\/(\d+)$/);
     if (byId && method === "PATCH") return shiftById.PATCH(request, { params: { id: byId[1] } });
     if (url === "/api/shifts" && method === "POST") return shiftsRoute.POST(request);
+    if (url.startsWith("/api/schedule/events?") && method === "GET") return eventsRoute.GET(request);
     throw new Error(`the board asked for ${method} ${url}, which this test does not answer`);
   }) as typeof fetch;
 });
@@ -238,6 +240,11 @@ async function openFromList(page: Element, words: string) {
   await click(buttons(list).find((b) => text(b).includes(words))!);
 }
 const row = (id: number) => db.rows("shifts").find((s) => s.id === id)!;
+/** Let the board's own requests come back, until `done` holds. */
+async function settle(done: () => boolean) {
+  for (let i = 0; i < 50 && !done(); i++) await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
+  assert.ok(done(), "the board settled");
+}
 
 // --- opened to choose an event: preselected ---------------------------------------
 
@@ -407,5 +414,49 @@ test("a linked shift moved to a day with one event that fits warns and clears, a
     assert.equal(sent.at(-1)?.body?.deal_id, null);
     assert.equal(row(4).deal_id, null);
     assert.equal(row(4).deal_slot, null);
+  });
+});
+
+// --- moved to a day outside the week on screen ---------------------------------------
+
+const NEXT_MON = "2030-09-23"; // the Monday after the week on screen
+
+/** Open ONE_FITS from its chip and move it to next Monday, 11:00 to 15:00. */
+async function moveOneFitsToNextMonday(page: Element) {
+  await click(chip(page, ONE_FITS));
+  const [start, end] = [...popup(page).querySelectorAll('input[type="datetime-local"]')];
+  await setValue(start, localInput(edt(NEXT_MON, "11:00")));
+  await setValue(end, localInput(edt(NEXT_MON, "15:00")));
+}
+
+test("moved to a day outside the week, the popup asks for that day's events and they can be chosen and saved", async () => {
+  db.rows("deals").push(deal(707, "Next Monday Co", NEXT_MON, "12:00", "14:00"));
+  await onSchedule(async (page) => {
+    await moveOneFitsToNextMonday(page);
+    await settle(() => /Suggested/.test(text(popup(page))));
+    assert.ok(sent.some((r) => r.method === "GET" && r.path === `/api/schedule/events?date=${NEXT_MON}`), "the day's events were asked for");
+    const field = eventField(page);
+    assert.equal(field.selected, "None");
+    assert.equal(field.suggestion, "Next Monday Co");
+    await setValue(field.select, "707");
+    await submit(page);
+    assert.equal(row(1).starts_at, edt(NEXT_MON, "11:00"));
+    assert.equal(row(1).deal_id, 707);
+  });
+});
+
+test("that day's events can't be read: the popup says so, and the save moves the shift without touching its event", async () => {
+  await onSchedule(async (page) => {
+    db.missingTables = ["deals"];
+    await moveOneFitsToNextMonday(page);
+    await settle(() => !/Looking up that day's events/.test(text(popup(page))));
+    assert.match(text(popup(page)), /Couldn't load this shift's events\. Saving won't change its event\./);
+    assert.equal(popup(page).querySelector("select option[value='none']"), null, "no event dropdown to read as None");
+    await submit(page);
+    const save = sent.find((r) => r.method === "PATCH");
+    assert.ok(save, "the save went out");
+    assert.equal("deal_id" in save.body!, false);
+    assert.equal(row(1).starts_at, edt(NEXT_MON, "11:00"));
+    assert.equal(row(1).deal_id, null);
   });
 });
