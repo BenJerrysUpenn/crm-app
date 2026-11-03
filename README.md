@@ -561,6 +561,48 @@ Exit 0 = ran (posted what was due, or nothing was due), 1 = a failure (database,
 migration 51 missing, or a failed step; each printed), 2 = bad argument or no `DATABASE_URL`.
 Neither token is ever printed or put on a command line.
 
+## Cake order packing reminders in Slack (droplet command, crm-app #142)
+Every 5 minutes on bj-box (`bj-cake-order-reminders.timer`, Software-Factory `droplet/`), reads
+Olo's per-order email and, for each cake order, @mentions everyone on a store punch in Slack
+#cake-orders-and-ideas with the customer, pickup time and cake, asking them to pack it and react or
+reply when done. Nobody clocked in when the email arrives: the post waits until 30 minutes after the
+first store clock-in. Not marked packed (a packed reaction such as 📦 ✅ 👍, a reply in the thread,
+or the next channel message from someone mentioned) 60 minutes later: one reply in the post's
+thread, with no second mention. Claude Code writes the words as for the cash count reminders; the
+order details are copied from the email by code. Who and when: `time-app/lib/cakeOrders/plan.ts`;
+one pass: `run.ts`; the email: `mail.ts` (IMAP, read only) and `oloEmail.ts` (the parser); the
+words: `message.ts`; Slack: `slack.ts`; command: `cli.ts`; reads and writes: `lib/cakeOrdersPg.ts`;
+wiring: `scripts/cake-order-reminders.ts`.
+
+**The Olo email parser is not built yet.** No Olo order email had arrived when this was written,
+so `oloEmail.ts` recognises no email and nothing is posted; its header says how to build it from the
+first real one.
+
+Each order and its one follow-up is recorded in `cake_order_reminders` (migration 54) BEFORE it is
+posted, so it goes out once; a Slack refusal removes the record so the next tick retries, and no
+answer at all keeps it. Apply `time-app/supabase/migration_54.sql` by hand in the Supabase SQL
+editor, after migration 53 (`_verify.sql` and `_down.sql` beside it). Before it, the command posts
+nothing and exits 1.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project (the unit maps it from `BJ_DATABASE_URL`) |
+| `CAKE_ORDERS_ORDER_ADDRESS` | The address Olo sends each order to. Set in the droplet's systemd unit, not in this repo. Required |
+| Vault `slack_cake_orders_bot_token` | The "Cake Orders" Slack app's bot token, read at run time. Required |
+| Vault `gmail_sender_address`, `gmail_app_password` | The mailbox the order emails reach and its Gmail app password (already in Vault), read over IMAP. Required |
+| Vault `claude_usage_token` | As for the cash count reminders. Missing means plain messages |
+| `CAKE_ORDERS_CLAUDE_BIN` | The `claude` executable (default: `claude` on `PATH`). Set in the droplet's systemd unit |
+| `CAKE_ORDERS_SLACK_CHANNEL` | Optional: move the channel |
+
+```
+npm run cake-order-reminders -- --dry-run   # prints the plan, the unread emails and the Claude-written messages; posts and writes nothing
+npm run cake-order-reminders                # posts what is due
+```
+Exit 0 = ran (posted what was due, or nothing was due), 1 = a failure (database, Vault, the
+mailbox, Slack, migration 54 missing, or a failed step; each printed), 2 = bad argument, or no
+`DATABASE_URL` or `CAKE_ORDERS_ORDER_ADDRESS`. No token or password is ever printed or put on a
+command line.
+
 ## Schedule coverage reminder (droplet command)
 Every day at noon ET, emails the owners every staffed store hour (open hours
 plus the open-up and close-down minutes on the Targets tab) and every booked
