@@ -113,6 +113,18 @@ test("a channel message from someone not mentioned, a bot, or after the next cak
   assert.equal(packedHow({ ...base, channel: [{ ts: "150.000000", user: "U0ANA", text: "done", thread_ts: "150.000000" }] }), "channel_message", "a top-level message that has a thread of its own");
 });
 
+test("a mentioned person's message before the post, in another thread, or that is not a post by them does not count", () => {
+  const base = { postTs: "100.000001", mentioned: ["U0ANA"], reactions: [], thread: [], laterPostTs: [] };
+  assert.equal(packedHow({ ...base, channel: [{ ts: "90.000000", user: "U0ANA", text: "done" }] }), null, "said before the order was posted");
+  assert.equal(packedHow({ ...base, channel: [{ ts: "120.000000", user: "U0ANA", text: "yum", thread_ts: "50.000000" }] }), null, "a reply in some other thread");
+  assert.equal(packedHow({ ...base, channel: [{ ts: "120.000000", user: "U0ANA", subtype: "channel_join", text: "has joined" }] }), null, "joining the channel");
+});
+
+test("a packed reaction nobody is left on does not count", () => {
+  const base = { postTs: "100.000001", mentioned: ["U0ANA"], thread: [], channel: [], laterPostTs: [] };
+  assert.equal(packedHow({ ...base, reactions: [{ name: "white_check_mark", count: 0, users: [] }] }), null);
+});
+
 test("the bot's own thread parent does not count as a reply", () => {
   assert.equal(packedHow({ postTs: "100.000001", mentioned: [], reactions: [], channel: [], laterPostTs: [], thread: [{ ts: "100.000001", user: "U0BOTUSER", bot_id: "B0" }] }), null);
 });
