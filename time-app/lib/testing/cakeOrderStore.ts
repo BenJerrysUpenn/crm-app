@@ -112,6 +112,7 @@ export function memoryCakeOrderStore(
     },
     async prune(beforeIso) {
       check("prune");
+      s.writes.push(`prune ${beforeIso}`);
       s.rows = s.rows.filter((r) => Date.parse(r.received_at) >= Date.parse(beforeIso));
     },
   };

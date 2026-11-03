@@ -45,10 +45,17 @@ const ANA = "00000000-0000-0000-0000-00000000000a";
 const BEN = "00000000-0000-0000-0000-00000000000b";
 const CAT = "00000000-0000-0000-0000-00000000000c"; // on a catering shift
 
-const SLACK_USERS = [
+const SLACK_USERS: Slack.SlackUser[] = [
   { id: "U0ANA", real_name: "Ana Able", profile: { real_name: "Ana Able", email: "ana@example.test" } },
   { id: "U0BEN", real_name: "Ben Baker", profile: { real_name: "Ben Baker", email: "ben@example.test" } },
   { id: "U0CAT", real_name: "Cat Erer", profile: { real_name: "Cat Erer", email: "cat@example.test" } },
+];
+/** users.list's second page: people the time app knows by name only, or who left Slack. */
+const SLACK_USERS_PAGE_2: Slack.SlackUser[] = [
+  { id: "U0DEE", real_name: "Dee Dough", profile: { real_name: "Dee Dough", display_name: "dee" } },
+  { id: "U0EVE", deleted: true, real_name: "Eve Early", profile: { real_name: "Eve Early", email: "eve@example.test" } },
+  { id: "U0FAY1", real_name: "Fay Frost", profile: { real_name: "Fay Frost" } },
+  { id: "U0FAY2", real_name: "Fay Frost", profile: { real_name: "Fay Frost" } },
 ];
 
 const est = (hhmm: string, date = "2026-11-04") => new Date(`${date}T${hhmm}:00-05:00`).toISOString();
@@ -57,10 +64,12 @@ let clock = Date.parse(est("08:00"));
 type SlackMsg = { ts: string; user?: string; bot_id?: string; subtype?: string; text: string; thread_ts?: string };
 let slack: {
   channel: SlackMsg[];
-  posts: { text: string; thread_ts?: string }[];
+  posts: { channel: string; text: string; thread_ts?: string }[];
   reactions: Map<string, { name: string; count: number; users: string[] }[]>;
   refusePosts: number;
   downPosts: number;
+  /** reactions.get answers not ok this many times. */
+  refuseReads: number;
 };
 let claude: { fail: string | null; lead: string; followup: string; calls: number };
 let db: MemoryCakeOrderStore;
@@ -84,6 +93,7 @@ async function askClaude(req: { system: string; prompt: string }): Promise<Claud
 function testParser(raw: string): ParsedEmail {
   const body = raw.slice(raw.indexOf("\r\n\r\n") + 4).trim();
   if (body === "not cake") return { kind: "not_cake", why: "a marketplace order" };
+  if (body === "parser bug") throw new Error("Unexpected token in the email");
   try {
     return { kind: "cake_order", order: JSON.parse(body) as CakeOrder };
   } catch {
@@ -99,11 +109,15 @@ function emailArrives(hhmm: string, order: CakeOrder | string = ORDER, date?: st
   inbox.push({ uid, receivedAt: est(hhmm, date), raw: `From: orders@example.test\r\nSubject: Order\r\nMessage-ID: <m${uid}@example.test>\r\n\r\n${body}\r\n` });
 }
 
-const tick = (hhmm: string, opts: { dryRun?: boolean; noClaude?: boolean; realParser?: boolean; date?: string } = {}) => {
+const tick = (
+  hhmm: string,
+  opts: { dryRun?: boolean; noClaude?: boolean; realParser?: boolean; date?: string; store?: Run.RunDeps["store"]; channel?: string } = {},
+) => {
   clock = Date.parse(est(hhmm, opts.date));
   return runCakeOrderReminders({
     now: clock,
-    store: db,
+    store: opts.store ?? db,
+    channel: opts.channel,
     slack: slackClient("xoxb-test"),
     mail: {
       async search(query) {
@@ -129,7 +143,6 @@ async function external(input: string | URL | Request, init?: RequestInit): Prom
   const form = new URLSearchParams(await request.text());
   const method = url.pathname.replace("/api/", "");
   if (method === "chat.postMessage") {
-    assert.equal(form.get("channel"), CHANNEL);
     if (slack.downPosts > 0) {
       slack.downPosts -= 1;
       return new Response("upstream unavailable", { status: 503 });
@@ -140,7 +153,7 @@ async function external(input: string | URL | Request, init?: RequestInit): Prom
     }
     const msg: SlackMsg = { ts: nextTs(), bot_id: "B0BOT", text: form.get("text")!, thread_ts: form.get("thread_ts") ?? undefined };
     slack.channel.push(msg);
-    slack.posts.push({ text: msg.text, thread_ts: msg.thread_ts });
+    slack.posts.push({ channel: form.get("channel")!, text: msg.text, thread_ts: msg.thread_ts });
     return Response.json({ ok: true, ts: msg.ts });
   }
   if (method === "conversations.history") {
@@ -152,13 +165,21 @@ async function external(input: string | URL | Request, init?: RequestInit): Prom
     return Response.json({ ok: true, messages: slack.channel.filter((m) => m.ts === ts || m.thread_ts === ts) });
   }
   if (method === "reactions.get") {
+    if (slack.refuseReads > 0) {
+      slack.refuseReads -= 1;
+      return Response.json({ ok: false, error: "ratelimited" });
+    }
     return Response.json({ ok: true, type: "message", message: { ts: form.get("timestamp"), reactions: slack.reactions.get(form.get("timestamp")!) ?? [] } });
   }
   if (method === "users.lookupByEmail") {
-    const user = SLACK_USERS.find((u) => u.profile.email === form.get("email"));
+    const user = [...SLACK_USERS, ...SLACK_USERS_PAGE_2].find((u) => u.profile?.email === form.get("email"));
     return Response.json(user ? { ok: true, user } : { ok: false, error: "users_not_found" });
   }
-  if (method === "users.list") return Response.json({ ok: true, members: SLACK_USERS });
+  if (method === "users.list") {
+    return form.get("cursor") === "page-2"
+      ? Response.json({ ok: true, members: SLACK_USERS_PAGE_2, response_metadata: { next_cursor: "" } })
+      : Response.json({ ok: true, members: SLACK_USERS, response_metadata: { next_cursor: "page-2" } });
+  }
   throw new Error(`unexpected Slack method ${method}`);
 }
 
@@ -168,7 +189,7 @@ beforeEach(() => {
   clock = Date.parse(est("08:00"));
   tsCounter = 0;
   uid = 100;
-  slack = { channel: [], posts: [], reactions: new Map(), refusePosts: 0, downPosts: 0 };
+  slack = { channel: [], posts: [], reactions: new Map(), refusePosts: 0, downPosts: 0, refuseReads: 0 };
   claude = { fail: null, lead: "", followup: "", calls: 0 };
   inbox = [];
   mailDown = null;
@@ -225,6 +246,7 @@ test("an order while two are on store punches: one AI post mentioning both with 
     "<@U0ANA> and <@U0BEN>, a cake order just came in! Please pack it and react here when it's done 📦\n*Pat Placeholder*, pickup Thu Nov 5, 5:00 PM\n• 8\" Cookie Dough\n• Message: Happy Birthday",
   );
   assert.equal(slack.posts[0].thread_ts, undefined);
+  assert.equal(slack.posts[0].channel, CHANNEL);
   const row = db.rows[0];
   assert.deepEqual([row.order_key, row.message_id, row.profile_ids, row.slack_user_ids, row.post_source], ["1001", "<m101@example.test>", [ANA, BEN], ["U0ANA", "U0BEN"], "ai"]);
 
@@ -388,4 +410,174 @@ test("a dry run posts nothing and writes nothing, and shows the due post, the un
     ],
   );
   assert.deepEqual(db.writes, []);
+});
+
+test("a post more than 3 hours old with no follow-up yet (the box was off) gets none, and is settled as expired", async () => {
+  claude.lead = "<@U0ANA> cake order! Please pack it and react when done.";
+  clockIn(11, ANA, "11:00", 1);
+  emailArrives("12:00");
+  await tick("12:00");
+  const late = ran(await tick("15:05"));
+  assert.deepEqual(late.followups, [{ order: "1001", outcome: "expired" }]);
+  assert.equal(db.rows[0].followup_outcome, "expired");
+  await tick("15:10");
+  assert.equal(slack.posts.length, 1, "no reply, then or later");
+});
+
+test("Slack cannot say whether it was packed: no reply on that tick, the error is reported, and the next tick checks again", async () => {
+  claude.lead = "<@U0ANA> cake order! Please pack it and react when done.";
+  claude.followup = "Please pack this one and reply here when it's done!";
+  clockIn(11, ANA, "11:00", 1);
+  emailArrives("12:00");
+  await tick("12:00");
+  slack.refuseReads = 1;
+  const blind = ran(await tick("13:00"));
+  assert.deepEqual(blind.errors, ["follow-up 1001: reactions: ratelimited"]);
+  assert.deepEqual(blind.followups, []);
+  assert.equal(slack.posts.length, 1);
+  const next = ran(await tick("13:05"));
+  assert.equal(next.followups[0].outcome, "sent");
+  assert.equal(slack.posts.length, 2);
+});
+
+test("Slack refuses the follow-up: the next tick sends it", async () => {
+  clockIn(11, ANA, "11:00", 1);
+  emailArrives("12:00");
+  await tick("12:00", { noClaude: true });
+  slack.refusePosts = 1;
+  const refused = ran(await tick("13:00", { noClaude: true }));
+  assert.deepEqual(refused.errors, ["follow-up 1001: Slack refused (not_in_channel)"]);
+  assert.equal(db.rows[0].followup_outcome, null);
+  const retried = ran(await tick("13:05", { noClaude: true }));
+  assert.deepEqual(retried.followups, [{ order: "1001", outcome: "sent", source: "fallback", note: "no Claude subscription token" }]);
+  assert.equal(slack.posts[1].thread_ts, db.rows[0].post_ts);
+});
+
+test("Slack does not answer the follow-up: it may have gone out, so it is never sent again", async () => {
+  clockIn(11, ANA, "11:00", 1);
+  emailArrives("12:00");
+  await tick("12:00", { noClaude: true });
+  slack.downPosts = 1;
+  const down = ran(await tick("13:00", { noClaude: true }));
+  assert.match(down.errors[0], /^follow-up 1001: chat\.postMessage: HTTP 503/);
+  assert.equal(db.rows[0].followup_outcome, "failed");
+  for (const at of ["13:05", "13:30"]) ran(await tick(at, { noClaude: true }));
+  assert.equal(slack.posts.length, 1);
+});
+
+test("two ticks at once: the one that loses the order or the follow-up to the other posts nothing", async () => {
+  claude.lead = "<@U0ANA> cake order! Please pack it and react when done.";
+  clockIn(11, ANA, "11:00", 1);
+  emailArrives("12:00");
+  // The other tick records the order between this tick's read and its claim.
+  const orderRace = { ...db, claimOrder: async (row: Parameters<typeof db.claimOrder>[0]) => (await db.claimOrder(row), db.claimOrder(row)) };
+  const lost = ran(await tick("12:00", { store: orderRace }));
+  assert.deepEqual([lost.posted, lost.errors, slack.posts.length, claude.calls], [[], [], 0, 0]);
+
+  db.rows = [];
+  await tick("12:05");
+  assert.equal(slack.posts.length, 1);
+  // The other tick claims the follow-up first.
+  const followupRace = {
+    ...db,
+    claimFollowup: async (...args: Parameters<typeof db.claimFollowup>) => (await db.claimFollowup(args[0], "sending", args[2]), db.claimFollowup(...args)),
+  };
+  const second = ran(await tick("13:05", { store: followupRace }));
+  assert.deepEqual([second.followups, second.errors, slack.posts.length], [[], [], 1]);
+});
+
+test("the same order in two emails on one tick is posted once, and a dry run shows it once", async () => {
+  clockIn(11, ANA, "11:00", 1);
+  emailArrives("12:00");
+  emailArrives("12:01");
+  const dry = ran(await tick("12:05", { dryRun: true, noClaude: true }));
+  assert.deepEqual(dry.messages!.map((m) => [m.occasion, m.when, m.order]), [["post", "due", "1001"]]);
+  const r = ran(await tick("12:05", { noClaude: true }));
+  assert.deepEqual(r.mail, { read: 2, orders: 2, notCake: 0, unrecognised: 0 });
+  assert.equal(r.posted.length, 1);
+  assert.equal(slack.posts.length, 1);
+});
+
+test("a parser that throws on one email counts it as unreadable and the run goes on", async () => {
+  clockIn(11, ANA, "11:00", 1);
+  emailArrives("12:00", "parser bug");
+  emailArrives("12:01");
+  const r = ran(await tick("12:05", { noClaude: true }));
+  assert.deepEqual(r.mail, { read: 2, orders: 1, notCake: 0, unrecognised: 1 });
+  assert.deepEqual(r.errors, []);
+  assert.equal(slack.posts.length, 1);
+  const dry = ran(await tick("12:10", { dryRun: true, noClaude: true }));
+  assert.deepEqual(dry.unread, [{ from: "orders@example.test", subject: "Order", why: "the parser failed: Unexpected token in the email" }]);
+});
+
+test("the punches cannot be read: the error is reported, nothing is recorded, and the next tick posts", async () => {
+  clockIn(11, ANA, "11:00", 1);
+  emailArrives("12:00");
+  db.fail.add("punches");
+  const r = ran(await tick("12:00", { noClaude: true }));
+  assert.deepEqual(r.errors, ["shifts or punches: connection lost (punches)"]);
+  assert.equal(r.onClock, null);
+  assert.equal(db.rows.length, 0);
+  ran(await tick("12:05", { noClaude: true }));
+  assert.equal(slack.posts.length, 1);
+});
+
+test("orders received more than 60 days ago are pruned on a run, never on a dry run, and a failed prune is reported", async () => {
+  const old = (key: string, daysAgo: number) =>
+    db.claimOrder({
+      order_key: key,
+      message_id: `<${key}@example.test>`,
+      received_at: new Date(Date.parse(est("12:00")) - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+      pickup_at: null,
+      profile_ids: [ANA],
+      slack_user_ids: ["U0ANA"],
+      channel_id: CHANNEL,
+    });
+  await old("old", 61);
+  await old("recent", 59);
+  db.writes = [];
+  ran(await tick("12:00", { dryRun: true }));
+  assert.deepEqual(db.writes, []);
+  assert.equal(db.rows.length, 2);
+
+  ran(await tick("12:00"));
+  assert.deepEqual(db.rows.map((r) => r.order_key), ["recent"]);
+
+  db.fail.add("prune");
+  const failed = ran(await tick("12:05"));
+  assert.deepEqual(failed.errors, ["prune: connection lost (prune)"]);
+});
+
+test("staff are matched to Slack by sign-in email, else by a unique name; anyone unmatched is named, not mentioned", async () => {
+  const DEE = "00000000-0000-0000-0000-00000000000d"; // no sign-in email; one Slack member has her name
+  const EVE = "00000000-0000-0000-0000-00000000000e"; // her Slack account was deactivated
+  const FAY = "00000000-0000-0000-0000-00000000000f"; // two Slack members share her name
+  db.persons.push(
+    { id: DEE, full_name: "Dee Dough", preferred_name: null, email: null },
+    { id: EVE, full_name: "Eve Early", preferred_name: "Evie", email: "eve@example.test" },
+    { id: FAY, full_name: "Fay Frost", preferred_name: null, email: null },
+  );
+  clockIn(11, ANA, "11:00", 1);
+  clockIn(12, DEE, "11:01", null);
+  clockIn(13, EVE, "11:02", null);
+  clockIn(14, FAY, "11:03", null);
+  emailArrives("12:00");
+  const r = ran(await tick("12:00", { noClaude: true }));
+  assert.equal(r.posted[0].mentioned, 2);
+  assert.ok(slack.posts[0].text.startsWith("<@U0ANA>, <@U0DEE>, Evie and Fay Frost a new cake order just came in."), slack.posts[0].text);
+  assert.deepEqual(db.rows[0].slack_user_ids, ["U0ANA", "U0DEE", "", ""]);
+});
+
+test("the channel can be moved: the post and its follow-up go there", async () => {
+  clockIn(11, ANA, "11:00", 1);
+  emailArrives("12:00");
+  await tick("12:00", { noClaude: true, channel: "C0MOVED" });
+  await tick("13:00", { noClaude: true, channel: "C0MOVED" });
+  assert.deepEqual(
+    slack.posts.map((p) => [p.channel, p.thread_ts ? "thread" : "top"]),
+    [
+      ["C0MOVED", "top"],
+      ["C0MOVED", "thread"],
+    ],
+  );
 });
