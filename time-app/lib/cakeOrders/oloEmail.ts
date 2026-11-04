@@ -1,5 +1,5 @@
 // Reading Olo's per-order email ("Send Redundant Order Email", store settings
-// PA013, on since 2026-11-03): which emails are cake orders, and what the post
+// PA013, on since 2026-11-03): which emails are custom cake orders, and what the post
 // says about each. Built from the first real ones (crm-app #142), saved
 // redacted under fixtures/.
 //
@@ -19,24 +19,30 @@
 //   * Subtotal, Estimated Tax, Total, Paid by ("Paid Via Uber Eats",
 //     "Paid by DoorDash").
 //
-// WHICH ORDERS ARE CAKES. A top-level item whose name ends in the word "Cake"
-// (a trailing "(Ready-Made)" or other bracket allowed) is a cake. That is
-// every cake on the store's Olo menu (order.benjerry.com/menu/upenn, read
-// 2026-11-03): the four "Ready-Made Ice Cream Cakes (15 minutes)", such as
-// "Small Half Baked Ice Cream Cake- Celebration Cake (Ready-Made)", and the
-// fifteen "Order Ahead Ice Cream Cakes (48 Hours)", "Celebration Cake" to
-// "Custom Order Cake", seasonal ones included. No other item on that menu
-// ends in "Cake". The rule reads top-level item names only, so a cake flavour
-// or topping inside a shake or a pint ("Cake Batter", "Birthday Cake") never
-// makes an order a cake order, and a seasonal cake added later is still one.
-// The channel is not a rule: the item name decides, whoever the order came
-// through.
+// WHICH ORDERS ARE POSTED: CUSTOM CAKES ONLY. The owner's ruling, 2026-11-03:
+// "custom cakes are the only ones that need to be made and tracked. named
+// cakes get refilled from stock and don't need notifications". A custom cake
+// is a top-level item whose name starts with the word "Custom" and ends in the
+// word "Cake" (a trailing "(...)" allowed): on the store's Olo menu
+// (order.benjerry.com/menu/upenn, read 2026-11-03) that is "Custom Order
+// Cake" alone, and a custom cake item added later ("Custom Heart Cake") still
+// counts. Every other cake on that menu is a named cake and is skipped: the
+// four "Ready-Made Ice Cream Cakes (15 minutes)", such as "Small Half Baked
+// Ice Cream Cake- Celebration Cake (Ready-Made)", and the fourteen named
+// "Order Ahead Ice Cream Cakes (48 Hours)", "Celebration Cake" to "Cow-Spot
+// Cake", seasonal ones included. A named cake is any other top-level item
+// whose name ends in "Cake", so its skip says so ("named cake, refilled from
+// stock"). "Custom Milkshake (20oz)" and the custom sundaes do not end in
+// "Cake", so they are not custom cakes. The rule reads top-level item names
+// only, so a cake flavour or topping inside a shake or a pint ("Cake
+// Batter", "Birthday Cake") never makes an order a cake order. The channel is
+// not a rule: the item name decides, whoever the order came through.
 //
-// A parse never guesses. Not from Olo, or an Olo order with no cake on it:
-// "not_cake", with the Olo order id when there is one, so the run can log why
-// it skipped it. Anything from Olo it cannot read as a new order (another
-// heading, no order id, no items): "unrecognised", which the run counts and a
-// dry run lists by sender and subject.
+// A parse never guesses. Not from Olo, or an Olo order with no custom cake on
+// it: "not_custom_cake", with the Olo order id when there is one, so the run
+// can log why it skipped it. Anything from Olo it cannot read as a new order
+// (another heading, no order id, no items): "unrecognised", which the run
+// counts and a dry run lists by sender and subject.
 
 import { nyInstant } from "../cashCount/plan";
 import { headerOf } from "./mail";
@@ -48,7 +54,7 @@ const NEW_ORDER_HEADING = "Order Transmitted Notification";
 /** The subject Olo gives every order email; the mailbox search asks for it. */
 const ORDER_SUBJECT = "Order Notification";
 
-/** One cake order, as the post shows it. */
+/** One custom cake order, as the post shows it. */
 export type CakeOrder = {
   /** The order's own id in the email: the same order emailed twice is posted once. */
   key: string;
@@ -57,17 +63,17 @@ export type CakeOrder = {
   pickupAt: string | null;
   /** The pickup time as the email writes it. */
   pickupText: string;
-  /** One line per cake item: size, flavour, options, the message on it. */
+  /** One line per custom cake item: size, flavour, options, the message on it. */
   cake: string[];
 };
 
 export type ParsedEmail =
   | { kind: "cake_order"; order: CakeOrder }
   /** `order` is the Olo order id when the email is an Olo order. */
-  | { kind: "not_cake"; why: string; order?: string }
+  | { kind: "not_custom_cake"; why: string; order?: string }
   | { kind: "unrecognised"; why: string };
 
-/** Turn one raw RFC 5322 email into a cake order, or say why it is not one. */
+/** Turn one raw RFC 5322 email into a custom cake order, or say why it is not one. */
 export type ParseEmail = (raw: string) => ParsedEmail;
 
 /** One top-level item and its modifiers, as the email lists them. */
@@ -90,9 +96,17 @@ export type OloOrder = {
 
 export type OloRead = { kind: "order"; order: OloOrder } | { kind: "not_olo" } | { kind: "unrecognised"; why: string };
 
-/** Is this top-level item a cake? See WHICH ORDERS ARE CAKES above. */
-export function isCakeItem(name: string): boolean {
-  return /\bcake(\s*\([^)]*\))?\s*$/i.test(name.trim());
+/** A trailing word "Cake", a "(Ready-Made)" or other bracket allowed after it. */
+const ENDS_IN_CAKE = /\bcake(\s*\([^)]*\))?\s*$/i;
+
+/** Is this top-level item a custom cake, the only kind posted? See WHICH ORDERS ARE POSTED above. */
+export function isCustomCakeItem(name: string): boolean {
+  return /^custom\b/i.test(name.trim()) && ENDS_IN_CAKE.test(name.trim());
+}
+
+/** Is this top-level item a named cake, refilled from stock and never posted? See WHICH ORDERS ARE POSTED above. */
+export function isNamedCakeItem(name: string): boolean {
+  return ENDS_IN_CAKE.test(name.trim()) && !isCustomCakeItem(name);
 }
 
 /** Read an Olo order email. Not from Olo: "not_olo". From Olo but not a readable new order: "unrecognised". */
@@ -143,16 +157,18 @@ export function readOloOrder(raw: string): OloRead {
   };
 }
 
-/** The job's parser: an Olo order with a cake on it is a cake order; everything else says why not. */
+/** The job's parser: an Olo order with a custom cake on it is a cake order; everything else says why not. */
 export const parseOloOrderEmail: ParseEmail = (raw) => {
   const read = readOloOrder(raw);
-  if (read.kind === "not_olo") return { kind: "not_cake", why: "not an Olo order email" };
+  if (read.kind === "not_olo") return { kind: "not_custom_cake", why: "not an Olo order email" };
   if (read.kind === "unrecognised") return read;
   const o = read.order;
-  const cakes = o.items.filter((i) => isCakeItem(i.name));
+  const cakes = o.items.filter((i) => isCustomCakeItem(i.name));
   if (!cakes.length) {
-    const what = o.items.map((i) => `${i.quantity} x ${i.name}`).join(", ");
-    return { kind: "not_cake", order: o.orderId, why: `no cake on it: ${what}${o.paidBy ? ` (${o.paidBy})` : ""}` };
+    const listed = (items: OloItem[]) => items.map((i) => `${i.quantity} x ${i.name}`).join(", ");
+    const named = o.items.filter((i) => isNamedCakeItem(i.name));
+    const why = named.length ? `named cake, refilled from stock: ${listed(named)}` : `no cake on it: ${listed(o.items)}`;
+    return { kind: "not_custom_cake", order: o.orderId, why: `${why}${o.paidBy ? ` (${o.paidBy})` : ""}` };
   }
   return {
     kind: "cake_order",

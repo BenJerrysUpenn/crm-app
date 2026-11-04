@@ -133,7 +133,7 @@ const SKIPPED = "[cake-orders] skipped Olo order 47729604891115532: no cake on i
 test("a run reads the mailbox with the Vault login, says what it read, exits 0, and prints no secret", async () => {
   assert.equal(await runCakeOrderCli([], deps("12:05")), 0);
   assert.deepEqual(logins, [{ user: MAIL_USER, password: MAIL_PASSWORD }]);
-  assert.deepEqual(out, ["[cake-orders] 2026-11-04 12:05, mail 3 read, 0 cake orders, 2 not cake, 1 not readable: nothing due", SKIPPED]);
+  assert.deepEqual(out, ["[cake-orders] 2026-11-04 12:05, mail 3 read, 0 custom cake orders, 2 not custom cake, 1 not readable: nothing due", SKIPPED]);
   assert.deepEqual(errs, []);
   assert.deepEqual(posts, []);
   assert.ok(noSecrets());
@@ -145,7 +145,7 @@ test("--dry-run lists what it could not read and previews the messages, posts no
   assert.deepEqual(db.writes, []);
   assert.deepEqual(claudeTokens, [CLAUDE_TOKEN], "Claude Code gets the subscription token");
   assert.deepEqual(out.slice(0, 5), [
-    "[cake-orders] DRY RUN: 2026-11-04 12:05, mail 3 read, 0 cake orders, 2 not cake, 1 not readable, 1 on the clock: planned",
+    "[cake-orders] DRY RUN: 2026-11-04 12:05, mail 3 read, 0 custom cake orders, 2 not custom cake, 1 not readable, 1 on the clock: planned",
     SKIPPED,
     `[cake-orders] not read as an order: "'Ben & Jerry's' via Admin" <admin@example.test> | Order Notification`,
     "[cake-orders] preview of the post for preview to <@U0ANA> (on the clock now; ai)",
@@ -231,7 +231,7 @@ test("a follow-up that went out is printed in the run's line", async () => {
   await db.markPosted(id!, { post_ts: "1793376000.000001", post_source: "ai", posted_at: est("11:00") });
   vault.claude_usage_token = "";
   assert.equal(await runCakeOrderCli([], deps("12:05")), 0);
-  assert.equal(out[0], "[cake-orders] 2026-11-04 12:05, mail 3 read, 0 cake orders, 2 not cake, 1 not readable: follow-up 1001 sent (fallback: no Claude subscription token)");
+  assert.equal(out[0], "[cake-orders] 2026-11-04 12:05, mail 3 read, 0 custom cake orders, 2 not custom cake, 1 not readable: follow-up 1001 sent (fallback: no Claude subscription token)");
   assert.equal(posts.length, 1);
 });
 
@@ -245,6 +245,6 @@ test("the mailbox cannot be read: the run says so and exits 1", async () => {
 test("a dry run with nobody on the clock says there is nothing to preview", async () => {
   db.entries = [];
   assert.equal(await runCakeOrderCli(["--dry-run"], deps("12:05")), 0);
-  assert.equal(out[0], "[cake-orders] DRY RUN: 2026-11-04 12:05, mail 3 read, 0 cake orders, 2 not cake, 1 not readable, 0 on the clock: planned");
+  assert.equal(out[0], "[cake-orders] DRY RUN: 2026-11-04 12:05, mail 3 read, 0 custom cake orders, 2 not custom cake, 1 not readable, 0 on the clock: planned");
   assert.equal(out.at(-1), "[cake-orders] nothing to post, and nobody on the clock to preview for");
 });

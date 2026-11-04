@@ -1,9 +1,13 @@
-X-Fixture: DERIVED, NOT RECEIVED. No Olo cake order email had arrived by 2026-11-03.
+X-Fixture: DERIVED, NOT RECEIVED. No Olo custom cake order email had arrived by 2026-11-03.
  Built from olo-order-uber-milkshake.eml (received, redacted) by swapping the milkshake
- for "Celebration Cake", a real item on the Olo menu at order.benjerry.com/menu/upenn
- (read 2026-11-03), with option names and choices copied from that menu item; the order
- id, due date and time, prices and totals changed to match; the Paid by line is the
- source email's. The body was re-encoded as quoted-printable, so it is not byte-faithful.
+ for "Custom Order Cake", the one custom cake on the Olo menu at
+ order.benjerry.com/menu/upenn (product 113646650, read 2026-11-03), with option group
+ names and choices copied from that product's options. ASSUMED, not seen in a real
+ email: a nested choice (a body colour under "Choose Body Color") is its own row under
+ the row of the choice that opens it, labelled with its own group's name; the custom
+ message text field is not used (a stock message is). The order id, due date and time,
+ prices and totals changed to match; the Paid by line is the source email's. The body
+ was re-encoded as quoted-printable, so it is not byte-faithful.
 Delivered-To: reader@example.test
 Received: by 2002:a05:6521:2146:b0:34e:4b4e:adf1 with SMTP id nc6csp4313lkc;
         Tue, 3 Nov 2026 14:43:57 -0800 (PST)
@@ -224,18 +228,36 @@ lphia Ice Cream Shop (PA013)</td></tr><tr><td>Order ID:</td><td>47729604891=
 omer Name:</td><td>Pat P. 0000C</td></tr><tr><td>Customer Email:</td><td />=
 </tr><tr><td>Customer Contact Number:</td><td>15550100000x00000000</td></tr=
 ></table><br /><table cellspacing=3D"0" cellpadding=3D"3"><tr><td colspan=
-=3D"2"><font size=3D"+1"><br />1 x Celebration Cake</font></td><td width=3D=
-"200"><font size=3D"+1"><br />
+=3D"2"><font size=3D"+1"><br />1 x Custom Order Cake</font></td><td width=
+=3D"200"><font size=3D"+1"><br />
 				$0.00</font></td></tr><tr><td>Are There Any Food Allergies or Sensitivi=
 ties That We Should Be Aware of?:</td><td>No Allergy Concerns</td><td /></t=
 r><tr><td>Choose Cake Size:</td><td>Medium Round 8&quot; (Serves 8-10)</td>=
 <td>
            $46.95 (1 x $46.95)
-         </td></tr><tr><td>Select Up to 2 Flavors:</td><td>Cake Batter</td>=
-<td /></tr><tr><td>Frosting Option:</td><td>Standard Frosting</td><td /></t=
-r><tr><td>Choose or Create Your Own Message:</td><td>Happy Birthday!</td><t=
-d /></tr></table><br /><table cellspacing=3D"0" cellpadding=3D"3"><tr><td>S=
-ubtotal</td><td>$ 46.95</td></tr><tr><td>Estimated Tax</td><td>
+         </td></tr><tr><td>Choose Cake Flavors:</td><td>Select Up to 2 Flav=
+ors</td><td /></tr><tr><td>Choose up to 2 Flavors:</td><td>1 x
+					Cherry Garcia=C2=AE</td><td /></tr><tr><td>Choose up to 2 Flavors:</td=
+><td>1 x
+					Chocolate Fudge Brownie</td><td /></tr><tr><td>Frosting Option:</td><t=
+d>Standard Frosting</td><td /></tr><tr><td>Choose Cake Filling for the Midd=
+le of the Cake:</td><td>Choose Middle Filling</td><td /></tr><tr><td>Select=
+ Middle Layer:</td><td>Crumbled Brownies</td><td /></tr><tr><td>Choose Bott=
+om Layer for the Cake:</td><td>Choose Bottom Layer</td><td /></tr><tr><td>S=
+elect Bottom Layer:</td><td>Chocolate Crunchies</td><td /></tr><tr><td>Choo=
+se Body &amp; Border Color:</td><td>Choose Body Color</td><td /></tr><tr><t=
+d>Choose Body Color:</td><td>White</td><td /></tr><tr><td>Choose Body &amp;=
+ Border Color:</td><td>Choose Border Color</td><td /></tr><tr><td>Choose Bo=
+rder Color:</td><td>Blue</td><td /></tr><tr><td>Choose Cake Toppings:</td><=
+td>Choose Cake Toppings</td><td /></tr><tr><td>Choose Cake Toppings:</td><t=
+d>Rainbow Sprinkles</td><td /></tr><tr><td>Choose Cake Toppings:</td><td>Mi=
+ni Cones</td><td /></tr><tr><td>Choose or Create Your Own Message:</td><td>=
+Choose or Create Your Own Message</td><td /></tr><tr><td>Choose or Create Y=
+our Own Message:</td><td>Happy Birthday!</td><td /></tr><tr><td>Choose Mess=
+age Color:</td><td>Message Color</td><td /></tr><tr><td>Choose Message Colo=
+r:</td><td>Blue</td><td /></tr></table><br /><table cellspacing=3D"0" cellp=
+adding=3D"3"><tr><td>Subtotal</td><td>$ 46.95</td></tr><tr><td>Estimated Ta=
+x</td><td>
             $ 3.76</td></tr><tr><td>Total</td><td>$ 50.71</td></tr><tr><td>=
 Paid by</td><td>Paid Via Uber Eats</td></tr></table><p>This order will be a=
 utomatically transmitted into the Point of Sale system.</p><img src=3D"http=

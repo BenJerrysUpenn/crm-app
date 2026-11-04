@@ -24,7 +24,8 @@
 // None is ever printed, logged or put on a command line.
 //
 // Every run prints one line per Olo order it read and skipped because there is
-// no cake on it, with the items and how it was paid (oloEmail.ts).
+// no custom cake on it (a named cake, refilled from stock, or no cake at all),
+// with the items and how it was paid (oloEmail.ts).
 //
 // --dry-run reads everything and has Claude write every message that is due,
 // plus a preview of a post and a follow-up, and prints them with the emails
@@ -145,8 +146,8 @@ export async function runCakeOrderCli(argv: string[], deps: CakeOrderCliDeps): P
   if (claudeNote) deps.err(`${TAG} ${claudeNote}`);
 
   const mail = result.mail
-    ? `mail ${result.mail.read} read, ${result.mail.orders} cake order${result.mail.orders === 1 ? "" : "s"}` +
-      (result.mail.notCake ? `, ${result.mail.notCake} not cake` : "") +
+    ? `mail ${result.mail.read} read, ${result.mail.orders} custom cake order${result.mail.orders === 1 ? "" : "s"}` +
+      (result.mail.notCustomCake ? `, ${result.mail.notCustomCake} not custom cake` : "") +
       (result.mail.unrecognised ? `, ${result.mail.unrecognised} not readable` : "")
     : "mail unreadable";
   const clocked = result.onClock === null ? "" : `, ${result.onClock} on the clock`;
