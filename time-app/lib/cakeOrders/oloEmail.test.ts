@@ -37,6 +37,26 @@ function swap(raw: string, from: string, to: string): string {
   return raw.replace(from, to);
 }
 
+/** A fixture's head and its HTML, quoted-printable decoded: test setup, so a swap need not mind soft line breaks. */
+function decoded(raw: string): { head: string; html: Buffer } {
+  const split = raw.indexOf("\r\n\r\n");
+  const head = raw.slice(0, split).replace(/^Content-(Type|Transfer-Encoding):.*\r\n/gim, "");
+  const qp = raw.slice(split + 4);
+  return { head, html: Buffer.from(qp.replace(/=\r\n/g, "").replace(/=([0-9A-F]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16))), "latin1") };
+}
+
+/** The post for the derived cake order (fixtures/olo-order-cake-DERIVED.eml), read off the email by hand. */
+const CAKE_POST = {
+  kind: "cake_order",
+  order: {
+    key: "47729604891100001",
+    customer: "Pat P. 0000C",
+    pickupAt: "2026-11-05T20:00:00.000Z",
+    pickupText: "Thursday, 11/5/2026 3:00 PM",
+    cake: ['1 x Celebration Cake: No Allergy Concerns; Medium Round 8" (Serves 8-10); Cake Batter; Standard Frosting; Happy Birthday!'],
+  },
+};
+
 test("the real Uber Eats milkshake order is read whole, and skipped as no cake", () => {
   assert.deepEqual(readOloOrder(MILKSHAKE), {
     kind: "order",
@@ -95,16 +115,7 @@ test("the real DoorDash pint orders are read, each item with its own flavours, a
 
 test("a cake order (derived from a real email, see its X-Fixture header) is a cake order with its options", () => {
   assert.match(CAKE, /^X-Fixture: DERIVED, NOT RECEIVED\./);
-  assert.deepEqual(parseOloOrderEmail(CAKE), {
-    kind: "cake_order",
-    order: {
-      key: "47729604891100001",
-      customer: "Pat P. 0000C",
-      pickupAt: "2026-11-05T20:00:00.000Z",
-      pickupText: "Thursday, 11/5/2026 3:00 PM",
-      cake: ['1 x Celebration Cake: No Allergy Concerns; Medium Round 8" (Serves 8-10); Cake Batter; Standard Frosting; Happy Birthday!'],
-    },
-  });
+  assert.deepEqual(parseOloOrderEmail(CAKE), CAKE_POST);
 });
 
 test("a cake flavour or a cake add-on inside a milkshake does not make it a cake order", () => {
@@ -201,16 +212,13 @@ test("an Olo email that is not a new order, or has no order id or no items, is u
 });
 
 test("the HTML is found inside a multipart email and in base64 too", () => {
-  const split = CAKE.indexOf("\r\n\r\n");
-  const head = CAKE.slice(0, split).replace(/^Content-(Type|Transfer-Encoding):.*\r\n/gim, "");
-  const qp = CAKE.slice(split + 4);
-  const html = Buffer.from(qp.replace(/=\r\n/g, "").replace(/=([0-9A-F]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16))), "latin1");
+  const { head, html } = decoded(CAKE);
   const multipart =
     `${head}\r\nContent-Type: multipart/alternative; boundary="b1"\r\n\r\n` +
     `--b1\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nOrder 1\r\n` +
     `--b1\r\nContent-Type: text/html; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${html.toString("base64").replace(/.{76}/g, "$&\r\n")}\r\n` +
     `--b1--\r\n`;
-  assert.deepEqual(parseOloOrderEmail(multipart), parseOloOrderEmail(CAKE));
+  assert.deepEqual(parseOloOrderEmail(multipart), CAKE_POST);
 });
 
 test("the due time is New York wall clock, either side of a daylight saving change", () => {
