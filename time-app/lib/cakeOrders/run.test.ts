@@ -15,7 +15,8 @@
 //   * Slack refuses a post: nothing is recorded, the next tick tries again.
 //     Slack does not answer: the record stays, so it never posts twice.
 //   * The real parser on the real Olo emails: the milkshake and pint orders
-//     are skipped with the order id and why, and a cake order is posted.
+//     are skipped with the order id and why (once, however many times the
+//     same order is emailed), and a cake order is posted.
 //   * A dry run posts nothing and writes nothing, and shows the messages.
 //
 // Stand-ins: the database (lib/testing/cakeOrderStore.ts, in memory); the
@@ -396,6 +397,14 @@ test("the real parser on the real Olo emails: the milkshake and pints are skippe
 
   ran(await tick("12:10", { realParser: true }));
   assert.equal(slack.posts.length, 1, "the cake order is posted once");
+});
+
+test("an Olo order emailed twice with no cake on it is skipped once", async () => {
+  oloEmailArrives("12:00", "olo-order-doordash-pint.eml");
+  oloEmailArrives("12:01", "olo-order-doordash-pint.eml");
+  const r = ran(await tick("12:05", { realParser: true }));
+  assert.deepEqual(r.mail, { read: 2, orders: 0, notCake: 2, unrecognised: 0 });
+  assert.deepEqual(r.skipped, [{ order: "47730730709549057", why: "no cake on it: 1 x Fresh Packed Pint (16oz) (Paid by DoorDash)" }]);
 });
 
 test("the mailbox cannot be read: the error is reported and follow-ups still go out", async () => {
