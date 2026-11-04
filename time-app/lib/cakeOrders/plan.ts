@@ -6,8 +6,8 @@
 //
 // The owner's rules (2026-11-03, crm-app #142):
 //   * POST. When an Olo cake order email arrives, @mention everyone clocked
-//     in on a store shift, with the customer, pickup time and what the cake
-//     is, asking them to pack it and react or reply when done.
+//     in on a store shift, with the customer's name only (2026-11-04),
+//     asking them to pack it and react or reply when done.
 //   * NOBODY CLOCKED IN. If nobody is on a store punch when the email
 //     arrives (orders come in overnight), hold the post until 30 minutes after
 //     the first store clock-in, because opening has a lot of tasks. At that

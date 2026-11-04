@@ -357,17 +357,24 @@ on bj-box.
 ### Cake order packing reminders in Slack #cake-orders-and-ideas
 
 A job on bj-box reads the copy of each Olo order that Olo emails to the order
-address, and for each cake order @mentions everyone clocked in on a store shift
-in #cake-orders-and-ideas: who it is for, the pickup time and what the cake is,
-asking them to pack it and react or reply when done. If nobody is clocked in
+address, and for each custom cake order @mentions everyone clocked in on a store shift
+in #cake-orders-and-ideas, asking them to pack it and react or reply when done.
+Under that line the post shows only the customer's name, as you ruled on
+2026-11-04: the cake itself is on the tablet and the wall. If nobody is clocked in
 (an overnight order), it waits until 30 minutes after the first person clocks
 in. If nobody marks it packed within an hour (a 📦 ✅ 👍 reaction, a reply in
 the thread, or their next message in the channel), it replies once in the
 thread. Cake ideas from people it did not mention do not count. The words are
 written by Claude on your subscription, with a plain message if that fails.
 
-It does not post anything yet: it needs the first real Olo cake order email to
-learn how to read one.
+Only custom cake orders are posted ("Custom Order Cake" on the Olo menu), as
+you ruled on 2026-11-03: custom cakes are the ones that need to be made and
+tracked. Named cakes (Celebration Cake, the ready-made cakes, the seasonal
+ones) are refilled from stock, so they are skipped, and so are shakes, pints
+and any other order without a cake on it, whichever app it came through.
+
+It is not switched on yet: you decide when, and then ask for the
+`bj-cake-order-reminders.timer` to be turned on in bj-box.
 
 What you do, once:
 

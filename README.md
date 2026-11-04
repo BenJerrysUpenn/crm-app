@@ -563,20 +563,27 @@ Neither token is ever printed or put on a command line.
 
 ## Cake order packing reminders in Slack (droplet command, crm-app #142)
 Every 5 minutes on bj-box (`bj-cake-order-reminders.timer`, Software-Factory `droplet/`), reads
-Olo's per-order email and, for each cake order, @mentions everyone on a store punch in Slack
-#cake-orders-and-ideas with the customer, pickup time and cake, asking them to pack it and react or
-reply when done. Nobody clocked in when the email arrives: the post waits until 30 minutes after the
+Olo's per-order email and, for each custom cake order, @mentions everyone on a store punch in Slack
+#cake-orders-and-ideas, asking them to pack it and react or reply when done; under that line the
+post shows only the customer's name (the owner, 2026-11-04: the cake is on the tablet and the wall). Nobody clocked in when the email arrives: the post waits until 30 minutes after the
 first store clock-in. Not marked packed (a packed reaction such as 📦 ✅ 👍, a reply in the thread,
 or the next channel message from someone mentioned) 60 minutes later: one reply in the post's
 thread, with no second mention. Claude Code writes the words as for the cash count reminders; the
-order details are copied from the email by code. Who and when: `time-app/lib/cakeOrders/plan.ts`;
+customer's name is copied from the email by code. Who and when: `time-app/lib/cakeOrders/plan.ts`;
 one pass: `run.ts`; the email: `mail.ts` (IMAP, read only) and `oloEmail.ts` (the parser); the
 words: `message.ts`; Slack: `slack.ts`; command: `cli.ts`; reads and writes: `lib/cakeOrdersPg.ts`;
 wiring: `scripts/cake-order-reminders.ts`.
 
-**The Olo email parser is not built yet.** No Olo order email had arrived when this was written,
-so `oloEmail.ts` recognises no email and nothing is posted; its header says how to build it from the
-first real one.
+**Which orders are posted: custom cakes only.** The owner's ruling, 2026-11-03: "custom cakes are
+the only ones that need to be made and tracked. named cakes get refilled from stock and don't need
+notifications". `oloEmail.ts` reads Olo's "Order Notification" email (matched on
+`X-Original-Sender: orders@olo.com`, because the group rewrites From) and posts an order only when a
+top-level item is a custom cake: its name starts with "Custom" and ends in "Cake", which on the
+store's Olo menu is "Custom Order Cake" alone (a custom cake added later still counts). The named
+cakes (Celebration Cake, the ready-made ones, the seasonal ones) are skipped as refilled from stock;
+shakes, pints and the rest as no cake; one log line each with the items and how they were paid. A
+cake flavour inside a shake does not count. Its header has the email's layout; the real emails it
+was built from are redacted in `time-app/lib/cakeOrders/fixtures/`.
 
 Each order and its one follow-up is recorded in `cake_order_reminders` (migration 54) BEFORE it is
 posted, so it goes out once; a Slack refusal removes the record so the next tick retries, and no
