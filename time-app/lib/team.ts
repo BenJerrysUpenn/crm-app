@@ -17,6 +17,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendInvite } from "@/lib/authLinks";
 import type { Delivery } from "@/lib/authLinks";
 import { canAssignRole, canEditProfile, isRole, OWNER_ONLY_EDIT } from "@/lib/roles";
+import { validateFullName, normalizePhone } from "@/lib/profileName";
 import type { Role } from "@/lib/types";
 
 // Who is sending the invite: their role decides what they may do, their
@@ -61,14 +62,18 @@ export async function inviteTeamMember(input: InviteInput): Promise<InviteResult
   const email = validEmail(input.email);
   if (!email)
     return { ok: false, error: "Valid email required", status: 400 };
-  // Required. Without it the handle_new_user trigger has no name to store.
-  const full_name = validName(input.full_name);
-  if (!full_name)
-    return { ok: false, error: "Full name required (not an email)", status: 400 };
+  // Required, and held to the one name rule every write path shares
+  // (lib/profileName.ts): trimmed, not an email, at most 100 characters, with
+  // the same messages as the Team page's PATCH and PATCH /api/account. Without
+  // a name the handle_new_user trigger has nothing to store. (validName below
+  // stays for the staffing forms' legal_name, a separate field.)
+  const name = validateFullName(input.full_name);
+  if (!name.ok) return { ok: false, error: name.error, status: 400 };
+  const full_name = name.name;
   const role = normaliseRole(input.role);
   if (!canAssignRole(input.me, role))
     return { ok: false, error: OWNER_ONLY_EDIT, status: 403 };
-  const phone = (input.phone ?? "").trim() || null;
+  const phone = normalizePhone(input.phone);
   const hourly_rate =
     typeof input.hourly_rate === "number" && !isNaN(input.hourly_rate)
       ? input.hourly_rate

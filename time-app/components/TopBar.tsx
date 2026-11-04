@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import type { Role } from "@/lib/types";
+import { displayName } from "@/lib/profileName";
 import { isManagerRole } from "@/lib/roles";
 import NotificationBell from "@/components/NotificationBell";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -34,13 +35,11 @@ const links: { href: string; label: string; managerOnly?: boolean; mobileOnly?: 
 ];
 
 export default function TopBar({
-  email,
   role,
   name,
 }: {
-  email: string;
   role: Role;
-  name: string;
+  name: string | null;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -48,8 +47,9 @@ export default function TopBar({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLElement>(null);
   const visible = links.filter((l) => !l.managerOnly || isManagerRole(role));
-  // The name is the desktop route to /account, so it must never render blank.
-  const accountLabel = name || email || "Account";
+  // The name is the desktop route to /account, so it must never render blank —
+  // and never the login email. displayName falls back to a neutral label.
+  const accountLabel = displayName(name);
 
   // While the menu is open: Escape closes it (focus back on the hamburger), and
   // a tap anywhere outside the menu and the hamburger closes it.

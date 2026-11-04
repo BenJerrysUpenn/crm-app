@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtDate, fmtDateTime } from "@/lib/format";
+import { displayNameOrId } from "@/lib/profileName";
 import type { Profile, ClockinReminder } from "@/lib/types";
 
 export type ReminderWithAcks = ClockinReminder & {
@@ -185,7 +186,7 @@ function ReminderRow({
               <ul className="space-y-1">
                 {acks.map((a) => (
                   <li key={a.employee_id} className="text-slate-700 dark:text-slate-300">
-                    {a.full_name ?? a.employee_id} · {fmtDateTime(a.acknowledged_at)}
+                    {displayNameOrId(a.full_name, a.employee_id)} · {fmtDateTime(a.acknowledged_at)}
                   </li>
                 ))}
               </ul>
@@ -199,7 +200,7 @@ function ReminderRow({
               <ul className="space-y-1">
                 {outstanding.map((e) => (
                   <li key={e.id} className="text-slate-700 dark:text-slate-300">
-                    {e.full_name ?? e.id}
+                    {displayNameOrId(e.full_name, e.id)}
                   </li>
                 ))}
               </ul>

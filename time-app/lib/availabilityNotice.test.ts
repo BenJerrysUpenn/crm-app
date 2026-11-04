@@ -229,6 +229,14 @@ test("someone with no name on file is still listed, as such", async () => {
   assert.equal(mail(OWNER)[0].text, "Availability changes\n\nSomeone with no name on file: Tue, Oct 13");
 });
 
+test("a login email sitting in the name never reaches the bell or the digest (bj-finance #468)", async () => {
+  db.tables.profiles.find((p) => p.id === SAM)!.full_name = "sam2@example.com";
+  await addDay("2026-10-13");
+  assert.equal(db.rows("notifications")[0].body, "An employee changed their availability: Tue, Oct 13.");
+  await tick(edt("2026-10-08", "20:00"));
+  assert.equal(mail(OWNER)[0].text, "Availability changes\n\nSomeone with no name on file: Tue, Oct 13");
+});
+
 test("a scheduler is not told of their own changes, on the bell or by email; the other schedulers are", async () => {
   as(MANAGER);
   await addDay("2026-10-13");

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { alertName } from "@/lib/profileName";
 import { notifyManagers } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { MANAGER_ASSIGNS_ERROR, managerAssignsOnly } from "@/lib/managerAssigns";
@@ -46,7 +47,7 @@ export async function POST(
     );
 
   // Tell managers an open shift was picked up.
-  const who = profile.full_name ?? "An employee";
+  const who = alertName(profile.full_name);
   await notifyManagers({
     type: "shift_picked_up",
     title: "Open shift picked up",

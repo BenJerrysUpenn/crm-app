@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { alertName } from "@/lib/profileName";
 import { notifyManagers } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { MANAGER_ASSIGNS_ERROR, managerAssignsOnly } from "@/lib/managerAssigns";
@@ -65,7 +66,7 @@ export async function POST(
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Notify managers.
-  const who = profile.full_name ?? "An employee";
+  const who = alertName(profile.full_name);
   const when = `${fmtDate(shift.starts_at)} ${fmtTime(shift.starts_at)}–${fmtTime(shift.ends_at)}`;
   const posBit = shift.position ? " · " + shift.position : "";
   await notifyManagers({

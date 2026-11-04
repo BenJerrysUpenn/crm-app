@@ -18,7 +18,7 @@ export default async function ReimbursementsPage() {
   const mine = await loadMine(createClient(), profile.id);
   return (
     <div className="min-h-screen flex flex-col">
-      <TopBar email={profile.full_name ?? ""} role={profile.role} name={profile.full_name ?? ""} />
+      <TopBar role={profile.role} name={profile.full_name} />
       <main className="flex-1">
         <div className="mx-auto max-w-3xl px-4 py-6">
           {mine.ok ? (

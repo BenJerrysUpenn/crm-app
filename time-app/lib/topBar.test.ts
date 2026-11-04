@@ -24,17 +24,17 @@ const { PathnameContext } = createRequire(import.meta.url)(
 ) as { PathnameContext: import("react").Context<string | null> };
 
 const { default: TopBar } = await loadAppModule<{
-  default: (props: { email: string; role: "manager" | "employee"; name: string }) => unknown;
+  default: (props: { role: "manager" | "employee"; name: string | null }) => unknown;
 }>("components/TopBar.tsx");
 
 startFakeSupabase({ notifications: [] });
 
-function renderBar(role: "manager" | "employee", pathname = "/schedule", name = "Sam Lee", email = "sam@example.test") {
+function renderBar(role: "manager" | "employee", pathname = "/schedule", name: string | null = "Sam Lee") {
   return renderToStaticMarkup(
     createElement(
       PathnameContext.Provider,
       { value: pathname },
-      createElement(TopBar as never, { email, role, name }),
+      createElement(TopBar as never, { role, name }),
     ),
   );
 }
@@ -108,22 +108,26 @@ test("the bar is left-aligned: no centred max-width box", () => {
 
 test("a long name is capped and truncated, with the full name as its tooltip", () => {
   const long = "Maximiliana Christodoulopoulou-Washington";
-  const nameLink = accountLinks(renderBar("manager", "/schedule", long, long)).find((l) => l.inner.includes(long));
+  const nameLink = accountLinks(renderBar("manager", "/schedule", long)).find((l) => l.inner.includes(long));
   assert.ok(nameLink, "the long name links to /account");
   assert.ok(nameLink.classes.some((c) => c.startsWith("max-w-")), `width capped: ${nameLink.attrs}`);
   assert.match(nameLink.inner, /class="[^"]*\btruncate\b/);
   assert.match(nameLink.attrs, new RegExp(`title="${long}"`));
 });
 
-test("with no name on the profile the link shows the email", () => {
-  const nameLink = accountLinks(renderBar("employee", "/schedule", "", "sam@example.test")).find((l) => l.classes.includes("md:flex"));
-  assert.ok(nameLink, "the desktop account link still renders");
-  assert.match(nameLink.inner, /<span[^>]*>sam@example\.test<\/span>/);
-  assert.match(nameLink.attrs, /title="sam@example\.test"/);
-});
-
-test("with no name and no email on the profile the link reads Account, never blank", () => {
-  const nameLink = accountLinks(renderBar("employee", "/schedule", "", "")).find((l) => l.classes.includes("md:flex"));
-  assert.ok(nameLink, "the desktop account link still renders");
-  assert.match(nameLink.inner, /<span[^>]*>Account<\/span>/);
-});
+// #468: the login email must never stand in for a name. A profile with no
+// usable name (null, blank, or an email-like value left in full_name) reads the
+// neutral "No name set" in the bar — never the email, never blank.
+for (const [label, name] of [
+  ["a null name", null],
+  ["a blank name", ""],
+  ["an email-like name", "sam@example.test"],
+] as const) {
+  test(`with ${label} the link reads "No name set", never the email or blank`, () => {
+    const nameLink = accountLinks(renderBar("employee", "/schedule", name)).find((l) => l.classes.includes("md:flex"));
+    assert.ok(nameLink, "the desktop account link still renders");
+    assert.match(nameLink.inner, /<span[^>]*>No name set<\/span>/);
+    assert.match(nameLink.attrs, /title="No name set"/);
+    assert.doesNotMatch(nameLink.inner, /@/);
+  });
+}

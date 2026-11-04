@@ -618,7 +618,7 @@ test("POST /api/profiles still invites and writes the profile", async () => {
 test("POST /api/profiles refuses an email in the name box before inviting anyone", async () => {
   const res = await post(profiles.POST, "/api/profiles", { email: "jo@example.test", full_name: "jo@example.test" });
   assert.equal(res.status, 400);
-  assert.equal(((await res.json()) as { error: string }).error, "Full name required (not an email)");
+  assert.equal(((await res.json()) as { error: string }).error, "Enter the person's name, not their email address.");
   assert.equal(db.authUsers.some((u) => u.email === "jo@example.test"), false);
 });
 

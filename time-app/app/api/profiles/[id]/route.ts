@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { validateFullName, normalizePhone } from "@/lib/profileName";
 import { isMissingColumn } from "@/lib/storeHours";
 import { parseQboEmployeeId } from "@/lib/payroll/qboEmployee";
 import { parsePayType } from "@/lib/payroll/payType";
@@ -31,6 +32,20 @@ export async function PATCH(
   for (const k of EDITABLE) {
     if (k in body) patch[k] = body[k];
   }
+
+  // Same rule as POST /api/profiles: a name can be changed but never cleared
+  // or replaced with an email address. Validated after the raw copy so the
+  // checked value overwrites what the EDITABLE loop put in patch.full_name.
+  if ("full_name" in body) {
+    const name = validateFullName(body.full_name);
+    if (!name.ok) return NextResponse.json({ error: name.error }, { status: 400 });
+    patch.full_name = name.name;
+  }
+
+  // Same phone rule as the self-edit and POST paths: trim, blank/non-string
+  // becomes null, so the column the SMS alerts read holds one shape whoever
+  // typed it.
+  if ("phone" in patch) patch.phone = normalizePhone(patch.phone);
 
   // Owners: a manager cannot edit an owner's row, or give or take away the
   // owner role (lib/roles.ts). Read under the manager's own session, which
