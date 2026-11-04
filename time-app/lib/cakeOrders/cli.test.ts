@@ -3,7 +3,7 @@
 // stories:
 //   * the tokens come from Vault: the Slack one to Slack, the mailbox login to
 //     the mailbox, the Claude one to Claude Code; none is ever printed;
-//   * a run says what it read and did, and that the Olo parser is not built;
+//   * a run says what it read and did, and each Olo order it skipped and why;
 //   * --dry-run prints the plan and the messages, posts nothing and writes
 //     nothing;
 //   * no claude_usage_token: plain messages, said once, still exit 0;
@@ -18,6 +18,7 @@
 
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { loadAppModule } from "../testing/fakeSupabase.ts";
 import { memoryCakeOrderStore, type MemoryCakeOrderStore } from "../testing/cakeOrderStore.ts";
@@ -34,6 +35,13 @@ const MAIL_PASSWORD = "mail-cli-test-password";
 const ANA = "00000000-0000-0000-0000-00000000000a";
 const ENV = { DATABASE_URL: "postgresql://cli.test/db", CAKE_ORDERS_ORDER_ADDRESS: "orders@example.test" };
 const est = (hhmm: string) => new Date(`2026-11-04T${hhmm}:00-05:00`).toISOString();
+/** The mailbox: a real Olo milkshake order (fixtures/), an email not from Olo, and an Olo email that is not a new order. */
+const MILKSHAKE = readFileSync(new URL("./fixtures/olo-order-uber-milkshake.eml", import.meta.url)).toString("latin1");
+const MAILBOX = [
+  { uid: 7, receivedAt: est("12:00"), raw: MILKSHAKE },
+  { uid: 8, receivedAt: est("12:00"), raw: "From: Someone <a@example.test>\r\nSubject: Weekly summary\r\n\r\nhi\r\n" },
+  { uid: 9, receivedAt: est("12:00"), raw: MILKSHAKE.replace("Order Transmitted Notification", "Order Cancelled Notification") },
+];
 
 let db: MemoryCakeOrderStore;
 let vault: Record<string, string>;
@@ -83,7 +91,7 @@ function deps(at: string, env: Record<string, string | undefined> = ENV): CliMod
       return {
         async search() {
           if (mailDown) throw new Error("IMAP login failed: NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)");
-          return [{ uid: 7, receivedAt: est("12:00"), raw: "From: Someone <a@example.test>\r\nSubject: Weekly summary\r\n\r\nhi\r\n" }];
+          return MAILBOX;
         },
       };
     },
@@ -120,12 +128,12 @@ afterEach(() => {
 
 const printed = () => [...out, ...errs].join("\n");
 const noSecrets = () => [SLACK_TOKEN, CLAUDE_TOKEN, MAIL_PASSWORD].every((s) => !printed().includes(s));
-const WAITING = "[cake-orders] no order can be posted yet: the Olo email parser waits on the first real order email (crm-app #142)";
+const SKIPPED = "[cake-orders] skipped Olo order 47729604891115532: no cake on it: 1 x Custom Milkshake (20oz) (Paid Via Uber Eats)";
 
 test("a run reads the mailbox with the Vault login, says what it read, exits 0, and prints no secret", async () => {
   assert.equal(await runCakeOrderCli([], deps("12:05")), 0);
   assert.deepEqual(logins, [{ user: MAIL_USER, password: MAIL_PASSWORD }]);
-  assert.deepEqual(out, ["[cake-orders] 2026-11-04 12:05, mail 1 read, 0 cake orders, 1 not readable: nothing due", WAITING]);
+  assert.deepEqual(out, ["[cake-orders] 2026-11-04 12:05, mail 3 read, 0 cake orders, 2 not cake, 1 not readable: nothing due", SKIPPED]);
   assert.deepEqual(errs, []);
   assert.deepEqual(posts, []);
   assert.ok(noSecrets());
@@ -137,9 +145,9 @@ test("--dry-run lists what it could not read and previews the messages, posts no
   assert.deepEqual(db.writes, []);
   assert.deepEqual(claudeTokens, [CLAUDE_TOKEN], "Claude Code gets the subscription token");
   assert.deepEqual(out.slice(0, 5), [
-    "[cake-orders] DRY RUN: 2026-11-04 12:05, mail 1 read, 0 cake orders, 1 not readable, 1 on the clock: planned",
-    WAITING,
-    "[cake-orders] not read as an order: Someone <a@example.test> | Weekly summary",
+    "[cake-orders] DRY RUN: 2026-11-04 12:05, mail 3 read, 0 cake orders, 2 not cake, 1 not readable, 1 on the clock: planned",
+    SKIPPED,
+    `[cake-orders] not read as an order: "'Ben & Jerry's' via Admin" <admin@example.test> | Order Notification`,
     "[cake-orders] preview of the post for preview to <@U0ANA> (on the clock now; ai)",
     "  <@U0ANA> cake order! Please pack it and react when done.",
   ]);
@@ -223,7 +231,7 @@ test("a follow-up that went out is printed in the run's line", async () => {
   await db.markPosted(id!, { post_ts: "1793376000.000001", post_source: "ai", posted_at: est("11:00") });
   vault.claude_usage_token = "";
   assert.equal(await runCakeOrderCli([], deps("12:05")), 0);
-  assert.equal(out[0], "[cake-orders] 2026-11-04 12:05, mail 1 read, 0 cake orders, 1 not readable: follow-up 1001 sent (fallback: no Claude subscription token)");
+  assert.equal(out[0], "[cake-orders] 2026-11-04 12:05, mail 3 read, 0 cake orders, 2 not cake, 1 not readable: follow-up 1001 sent (fallback: no Claude subscription token)");
   assert.equal(posts.length, 1);
 });
 
@@ -237,6 +245,6 @@ test("the mailbox cannot be read: the run says so and exits 1", async () => {
 test("a dry run with nobody on the clock says there is nothing to preview", async () => {
   db.entries = [];
   assert.equal(await runCakeOrderCli(["--dry-run"], deps("12:05")), 0);
-  assert.equal(out[0], "[cake-orders] DRY RUN: 2026-11-04 12:05, mail 1 read, 0 cake orders, 1 not readable, 0 on the clock: planned");
+  assert.equal(out[0], "[cake-orders] DRY RUN: 2026-11-04 12:05, mail 3 read, 0 cake orders, 2 not cake, 1 not readable, 0 on the clock: planned");
   assert.equal(out.at(-1), "[cake-orders] nothing to post, and nobody on the clock to preview for");
 });

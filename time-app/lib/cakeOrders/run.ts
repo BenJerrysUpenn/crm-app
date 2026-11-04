@@ -81,6 +81,8 @@ export type CakeOrderResult =
       onClock: number | null;
       posted: { order: string; source: string; mentioned: number; note?: string }[];
       held: { order: string; why: string }[];
+      /** Olo orders read and not posted because there is no cake on them, with why. */
+      skipped: { order: string; why: string }[];
       followups: { order: string; outcome: string; how?: string; source?: string; note?: string }[];
       errors: string[];
       /** Dry run only: the emails not read as orders, by sender and subject. */
@@ -108,6 +110,7 @@ export async function runCakeOrderReminders(deps: RunDeps): Promise<CakeOrderRes
     onClock: null,
     posted: [],
     held: [],
+    skipped: [],
     followups: [],
     errors: [],
     ...(dryRun ? { unread: [], messages: [] } : {}),
@@ -179,6 +182,7 @@ export async function runCakeOrderReminders(deps: RunDeps): Promise<CakeOrderRes
   try {
     const mail = await deps.mail.search(orderMailQuery(deps.orderAddress, MAIL_DAYS));
     const seen = new Set<string>();
+    const skippedKeys = new Set<string>();
     const counts = { read: mail.length, orders: 0, notCake: 0, unrecognised: 0 };
     for (const m of mail) {
       let parsed;
@@ -189,6 +193,10 @@ export async function runCakeOrderReminders(deps: RunDeps): Promise<CakeOrderRes
       }
       if (parsed.kind === "not_cake") {
         counts.notCake += 1;
+        if (parsed.order && !skippedKeys.has(parsed.order)) {
+          skippedKeys.add(parsed.order);
+          result.skipped.push({ order: parsed.order, why: parsed.why });
+        }
         continue;
       }
       if (parsed.kind === "unrecognised") {

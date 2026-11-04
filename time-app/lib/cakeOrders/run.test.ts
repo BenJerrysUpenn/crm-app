@@ -14,20 +14,22 @@
 //   * Claude fails: the plain message goes out instead.
 //   * Slack refuses a post: nothing is recorded, the next tick tries again.
 //     Slack does not answer: the record stays, so it never posts twice.
-//   * The real parser (not built yet) reads no email as an order, so nothing
-//     is posted, and the run says how many emails it could not read.
+//   * The real parser on the real Olo emails: the milkshake and pint orders
+//     are skipped with the order id and why, and a cake order is posted.
 //   * A dry run posts nothing and writes nothing, and shows the messages.
 //
 // Stand-ins: the database (lib/testing/cakeOrderStore.ts, in memory); the
 // mailbox as a MailReader; Slack's Web API at the HTTP boundary (the real
-// slack.ts runs); Claude as an AskClaude. The Olo email parser is a stand-in
-// that reads a test-only JSON body, because the real one waits on the first
-// real Olo email (oloEmail.test.ts); this is not Olo's format.
+// slack.ts runs); Claude as an AskClaude. Most tests use a stand-in parser
+// that reads a test-only JSON body, which is not Olo's format, so a test can
+// state an order in one line; the real parser runs on the real Olo emails in
+// fixtures/ (oloEmail.test.ts reads them field by field).
 //
 //   npm test        (node --test; Node runs TypeScript directly)
 
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { loadAppModule } from "../testing/fakeSupabase.ts";
 import { memoryCakeOrderStore, type MemoryCakeOrderStore } from "../testing/cakeOrderStore.ts";
@@ -92,7 +94,7 @@ async function askClaude(req: { system: string; prompt: string }): Promise<Claud
 /** The test-only parser: a JSON body is a cake order, "not cake" is not one, anything else is unreadable. */
 function testParser(raw: string): ParsedEmail {
   const body = raw.slice(raw.indexOf("\r\n\r\n") + 4).trim();
-  if (body === "not cake") return { kind: "not_cake", why: "a marketplace order" };
+  if (body === "not cake") return { kind: "not_cake", order: "2001", why: "no cake on it" };
   if (body === "parser bug") throw new Error("Unexpected token in the email");
   try {
     return { kind: "cake_order", order: JSON.parse(body) as CakeOrder };
@@ -102,6 +104,12 @@ function testParser(raw: string): ParsedEmail {
 }
 
 const ORDER: CakeOrder = { key: "1001", customer: "Pat Placeholder", pickupAt: est("17:00", "2026-11-05"), pickupText: "Thu 5pm", cake: ['8" Cookie Dough', "Message: Happy Birthday"] };
+
+/** One of the raw Olo emails in fixtures/, arriving at hhmm. */
+function oloEmailArrives(hhmm: string, fixture: string) {
+  uid += 1;
+  inbox.push({ uid, receivedAt: est(hhmm), raw: readFileSync(new URL(`./fixtures/${fixture}`, import.meta.url)).toString("latin1") });
+}
 
 function emailArrives(hhmm: string, order: CakeOrder | string = ORDER, date?: string) {
   uid += 1;
@@ -121,7 +129,7 @@ const tick = (
     slack: slackClient("xoxb-test"),
     mail: {
       async search(query) {
-        assert.equal(query, "to:orders@example.test newer_than:2d");
+        assert.equal(query, 'to:orders@example.test subject:"Order Notification" newer_than:2d');
         if (mailDown) throw new Error(mailDown);
         return inbox.filter((m) => Date.parse(m.receivedAt) <= clock);
       },
@@ -359,16 +367,35 @@ test("an order whose pickup has passed, and a non-cake order, are not posted", a
   const r = ran(await tick("13:00"));
   assert.deepEqual(r.held, [{ order: "1001", why: "pickup_passed" }]);
   assert.deepEqual(r.mail, { read: 2, orders: 1, notCake: 1, unrecognised: 0 });
+  assert.deepEqual(r.skipped, [{ order: "2001", why: "no cake on it" }]);
   assert.equal(slack.posts.length, 0);
 });
 
-test("the real parser, not built yet, reads no email as an order: nothing is posted", async () => {
+test("the real parser on the real Olo emails: the milkshake and pints are skipped with why, the cake order is posted once", async () => {
+  claude.lead = "<@U0ANA> a cake order just came in! Please pack it and react here when it's done 📦";
   clockIn(11, ANA, "11:00", 1);
-  emailArrives("12:00");
-  const r = ran(await tick("12:00", { realParser: true }));
-  assert.deepEqual(r.mail, { read: 1, orders: 0, notCake: 0, unrecognised: 1 });
-  assert.deepEqual(r.posted, []);
-  assert.equal(slack.posts.length, 0);
+  oloEmailArrives("12:00", "olo-order-uber-milkshake.eml");
+  oloEmailArrives("12:01", "olo-order-doordash-two-pints.eml");
+  oloEmailArrives("12:02", "olo-order-doordash-pint.eml");
+  oloEmailArrives("12:03", "olo-order-cake-DERIVED.eml"); // derived from a real email, see its X-Fixture header
+  emailArrives("12:04", "Your weekly summary"); // not from Olo
+
+  const r = ran(await tick("12:05", { realParser: true }));
+  assert.deepEqual(r.mail, { read: 5, orders: 1, notCake: 4, unrecognised: 0 });
+  assert.deepEqual(r.skipped, [
+    { order: "47729604891115532", why: "no cake on it: 1 x Custom Milkshake (20oz) (Paid Via Uber Eats)" },
+    { order: "47730533409587210", why: "no cake on it: 1 x Fresh Packed Pint (16oz), 1 x Fresh Packed Pint (16oz) (Paid by DoorDash)" },
+    { order: "47730730709549057", why: "no cake on it: 1 x Fresh Packed Pint (16oz) (Paid by DoorDash)" },
+  ]);
+  assert.deepEqual(r.posted, [{ order: "47729604891100001", source: "ai", mentioned: 1, note: undefined }]);
+  assert.equal(
+    slack.posts[0].text,
+    `${claude.lead}\n*Pat P. 0000C*, pickup Thu Nov 5, 3:00 PM\n• 1 x Celebration Cake: No Allergy Concerns; Medium Round 8" (Serves 8-10); Cake Batter; Standard Frosting; Happy Birthday!`,
+  );
+  assert.equal(db.rows[0].pickup_at, "2026-11-05T20:00:00.000Z");
+
+  ran(await tick("12:10", { realParser: true }));
+  assert.equal(slack.posts.length, 1, "the cake order is posted once");
 });
 
 test("the mailbox cannot be read: the error is reported and follow-ups still go out", async () => {

@@ -366,8 +366,10 @@ the thread, or their next message in the channel), it replies once in the
 thread. Cake ideas from people it did not mention do not count. The words are
 written by Claude on your subscription, with a plain message if that fails.
 
-It does not post anything yet: it needs the first real Olo cake order email to
-learn how to read one.
+Only cake orders are posted. Shakes, pints and any other order without a cake
+on it are skipped, whichever app it came through. It is not switched on yet: you
+decide when, and then ask for the `bj-cake-order-reminders.timer` to be turned
+on in bj-box.
 
 What you do, once:
 

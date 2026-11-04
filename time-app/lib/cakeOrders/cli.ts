@@ -23,6 +23,9 @@
 //                                Claude Code; missing means plain messages
 // None is ever printed, logged or put on a command line.
 //
+// Every run prints one line per Olo order it read and skipped because there is
+// no cake on it, with the items and how it was paid (oloEmail.ts).
+//
 // --dry-run reads everything and has Claude write every message that is due,
 // plus a preview of a post and a follow-up, and prints them with the emails
 // it could not read as orders. It posts nothing and writes nothing to the
@@ -38,7 +41,6 @@
 import type { AskClaude } from "../cashCount/claudeCli";
 import type { VaultReader } from "../cashCount/cli";
 import type { MailReader } from "./mail";
-import { PARSER_READY, WAITING_NOTE } from "./oloEmail";
 import { runCakeOrderReminders, type CakeOrderResult } from "./run";
 import type { SlackClient } from "./slack";
 import type { CakeOrderStore } from "./store";
@@ -144,6 +146,7 @@ export async function runCakeOrderCli(argv: string[], deps: CakeOrderCliDeps): P
 
   const mail = result.mail
     ? `mail ${result.mail.read} read, ${result.mail.orders} cake order${result.mail.orders === 1 ? "" : "s"}` +
+      (result.mail.notCake ? `, ${result.mail.notCake} not cake` : "") +
       (result.mail.unrecognised ? `, ${result.mail.unrecognised} not readable` : "")
     : "mail unreadable";
   const clocked = result.onClock === null ? "" : `, ${result.onClock} on the clock`;
@@ -156,7 +159,7 @@ export async function runCakeOrderCli(argv: string[], deps: CakeOrderCliDeps): P
     ),
   ];
   deps.out(`${head}: ${done.length ? done.join("; ") : dryRun ? "planned" : "nothing due"}`);
-  if (!PARSER_READY) deps.out(`${TAG} no order can be posted yet: ${WAITING_NOTE}`);
+  for (const s of result.skipped) deps.out(`${TAG} skipped Olo order ${s.order}: ${s.why}`);
   for (const u of result.unread ?? []) deps.out(`${TAG} not read as an order: ${u.from || "(no sender)"} | ${u.subject || "(no subject)"}`);
   for (const m of result.messages ?? []) {
     const what = m.when === "due" ? "would post" : "preview of";

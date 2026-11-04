@@ -1,50 +1,52 @@
 // Reading Olo's per-order email ("Send Redundant Order Email", store settings
 // PA013, on since 2026-11-03): which emails are cake orders, and what the post
-// says about each. THIS IS THE SEAM the rest of lib/cakeOrders/ is built
-// around, and it is not built yet.
+// says about each. Built from the first real ones (crm-app #142), saved
+// redacted under fixtures/.
 //
-// WAITING ON THE FIRST REAL EMAIL (crm-app #142). No Olo order email had
-// reached the order address when this was written, so its format is unknown
-// and is not guessed here. Until it is built, parseOloOrderEmail answers
-// "unrecognised" for every email, and the job posts nothing: it cannot post
-// an order it cannot read. The run reports how many emails it read and could
-// not recognise, and a dry run lists their senders and subjects, so the first
-// real one shows up there.
+// THE EMAIL, as it reached the order address on 2026-11-03. Subject "Order
+// Notification". One text/html part, UTF-8, quoted-printable; no text part.
+// The order address is a Google group, which rewrites From to "'Ben & Jerry's'
+// via Admin" <the group's address>; Olo's own address, orders@olo.com, is in
+// X-Original-Sender (X-Original-From and Reply-To carry it too). The body is
+// four tables of <tr><td>label</td><td>value</td></tr> rows, under an <h3> that
+// says "Order Transmitted Notification":
+//   * Location, Order ID, Date Due ("Tuesday, 11/3/2026"), Handoff Mode
+//     ("CounterPickup"), Time Due ("5:53 PM", New York), Order is PAID;
+//   * Customer Name, Customer Email, Customer Contact Number;
+//   * the items: each top-level item is a row whose first cell spans two
+//     columns and reads "N x <name>", followed by one row per modifier
+//     ("Choose up to 2 Flavors:" | "2 x Milk & Cookies" | its price, if any);
+//   * Subtotal, Estimated Tax, Total, Paid by ("Paid Via Uber Eats",
+//     "Paid by DoorDash").
 //
-// TO BUILD IT, from the first real Olo order email:
-//   1. Save its raw bytes (Gmail "Show original", or the IMAP fetch the job
-//      makes) as a fixture under time-app/lib/cakeOrders/fixtures/, with the
-//      customer's name, phone, email and any card digits replaced by
-//      placeholders: crm-app is a public repo (README "This repo is public").
-//      Keep everything else byte for byte, MIME boundaries and encodings
-//      included.
-//   2. Fill in parseOloOrderEmail against that fixture, test first
-//      (oloEmail.test.ts has the waiting test):
-//        * not from Olo, or an Olo email that is not an order: "not_cake";
-//        * an Olo order from a marketplace (DoorDash and the others Olo
-//          routes) or with no cake on it: "not_cake";
-//        * a cake order: "cake_order", with the order's own id as `key` (so a
-//          resent email is the same order), the customer, the pickup time as
-//          an instant when the email gives one (`pickupAt`) and as the email
-//          writes it (`pickupText`), and one line per cake item with its
-//          options and message (`cake`);
-//        * anything it cannot read with confidence: "unrecognised", never a
-//          guess.
-//   3. Narrow orderMailQuery to Olo's sender once it is known, so the job
-//      fetches only Olo mail. The order address is a Google group, and the
-//      group rewrites From to "'<name>' via Admin" <the group's address>; the
-//      real sender is in X-Original-From and X-Original-Sender (seen on the
-//      group's mail 2026-11-03). Gmail's from: search matches the rewritten
-//      From, so match Olo on X-Original-Sender in the parser, and narrow the
-//      search by subject if the From is no help.
-//   4. Set PARSER_READY to true.
-// Olo only sends above a dollar threshold B&J corporate sets; the first real
-// cake order also confirms cakes clear it.
+// WHICH ORDERS ARE CAKES. A top-level item whose name ends in the word "Cake"
+// (a trailing "(Ready-Made)" or other bracket allowed) is a cake. That is
+// every cake on the store's Olo menu (order.benjerry.com/menu/upenn, read
+// 2026-11-03): the four "Ready-Made Ice Cream Cakes (15 minutes)", such as
+// "Small Half Baked Ice Cream Cake- Celebration Cake (Ready-Made)", and the
+// fifteen "Order Ahead Ice Cream Cakes (48 Hours)", "Celebration Cake" to
+// "Custom Order Cake", seasonal ones included. No other item on that menu
+// ends in "Cake". The rule reads top-level item names only, so a cake flavour
+// or topping inside a shake or a pint ("Cake Batter", "Birthday Cake") never
+// makes an order a cake order, and a seasonal cake added later is still one.
+// The channel is not a rule: the item name decides, whoever the order came
+// through.
+//
+// A parse never guesses. Not from Olo, or an Olo order with no cake on it:
+// "not_cake", with the Olo order id when there is one, so the run can log why
+// it skipped it. Anything from Olo it cannot read as a new order (another
+// heading, no order id, no items): "unrecognised", which the run counts and a
+// dry run lists by sender and subject.
 
-/** False until parseOloOrderEmail is built from a real Olo order email. */
-export const PARSER_READY = false;
+import { nyWallClock } from "../coverage";
+import { headerOf } from "./mail";
 
-export const WAITING_NOTE = "the Olo email parser waits on the first real order email (crm-app #142)";
+/** Olo's sending address, as X-Original-Sender gives it through the group. */
+export const OLO_SENDER = "orders@olo.com";
+/** The <h3> of a new order's email. */
+export const NEW_ORDER_HEADING = "Order Transmitted Notification";
+/** The subject Olo gives every order email; the mailbox search asks for it. */
+export const ORDER_SUBJECT = "Order Notification";
 
 /** One cake order, as the post shows it. */
 export type CakeOrder = {
@@ -61,21 +63,188 @@ export type CakeOrder = {
 
 export type ParsedEmail =
   | { kind: "cake_order"; order: CakeOrder }
-  | { kind: "not_cake"; why: string }
+  /** `order` is the Olo order id when the email is an Olo order. */
+  | { kind: "not_cake"; why: string; order?: string }
   | { kind: "unrecognised"; why: string };
 
 /** Turn one raw RFC 5322 email into a cake order, or say why it is not one. */
 export type ParseEmail = (raw: string) => ParsedEmail;
 
-/** See TO BUILD IT above. Until then: unrecognised, always. */
-export const parseOloOrderEmail: ParseEmail = () => ({ kind: "unrecognised", why: WAITING_NOTE });
+/** One top-level item and its modifiers, as the email lists them. */
+export type OloItem = { quantity: number; name: string; modifiers: { label: string; value: string }[] };
+
+/** Everything an Olo order email says that the job uses. */
+export type OloOrder = {
+  orderId: string;
+  /** "Tuesday, 11/3/2026 5:53 PM", as the email writes it. */
+  dueText: string;
+  /** The same, as an instant (ISO), or null when it cannot be read. */
+  dueAt: string | null;
+  /** "CounterPickup" and the like. */
+  handoffMode: string;
+  customer: string;
+  /** "Paid Via Uber Eats", "Paid by DoorDash". */
+  paidBy: string;
+  items: OloItem[];
+};
+
+export type OloRead = { kind: "order"; order: OloOrder } | { kind: "not_olo" } | { kind: "unrecognised"; why: string };
+
+/** Is this top-level item a cake? See WHICH ORDERS ARE CAKES above. */
+export function isCakeItem(name: string): boolean {
+  return /\bcake(\s*\([^)]*\))?\s*$/i.test(name.trim());
+}
+
+/** Read an Olo order email. Not from Olo: "not_olo". From Olo but not a readable new order: "unrecognised". */
+export function readOloOrder(raw: string): OloRead {
+  if (senderOf(raw) !== OLO_SENDER) return { kind: "not_olo" };
+  const html = htmlOf(raw);
+  if (html === null) return { kind: "unrecognised", why: "an Olo email with no readable HTML part" };
+  const heading = text(/<h3\b[^>]*>([\s\S]*?)<\/h3>/i.exec(html)?.[1] ?? "");
+  if (heading !== NEW_ORDER_HEADING) return { kind: "unrecognised", why: `an Olo email that is not a new order (${heading || "no heading"})` };
+
+  const fields = new Map<string, string>();
+  const items: OloItem[] = [];
+  let totals = false;
+  for (const row of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...row[1].matchAll(/<td\b([^>]*?)\s*\/>|<td\b([^>]*)>([\s\S]*?)<\/td>/gi)].map((c) => ({
+      spans: /\bcolspan\s*=\s*"?2/i.test(c[2] ?? ""),
+      text: text(c[3] ?? ""),
+    }));
+    if (!cells.length) continue;
+    const item = cells[0].spans ? /^(\d+)\s*x\s+(.+)$/.exec(cells[0].text) : null;
+    if (item && !totals) {
+      items.push({ quantity: Number(item[1]), name: item[2], modifiers: [] });
+      continue;
+    }
+    const label = cells[0].text.replace(/:$/, "").trim();
+    const value = cells[1]?.text ?? "";
+    if (label === "Subtotal") totals = true;
+    if (items.length && !totals) items[items.length - 1].modifiers.push({ label, value });
+    else if (!fields.has(label)) fields.set(label, value);
+  }
+
+  const orderId = fields.get("Order ID") ?? "";
+  if (!/^\d+$/.test(orderId)) return { kind: "unrecognised", why: "an Olo order email with no order id" };
+  if (!items.length) return { kind: "unrecognised", why: `Olo order ${orderId} lists no items` };
+  const date = fields.get("Date Due") ?? "";
+  const time = fields.get("Time Due") ?? "";
+  return {
+    kind: "order",
+    order: {
+      orderId,
+      dueText: [date, time].filter(Boolean).join(" "),
+      dueAt: nyDue(date, time),
+      handoffMode: fields.get("Handoff Mode") ?? "",
+      customer: fields.get("Customer Name") ?? "",
+      paidBy: fields.get("Paid by") ?? "",
+      items,
+    },
+  };
+}
+
+/** The job's parser: an Olo order with a cake on it is a cake order; everything else says why not. */
+export const parseOloOrderEmail: ParseEmail = (raw) => {
+  const read = readOloOrder(raw);
+  if (read.kind === "not_olo") return { kind: "not_cake", why: "not an Olo order email" };
+  if (read.kind === "unrecognised") return read;
+  const o = read.order;
+  const cakes = o.items.filter((i) => isCakeItem(i.name));
+  if (!cakes.length) {
+    const what = o.items.map((i) => `${i.quantity} x ${i.name}`).join(", ");
+    return { kind: "not_cake", order: o.orderId, why: `no cake on it: ${what}${o.paidBy ? ` (${o.paidBy})` : ""}` };
+  }
+  return {
+    kind: "cake_order",
+    order: {
+      key: o.orderId,
+      customer: o.customer || "(no name on the order)",
+      pickupAt: o.dueAt,
+      pickupText: o.dueText || "(no pickup time on the order)",
+      // The modifier values only: the labels are Olo's long questions ("Are There Any Food Allergies ...?").
+      cake: cakes.map((i) => [`${i.quantity} x ${i.name}`, i.modifiers.map((m) => m.value).filter(Boolean).join("; ")].filter(Boolean).join(": ")),
+    },
+  };
+};
 
 /**
- * The Gmail search (IMAP X-GM-RAW) for order emails: mail to the address Olo
- * sends to, received in the last `days` days. The address comes from the
+ * The Gmail search (IMAP X-GM-RAW) for order emails: Olo's order subject, to
+ * the address Olo sends to, received in the last `days` days. The From is the
+ * group's rewrite, so Gmail's from: cannot find Olo; the subject narrows the
+ * search and the parser checks the sender. The address comes from the
  * environment (CAKE_ORDERS_ORDER_ADDRESS, set in the bj-box unit), not from
  * this public repo.
  */
 export function orderMailQuery(orderAddress: string, days: number): string {
-  return `to:${orderAddress} newer_than:${days}d`;
+  return `to:${orderAddress} subject:"${ORDER_SUBJECT}" newer_than:${days}d`;
+}
+
+// ---- the raw email ---------------------------------------------------------------
+
+/** Olo's address: X-Original-Sender through the group, else the From address. Lower case. */
+function senderOf(raw: string): string {
+  const original = headerOf(raw, "X-Original-Sender");
+  const from = original || headerOf(raw, "From");
+  return (/<([^>]+)>/.exec(from)?.[1] ?? from).trim().toLowerCase();
+}
+
+/** The first text/html part, decoded, or null. Single-part and multipart both. */
+function htmlOf(entity: string): string | null {
+  const type = headerOf(entity, "Content-Type");
+  const split = /\r?\n\r?\n/.exec(entity);
+  const body = split ? entity.slice(split.index + split[0].length) : "";
+  if (/^multipart\//i.test(type)) {
+    const boundary = /boundary="?([^";]+)"?/i.exec(type)?.[1];
+    if (!boundary) return null;
+    for (const part of body.split(`--${boundary}`).slice(1)) {
+      if (part.startsWith("--")) break;
+      const html = htmlOf(part.replace(/^\r?\n/, ""));
+      if (html !== null) return html;
+    }
+    return null;
+  }
+  if (!/^text\/html\b/i.test(type)) return null;
+  const encoding = headerOf(entity, "Content-Transfer-Encoding").toLowerCase();
+  const bytes =
+    encoding === "quoted-printable"
+      ? Buffer.from(body.replace(/=\r?\n/g, "").replace(/=([0-9A-Fa-f]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16))), "latin1")
+      : encoding === "base64"
+        ? Buffer.from(body.replace(/\s+/g, ""), "base64")
+        : Buffer.from(body, "latin1");
+  const charset = (/charset="?([^";\s]+)/i.exec(type)?.[1] ?? "utf-8").toLowerCase();
+  return bytes.toString(/^(iso-8859-1|latin1|windows-1252|us-ascii)$/.test(charset) ? "latin1" : "utf8");
+}
+
+/** A cell's text: tags dropped, entities decoded, whitespace collapsed. */
+function text(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (_m, e: string) => {
+      const k = e.toLowerCase();
+      if (k.startsWith("#x")) return String.fromCodePoint(parseInt(k.slice(2), 16));
+      if (k.startsWith("#")) return String.fromCodePoint(Number(k.slice(1)));
+      return { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }[k] ?? "";
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** "Tuesday, 11/3/2026" and "5:53 PM", New York wall clock, as an instant (ISO); null when unreadable. */
+function nyDue(date: string, time: string): string | null {
+  const d = /(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/.exec(date);
+  const t = /^(\d{1,2}):(\d{2})\s*([AP])M$/i.exec(time.trim());
+  if (!d || !t) return null;
+  const [month, day, year] = [Number(d[1]), Number(d[2]), Number(d[3])];
+  const hour = (Number(t[1]) % 12) + (t[3].toUpperCase() === "P" ? 12 : 0);
+  const minutes = hour * 60 + Number(t[2]);
+  if (month < 1 || month > 12 || day < 1 || day > 31 || minutes >= 24 * 60) return null;
+  // The wall clock as if it were UTC, moved by New York's offset at that instant; twice, for the DST edges.
+  const wall = Date.UTC(year, month - 1, day) + minutes * 60_000;
+  let at = wall + 5 * 60 * 60_000;
+  for (let i = 0; i < 2; i++) {
+    const seen = nyWallClock(new Date(at).toISOString());
+    const seenMs = Date.parse(`${seen.date}T00:00:00Z`) + seen.minutes * 60_000;
+    at += wall - seenMs;
+  }
+  return new Date(at).toISOString();
 }

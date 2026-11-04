@@ -1,0 +1,252 @@
+X-Fixture: DERIVED, NOT RECEIVED. No Olo cake order email had arrived by 2026-11-03.
+ Built from olo-order-uber-milkshake.eml (received, redacted) by swapping the milkshake
+ for "Celebration Cake", a real item on the Olo menu at order.benjerry.com/menu/upenn
+ (read 2026-11-03), with option names and choices copied from that menu item; the order
+ id, due date and time, prices and totals changed to match; the Paid by line is the
+ source email's. The body was re-encoded as quoted-printable, so it is not byte-faithful.
+Delivered-To: reader@example.test
+Received: by 2002:a05:6521:2146:b0:34e:4b4e:adf1 with SMTP id nc6csp4313lkc;
+        Tue, 3 Nov 2026 14:43:57 -0800 (PST)
+X-Forwarded-Encrypted: i=4; AKwUvBwS9H1Jggv7PK6u8Z3vtBtVqbF16SBW+UVnei0KVjZzJqvObGJp/SHNtk8IPMFOMMIOxGVs@example.test
+X-Received: by 2002:a05:622a:4d45:b0:535:9a06:1fc4 with SMTP id d75a77b69052e-542b64971e7mr242904711cf.18.1793745836812;
+        Tue, 03 Nov 2026 14:43:56 -0800 (PST)
+ARC-Seal: i=3; a=rsa-sha256; t=1793745836; cv=pass;
+        d=google.com; s=arc-20260327;
+        b=lWCIQJII5LM/yr6xiMnzpY+kZWkVDlPBZmzg8QowZO69LLBiCvdzAel3HLfgu1cz6n
+         3UeTUWZ71gtIWfOExRc7mS595DyfM+WWedpDKrZirAKlEVBtI67wigZTM5+hsl4XPLVX
+         2NHIVdob/437/I/VZkPCzSPrIL0L8Ubsn2yUH4EEk/FiedhOYKmiQ18YazYP/JymakQc
+         Z0kS4ciUhyqaQzBr5k99it1DIrbKLv2ATIMFTqQXBS2gBvj/IgKEZcvuZYPK49fF5Zkz
+         SFa9AOB6QH1os+XLhqqkIkK2qEi6WhEVg87ZH/LkuP4M8O3pN/zLrPjOlZaQ0L0gpHir
+         E+4g==
+ARC-Message-Signature: i=3; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20260327;
+        h=list-unsubscribe:list-subscribe:list-archive:list-help:list-post
+         :list-id:mailing-list:precedence:reply-to:to:subject:message-id
+         :mime-version:from:date:content-transfer-encoding:dkim-signature;
+        bh=xBF0z5/e0JvJ9LJ7iqE2j9CyI4CWboSZFd5v9cGSmG4=;
+        fh=iyyoo8I8LLh0qqHHpurMph3Fa6T3GhVwxfI1a+ivhyc=;
+        b=S5G0QExgLvKQmVCtRrFW9sXfBiwO0LQ5o26IcxbHSs7NqSDR+LnKELZVfhegIME3O5
+         0EFNgUjdUx+9HmYEKUp7GSOC2l1aCeuT2jTqIXfQt7ZJmu2bwzth0h3iBe0QLDPy2KW3
+         6lS6z3hlceGZyZbmFUHZDBktJ7KtV9C8m/bzalp2pvtpQorW52RM4WpeInydL6vq/yt0
+         /c0ExoWp2cWzd5K8g68Ckkp19DKrItdRXPPk+Lg9EF22FEuBYy7Ce4b58lNJ1abOqCEY
+         FubPg9L15+giVFCgb5UN7pBCBIWlLxUl7fnjNa0Yosfko3O7FFMHa7CVtGkWvx2W9qcV
+         kVsw==;
+        dara=google.com
+ARC-Authentication-Results: i=3; mx.google.com;
+       dkim=pass header.i=@example.test header.s=google header.b=M+rY1mwE;
+       arc=pass (i=2 spf=pass spfdomain=email.olo.com dkim=pass dkdomain=olo.com dmarc=pass fromdomain=olo.com);
+       spf=pass (google.com: domain of admin+bncbd647uvut4kbbk6hvhlqmgqesiy7cva@example.test designates 209.85.220.69 as permitted sender) smtp.mailfrom=admin+bncBD647UVUT4KBBK6HVHLQMGQESIY7CVA@example.test;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=example.test;
+       dara=neutral header.i=@example.test
+Return-Path: <admin+bncBD647UVUT4KBBK6HVHLQMGQESIY7CVA@example.test>
+Received: from mail-sor-f69.google.com (mail-sor-f69.google.com. [209.85.220.69])
+        by mx.google.com with SMTPS id d75a77b69052e-54b0c28c3a0sor8925381cf.1.2026.11.03.14.43.56
+        for <reader@example.test>
+        (Google Transport Security);
+        Tue, 03 Nov 2026 14:43:56 -0800 (PST)
+Received-SPF: pass (google.com: domain of admin+bncbd647uvut4kbbk6hvhlqmgqesiy7cva@example.test designates 209.85.220.69 as permitted sender) client-ip=209.85.220.69;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@example.test header.s=google header.b=M+rY1mwE;
+       arc=pass (i=2 spf=pass spfdomain=email.olo.com dkim=pass dkdomain=olo.com dmarc=pass fromdomain=olo.com);
+       spf=pass (google.com: domain of admin+bncbd647uvut4kbbk6hvhlqmgqesiy7cva@example.test designates 209.85.220.69 as permitted sender) smtp.mailfrom=admin+bncBD647UVUT4KBBK6HVHLQMGQESIY7CVA@example.test;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=example.test;
+       dara=neutral header.i=@example.test
+ARC-Seal: i=2; a=rsa-sha256; t=1793745836; cv=pass;
+        d=google.com; s=arc-20260327;
+        b=BS9OpNdHT0KigVcZdeQyxEuuDotN7Zde1QjLqkLZa9L9Rti6FFqD/5oH8al/FAjjjI
+         phPWoT52TqOUOeXHpF0yVaKpwNpX/SCpq9slFGzkF4lR5tJGC1FNF/zGHuvcFjnEXttV
+         eYa8sz4eH93SPJN6OCTjcAQo3C7QsvIVsS18YGZkg/DAp7p4gPGZmb60x6DzTjOtHVZG
+         WYlXU8w880F6lQCsNnF6UNgvq7/xOrcrmRKf9m6BhJPg1rNF4+hxrbT+AdJjrBGCiJ8a
+         8QFkHDuihflW3/KXq+ZeiUYPN7isZ23totk8qE0pjw63VegnRPMQdilK54sRT2RpRATt
+         qLNg==
+ARC-Message-Signature: i=2; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20260327;
+        h=list-unsubscribe:list-subscribe:list-archive:list-help:list-post
+         :list-id:mailing-list:precedence:reply-to:to:subject:message-id
+         :mime-version:from:date:content-transfer-encoding:dkim-signature;
+        bh=xBF0z5/e0JvJ9LJ7iqE2j9CyI4CWboSZFd5v9cGSmG4=;
+        fh=iyyoo8I8LLh0qqHHpurMph3Fa6T3GhVwxfI1a+ivhyc=;
+        b=jFGD3Wp1e1jUhvV9/i/LsuOA/0d8KIAUjDc+XIKPQp09VgnuCaiTKxPE8kfwamIvxd
+         sOgN9igYNoHC9Hzgi9UcYhvlTgA3LdZpKsp00MPGpIGEJnRyVZg3CloH+7LcEj85KO7O
+         r4tYqcIXrvvPGyvQtZO/P7xJfI52vha8BzcSLlwFil9bCiN8RAYrRLpMRiTYdi9asew0
+         TLJdqVLfcCnV5Ss5MrlDboWMr+w/670NywPZDru68Upj36gTBf3zTyyHHdTAHC7XsZ8S
+         jhwGUyEuOzM3Dgu91uzmSwpNEoJjgJniJmofTNBEkNLMqAPT9gKt7mxa8DI3i3qaOFhC
+         J2iQ==;
+        darn=example.test
+ARC-Authentication-Results: i=2; mx.google.com;
+       dkim=pass header.i=@olo.com header.s=s1 header.b=XHGY17i7;
+       spf=pass (google.com: domain of bounces+57117-5fe8-admin=example.test@email.olo.com designates 168.245.59.61 as permitted sender) smtp.mailfrom="bounces+57117-5fe8-admin=example.test@email.olo.com";
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=olo.com
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=example.test; s=google; t=1793745836; x=1794350636; darn=example.test;
+        h=list-unsubscribe:list-subscribe:list-archive:list-help:list-post
+         :list-id:mailing-list:precedence:reply-to
+         :x-original-authentication-results:x-original-sender:to:subject
+         :message-id:mime-version:from:date:content-type
+         :content-transfer-encoding:from:to:cc:subject:date:message-id
+         :reply-to:content-type;
+        bh=xBF0z5/e0JvJ9LJ7iqE2j9CyI4CWboSZFd5v9cGSmG4=;
+        b=M+rY1mwEQFNCpG7vow/XfdEZ/J5xiJ0185kTOX73s8FbnFizHwK1yaY1XSqdv6OhlP
+         pxdk4bRFI+uPpZqAcm4EbHOZQkSAEG4vYHe2lv4aGKrfBZYgxefWeUrYj7zL6UF3Wb5d
+         s899MEKy/v9OrurBF3uuu5Gkj3XHywbh0dCHp4GuGar1KklG6EuEj3gxUi3K/BIylJeV
+         eLS2JNMkl7HYBPhQKmenHRes5zbjz9nlMv8htMv2QJNEo7X/UAn4/Qxr79VevKZ3dW+x
+         DzoWSjsxl9SlgfxbtEnQ2fF99jMhKwcv9yhins3st+5QZPlrvMn+Dx1FyMp0S5rnWW0+
+         ANcA==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20260707; t=1793745836; x=1794350636;
+        h=list-unsubscribe:list-subscribe:list-archive:list-help:list-post
+         :x-spam-checked-in-group:list-id:mailing-list:precedence:reply-to
+         :x-original-authentication-results:x-original-sender:to:subject
+         :message-id:mime-version:from:date:content-type
+         :content-transfer-encoding:x-beenthere:x-gm-message-state:from:to:cc
+         :subject:date:message-id:reply-to:content-type;
+        bh=xBF0z5/e0JvJ9LJ7iqE2j9CyI4CWboSZFd5v9cGSmG4=;
+        b=IfcUuhlVULPUZ5etuKILzs2Z/jfoAZ90ZdGvWguiIZpcH9qjxSdAu9xfAq1SLOd59+
+         VLSKaqqz3WKRAlY6c5ORlyiP/xAbHt05KenwSFuMss5+estTKldDtzUeNjrSkb2s4ErR
+         G0EGSO3O+SawQO6bRXNVsnv2tTzDSkej+Ytiszu7X/Wvb3lpJ7M5Tj88xBKhctQKgM5S
+         DM/0HnSydV0XO9gGB36FXcfxO3SR/kCDyDe5UJlfLNyXwEyMQGyHoLFzL0hoovzZ3GTm
+         +jM3v4qi2kYxek0INgGaFFxRBAkiTDjvZfzla3pZyU8+SHhMi8NFjtWBgyn5d0Cte6UY
+         Th9w==
+X-Forwarded-Encrypted: i=2; AKwUvBzxZWf22y26w7v1nSCpWt9qorwyqv990WoXUf+ocGuPxpZvHD50DFeZAwVcQO1hsO4DdhzO@example.test
+X-Gm-Message-State: APuU4Z8Di2SqMycBjuczA4ewb+hI+POVdQ72o8R9HwWVHoXcKeKlDUWd
+	YT2Poy4BwCB48LzvZecK1JLe6GMlId3xzlmONZv+rpO2EesywgmP9LU7IqBP3s89u6cu+oM1vxu
+	sK7k=
+X-Received: by 2002:a05:622a:8614:20b0:54a:67f7:751 with SMTP id d75a77b69052e-54a67f70cf5mr30636231cf.60.1793745836080;
+        Tue, 03 Nov 2026 14:43:56 -0800 (PST)
+X-BeenThere: admin@example.test; h="ATskLdfGvkPpRhM/gfcRT0miuFckcvswK8aDg+7kMbpNR45h9g=="
+Received: by 2002:a05:622a:841c:20b0:54a:919c:21bd with SMTP id
+ d75a77b69052e-54b373a7d83ls4042641cf.2.-pod-prod-02-us; Tue, 03 Nov 2026
+ 14:43:55 -0800 (PST)
+X-Received: by 2002:a05:622a:1f90:b0:536:6902:daea with SMTP id d75a77b69052e-542b658e702mr218334071cf.23.1793745835351;
+        Tue, 03 Nov 2026 14:43:55 -0800 (PST)
+ARC-Seal: i=1; a=rsa-sha256; t=1793745835; cv=none;
+        d=google.com; s=arc-20260327;
+        b=NVzPDaxhV/5UgExpV8lcxCWUv4KOb9RbZggAKxRLnvjvLRqOkZzWaXUFKeUexkFeRA
+         CJOK9WQit0P/v/qeipoV2BrgsWQB0aRnMBrQF4XPOZb7YD4kDlRnaS6bA5UJei3Rnj7P
+         5fhMXmsA7kNN9hjzQjBMAIWWLQakrjF95HZ/9piBpRHRD6DZc9XAQRrjP2VeTKHJWiJc
+         14uxL6J23QWcEVKYE8TvSn/jS1dt7jnislDVkSolXgLVRgx0UiyOhqK7Bg9ajVyTv7+s
+         Vj0zku1Mpkfk7LYC8ZR6dcKnlG5SlmrsYGYu2IqKbmvr2AKJMRNyK351OoSsfqDhnFA4
+         PVAg==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20260327;
+        h=to:subject:message-id:mime-version:from:date
+         :content-transfer-encoding:dkim-signature;
+        bh=xBF0z5/e0JvJ9LJ7iqE2j9CyI4CWboSZFd5v9cGSmG4=;
+        fh=NiWpIiU4P0ckjGAaeXk9RzjVCATUhzUgpWoaBW1mvYc=;
+        b=ZBTpk0v3t39IW6v80iylJGb69UHDa0fZP5Pvd+EqIHXq9nI7fDvgxWDE5ZdX0zVM3V
+         M4pany08T0xtQCSzBnO/V8aY+lhm+JwzcqmJ8/VAiE9FzBrtMZ1tIaYf05o4fBBv8B60
+         vvlsqyMPTDOJBpDhzIIwMeW/vPH31vZ6/QWVm5UsmlCfupIaOR6hQw9Hm6xOD8bX0eSY
+         FgZgPushLyhqnIOrnsbJz1fk7bN7GHqMEaZM67Gpe1XtIjva554d30koJnWh1l3JIX0/
+         3tQZofSzzHshwBzkDd6nfV0sq0dY8aefUuPh/q7BjZlyXvAPKvGHGgGHO4DHFY0bVuew
+         lJXg==;
+        dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com;
+       dkim=pass header.i=@olo.com header.s=s1 header.b=XHGY17i7;
+       spf=pass (google.com: domain of bounces+57117-5fe8-admin=example.test@email.olo.com designates 168.245.59.61 as permitted sender) smtp.mailfrom="bounces+57117-5fe8-admin=example.test@email.olo.com";
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=olo.com
+Received: from o13.ptr6835.olo.com (o13.ptr6835.olo.com. [168.245.59.61])
+        by mx.google.com with ESMTPS id d75a77b69052e-54b103a03casi9250031cf.192.2026.11.03.14.43.55
+        for <admin@example.test>
+        (version=TLS1_3 cipher=TLS_AES_128_GCM_SHA256 bits=128/128);
+        Tue, 03 Nov 2026 14:43:55 -0800 (PST)
+Received-SPF: pass (google.com: domain of bounces+57117-5fe8-admin=example.test@email.olo.com designates 168.245.59.61 as permitted sender) client-ip=168.245.59.61;
+Received: by recvd-657b68658c-7gbct with SMTP id recvd-657b68658c-7gbct-1-6AEA63AA-3C
+	2026-11-03 22:43:54.937529051 +0000 UTC m=+3044588.224727965
+Received: from NTcxMTc (unknown)
+	by geopod-ismtpd-19 (SG) with HTTP
+	id iPIqIAvMQy2CFJLRFvHnyA
+	Tue, 03 Nov 2026 22:43:54.935 +0000 (UTC)
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/html; charset="UTF-8"
+Date: Tue, 03 Nov 2026 22:43:54 +0000 (UTC)
+From: "'Ben & Jerry's' via Admin" <admin@example.test>
+Mime-Version: 1.0
+Message-ID: <iPIqIAvMQy2CFJLRFvHnyA@geopod-ismtpd-19>
+Subject: Order Notification
+X-SG-EID: =?us-ascii?Q?u001=2EdaT9u0H4uRMHSuMBGyv9umndTx8L5O+BwiF5UkduiR06wX8zjAQzgoUEh?=
+ =?us-ascii?Q?aRm3sPeCkuOpvAY1xyzgl=2FetY+1d1IiTeaLoPzf?=
+ =?us-ascii?Q?GvAeYw8CnjT2CjcG4R4gCxMzyMrGE2ro4VuOnob?=
+ =?us-ascii?Q?rHtGNPuSS47WfcH25zWQMRSm2jjxmnyXOHOZonl?=
+ =?us-ascii?Q?sNOQVNUyUbDIGbMZg5bXibVv5+4qQ5bp8XuqfGV?=
+ =?us-ascii?Q?U5tGSIZoFK6GIKWPLXTEEtGuIzdAqPSTvSqGf+A?= =?us-ascii?Q?BjG3?=
+To: admin@example.test
+X-Entity-ID: u001.jY99i3uWwaR1ExuwyaC1BA==
+X-Original-Sender: orders@olo.com
+X-Original-Authentication-Results: mx.google.com;       dkim=pass
+ header.i=@olo.com header.s=s1 header.b=XHGY17i7;       spf=pass (google.com:
+ domain of bounces+57117-5fe8-admin=example.test@email.olo.com
+ designates 168.245.59.61 as permitted sender) smtp.mailfrom="bounces+57117-5fe8-admin=example.test@email.olo.com";
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=olo.com
+X-Original-From: Ben & Jerry's <orders@olo.com>
+Reply-To: Ben & Jerry's <orders@olo.com>
+Precedence: list
+Mailing-list: list admin@example.test; contact admin+owners@example.test
+List-ID: <admin.example.test>
+X-Spam-Checked-In-Group: admin@example.test
+X-Google-Group-Id: 1099319615901
+List-Post: <https://groups.google.com/a/example.test/group/admin/post>,
+ <mailto:admin@example.test>
+List-Help: <https://support.google.com/a/example.test/bin/topic.py?topic=25838>,
+ <mailto:admin+help@example.test>
+List-Archive: <https://groups.google.com/a/example.test/group/admin/>
+List-Subscribe: <https://groups.google.com/a/example.test/group/admin/subscribe>,
+ <mailto:admin+subscribe@example.test>
+List-Unsubscribe: <mailto:googlegroups-manage+1099319615901+unsubscribe@googlegroups.com>,
+ <https://groups.google.com/a/example.test/group/admin/subscribe>
+
+<html><head><title>Order</title><style>
+BODY, TD {
+	font-family:arial;
+	color:black;
+	font-size:11pt;
+}
+.AttentionText {
+	font-family:arial;
+	color:black;
+	font-weight:bold;
+	font-size:11pt;
+}
+.AttentionTextLarge {
+	font-family:arial;
+	color:black;
+	font-weight:bold;
+	font-size:14pt;
+}
+.Pref {
+	font-family:arial;
+	color:black;
+	font-size:10pt;
+}
+</style></head><body><h3>Order Transmitted Notification</h3><table cellspac=
+ing=3D"0" cellpadding=3D"3"><tr><td>Location:</td><td>U - Penn West Philade=
+lphia Ice Cream Shop (PA013)</td></tr><tr><td>Order ID:</td><td>47729604891=
+100001</td></tr><tr><td>Date Due:</td><td>Thursday, 11/5/2026</td></tr><tr>=
+<td>Handoff Mode:</td><td>CounterPickup</td></tr><tr><td>Time Due:</td><td>=
+3:00 PM</td></tr><tr><td>Order is PAID:</td><td>Customer Charged Online</td=
+></tr></table><br /><table cellspacing=3D"0" cellpadding=3D"3"><tr><td>Cust=
+omer Name:</td><td>Pat P. 0000C</td></tr><tr><td>Customer Email:</td><td />=
+</tr><tr><td>Customer Contact Number:</td><td>15550100000x00000000</td></tr=
+></table><br /><table cellspacing=3D"0" cellpadding=3D"3"><tr><td colspan=
+=3D"2"><font size=3D"+1"><br />1 x Celebration Cake</font></td><td width=3D=
+"200"><font size=3D"+1"><br />
+				$0.00</font></td></tr><tr><td>Are There Any Food Allergies or Sensitivi=
+ties That We Should Be Aware of?:</td><td>No Allergy Concerns</td><td /></t=
+r><tr><td>Choose Cake Size:</td><td>Medium Round 8&quot; (Serves 8-10)</td>=
+<td>
+           $46.95 (1 x $46.95)
+         </td></tr><tr><td>Select Up to 2 Flavors:</td><td>Cake Batter</td>=
+<td /></tr><tr><td>Frosting Option:</td><td>Standard Frosting</td><td /></t=
+r><tr><td>Choose or Create Your Own Message:</td><td>Happy Birthday!</td><t=
+d /></tr></table><br /><table cellspacing=3D"0" cellpadding=3D"3"><tr><td>S=
+ubtotal</td><td>$ 46.95</td></tr><tr><td>Estimated Tax</td><td>
+            $ 3.76</td></tr><tr><td>Total</td><td>$ 50.71</td></tr><tr><td>=
+Paid by</td><td>Paid Via Uber Eats</td></tr></table><p>This order will be a=
+utomatically transmitted into the Point of Sale system.</p><img src=3D"http=
+://click.olo.com/wf/open?upn=3D0000.000000000000000000000000000000000000000=
+000000000000000000000000000000000000000000000000000000000000000000000000000=
+000-000000000000-000000000000000-000000000000000000000000000000000000000000=
+00000000000000000000000000-00000000-00000000000000000000-00" alt=3D"" width=
+=3D"1" height=3D"1" border=3D"0" style=3D"height:1px !important;width:1px !=
+important;border-width:0 !important;margin-top:0 !important;margin-bottom:0=
+ !important;margin-right:0 !important;margin-left:0 !important;padding-top:=
+0 !important;padding-bottom:0 !important;padding-right:0 !important;padding=
+-left:0 !important;"/></body></html>
+
+

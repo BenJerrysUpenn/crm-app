@@ -574,9 +574,12 @@ one pass: `run.ts`; the email: `mail.ts` (IMAP, read only) and `oloEmail.ts` (th
 words: `message.ts`; Slack: `slack.ts`; command: `cli.ts`; reads and writes: `lib/cakeOrdersPg.ts`;
 wiring: `scripts/cake-order-reminders.ts`.
 
-**The Olo email parser is not built yet.** No Olo order email had arrived when this was written,
-so `oloEmail.ts` recognises no email and nothing is posted; its header says how to build it from the
-first real one.
+**Which orders are cakes.** `oloEmail.ts` reads Olo's "Order Notification" email (matched on
+`X-Original-Sender: orders@olo.com`, because the group rewrites From) and posts an order only when
+a top-level item's name ends in "Cake", which is every cake on the store's Olo menu and nothing else
+on it. Shakes, pints and the rest are skipped, one log line each with the items and how they were
+paid; a cake flavour inside a shake does not count. Its header has the email's layout; the real
+emails it was built from are redacted in `time-app/lib/cakeOrders/fixtures/`.
 
 Each order and its one follow-up is recorded in `cake_order_reminders` (migration 54) BEFORE it is
 posted, so it goes out once; a Slack refusal removes the record so the next tick retries, and no
