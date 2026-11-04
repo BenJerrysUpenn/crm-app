@@ -7,7 +7,7 @@
 //   * --dry-run prints the plan and the messages, posts nothing and writes
 //     nothing;
 //   * no claude_usage_token: plain messages, said once, still exit 0;
-//   * no Slack token (the "Cake Orders" app not made yet), no mailbox login,
+//   * no Slack token (the "Cake Orders" app not packed yet), no mailbox login,
 //     Vault or the database unreadable, migration 54 not applied, or a failed
 //     step: exit 1 with the reason;
 //   * a bad argument, no DATABASE_URL or no CAKE_ORDERS_ORDER_ADDRESS: exit 2.
@@ -168,7 +168,7 @@ test("no claude_usage_token: plain messages, said once, exit 0", async () => {
   assert.equal(await runCakeOrderCli(["--dry-run"], deps("12:05")), 0);
   assert.deepEqual(claudeTokens, []);
   assert.deepEqual(errs, ["[cake-orders] Vault has no claude_usage_token: every message is the plain one"]);
-  assert.ok(out.includes("  <@U0ANA> a new cake order just came in. Please pack it, then react to this message or reply in the thread when it is done."));
+  assert.ok(out.includes("  <@U0ANA> a new custom cake order just came in. Please pack it, then react to this message or reply in the thread when it is done."));
 });
 
 test("no Slack token, no mailbox login, Vault or the database unreadable, or migration 54 missing: exit 1 with the reason", async () => {

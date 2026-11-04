@@ -257,7 +257,7 @@ test("an order while two are on store punches: one AI post mentioning both with 
   assert.equal(slack.posts.length, 1);
   assert.equal(
     slack.posts[0].text,
-    "<@U0ANA> and <@U0BEN>, a cake order just came in! Please pack it and react here when it's done 📦\n*Pat Placeholder*, pickup Thu Nov 5, 5:00 PM\n• 8\" Cookie Dough\n• Message: Happy Birthday",
+    "<@U0ANA> and <@U0BEN>, a cake order just came in! Please pack it and react here when it's done 📦\n*Pat Placeholder*",
   );
   assert.equal(slack.posts[0].thread_ts, undefined);
   assert.equal(slack.posts[0].channel, CHANNEL);
@@ -341,9 +341,9 @@ test("Claude fails: the plain post and the plain reply go out", async () => {
   emailArrives("12:00");
   const r = ran(await tick("12:00"));
   assert.deepEqual(r.posted, [{ order: "1001", source: "fallback", mentioned: 1, note: "claude error 429: usage limit" }]);
-  assert.match(slack.posts[0].text, /^<@U0ANA> a new cake order just came in\. Please pack it, then react/);
+  assert.match(slack.posts[0].text, /^<@U0ANA> a new custom cake order just came in\. Please pack it, then react/);
   await tick("13:00");
-  assert.match(slack.posts[1].text, /^Friendly reminder: this cake order is not marked packed yet/);
+  assert.match(slack.posts[1].text, /^Friendly reminder: this custom cake is not marked packed yet/);
   assert.equal(db.rows[0].followup_source, "fallback");
 });
 
@@ -399,12 +399,8 @@ test("the real parser on the real Olo emails: the milkshake, the pints and a nam
   assert.deepEqual(r.posted, [{ order: "47729604891100001", source: "ai", mentioned: 1, note: undefined }]);
   assert.equal(
     slack.posts[0].text,
-    // The custom cake's line (388 characters) is longer than message.ts's 300-character cut, so everything after
-    // the border colour's first letter is cut: the toppings, the message and its colour. Open on crm-app #144.
-    `${claude.lead}\n*Pat P. 0000C*, pickup Thu Nov 5, 3:00 PM\n` +
-      '• 1 x Custom Order Cake: No Allergy Concerns; Medium Round 8" (Serves 8-10); Select Up to 2 Flavors; 1 x Cherry Garcia®; ' +
-      "1 x Chocolate Fudge Brownie; Standard Frosting; Choose Middle Filling; Crumbled Brownies; Choose Bottom Layer; " +
-      "Chocolate Crunchies; Choose Body Color; White; Choose Border Color; B…",
+    // The customer's name and nothing else: the cake itself is on the tablet and the wall (2026-11-04).
+    `${claude.lead}\n*Pat P. 0000C*`,
   );
   assert.equal(db.rows[0].pickup_at, "2026-11-05T20:00:00.000Z");
 
@@ -613,7 +609,7 @@ test("staff are matched to Slack by sign-in email, else by a unique name; anyone
   emailArrives("12:00");
   const r = ran(await tick("12:00", { noClaude: true }));
   assert.equal(r.posted[0].mentioned, 2);
-  assert.ok(slack.posts[0].text.startsWith("<@U0ANA>, <@U0DEE>, Evie and Fay Frost a new cake order just came in."), slack.posts[0].text);
+  assert.ok(slack.posts[0].text.startsWith("<@U0ANA>, <@U0DEE>, Evie and Fay Frost a new custom cake order just came in."), slack.posts[0].text);
   assert.deepEqual(db.rows[0].slack_user_ids, ["U0ANA", "U0DEE", "", ""]);
 });
 

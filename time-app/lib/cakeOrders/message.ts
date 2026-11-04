@@ -6,10 +6,12 @@
 // records which one went out (post_source, followup_source).
 //
 // THE POST is two parts. Claude writes only the first line: the mentions and
-// the ask (pack it, then react or reply when done). The order details below
-// it (customer, pickup time, what the cake is) are copied from the email by
-// this code, never by Claude, so a name, time or flavour cannot be changed
-// in the retelling. Claude is not shown the order at all.
+// the ask (pack it, then react or reply when done). Below it is the
+// customer's name and nothing else (the owner's ruling, 2026-11-04: the name
+// is how the shop identifies a cake; the cake itself is on the tablet and
+// the wall). The name is copied from the email by this code, never by
+// Claude, so it cannot be changed in the retelling. Claude is not shown the
+// order at all.
 //
 // THE FOLLOW-UP is a reply in the post's thread with NO mention (the owner's
 // ruling, 2026-11-03): the people mentioned in the post follow its thread, so
@@ -30,9 +32,8 @@ export type Occasion = "post" | "followup";
 
 export const MAX_LEAD_CHARS = 240;
 const MAX_LEAD_LINES = 2;
-/** A cake line longer than this is cut, so one odd email cannot flood the channel. */
-const MAX_DETAIL_CHARS = 300;
-const MAX_CAKE_LINES = 8;
+/** A name longer than this is cut, so one odd email cannot flood the channel. */
+const MAX_NAME_CHARS = 80;
 
 const TONES = ["upbeat", "warm", "casual", "cheerful", "relaxed", "brief and kind", "playful", "thankful"];
 
@@ -79,41 +80,28 @@ export function validateFollowup(text: string): Validation {
 
 /** The plain first line used when the AI step fails. */
 export function fallbackLead(people: Addressee[]): string {
-  return `${joinTokens(people)} a new cake order just came in. Please pack it, then react to this message or reply in the thread when it is done.`;
+  return `${joinTokens(people)} a new custom cake order just came in. Please pack it, then react to this message or reply in the thread when it is done.`;
 }
 
 /** The plain thread reply used when the AI step fails. */
-export const FALLBACK_FOLLOWUP = "Friendly reminder: this cake order is not marked packed yet. Please pack it, then react to the message above or reply here when it is done.";
+export const FALLBACK_FOLLOWUP = "Friendly reminder: this custom cake is not marked packed yet. Please pack it, then react to the message above or reply here when it is done.";
 
-/** Slack's three escapes: the details are the customer's own words. */
+/** Slack's three escapes: the name is the customer's own words. */
 const slackEscape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const oneLine = (s: string) => {
-  const flat = s.replace(/\s+/g, " ").trim();
-  return flat.length > MAX_DETAIL_CHARS ? `${flat.slice(0, MAX_DETAIL_CHARS - 1)}…` : flat;
-};
 
-/** "Wed Nov 4, 3:00 PM" New York time. */
-export function nyPickup(iso: string): string {
-  const d = new Date(iso);
-  const day = d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" });
-  const time = d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-  return `${day.replace(",", "")}, ${time}`;
+/** The line under Claude's: the customer's name, bold, copied from the email. */
+export function orderName(order: CakeOrder): string {
+  const flat = order.customer.replace(/\s+/g, " ").trim();
+  const name = flat.length > MAX_NAME_CHARS ? `${flat.slice(0, MAX_NAME_CHARS - 1)}…` : flat;
+  return `*${slackEscape(name)}*`;
 }
 
-/** The order details under the first line, copied from the email. */
-export function orderDetails(order: CakeOrder): string {
-  const pickup = order.pickupAt ? nyPickup(order.pickupAt) : order.pickupText;
-  const cake = order.cake.slice(0, MAX_CAKE_LINES).map((line) => `• ${slackEscape(oneLine(line))}`);
-  if (order.cake.length > MAX_CAKE_LINES) cake.push(`• and ${order.cake.length - MAX_CAKE_LINES} more on the order`);
-  return [`*${slackEscape(oneLine(order.customer))}*, pickup ${slackEscape(oneLine(pickup))}`, ...cake].join("\n");
-}
-
-export const SYSTEM_POST = `You write the first line of a Slack message in the #cake-orders-and-ideas channel of an ice cream shop. A customer has ordered an ice cream cake; the staff on shift need to pack it (box it up so it is ready for pickup). The order details are added below your line by the shop's system; you do not see them and must not describe the cake.
+export const SYSTEM_POST = `You write the first line of a Slack message in the #cake-orders-and-ideas channel of an ice cream shop. A customer has ordered a custom ice cream cake; the staff on shift need to pack it. The customer's name is added below your line by the shop's system; you do not see it and must not describe the cake.
 
 The line:
 - One or two short sentences, friendly and casual, under 200 characters.
 - Addresses the people with the mention text exactly as given, once each, character for character. Never change it or add another mention.
-- Says a new cake order came in and asks them to pack it, then react to the message or reply in the thread when it is done.
+- Says a new custom cake order came in and asks them to pack it, then react to the message or reply in the thread when it is done.
 - Contains no numbers, no times, no prices, no links and no @here or @channel. An emoji or two is fine.
 - Varies its wording; it does not have to start with the mention.
 
@@ -132,10 +120,10 @@ Reply with the reply text only.`;
 
 export type Written = { text: string; source: "ai" | "fallback"; note?: string };
 
-/** Write the post: Claude's first line (or the plain one), then the order details. */
+/** Write the post: Claude's first line (or the plain one), then the customer's name. */
 export async function writePost(args: { ask: AskClaude | null; people: Addressee[]; order: CakeOrder; random?: () => number }): Promise<Written> {
   const { ask, people, order } = args;
-  const details = orderDetails(order);
+  const details = orderName(order);
   const fallback = (note: string): Written => ({ text: `${fallbackLead(people)}\n${details}`, source: "fallback", note });
   if (!ask) return fallback("no Claude subscription token");
   const tone = TONES[Math.floor((args.random ?? Math.random)() * TONES.length)];

@@ -1,7 +1,7 @@
 // The words of a cake order post and its follow-up (lib/cakeOrders/message.ts):
 // Claude writes the first line and the thread reply, both checked and
-// replaced by a plain message whenever the AI step fails; the order details
-// are copied from the email by code, never by Claude. Claude is a stand-in
+// replaced by a plain message whenever the AI step fails; the customer's name
+// under it is copied from the email by code, never by Claude. Claude is a stand-in
 // here; lib/cashCount/claudeCli.test.ts drives the real child process.
 //
 //   npm test        (node --test; Node runs TypeScript directly)
@@ -14,7 +14,7 @@ import type * as Message from "./message.ts";
 import type { CakeOrder } from "./oloEmail.ts";
 
 const m = await loadAppModule<typeof Message>("lib/cakeOrders/message.ts");
-const { FALLBACK_FOLLOWUP, orderDetails, validateFollowup, validateLead, writeFollowup, writePost } = m;
+const { FALLBACK_FOLLOWUP, orderName, validateFollowup, validateLead, writeFollowup, writePost } = m;
 
 const ANA = { token: "<@U0ANA>" };
 const BEN = { token: "<@U0BEN>" };
@@ -36,7 +36,7 @@ function claudeSaying(answer: string | { ok: false; reason: string }) {
   return { seen, ask };
 }
 
-test("a good first line passes: each mention once, asks to pack and react or reply", () => {
+test("a good first line passes: each mention once, asks to pack it and react or reply", () => {
   assert.deepEqual(validateLead("<@U0ANA> and <@U0BEN>, a cake order just landed 🎂 Please pack it and react here when it's done!", [ANA, BEN]), { ok: true });
 });
 
@@ -68,23 +68,15 @@ test("the follow-up has no mention at all", () => {
   assert.equal(validateFollowup(FALLBACK_FOLLOWUP).ok, true, "the plain reply passes its own check");
 });
 
-const DETAILS = '*Pat Placeholder*, pickup Wed Nov 4, 3:00 PM\n• 8" round, Cookie Dough &amp; Fudge\n• Message: Happy &lt;b&gt;day&lt;/b&gt;';
+const DETAILS = "*Pat Placeholder*";
 
-test("the order details are copied from the email, escaped for Slack, pickup in New York time", () => {
-  assert.equal(orderDetails(ORDER), DETAILS);
-  assert.equal(orderDetails({ ...ORDER, pickupAt: null }).split("\n")[0], "*Pat Placeholder*, pickup Nov 4, 3:00 PM");
+test("under Claude's line is the customer's name only: no pickup time, no cake", () => {
+  assert.equal(orderName(ORDER), DETAILS);
+  assert.equal(orderName({ ...ORDER, customer: "  Pat <b>&\n Co  " }), "*Pat &lt;b&gt;&amp; Co*", "one line, escaped for Slack");
+  assert.equal(orderName({ ...ORDER, customer: "x".repeat(100) }), `*${"x".repeat(79)}…*`, "cut at 80 characters");
 });
 
-test("one odd email cannot flood the channel: at most 8 cake lines, each cut at 300 characters", () => {
-  const cake = [`Message: ${"x".repeat(400)}`, ...Array.from({ length: 9 }, (_, i) => `Cake ${String.fromCharCode(65 + i)}`)];
-  const lines = orderDetails({ ...ORDER, cake }).split("\n");
-  assert.equal(lines.length, 1 + 8 + 1, "the customer line, 8 cake lines, and the count of the rest");
-  assert.equal(lines[1], `• Message: ${"x".repeat(290)}…`);
-  assert.equal(lines[8], "• Cake G");
-  assert.equal(lines[9], "• and 2 more on the order");
-});
-
-test("writePost: Claude's line, then the details; Claude never sees the order", async () => {
+test("writePost: Claude's line, then the name; Claude never sees the order", async () => {
   const claude = claudeSaying("<@U0ANA> new cake order! Please pack it and react when it's done 📦");
   const w = await writePost({ ask: claude.ask, people: [ANA], order: ORDER, random: () => 0 });
   assert.equal(w.source, "ai");
@@ -94,12 +86,12 @@ test("writePost: Claude's line, then the details; Claude never sees the order", 
   assert.match(claude.seen[0].prompt, /Mention text: <@U0ANA>/);
 });
 
-test("writePost falls back to the plain line on any failure, with the details still there", async () => {
+test("writePost falls back to the plain line on any failure, with the name still there", async () => {
   const failing = claudeSaying({ ok: false, reason: "claude timed out after 45s" });
   const w = await writePost({ ask: failing.ask, people: [ANA, BEN], order: ORDER });
   assert.equal(w.source, "fallback");
   assert.equal(w.note, "claude timed out after 45s");
-  assert.ok(w.text.startsWith("<@U0ANA> and <@U0BEN> a new cake order just came in. Please pack it"));
+  assert.ok(w.text.startsWith("<@U0ANA> and <@U0BEN> a new custom cake order just came in. Please pack it"));
   assert.ok(w.text.endsWith(`when it is done.\n${DETAILS}`));
 
   const rejected = await writePost({ ask: claudeSaying("Pack the cake at 3pm!").ask, people: [ANA], order: ORDER });
