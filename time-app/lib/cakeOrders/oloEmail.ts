@@ -42,11 +42,11 @@ import { nyInstant } from "../cashCount/plan";
 import { headerOf } from "./mail";
 
 /** Olo's sending address, as X-Original-Sender gives it through the group. */
-export const OLO_SENDER = "orders@olo.com";
+const OLO_SENDER = "orders@olo.com";
 /** The <h3> of a new order's email. */
-export const NEW_ORDER_HEADING = "Order Transmitted Notification";
+const NEW_ORDER_HEADING = "Order Transmitted Notification";
 /** The subject Olo gives every order email; the mailbox search asks for it. */
-export const ORDER_SUBJECT = "Order Notification";
+const ORDER_SUBJECT = "Order Notification";
 
 /** One cake order, as the post shows it. */
 export type CakeOrder = {
