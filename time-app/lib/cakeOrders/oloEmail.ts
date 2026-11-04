@@ -54,17 +54,14 @@ const NEW_ORDER_HEADING = "Order Transmitted Notification";
 /** The subject Olo gives every order email; the mailbox search asks for it. */
 const ORDER_SUBJECT = "Order Notification";
 
-/** One custom cake order, as the post shows it. */
+/** One custom cake order: what the job keys, times and posts it by. */
 export type CakeOrder = {
   /** The order's own id in the email: the same order emailed twice is posted once. */
   key: string;
+  /** The customer's name, the only order detail the post shows. */
   customer: string;
   /** The pickup time as an instant (ISO), when the email gives one. */
   pickupAt: string | null;
-  /** The pickup time as the email writes it. */
-  pickupText: string;
-  /** One line per custom cake item: size, flavour, options, the message on it. */
-  cake: string[];
 };
 
 export type ParsedEmail =
@@ -157,7 +154,7 @@ export function readOloOrder(raw: string): OloRead {
   };
 }
 
-/** An item as the email writes it, "N x <name>": the post and the skip log both quote it so. */
+/** An item as the email writes it, "N x <name>": the skip log quotes it so. */
 const itemLine = (i: OloItem) => `${i.quantity} x ${i.name}`;
 
 /** The job's parser: an Olo order with a custom cake on it is a cake order; everything else says why not. */
@@ -166,8 +163,7 @@ export const parseOloOrderEmail: ParseEmail = (raw) => {
   if (read.kind === "not_olo") return { kind: "not_custom_cake", why: "not an Olo order email" };
   if (read.kind === "unrecognised") return read;
   const o = read.order;
-  const cakes = o.items.filter((i) => isCustomCakeItem(i.name));
-  if (!cakes.length) {
+  if (!o.items.some((i) => isCustomCakeItem(i.name))) {
     const listed = (items: OloItem[]) => items.map(itemLine).join(", ");
     const named = o.items.filter((i) => isNamedCakeItem(i.name));
     const why = named.length ? `named cake, refilled from stock: ${listed(named)}` : `no cake on it: ${listed(o.items)}`;
@@ -179,9 +175,6 @@ export const parseOloOrderEmail: ParseEmail = (raw) => {
       key: o.orderId,
       customer: o.customer || "(no name on the order)",
       pickupAt: o.dueAt,
-      pickupText: o.dueText || "(no pickup time on the order)",
-      // The modifier values only: the labels are Olo's long questions ("Are There Any Food Allergies ...?").
-      cake: cakes.map((i) => [itemLine(i), i.modifiers.map((m) => m.value).filter(Boolean).join("; ")].filter(Boolean).join(": ")),
     },
   };
 };

@@ -104,7 +104,7 @@ function testParser(raw: string): ParsedEmail {
   }
 }
 
-const ORDER: CakeOrder = { key: "1001", customer: "Pat Placeholder", pickupAt: est("17:00", "2026-11-05"), pickupText: "Thu 5pm", cake: ['8" Cookie Dough', "Message: Happy Birthday"] };
+const ORDER: CakeOrder = { key: "1001", customer: "Pat Placeholder", pickupAt: est("17:00", "2026-11-05") };
 
 /** One of the raw Olo emails in fixtures/, arriving at hhmm. */
 /** A fixture email arrives; each [from, to] swap is applied to its raw text, where `from` must be exactly once. */

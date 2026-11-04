@@ -22,8 +22,6 @@ const ORDER: CakeOrder = {
   key: "1001",
   customer: "Pat Placeholder",
   pickupAt: "2026-11-04T20:00:00.000Z",
-  pickupText: "Nov 4, 3:00 PM",
-  cake: ['8" round, Cookie Dough & Fudge', "Message: Happy <b>day</b>"],
 };
 
 type Asked = { system: string; prompt: string };
@@ -84,7 +82,7 @@ test("writePost: Claude's line, then the name; Claude never sees the order", asy
   assert.equal(w.source, "ai");
   assert.equal(w.text, `<@U0ANA> new cake order! Please pack it and react when it's done 📦\n${DETAILS}`);
   assert.equal(claude.seen.length, 1);
-  assert.ok(!claude.seen[0].prompt.includes("Pat") && !claude.seen[0].prompt.includes("Cookie"), "no order details in the prompt");
+  assert.ok(!claude.seen[0].prompt.includes("Pat") && !claude.seen[0].prompt.includes("2026"), "no order details in the prompt");
   assert.match(claude.seen[0].prompt, /Mention text: <@U0ANA>/);
 });
 

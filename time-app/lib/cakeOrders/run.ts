@@ -277,7 +277,7 @@ export async function runCakeOrderReminders(deps: RunDeps): Promise<CakeOrderRes
     const onClock = onStoreClock(snap, now);
     if (dryRun && duePosts === 0 && onClock.length) {
       const addressees = await people.forProfiles(onClock);
-      const sample: CakeOrder = { key: "preview", customer: "(customer)", pickupAt: null, pickupText: "(pickup time)", cake: ["(the cake, from the email)"] };
+      const sample: CakeOrder = { key: "preview", customer: "(customer)", pickupAt: null };
       result.messages!.push(dryMessage("post", "preview", "preview", "on the clock now", addressees, await writePost({ ask, people: addressees, order: sample, random: deps.random })));
       result.messages!.push(dryMessage("followup", "preview", "preview", "an hour later, not packed", [], await writeFollowup({ ask, random: deps.random })));
     }

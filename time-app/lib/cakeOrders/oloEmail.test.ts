@@ -57,26 +57,39 @@ function swapHtml(raw: string, ...swaps: [from: string, to: string][]): string {
   return `${head}\r\nContent-Type: text/html; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${Buffer.from(edited, "utf8").toString("base64")}\r\n`;
 }
 
-/**
- * The post for the derived custom cake order (fixtures/olo-order-cake-DERIVED.eml), read off the email by hand.
- * The values only, in the email's order: "Select Up to 2 Flavors", "Choose Middle Filling" and the like are the
- * choices that open a nested option on Olo's menu, and the colours are body, border, then message.
- */
+/** The derived custom cake order (fixtures/olo-order-cake-DERIVED.eml) as the job takes it, read off the email by hand. */
 const CAKE_POST = {
   kind: "cake_order",
   order: {
     key: "47729604891100001",
     customer: "Pat P. 0000C",
     pickupAt: "2026-11-05T20:00:00.000Z",
-    pickupText: "Thursday, 11/5/2026 3:00 PM",
-    cake: [
-      '1 x Custom Order Cake: No Allergy Concerns; Medium Round 8" (Serves 8-10); Select Up to 2 Flavors; 1 x Cherry Garcia®; ' +
-        "1 x Chocolate Fudge Brownie; Standard Frosting; Choose Middle Filling; Crumbled Brownies; Choose Bottom Layer; " +
-        "Chocolate Crunchies; Choose Body Color; White; Choose Border Color; Blue; Choose Cake Toppings; Rainbow Sprinkles; " +
-        "Mini Cones; Choose or Create Your Own Message; Happy Birthday!; Message Color; Blue",
-    ],
   },
 };
+
+/**
+ * Its items, read off the email by hand: [quantity, name, the modifier values]. The values in the email's order:
+ * "Select Up to 2 Flavors", "Choose Middle Filling" and the like are the choices that open a nested option on
+ * Olo's menu, and the colours are body, border, then message.
+ */
+const CAKE_ITEMS = [
+  [
+    1,
+    "Custom Order Cake",
+    [
+      "No Allergy Concerns", 'Medium Round 8" (Serves 8-10)', "Select Up to 2 Flavors", "1 x Cherry Garcia®",
+      "1 x Chocolate Fudge Brownie", "Standard Frosting", "Choose Middle Filling", "Crumbled Brownies", "Choose Bottom Layer",
+      "Chocolate Crunchies", "Choose Body Color", "White", "Choose Border Color", "Blue", "Choose Cake Toppings", "Rainbow Sprinkles",
+      "Mini Cones", "Choose or Create Your Own Message", "Happy Birthday!", "Message Color", "Blue",
+    ],
+  ],
+];
+
+/** An email's items as [quantity, name, the modifier values], or what it read as when not an order. */
+function itemsOf(raw: string) {
+  const read = readOloOrder(raw);
+  return read.kind === "order" ? read.order.items.map((i) => [i.quantity, i.name, i.modifiers.map((m) => m.value)]) : read.kind;
+}
 
 test("the real Uber Eats milkshake order is read whole, and skipped as no cake", () => {
   assert.deepEqual(readOloOrder(MILKSHAKE), {
@@ -134,9 +147,10 @@ test("the real DoorDash pint orders are read, each item with its own flavours, a
   });
 });
 
-test("a custom cake order (derived from a real email, see its X-Fixture header) is posted with its options", () => {
+test("a custom cake order (derived from a real email, see its X-Fixture header) is posted, its options read in the email's order", () => {
   assert.match(CAKE, /^X-Fixture: DERIVED, NOT RECEIVED\./);
   assert.deepEqual(parseOloOrderEmail(CAKE), CAKE_POST);
+  assert.deepEqual(itemsOf(CAKE), CAKE_ITEMS);
 });
 
 test("a named cake order is skipped as refilled from stock: Celebration Cake, and a ready-made one", () => {
@@ -161,7 +175,7 @@ test("a cake flavour or a cake add-on inside a milkshake does not make it a cake
   assert.equal(parseOloOrderEmail(shake).kind, "not_custom_cake");
 });
 
-test("a custom cake beside a named cake and a shake: only the custom cake is on the post", () => {
+test("a custom cake beside a named cake and a shake: the order is posted", () => {
   // Item rows copied in after the milkshake's last modifier row.
   const row = (name: string) => `</tr><tr><td colspan=3D"2"><font>${name}</font></td><td>$0.00</td>`;
   const withNamed = swap(MILKSHAKE, "<td>Freshly Baked Brownie</td>", `<td>Freshly Baked Brownie</td>${row("1 x Oh Bats! Cake")}`);
@@ -171,9 +185,7 @@ test("a custom cake beside a named cake and a shake: only the custom cake is on 
     why: "named cake, refilled from stock: 1 x Oh Bats! Cake (Paid Via Uber Eats)",
   });
   const withBoth = swap(MILKSHAKE, "<td>Freshly Baked Brownie</td>", `<td>Freshly Baked Brownie</td>${row("1 x Oh Bats! Cake")}${row("1 x Custom Order Cake")}`);
-  const parsed = parseOloOrderEmail(withBoth);
-  assert.equal(parsed.kind, "cake_order");
-  if (parsed.kind === "cake_order") assert.deepEqual(parsed.order.cake, ["1 x Custom Order Cake"]);
+  assert.equal(parseOloOrderEmail(withBoth).kind, "cake_order");
 });
 
 test("on the store's Olo menu only Custom Order Cake is posted: the 18 named cakes and the 16 other items are not", () => {
@@ -230,11 +242,11 @@ test("on the store's Olo menu only Custom Order Cake is posted: the 18 named cak
   assert.deepEqual(notCakes.slice(0, 5).filter((n) => isNamedCakeItem(n)), []);
 });
 
-test("a custom cake order missing the name and pickup time is still posted, and the post says what is missing", () => {
+test("a custom cake order missing the name and pickup time is still posted, and the post says the name is missing", () => {
   const raw = swapHtml(CAKE, ["<td>Pat P. 0000C</td>", "<td />"], ["<td>Thursday, 11/5/2026</td>", "<td />"], ["<td>3:00 PM</td>", "<td />"]);
   assert.deepEqual(parseOloOrderEmail(raw), {
     kind: "cake_order",
-    order: { ...CAKE_POST.order, customer: "(no name on the order)", pickupAt: null, pickupText: "(no pickup time on the order)" },
+    order: { ...CAKE_POST.order, customer: "(no name on the order)", pickupAt: null },
   });
 });
 
@@ -248,13 +260,11 @@ test("an order with no Paid by line is skipped with its items alone", () => {
 
 test("numeric character references in an item or a message read as the characters", () => {
   const raw = swapHtml(CAKE, ["1 x Custom Order Cake", "1 x Custom Jack O&#8217;Lantern Cake"], ["Happy Birthday!", "It&#x2019;s your day&#33;"]);
-  const parsed = parseOloOrderEmail(raw);
-  assert.equal(parsed.kind, "cake_order");
-  if (parsed.kind === "cake_order") {
-    assert.deepEqual(parsed.order.cake, [
-      CAKE_POST.order.cake[0].replace("1 x Custom Order Cake", "1 x Custom Jack O’Lantern Cake").replace("Happy Birthday!", "It’s your day!"),
-    ]);
-  }
+  assert.equal(parseOloOrderEmail(raw).kind, "cake_order");
+  const [[quantity, , values]] = CAKE_ITEMS;
+  assert.deepEqual(itemsOf(raw), [
+    [quantity, "Custom Jack O’Lantern Cake", (values as string[]).map((v) => (v === "Happy Birthday!" ? "It’s your day!" : v))],
+  ]);
 });
 
 test("only Olo's email counts: matched on X-Original-Sender through the group, or From when sent direct", () => {
@@ -301,6 +311,7 @@ test("the HTML is found inside a multipart email and in base64 too", () => {
     `--b1\r\nContent-Type: text/html; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${html.toString("base64").replace(/.{76}/g, "$&\r\n")}\r\n` +
     `--b1--\r\n`;
   assert.deepEqual(parseOloOrderEmail(multipart), CAKE_POST);
+  assert.deepEqual(itemsOf(multipart), CAKE_ITEMS);
 });
 
 test("an HTML part sent unencoded, or in ISO-8859-1, reads the same", () => {
@@ -308,9 +319,11 @@ test("an HTML part sent unencoded, or in ISO-8859-1, reads the same", () => {
   // The mailbox reader hands bytes over as latin1, so an unencoded UTF-8 part arrives as its raw bytes.
   const utf8 = `${head}\r\nContent-Type: text/html; charset="UTF-8"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${html.toString("latin1")}\r\n`;
   assert.deepEqual(parseOloOrderEmail(utf8), CAKE_POST);
+  assert.deepEqual(itemsOf(utf8), CAKE_ITEMS);
   // In ISO-8859-1 each character is its own byte ("®" is 0xAE), so the decoded text is the bytes as given.
   const iso = `${head}\r\nContent-Type: text/html; charset=ISO-8859-1\r\n\r\n${html.toString("utf8")}\r\n`;
   assert.deepEqual(parseOloOrderEmail(iso), CAKE_POST);
+  assert.deepEqual(itemsOf(iso), CAKE_ITEMS);
 });
 
 test("the due time is New York wall clock, either side of a daylight saving change", () => {
