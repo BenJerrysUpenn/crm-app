@@ -1,6 +1,6 @@
 // Reading Olo's per-order email ("Send Redundant Order Email", store settings
-// PA013, on since 2026-11-03): which emails are custom cake orders, and what the post
-// says about each. Built from the first real ones (crm-app #142), saved
+// PA013, on since 2026-11-03): which emails are custom cake orders, and the customer's
+// name the post shows for each. Built from the first real ones (crm-app #142), saved
 // redacted under fixtures/.
 //
 // THE EMAIL, as it reached the order address on 2026-11-03. Subject "Order

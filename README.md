@@ -564,12 +564,12 @@ Neither token is ever printed or put on a command line.
 ## Cake order packing reminders in Slack (droplet command, crm-app #142)
 Every 5 minutes on bj-box (`bj-cake-order-reminders.timer`, Software-Factory `droplet/`), reads
 Olo's per-order email and, for each custom cake order, @mentions everyone on a store punch in Slack
-#cake-orders-and-ideas with the customer, pickup time and cake, asking them to pack it and react or
-reply when done. Nobody clocked in when the email arrives: the post waits until 30 minutes after the
+#cake-orders-and-ideas, asking them to pack it and react or reply when done; under that line the
+post shows only the customer's name (the owner, 2026-11-04: the cake is on the tablet and the wall). Nobody clocked in when the email arrives: the post waits until 30 minutes after the
 first store clock-in. Not marked packed (a packed reaction such as 📦 ✅ 👍, a reply in the thread,
 or the next channel message from someone mentioned) 60 minutes later: one reply in the post's
 thread, with no second mention. Claude Code writes the words as for the cash count reminders; the
-order details are copied from the email by code. Who and when: `time-app/lib/cakeOrders/plan.ts`;
+customer's name is copied from the email by code. Who and when: `time-app/lib/cakeOrders/plan.ts`;
 one pass: `run.ts`; the email: `mail.ts` (IMAP, read only) and `oloEmail.ts` (the parser); the
 words: `message.ts`; Slack: `slack.ts`; command: `cli.ts`; reads and writes: `lib/cakeOrdersPg.ts`;
 wiring: `scripts/cake-order-reminders.ts`.

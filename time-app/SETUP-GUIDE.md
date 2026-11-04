@@ -358,8 +358,9 @@ on bj-box.
 
 A job on bj-box reads the copy of each Olo order that Olo emails to the order
 address, and for each custom cake order @mentions everyone clocked in on a store shift
-in #cake-orders-and-ideas: who it is for, the pickup time and what the cake is,
-asking them to pack it and react or reply when done. If nobody is clocked in
+in #cake-orders-and-ideas, asking them to pack it and react or reply when done.
+Under that line the post shows only the customer's name, as you ruled on
+2026-11-04: the cake itself is on the tablet and the wall. If nobody is clocked in
 (an overnight order), it waits until 30 minutes after the first person clocks
 in. If nobody marks it packed within an hour (a 📦 ✅ 👍 reaction, a reply in
 the thread, or their next message in the channel), it replies once in the
