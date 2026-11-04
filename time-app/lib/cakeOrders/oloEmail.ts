@@ -157,6 +157,9 @@ export function readOloOrder(raw: string): OloRead {
   };
 }
 
+/** An item as the email writes it, "N x <name>": the post and the skip log both quote it so. */
+const itemLine = (i: OloItem) => `${i.quantity} x ${i.name}`;
+
 /** The job's parser: an Olo order with a custom cake on it is a cake order; everything else says why not. */
 export const parseOloOrderEmail: ParseEmail = (raw) => {
   const read = readOloOrder(raw);
@@ -165,7 +168,7 @@ export const parseOloOrderEmail: ParseEmail = (raw) => {
   const o = read.order;
   const cakes = o.items.filter((i) => isCustomCakeItem(i.name));
   if (!cakes.length) {
-    const listed = (items: OloItem[]) => items.map((i) => `${i.quantity} x ${i.name}`).join(", ");
+    const listed = (items: OloItem[]) => items.map(itemLine).join(", ");
     const named = o.items.filter((i) => isNamedCakeItem(i.name));
     const why = named.length ? `named cake, refilled from stock: ${listed(named)}` : `no cake on it: ${listed(o.items)}`;
     return { kind: "not_custom_cake", order: o.orderId, why: `${why}${o.paidBy ? ` (${o.paidBy})` : ""}` };
@@ -178,7 +181,7 @@ export const parseOloOrderEmail: ParseEmail = (raw) => {
       pickupAt: o.dueAt,
       pickupText: o.dueText || "(no pickup time on the order)",
       // The modifier values only: the labels are Olo's long questions ("Are There Any Food Allergies ...?").
-      cake: cakes.map((i) => [`${i.quantity} x ${i.name}`, i.modifiers.map((m) => m.value).filter(Boolean).join("; ")].filter(Boolean).join(": ")),
+      cake: cakes.map((i) => [itemLine(i), i.modifiers.map((m) => m.value).filter(Boolean).join("; ")].filter(Boolean).join(": ")),
     },
   };
 };
