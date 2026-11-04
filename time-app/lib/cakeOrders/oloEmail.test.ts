@@ -262,6 +262,8 @@ test("only Olo's email counts: matched on X-Original-Sender through the group, o
   assert.deepEqual(parseOloOrderEmail(notOlo), { kind: "not_custom_cake", why: "not an Olo order email" });
   const unrelated = "From: \"'Someone' via Admin\" <admin@example.test>\r\nX-Original-Sender: someone@example.test\r\nSubject: Order Notification\r\n\r\nA cake, I promise.\r\n";
   assert.deepEqual(parseOloOrderEmail(unrelated), { kind: "not_custom_cake", why: "not an Olo order email" });
+  // An address is matched whatever its case.
+  assert.equal(parseOloOrderEmail(swap(CAKE, "X-Original-Sender: orders@olo.com", "X-Original-Sender: Orders@OLO.com")).kind, "cake_order");
 
   // Sent straight to a mailbox, not through the group: no X-Original-Sender, Olo in From.
   const direct = swap(swap(CAKE, "X-Original-Sender: orders@olo.com\r\n", ""), `From: "'Ben & Jerry's' via Admin" <admin@example.test>`, "From: Ben & Jerry's <orders@olo.com>");
@@ -274,6 +276,10 @@ test("an Olo email that is not a new order, or has no order id or no items, is u
     why: "an Olo email that is not a new order (Order Cancelled Notification)",
   });
   assert.deepEqual(parseOloOrderEmail(swap(MILKSHAKE, "<td>Order ID:</td>", "<td>Order:</td>")), {
+    kind: "unrecognised",
+    why: "an Olo order email with no order id",
+  });
+  assert.deepEqual(parseOloOrderEmail(swapHtml(CAKE, ["<td>47729604891100001</td>", "<td>see the app</td>"])), {
     kind: "unrecognised",
     why: "an Olo order email with no order id",
   });
@@ -297,6 +303,16 @@ test("the HTML is found inside a multipart email and in base64 too", () => {
   assert.deepEqual(parseOloOrderEmail(multipart), CAKE_POST);
 });
 
+test("an HTML part sent unencoded, or in ISO-8859-1, reads the same", () => {
+  const { head, html } = decoded(CAKE);
+  // The mailbox reader hands bytes over as latin1, so an unencoded UTF-8 part arrives as its raw bytes.
+  const utf8 = `${head}\r\nContent-Type: text/html; charset="UTF-8"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${html.toString("latin1")}\r\n`;
+  assert.deepEqual(parseOloOrderEmail(utf8), CAKE_POST);
+  // In ISO-8859-1 each character is its own byte ("®" is 0xAE), so the decoded text is the bytes as given.
+  const iso = `${head}\r\nContent-Type: text/html; charset=ISO-8859-1\r\n\r\n${html.toString("utf8")}\r\n`;
+  assert.deepEqual(parseOloOrderEmail(iso), CAKE_POST);
+});
+
 test("the due time is New York wall clock, either side of a daylight saving change", () => {
   const TIME_DUE = "<td>=\r\n3:00 PM</td>";
   const due = (date: string, time: string) => {
@@ -318,6 +334,8 @@ test("a due date or time that cannot be on a clock is no pickup instant, never a
   };
   assert.equal(dueAt("Thursday, 13/5/2026", "3:00 PM"), null);
   assert.equal(dueAt("Thursday, 11/32/2026", "3:00 PM"), null);
+  assert.equal(dueAt("Thursday, 0/5/2026", "3:00 PM"), null);
+  assert.equal(dueAt("Thursday, 11/0/2026", "3:00 PM"), null);
   assert.equal(dueAt("Thursday, 11/5/2026", "11:75 PM"), null);
 });
 
