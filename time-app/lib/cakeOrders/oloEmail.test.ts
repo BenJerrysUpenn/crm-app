@@ -8,6 +8,8 @@
 //   * only a cake order is a cake order; the milkshake and the pints that
 //     arrived first are skipped, with the order id and why;
 //   * a cake flavour or topping inside a shake is not a cake;
+//   * a cake order missing the name or pickup time is still posted and says
+//     so; a due time that cannot be on a clock is no instant, never a guess;
 //   * only Olo's email counts, matched on X-Original-Sender because the group
 //     rewrites From; another Olo email, or one it cannot read, is
 //     "unrecognised", never a guess.
@@ -43,6 +45,13 @@ function decoded(raw: string): { head: string; html: Buffer } {
   const head = raw.slice(0, split).replace(/^Content-(Type|Transfer-Encoding):.*\r\n/gim, "");
   const qp = raw.slice(split + 4);
   return { head, html: Buffer.from(qp.replace(/=\r\n/g, "").replace(/=([0-9A-F]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16))), "latin1") };
+}
+
+/** The fixture with its HTML swapped (each `from` exactly once), re-sent as a single base64 text/html part. */
+function swapHtml(raw: string, ...swaps: [from: string, to: string][]): string {
+  const { head, html } = decoded(raw);
+  const edited = swaps.reduce((h, [from, to]) => swap(h, from, to), html.toString("utf8"));
+  return `${head}\r\nContent-Type: text/html; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${Buffer.from(edited, "utf8").toString("base64")}\r\n`;
 }
 
 /** The post for the derived cake order (fixtures/olo-order-cake-DERIVED.eml), read off the email by hand. */
@@ -181,6 +190,31 @@ test("every cake on the store's Olo menu is a cake, and nothing else on it is", 
   assert.deepEqual(["Cake Batter", "Birthday Cake Shake", "Cupcake", "Cake Batter Pint (16oz)"].filter((n) => isCakeItem(n)), []);
 });
 
+test("a cake order missing the name and pickup time is still posted, and the post says what is missing", () => {
+  const raw = swapHtml(CAKE, ["<td>Pat P. 0000C</td>", "<td />"], ["<td>Thursday, 11/5/2026</td>", "<td />"], ["<td>3:00 PM</td>", "<td />"]);
+  assert.deepEqual(parseOloOrderEmail(raw), {
+    kind: "cake_order",
+    order: { ...CAKE_POST.order, customer: "(no name on the order)", pickupAt: null, pickupText: "(no pickup time on the order)" },
+  });
+});
+
+test("an order with no Paid by line is skipped with its items alone", () => {
+  assert.deepEqual(parseOloOrderEmail(swapHtml(MILKSHAKE, ["<td>Paid Via Uber Eats</td>", "<td />"])), {
+    kind: "not_cake",
+    order: "47729604891115532",
+    why: "no cake on it: 1 x Custom Milkshake (20oz)",
+  });
+});
+
+test("numeric character references in an item or a message read as the characters", () => {
+  const raw = swapHtml(CAKE, ["1 x Celebration Cake", "1 x Jack O&#8217;Lantern Cake"], ["Happy Birthday!", "It&#x2019;s your day&#33;"]);
+  const parsed = parseOloOrderEmail(raw);
+  assert.equal(parsed.kind, "cake_order");
+  if (parsed.kind === "cake_order") {
+    assert.deepEqual(parsed.order.cake, ['1 x Jack O’Lantern Cake: No Allergy Concerns; Medium Round 8" (Serves 8-10); Cake Batter; Standard Frosting; It’s your day!']);
+  }
+});
+
 test("only Olo's email counts: matched on X-Original-Sender through the group, or From when sent direct", () => {
   const notOlo = swap(CAKE, "X-Original-Sender: orders@olo.com", "X-Original-Sender: someone@example.test");
   assert.deepEqual(parseOloOrderEmail(notOlo), { kind: "not_cake", why: "not an Olo order email" });
@@ -233,6 +267,16 @@ test("the due time is New York wall clock, either side of a daylight saving chan
   assert.equal(due("Monday, 11/2/2026", "12:15 AM"), "2026-11-02T05:15:00.000Z");
   assert.equal(due("Monday, 11/2/2026", "12:15 PM"), "2026-11-02T17:15:00.000Z");
   assert.equal(due("Monday, 11/2/2026", "ASAP"), null);
+});
+
+test("a due date or time that cannot be on a clock is no pickup instant, never a guess", () => {
+  const dueAt = (date: string, time: string) => {
+    const read = readOloOrder(swapHtml(CAKE, ["<td>Thursday, 11/5/2026</td>", `<td>${date}</td>`], ["<td>3:00 PM</td>", `<td>${time}</td>`]));
+    return read.kind === "order" ? read.order.dueAt : read.kind;
+  };
+  assert.equal(dueAt("Thursday, 13/5/2026", "3:00 PM"), null);
+  assert.equal(dueAt("Thursday, 11/32/2026", "3:00 PM"), null);
+  assert.equal(dueAt("Thursday, 11/5/2026", "11:75 PM"), null);
 });
 
 test("the mailbox search is Olo's order subject, to the order address, in the last days", () => {
