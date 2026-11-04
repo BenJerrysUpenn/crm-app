@@ -74,6 +74,8 @@ test("under Claude's line is the customer's name only: no pickup time, no cake",
   assert.equal(orderName(ORDER), DETAILS);
   assert.equal(orderName({ ...ORDER, customer: "  Pat <b>&\n Co  " }), "*Pat &lt;b&gt;&amp; Co*", "one line, escaped for Slack");
   assert.equal(orderName({ ...ORDER, customer: "x".repeat(100) }), `*${"x".repeat(79)}…*`, "cut at 80 characters");
+  assert.equal(orderName({ ...ORDER, customer: "y".repeat(80) }), `*${"y".repeat(80)}*`, "a name of exactly 80 characters is posted whole");
+  assert.equal(orderName({ ...ORDER, customer: "z".repeat(81) }), `*${"z".repeat(79)}…*`, "one character over is cut");
 });
 
 test("writePost: Claude's line, then the name; Claude never sees the order", async () => {
