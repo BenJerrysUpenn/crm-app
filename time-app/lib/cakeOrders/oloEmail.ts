@@ -38,7 +38,7 @@
 // heading, no order id, no items): "unrecognised", which the run counts and a
 // dry run lists by sender and subject.
 
-import { nyWallClock } from "../coverage";
+import { nyInstant } from "../cashCount/plan";
 import { headerOf } from "./mail";
 
 /** Olo's sending address, as X-Original-Sender gives it through the group. */
@@ -238,13 +238,5 @@ function nyDue(date: string, time: string): string | null {
   const hour = (Number(t[1]) % 12) + (t[3].toUpperCase() === "P" ? 12 : 0);
   const minutes = hour * 60 + Number(t[2]);
   if (month < 1 || month > 12 || day < 1 || day > 31 || minutes >= 24 * 60) return null;
-  // The wall clock as if it were UTC, moved by New York's offset at that instant; twice, for the DST edges.
-  const wall = Date.UTC(year, month - 1, day) + minutes * 60_000;
-  let at = wall + 5 * 60 * 60_000;
-  for (let i = 0; i < 2; i++) {
-    const seen = nyWallClock(new Date(at).toISOString());
-    const seenMs = Date.parse(`${seen.date}T00:00:00Z`) + seen.minutes * 60_000;
-    at += wall - seenMs;
-  }
-  return new Date(at).toISOString();
+  return new Date(nyInstant(`${year}-${month}-${day}`, minutes)).toISOString();
 }
