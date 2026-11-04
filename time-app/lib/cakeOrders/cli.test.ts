@@ -48,6 +48,7 @@ let vault: Record<string, string>;
 let vaultDown: boolean;
 let dbDown: boolean;
 let mailDown: boolean;
+let mailbox: typeof MAILBOX;
 let posts: string[];
 let logins: { user: string; password: string }[];
 let claudeTokens: string[];
@@ -91,7 +92,7 @@ function deps(at: string, env: Record<string, string | undefined> = ENV): CliMod
       return {
         async search() {
           if (mailDown) throw new Error("IMAP login failed: NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)");
-          return MAILBOX;
+          return mailbox;
         },
       };
     },
@@ -115,6 +116,7 @@ beforeEach(() => {
   vaultDown = false;
   dbDown = false;
   mailDown = false;
+  mailbox = MAILBOX;
   posts = [];
   logins = [];
   claudeTokens = [];
@@ -137,6 +139,12 @@ test("a run reads the mailbox with the Vault login, says what it read, exits 0, 
   assert.deepEqual(errs, []);
   assert.deepEqual(posts, []);
   assert.ok(noSecrets());
+});
+
+test("a run that skipped no Olo order says nothing about skipping", async () => {
+  mailbox = [MAILBOX[2]];
+  assert.equal(await runCakeOrderCli([], deps("12:05")), 0);
+  assert.deepEqual(out, ["[cake-orders] 2026-11-04 12:05, mail 1 read, 0 custom cake orders, 1 not readable: nothing due"]);
 });
 
 test("--dry-run lists what it could not read and previews the messages, posts nothing and writes nothing", async () => {
