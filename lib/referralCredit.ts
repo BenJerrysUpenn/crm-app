@@ -24,6 +24,7 @@
 // tests/referralCredit.test.ts) and thin wrappers over those calls.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isTerminal } from "@/lib/stages";
 import type { Deal } from "@/lib/types";
 
 export const REFERRAL_CREDIT_LINE = "Referral Credit";
@@ -170,11 +171,10 @@ export function likelyMatches(pending: Claim[], deal: Deal): Claim[] {
   });
 }
 
-/** A credit can go on this deal: still being quoted or booked, not paid in
+/** A credit can go on this deal: not at a terminal stage, not paid in
  *  full. The database refuses the rest (referral_credit_apply). */
 export function canTakeCredit(deal: Deal): boolean {
-  const closed = ["Event Complete", "Closed Lost", "Closed Below Min", "Closed Marketing Event"];
-  return !closed.includes(deal.stage) && deal.payment_status !== "Paid in Full";
+  return !isTerminal(deal.stage) && deal.payment_status !== "Paid in Full";
 }
 
 export type CreditRow = {
