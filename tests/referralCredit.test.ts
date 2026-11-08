@@ -582,6 +582,7 @@ describe("the Referrals section", () => {
       mkDeal({ contact_email: null }),
     );
     expect(html).toContain("No Advocate yet.");
+    expect(html).not.toContain("No Advocate on this deal.");
     expect(html).toContain("a Referral Credit needs it to check they are new");
     expect(html).toContain("needs the customer&#x27;s name and email before they can refer anyone");
   });
