@@ -236,8 +236,8 @@ extras, added by hand, and `winterMenuWarnings` does not check for them. It mirr
 ## Referrals (deal drawer, bj-finance #901)
 `components/ReferralPanel.tsx` shows, on every deal, who referred the customer and the customer's own
 Referral Credits if they are an Advocate (words: Catering-Manager `GLOSSARY.md`). Rulings are in
-bj-finance #899: a referral counts when the referred customer is new and pays a deposit by 2026-12-31
-ET; each one earns the Advocate $100; credits stack, go on the Advocate's own unpaid events and expire
+bj-finance #899: a referral counts when the referred customer had no deal with us when they were
+referred and pays a deposit between 2026-11-07 and 2026-12-31 ET; each one earns the Advocate $100; credits stack, go on the Advocate's own unpaid events and expire
 2027-12-31; when two people claim a customer, the one the customer names wins, else the first to list
 them.
 
@@ -249,13 +249,17 @@ Every rule and every write is in the database: the tables (`advocates`, `referra
 by hand. RLS: managers only. Nothing is kept in the browser. A deal turning paid (the card's deposit
 pill, the drawer's Payment status, or anything else that writes `payment_status`) earns its credit
 through the migration's trigger on `deals`, so the app makes no extra call for it; the catering sweep is
-the backstop. Recording a referral also sets `lead_source = 'referral'` on the deal and tags the
-Advocate `segment = 'advocate'` on `outreach_prospects`. `lib/referralCredit.ts` holds the panel's pure
+the backstop. Who referred a deal is `deals.referred_by_advocate_id`; `lead_source` (call-desk
+attribution, lane tags) is never overwritten, and becomes `'referral'` only when it was empty and a credit
+was just earned. Recording an Advocate tags them `segment = 'advocate'` on `outreach_prospects`. `lib/referralCredit.ts` holds the panel's pure
 half and the call wrappers (tests: `tests/referralCredit.test.ts`).
 
-"Use on this event" marks the credit used on that deal in the ledger. The quote does not take it off by
-itself yet (bj-finance #900 adds named quote lines), so the panel tells whoever quotes to take the $100
-off by hand. Until migration 029 is applied the panel says Referral Credits are not set up, so the app
+"Use on this event" marks the credit used on that deal in the ledger and adds a `{"name": "Referral
+Credit", "amount": 100}` line to `deals.named_discounts` (bj-finance #900's migration 028), which the
+quote prints; "Undo" takes both back. Before 028 is applied the ledger records the use and the panel
+says to take the $100 off by hand if the quote does not show it. When the customer names a different
+Advocate after a credit was earned, an unused credit moves to them; one already used is refused with
+a message naming both Advocates, shown in the panel, so a person decides. Until migration 029 is applied the panel says Referral Credits are not set up, so the app
 can deploy before or after it.
 
 ## Email campaigns sequence editor (crm/013)

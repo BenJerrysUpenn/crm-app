@@ -15,6 +15,10 @@
 //                                   naming an Advocate; tags the Advocate
 //   referral_claim_link(claim, deal) a pending listing is this customer
 //   referral_credit_apply(credit, deal, actor) / referral_credit_unapply
+//                                   mark a credit used on the Advocate's own
+//                                   deal and add its "Referral Credit" quote
+//                                   line (deals.named_discounts, bj-finance
+//                                   #900), or undo both
 //
 // A deal turning paid earns its credit through the trigger on deals, so the
 // card's deposit pill and the drawer's Payment status earn it with no call
@@ -36,6 +40,7 @@ export type Verdict =
   | "self_referral"
   | "no_email"
   | "not_paid"
+  | "before_offer"
   | "late"
   | "returning"
   | "listed_after_enquiry"
@@ -142,10 +147,14 @@ export function verdictText(check: Check, advocateName: string | null): string {
       return `${who} has a ${amount} Referral Credit for this booking that is not recorded yet.`;
     case "not_paid":
       return `${who} earns a ${amount} Referral Credit once this deposit is paid, by Dec 31, 2026.`;
+    case "before_offer":
+      return `No Referral Credit: the deposit was paid before the Offer started on Nov 7, 2026.`;
     case "late":
+      // Managers cannot read invoices, so until the catering sweep records
+      // the credit this can show for a deposit the invoice dates on time.
       return `No Referral Credit: the deposit was paid after Dec 31, 2026.`;
     case "returning":
-      return `No Referral Credit: this customer had booked or asked about an event with us before.`;
+      return `No Referral Credit: this customer had booked or asked about an event with us before they were referred, or already earned their Advocate a credit.`;
     case "listed_after_enquiry":
       return `No Referral Credit yet: ${who} listed this customer after they had already contacted us. If the customer names ${who}, record that below.`;
     case "self_referral":
@@ -370,8 +379,8 @@ export async function linkListing(
   return result(error);
 }
 
-/** Mark an open credit used on this deal. The quote does not take it off by
- *  itself yet: see APPLY_NOTE. */
+/** Mark an open credit used on this deal; the database also adds its
+ *  "Referral Credit" line to the deal's quote (APPLY_NOTE). */
 export async function applyCredit(
   supabase: SupabaseClient,
   creditId: number,
@@ -397,8 +406,8 @@ export async function unapplyCredit(supabase: SupabaseClient, creditId: number):
   return result(error);
 }
 
-// TODO(bj-finance #900): once quotes print named discount lines, the quote
-// worker takes each credit used on the deal as a "Referral Credit" line
-// (Catering-Manager modules/referral_credit.quote_lines) and this note goes.
+// referral_credit_apply writes the quote line into deals.named_discounts
+// (Catering-Manager migration 028, bj-finance #900) once that column exists;
+// before it does, the ledger records the use and the quote is left alone.
 export const APPLY_NOTE =
-  "Marked used on this event. The quote does not take it off by itself yet: take $100 off the quote by hand for each Referral Credit used.";
+  "Marked used on this event and added to its quote as a Referral Credit line ($100 off). If the quote does not show that line, take $100 off by hand.";

@@ -188,8 +188,9 @@ describe("what the drawer says about a referral", () => {
     ["earned_already", "Alice earned a $100 Referral Credit for this booking."],
     ["earns", "Alice has a $100 Referral Credit for this booking that is not recorded yet."],
     ["not_paid", "Alice earns a $100 Referral Credit once this deposit is paid, by Dec 31, 2026."],
+    ["before_offer", "No Referral Credit: the deposit was paid before the Offer started on Nov 7, 2026."],
     ["late", "No Referral Credit: the deposit was paid after Dec 31, 2026."],
-    ["returning", "No Referral Credit: this customer had booked or asked about an event with us before."],
+    ["returning", "No Referral Credit: this customer had booked or asked about an event with us before they were referred, or already earned their Advocate a credit."],
     ["self_referral", "No Referral Credit: an Advocate cannot refer their own event."],
     ["no_email", "No Referral Credit yet: add the customer's email so we can check they are new."],
     ["no_advocate", "No Advocate on this deal."],
@@ -462,8 +463,19 @@ describe("what each action sends to the database", () => {
     ]);
   });
 
-  it("tells whoever applies a credit to take it off the quote by hand for now", () => {
-    expect(APPLY_NOTE).toContain("take $100 off the quote by hand");
+  it("tells whoever applies a credit that the quote now carries the line", () => {
+    expect(APPLY_NOTE).toContain("added to its quote as a Referral Credit line");
+    expect(APPLY_NOTE).toContain("If the quote does not show that line, take $100 off by hand.");
+  });
+
+  it("passes the database's refusal to move a used credit through word for word", async () => {
+    const refusal =
+      "Not saved: the $100.00 Referral Credit for deal 4 went to Alice Advocate (alice@example.org) and was already used on deal 7. The customer now names Bob Advocate (bob@example.org). A person decides who keeps it: to move it to Bob Advocate, undo it on deal 7 first, then save this again.";
+    const { client } = fakeSupabase({
+      rpc: { referral_claim_add: { data: null, error: { code: "P0001", message: refusal } } },
+    });
+    expect(await recordCustomerNamed(client, mkDeal(), "Bob Advocate", "bob@example.org"))
+      .toEqual({ error: refusal });
   });
 });
 
@@ -550,7 +562,7 @@ describe("the Referrals section", () => {
     expect(html).toContain("Use on this event");
     expect(html).toContain("Undo");
     expect(html).toContain("Pat Lee (pat@example.edu), listed Nov 17, 2026");
-    expect(html).toContain("take $100 off the quote by hand");
+    expect(html).toContain("added to its quote as a Referral Credit line");
     expect(html).toContain("refused");
   });
 
