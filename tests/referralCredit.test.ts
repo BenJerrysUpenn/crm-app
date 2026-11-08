@@ -226,6 +226,11 @@ describe("pending listings the drawer suggests", () => {
     expect(likelyMatches([claim], mkDeal({ contact_first_name: null }))).toHaveLength(1);
     expect(likelyMatches([claim], mkDeal({ contact_last_name: null, contact_email: null }))).toHaveLength(0);
   });
+
+  it("does not match on a first name alone when the deal has no last name", () => {
+    const claim = mkClaim({ referred_name: "Dana Smith" });
+    expect(likelyMatches([claim], mkDeal({ contact_last_name: null, contact_email: null }))).toEqual([]);
+  });
 });
 
 describe("the Advocate's credits on their own deal", () => {
@@ -251,6 +256,18 @@ describe("the Advocate's credits on their own deal", () => {
       [5, "$100 from deal #20, expired Nov 19, 2026", false, false],
     ]);
   });
+
+  it("still offers a credit on its last day", () => {
+    const [row] = creditRows([mkCredit({ expires_on: "2026-11-20" })], mkDeal(), today);
+    expect([row.label, row.canApply]).toEqual(["$100 from deal #20, good through Nov 20, 2026", true]);
+  });
+
+  it.each(["Event Complete", "Closed Lost", "Closed Below Min", "Closed Marketing Event"])(
+    "offers no credit on a deal at %s",
+    (stage) => {
+      expect(canTakeCredit(mkDeal({ stage }))).toBe(false);
+    },
+  );
 
   it("offers nothing on a deal with nothing left to pay", () => {
     for (const deal of [
@@ -316,6 +333,25 @@ describe("loading the panel", () => {
     expect(load.data.suggestions.map((c) => c.id)).toEqual([3]);
     expect(load.data.advocate).toBeNull();
     expect(load.data.listed).toEqual([]);
+  });
+
+  it("suggests no listings once someone has claimed the deal", async () => {
+    const { client } = fakeSupabase({
+      rpc: { referral_credit_check: { data: mkCheck("not_paid"), error: null } },
+      tables: {
+        referral_claims: {
+          data: [
+            mkClaim({ id: 7, deal_id: 10, named_by: "customer" }),
+            mkClaim({ id: 8, advocate_id: 2, referred_email: "dana.rowe@example.edu" }),
+          ],
+          error: null,
+        },
+        referral_credit_balances: { data: null, error: null },
+      },
+    });
+    const load = (await loadPanel(client, mkDeal())) as Extract<PanelLoad, { state: "ready" }>;
+    expect(load.data.claims.map((c) => c.id)).toEqual([7]);
+    expect(load.data.suggestions).toEqual([]);
   });
 
   it("skips the Advocate reads on a deal with no email", async () => {
