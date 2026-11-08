@@ -124,7 +124,7 @@ documentation_map:
     docs: [time-app/ALEX-CRON-SETUP.md, time-app/SETUP-GUIDE.md]
   - paths: ["lib/coverageReminder.ts", "lib/coverageReminderCli.ts", "lib/coverageReminderPg.ts", "lib/gmailSend.ts", "scripts/coverage-reminder.ts"]
     docs: [README.md]
-  - paths: ["components/DealDetailDrawer.tsx", "lib/winterMenu.ts", "lib/menuOptions.ts", "lib/types.ts", "supabase/crm/012_winter_menu_extras*.sql"]
+  - paths: ["components/DealDetailDrawer.tsx", "lib/winterMenu.ts", "lib/menuOptions.ts", "lib/types.ts", "lib/namedDiscounts.ts", "supabase/crm/012_winter_menu_extras*.sql"]
     docs: [README.md]
   - paths: ["lib/callDesk/options.ts", "components/callDesk/GenerateDealForm.tsx"]
     docs: [docs/call-desk.md, docs/manual-deal-intake.md]

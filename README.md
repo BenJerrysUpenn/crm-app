@@ -233,6 +233,17 @@ call-desk chip, `packageIncludes` in `lib/callDesk/options.ts`, both name them);
 Brownie Sundaes, the Waffle Sundae) they are the $0 Whipped Cream and Chocolate Sauce
 extras, added by hand, and `winterMenuWarnings` does not check for them. It mirrors Catering-Manager `modules/winter_menu.py`.
 
+## Named discounts (deal drawer)
+The drawer's Money section edits `deals.named_discounts` (Catering-Manager migration `028`,
+bj-finance #900): Holiday Gift and Referral Credit lines, $100 each, one JSON object per
+line (`[{"name": "Holiday Gift", "amount": 100}]`; a second Referral Credit is a second
+object). The quote job takes them off the ice cream, so the taxable subtotal and tax fall,
+and prints the names as the discount line's label in place of "Discounts or Additional
+Fees"; the drawer previews that label (`discountLineLabel` in `lib/namedDiscounts.ts`,
+mirroring Catering-Manager `modules/quote.py` `discount_line_label`), with the old words
+kept after the names when the Short-notice surcharge field is also set. Removing the last
+line stores NULL. Apply migration 028 before deploying the drawer.
+
 ## Email campaigns sequence editor (crm/013)
 The sequence editor on `/email-campaigns` saves steps, and each lane's signature and footer, to
 the shared copy in Supabase: `supabase/crm/013_email_campaign_sequences.sql` (apply by hand in
