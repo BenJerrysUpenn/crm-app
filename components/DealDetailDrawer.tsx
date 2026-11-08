@@ -40,6 +40,7 @@ import {
 import MultiSelect from "./MultiSelect";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
+import ReferralPanel from "./ReferralPanel";
 import EventChangeDialog, { type EventChangeMode } from "./EventChangeDialog";
 import { canChangeEvent, eventChangedMessage, type EventChangeOutcome } from "@/lib/eventChange";
 import { missingRequiredFields } from "@/lib/required";
@@ -1149,6 +1150,11 @@ export default function DealDetailDrawer({
                   />
                 </FieldRow>
               </section>
+
+              {/* Referrals (bj-finance #901): who referred this customer, and
+                  their own Referral Credits. Reads and writes the database
+                  only, through migration 029's functions. */}
+              <ReferralPanel deal={deal} />
 
               <section>
                 <div className="flex items-center justify-between mb-2">
