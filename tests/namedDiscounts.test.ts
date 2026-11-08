@@ -2,7 +2,7 @@
 // Referral Credit, $100 each, stored on deals.named_discounts (Catering-Manager
 // migration 028) and printed by name on the quote's discount line. The label
 // the drawer previews mirrors Catering-Manager modules/quote.py
-// discount_line_label; these cases are the same ones its tests pin.
+// discount_line_label; these cases include the ones its tests pin.
 //
 // The drawer is rendered to static markup (no DOM here), with the Supabase
 // browser client stubbed as the system boundary, as dealDrawerWinterMenu does.
@@ -39,6 +39,7 @@ describe("namedDiscountLines", () => {
         { name: "Promo", amount: 5 },
         { name: "Holiday Gift", amount: 0 },
         { name: "Referral Credit", amount: -100 },
+        { name: "Referral Credit" },
         "Holiday Gift",
         null,
         GIFT,
@@ -62,6 +63,13 @@ describe("discountLineLabel", () => {
       "Holiday Gift + Discounts or Additional Fees",
     );
   });
+
+  it("names the lines in the order they were added, not alphabetically", () => {
+    expect(discountLineLabel([CREDIT, GIFT], false)).toBe("Referral Credit + Holiday Gift");
+    expect(discountLineLabel([CREDIT, GIFT, CREDIT], false)).toBe(
+      "Referral Credit x2 + Holiday Gift",
+    );
+  });
 });
 
 describe("adding and removing a line", () => {
@@ -69,6 +77,7 @@ describe("adding and removing a line", () => {
     const two = addNamedDiscount(addNamedDiscount([], "Holiday Gift"), "Referral Credit");
     expect(two).toEqual([GIFT, CREDIT]);
     expect(removeNamedDiscount(two, 0)).toEqual([CREDIT]);
+    expect(removeNamedDiscount([CREDIT, GIFT, CREDIT], 2)).toEqual([CREDIT, GIFT]);
     expect(removeNamedDiscount([GIFT], 0)).toBeNull();
   });
 });
@@ -112,6 +121,11 @@ describe("the deal drawer's named discounts", () => {
 
   it("keeps the old words in the label when the surcharge field is also set", () => {
     const html = drawer(mkDeal({ named_discounts: [GIFT], short_notice_surcharge: -90 }));
+    expect(html).toContain("Quote line: Holiday Gift + Discounts or Additional Fees");
+  });
+
+  it("keeps the old words for a short-notice fee too, not only a discount", () => {
+    const html = drawer(mkDeal({ named_discounts: [GIFT], short_notice_surcharge: 50 }));
     expect(html).toContain("Quote line: Holiday Gift + Discounts or Additional Fees");
   });
 });
