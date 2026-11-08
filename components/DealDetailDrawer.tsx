@@ -38,6 +38,14 @@ import {
   Checkbox,
 } from "./EditableField";
 import MultiSelect from "./MultiSelect";
+import {
+  NAMED_DISCOUNTS,
+  NAMED_DISCOUNT_AMOUNT,
+  addNamedDiscount,
+  discountLineLabel,
+  namedDiscountLines,
+  removeNamedDiscount,
+} from "@/lib/namedDiscounts";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
 import ReferralPanel from "./ReferralPanel";
@@ -1148,6 +1156,51 @@ export default function DealDetailDrawer({
                     }
                     placeholder="0.00"
                   />
+                </FieldRow>
+                <FieldRow label="Named discounts">
+                  {(() => {
+                    // Holiday Gift and Referral Credit (bj-finance #900):
+                    // $100 each, off the ice cream, named on the quote.
+                    const lines = namedDiscountLines(current.named_discounts);
+                    return (
+                      <div className="space-y-1.5">
+                        {lines.map((line, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-slate-200">
+                              {line.name} −${line.amount.toFixed(2)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setField("named_discounts", removeNamedDiscount(lines, i))
+                              }
+                              className="text-xs text-slate-400 hover:text-slate-200 px-2 py-0.5"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex flex-wrap gap-1.5">
+                          {NAMED_DISCOUNTS.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() =>
+                                setField("named_discounts", addNamedDiscount(lines, name))
+                              }
+                              className="text-xs border border-slate-700 rounded-md px-2 py-1 text-slate-300 hover:bg-slate-800"
+                            >
+                              + {name} (−${NAMED_DISCOUNT_AMOUNT})
+                            </button>
+                          ))}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Quote line:{" "}
+                          {discountLineLabel(lines, Number(current.short_notice_surcharge || 0) !== 0)}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </FieldRow>
               </section>
 

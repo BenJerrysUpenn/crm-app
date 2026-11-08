@@ -1,3 +1,5 @@
+import type { NamedDiscount } from "./namedDiscounts";
+
 export type Deal = {
   id: number;
   stage: string;
@@ -73,6 +75,10 @@ export type Deal = {
   // #901): the Advocate this deal is credited to. Written only by the
   // database's referral functions. Optional: absent until 029 is applied.
   referred_by_advocate_id?: number | null;
+  // Named discount lines, owned by Catering-Manager migration 028 (bj-finance
+  // #900): Holiday Gift and Referral Credit, see lib/namedDiscounts.ts.
+  // Optional: absent from rows until 028 is applied.
+  named_discounts?: NamedDiscount[] | null;
   created_at: string;
   updated_at: string;
 };
