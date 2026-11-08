@@ -42,7 +42,7 @@ export default function ReferralPanel({
   deal: Deal;
   // Called after "Use on this event" or "Undo" succeeds: both rewrite
   // deals.named_discounts in the database, so the drawer reloads it.
-  onNamedDiscountsChanged?: () => void;
+  onNamedDiscountsChanged: () => void;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [load, setLoad] = useState<PanelLoad | null>(null);
