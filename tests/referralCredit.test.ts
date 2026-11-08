@@ -10,7 +10,7 @@
 
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Deal } from "@/lib/types";
 import {
@@ -150,16 +150,22 @@ function fakeSupabase(opts: {
 // ---------------------------------------------------------------------------
 
 describe("small helpers", () => {
-  it("normalises and checks emails", () => {
+  it("normalises an email to trimmed lower case, and a missing one to empty", () => {
     expect(normalizeEmail("  Dana.Rowe@Example.EDU ")).toBe("dana.rowe@example.edu");
     expect(normalizeEmail(null)).toBe("");
+  });
+
+  it("accepts an email only with a dotted domain", () => {
     expect(isEmail("a@b.co")).toBe(true);
     expect(isEmail("a@b")).toBe(false);
   });
 
-  it("formats money and days", () => {
+  it("shows whole dollars without cents, and cents when there are any", () => {
     expect(money(100)).toBe("$100");
     expect(money(12.5)).toBe("$12.50");
+  });
+
+  it("shows a date or a timestamp as the month, day and year", () => {
     expect(fmtDay("2027-12-31")).toBe("Dec 31, 2027");
     expect(fmtDay("2026-11-17T17:00:00+00:00")).toBe("Nov 17, 2026");
   });
@@ -196,7 +202,12 @@ describe("what the drawer says about a referral", () => {
     expect(verdictText(mkCheck("listed_after_enquiry"), "Alice")).toContain(
       "If the customer names Alice, record that below.",
     );
-    expect(verdictText(mkCheck("not_paid"), null)).toContain("the Advocate earns");
+  });
+
+  it("says 'the Advocate' when it has no name for them", () => {
+    expect(verdictText(mkCheck("not_paid"), null)).toBe(
+      "the Advocate earns a $100 Referral Credit once this deposit is paid, by Dec 31, 2026.",
+    );
   });
 });
 
@@ -421,6 +432,16 @@ describe("what each action sends to the database", () => {
 });
 
 describe("the Referrals section", () => {
+  // The section dates credits against today (Eastern): pin today so a credit
+  // good through Dec 31, 2027 is still open whenever the suite runs.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-20T17:00:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const noop = () => {};
   function render(load: PanelLoad | null, deal = mkDeal(), extra: { error?: string; note?: string } = {}) {
     return renderToStaticMarkup(
