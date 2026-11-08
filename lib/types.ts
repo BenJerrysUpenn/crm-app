@@ -1,3 +1,5 @@
+import type { NamedDiscount } from "./namedDiscounts";
+
 export type Deal = {
   id: number;
   stage: string;
@@ -69,6 +71,10 @@ export type Deal = {
   // quote of the deal. Optional: absent from rows until 026 is applied.
   custom_menu_line?: string | null;
   price_override?: number | null;
+  // Named discount lines, owned by Catering-Manager migration 028 (bj-finance
+  // #900): Holiday Gift and Referral Credit, see lib/namedDiscounts.ts.
+  // Optional: absent from rows until 028 is applied.
+  named_discounts?: NamedDiscount[] | null;
   created_at: string;
   updated_at: string;
 };
