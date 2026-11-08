@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { alertName } from "@/lib/profileName";
 import { notifyManagers } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { NextResponse } from "next/server";
@@ -42,7 +43,7 @@ export async function POST(
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Notify all managers.
-  const who = profile.full_name ?? "An employee";
+  const who = alertName(profile.full_name);
   await notifyManagers({
     type: "drop_request",
     title: "Shift drop request",

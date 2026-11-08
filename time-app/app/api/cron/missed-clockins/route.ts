@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { notify, emailForUser } from "@/lib/notify";
 import { getSettings } from "@/lib/settings";
 import { fmtTime } from "@/lib/format";
+import { alertName } from "@/lib/profileName";
 import { clockoutReminderDue, shiftEndForEntry } from "@/lib/clockoutReminder";
 import { sendShiftDigests } from "@/lib/shiftNotice";
 import { sendAvailabilityDigest } from "@/lib/availabilityNotice";
@@ -125,7 +126,7 @@ export async function GET(request: Request) {
     }
 
     const prof = (s as any).profiles;
-    const name = prof?.full_name ?? "Employee";
+    const name = alertName(prof?.full_name);
 
     // Employee nudge once the employee grace has passed.
     if (

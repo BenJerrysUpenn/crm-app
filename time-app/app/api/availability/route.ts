@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { alertName } from "@/lib/profileName";
 import { notifyManagers } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
 import { blockChange, queueAvailabilityChange } from "@/lib/availabilityNotice";
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
 
     // Notify managers of a new time-off request.
     if ((body.is_available ?? false) === false) {
-      const who = profile.full_name ?? "An employee";
+      const who = alertName(profile.full_name);
       const when =
         start === end
           ? fmtDate(start + "T12:00:00")

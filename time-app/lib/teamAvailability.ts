@@ -10,6 +10,7 @@
 
 import { resolveDay, type AvailabilityRow, type Kind, type ResolvedDay } from "./availabilityCheck.ts";
 import { mergeIntervals, weekDates } from "./coverage.ts";
+import { displayNameOrId } from "./profileName.ts";
 
 /** One person on the roster, in the order the Schedule page lists them. */
 export type RosterPerson = { id: string; full_name: string | null };
@@ -118,7 +119,7 @@ export function buildTeamGrid(roster: RosterPerson[], weekStart: string, rows: A
     const submitted = cells.some((c) => c.state !== "none");
     if (submitted) submittedCount++;
     if (cells.some((c) => c.state === "time_off" && c.status === "pending")) pendingTimeOffCount++;
-    return { id: p.id, name: p.full_name?.trim() || p.id, cells, submitted };
+    return { id: p.id, name: displayNameOrId(p.full_name, p.id), cells, submitted };
   });
 
   return { dates, rows: out, submittedCount, pendingTimeOffCount };

@@ -18,6 +18,8 @@
 // omits the key, so nobody reads as archived, and Archive/Unarchive are
 // refused with ARCHIVE_NEEDS_MIGRATION rather than falling back to active.
 
+import { usableName } from "./profileName.ts";
+
 type Person = { full_name: string | null; archived_at?: string | null };
 
 /** Shown when Archive or Unarchive is tried before migration 32 is applied. */
@@ -69,9 +71,10 @@ export function parseArchivedAt(value: unknown, now: Date): Parsed<string | null
 
 /** The name the confirm and the buttons use: the full name, else the email, else "this person". */
 export function archiveName(p: Pick<Person, "full_name">, email: string): string {
-  const name = (p.full_name ?? "").trim();
-  if (name && !name.includes("@")) return name;
-  return email.trim() || "this person";
+  // Same name rule as everywhere else (profileName.usableName: trimmed,
+  // non-email). Here the fallback is the login email, then "this person" —
+  // archiving is a manager action where the email still identifies who.
+  return usableName(p.full_name) ?? (email.trim() || "this person");
 }
 
 /** The question asked before archiving. */
