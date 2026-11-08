@@ -35,7 +35,15 @@ const BUTTON =
 const LINK_BUTTON =
   "text-[11px] text-sky-300 underline underline-offset-2 hover:text-sky-200 disabled:opacity-40";
 
-export default function ReferralPanel({ deal }: { deal: Deal }) {
+export default function ReferralPanel({
+  deal,
+  onNamedDiscountsChanged,
+}: {
+  deal: Deal;
+  // Called after "Use on this event" or "Undo" succeeds: both rewrite
+  // deals.named_discounts in the database, so the drawer reloads it.
+  onNamedDiscountsChanged?: () => void;
+}) {
   const supabase = useMemo(() => createClient(), []);
   const [load, setLoad] = useState<PanelLoad | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,13 +60,20 @@ export default function ReferralPanel({ deal }: { deal: Deal }) {
     void refresh();
   }, [refresh, deal.payment_status, deal.contact_email]);
 
-  async function run(action: () => Promise<{ error: string | null }>, done?: string) {
+  async function run(
+    action: () => Promise<{ error: string | null }>,
+    done?: string,
+    afterSuccess?: () => void,
+  ) {
     setBusy(true);
     setError(null);
     setNote(null);
     const { error: err } = await action();
     if (err) setError(err);
-    else if (done) setNote(done);
+    else {
+      if (done) setNote(done);
+      afterSuccess?.();
+    }
     await refresh();
     setBusy(false);
   }
@@ -80,8 +95,12 @@ export default function ReferralPanel({ deal }: { deal: Deal }) {
         onLink={(claimId) => run(() => linkListing(supabase, claimId, deal.id))}
         onConfirm={() => run(() => confirmCredit(supabase, deal.id))}
         onListing={(adv, referred, day) => run(() => recordListing(supabase, adv, referred, day))}
-        onApply={(creditId) => run(() => applyCredit(supabase, creditId, deal.id), APPLY_NOTE)}
-        onUndo={(creditId) => run(() => unapplyCredit(supabase, creditId))}
+        onApply={(creditId) =>
+          run(() => applyCredit(supabase, creditId, deal.id), APPLY_NOTE, onNamedDiscountsChanged)
+        }
+        onUndo={(creditId) =>
+          run(() => unapplyCredit(supabase, creditId), undefined, onNamedDiscountsChanged)
+        }
       />
     </section>
   );

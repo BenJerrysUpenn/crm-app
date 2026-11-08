@@ -225,6 +225,24 @@ export default function DealDetailDrawer({
     .join(" ");
   const colour = STAGE_COLOURS[current.stage as Stage];
 
+  // A Referral Credit used or undone in the Referrals panel rewrites
+  // named_discounts in the database. Take the stored lines and drop any
+  // unsaved edit of them, so a later save can't put the old lines back.
+  async function reloadNamedDiscounts() {
+    const { data } = await supabase
+      .from("deals")
+      .select("named_discounts")
+      .eq("id", deal.id)
+      .single();
+    if (!data) return;
+    setEdits((prev) => {
+      const next = { ...prev };
+      delete next.named_discounts;
+      return next;
+    });
+    onDealUpdate?.({ ...deal, named_discounts: data.named_discounts } as Deal);
+  }
+
   function setField<K extends keyof Deal>(key: K, value: Deal[K]) {
     setEdits((prev) => ({ ...prev, [key]: value }));
   }
@@ -1207,7 +1225,7 @@ export default function DealDetailDrawer({
               {/* Referrals (bj-finance #901): who referred this customer, and
                   their own Referral Credits. Reads and writes the database
                   only, through migration 029's functions. */}
-              <ReferralPanel deal={deal} />
+              <ReferralPanel deal={deal} onNamedDiscountsChanged={reloadNamedDiscounts} />
 
               <section>
                 <div className="flex items-center justify-between mb-2">
