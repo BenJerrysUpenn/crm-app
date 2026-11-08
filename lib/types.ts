@@ -71,6 +71,10 @@ export type Deal = {
   // quote of the deal. Optional: absent from rows until 026 is applied.
   custom_menu_line?: string | null;
   price_override?: number | null;
+  // Referral Credit, owned by Catering-Manager migration 029 (bj-finance
+  // #901): the Advocate this deal is credited to. Written only by the
+  // database's referral functions. Optional: absent until 029 is applied.
+  referred_by_advocate_id?: number | null;
   // Named discount lines, owned by Catering-Manager migration 028 (bj-finance
   // #900): Holiday Gift and Referral Credit, see lib/namedDiscounts.ts.
   // Optional: absent from rows until 028 is applied.
