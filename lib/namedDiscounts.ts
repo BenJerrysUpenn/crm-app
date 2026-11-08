@@ -14,9 +14,7 @@
 // as the discount line's label; discountLineLabel below mirrors its label so
 // the drawer shows what the quote will say. Both are $100 by the ruling.
 
-export const HOLIDAY_GIFT = "Holiday Gift";
-export const REFERRAL_CREDIT = "Referral Credit";
-export const NAMED_DISCOUNTS = [HOLIDAY_GIFT, REFERRAL_CREDIT] as const;
+export const NAMED_DISCOUNTS = ["Holiday Gift", "Referral Credit"] as const;
 export type NamedDiscountName = (typeof NAMED_DISCOUNTS)[number];
 export type NamedDiscount = { name: NamedDiscountName; amount: number };
 
@@ -25,7 +23,7 @@ export const NAMED_DISCOUNT_AMOUNT = 100;
 
 // What the quote's discount line has always said, and still says with no
 // named line on it.
-export const DISCOUNT_LINE_LABEL = "Discounts or Additional Fees";
+const DISCOUNT_LINE_LABEL = "Discounts or Additional Fees";
 
 function isName(value: unknown): value is NamedDiscountName {
   return (NAMED_DISCOUNTS as readonly unknown[]).includes(value);
