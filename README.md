@@ -256,7 +256,9 @@ half and the call wrappers (tests: `tests/referralCredit.test.ts`).
 
 "Use on this event" marks the credit used on that deal in the ledger and adds a `{"name": "Referral
 Credit", "amount": 100}` line to `deals.named_discounts` (bj-finance #900's migration 028), which the
-quote prints; "Undo" takes both back. Before 028 is applied the ledger records the use and the panel
+quote prints; "Undo" takes both back. Either one, once it succeeds, makes the drawer re-read the stored
+`named_discounts` and drop any unsaved edit of them (`reloadNamedDiscounts` in
+`components/DealDetailDrawer.tsx`), so a later Money save cannot write the old lines back. Before 028 is applied the ledger records the use and the panel
 says to take the $100 off by hand if the quote does not show it. When the customer names a different
 Advocate after a credit was earned, an unused credit moves to them; one already used is refused with
 a message naming both Advocates, shown in the panel, so a person decides. Until migration 029 is applied the panel says Referral Credits are not set up, so the app
