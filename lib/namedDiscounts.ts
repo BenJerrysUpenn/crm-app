@@ -21,8 +21,7 @@ export type NamedDiscount = { name: NamedDiscountName; amount: number };
 // Each Holiday Gift and each Referral Credit is $100 off (#899).
 export const NAMED_DISCOUNT_AMOUNT = 100;
 
-// What the quote's discount line has always said, and still says with no
-// named line on it.
+// The quote's discount line label when no named line is on it.
 const DISCOUNT_LINE_LABEL = "Discounts or Additional Fees";
 
 function isName(value: unknown): value is NamedDiscountName {
