@@ -15,6 +15,7 @@ import {
   balanceText,
   confirmCredit,
   creditRows,
+  customerName,
   fmtDay,
   isEmail,
   linkListing,
@@ -228,13 +229,7 @@ function AsAdvocate({
   const [email, setEmail] = useState("");
   const [day, setDay] = useState(easternTodayYmd());
   const rows = creditRows(data.credits, deal, easternTodayYmd());
-  const self = {
-    name:
-      [deal.contact_first_name, deal.contact_last_name].filter(Boolean).join(" ") ||
-      deal.company ||
-      "",
-    email: deal.contact_email ?? "",
-  };
+  const self = { name: customerName(deal), email: deal.contact_email ?? "" };
   const canList = self.name !== "" && isEmail(self.email);
   const ok = canList && name.trim() !== "" && (email.trim() === "" || isEmail(email)) && day !== "";
 

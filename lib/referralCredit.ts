@@ -171,6 +171,16 @@ export function likelyMatches(pending: Claim[], deal: Deal): Claim[] {
   });
 }
 
+/** The deal's customer as a referral names them: the contact's name, else
+ *  the company, else "" when the deal has neither. */
+export function customerName(deal: Deal): string {
+  return (
+    [deal.contact_first_name, deal.contact_last_name].filter(Boolean).join(" ") ||
+    deal.company ||
+    ""
+  );
+}
+
 /** A credit can go on this deal: not at a terminal stage, not paid in
  *  full. The database refuses the rest (referral_credit_apply). */
 export function canTakeCredit(deal: Deal): boolean {
@@ -315,10 +325,7 @@ export async function recordCustomerNamed(
   advocateName: string,
   advocateEmail: string,
 ): Promise<Result> {
-  const customer =
-    [deal.contact_first_name, deal.contact_last_name].filter(Boolean).join(" ") ||
-    deal.company ||
-    `deal #${deal.id}`;
+  const customer = customerName(deal) || `deal #${deal.id}`;
   const { error } = await supabase.rpc("referral_claim_add", {
     p_advocate_name: advocateName.trim(),
     p_advocate_email: normalizeEmail(advocateEmail),
