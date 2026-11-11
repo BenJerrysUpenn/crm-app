@@ -19,7 +19,10 @@
 --      the body the catalog actually holds: every DELETE in
 --      claim_availability_digest must carry a WHERE before its RETURNING. The
 --      rule, not one phrasing, is checked, so reformatting the body or choosing
---      a different WHERE does not fail it; dropping the WHERE does.
+--      a different WHERE does not fail it; dropping the WHERE does. Only the
+--      DELETE's own WHERE counts, as with the guard: comments, string literals
+--      and anything in parentheses (a subquery in USING, a CTE) are set aside
+--      first, so "-- where" or "using (select ... where ...)" does not pass.
 --   2. BEHAVIOUR UNCHANGED. The first claim of a day takes every queued notice
 --      once and records the day; a second claim the same day returns nothing;
 --      a notice queued after that day's email waits for the next day's; rows
@@ -38,6 +41,7 @@ declare
   n       integer;
   src     text;
   stmt    text;
+  prev    text;
   deletes integer := 0;
 begin
   select id into emp from public.profiles where role = 'employee' order by created_at limit 1;
@@ -49,6 +53,21 @@ begin
   -- ---- 1. the guard: pg-safeupdate's rule, every DELETE carries its own WHERE ----------
   select lower(p.prosrc) into src from pg_proc p
    where p.oid = 'public.claim_availability_digest(date)'::regprocedure;
+  -- the guard reads the parsed statement, so comments and literals say nothing
+  src := regexp_replace(src, '--[^\n]*', ' ', 'g');
+  src := regexp_replace(src, '/\*.*?\*/', ' ', 'g');
+  src := regexp_replace(src, '''([^'']|'''')*''', ' ', 'g');
+  n := (select count(*) from regexp_matches(src, '\mdelete\s+from\M', 'g'));
+  -- set aside every parenthesised group, innermost first: a WHERE in a subquery
+  -- or CTE is not the DELETE's own WHERE
+  loop
+    prev := src;
+    src := regexp_replace(src, '\([^()]*\)', ' ', 'g');
+    exit when src = prev;
+  end loop;
+  if n <> (select count(*) from regexp_matches(src, '\mdelete\s+from\M', 'g')) then
+    raise exception 'claim_availability_digest has a DELETE inside parentheses (a subquery or CTE) that this check cannot hold to the safe-update guard';
+  end if;
   for stmt in select s from regexp_split_to_table(src, ';') s where s ~ '\mdelete\s+from\M' loop
     deletes := deletes + 1;
     -- the DELETE's own clauses run from "delete from" to its RETURNING (or the end)
