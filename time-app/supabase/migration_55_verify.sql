@@ -43,6 +43,8 @@ declare
   stmt    text;
   prev    text;
   deletes integer := 0;
+  -- what the check counts as a DELETE statement, everywhere it looks for one
+  del_re  constant text := '\mdelete\s+from\M';
 begin
   select id into emp from public.profiles where role = 'employee' order by created_at limit 1;
   select id into other from public.profiles where role = 'employee' and id <> emp order by created_at limit 1;
@@ -57,7 +59,7 @@ begin
   src := regexp_replace(src, '--[^\n]*', ' ', 'g');
   src := regexp_replace(src, '/\*.*?\*/', ' ', 'g');
   src := regexp_replace(src, '''([^'']|'''')*''', ' ', 'g');
-  n := (select count(*) from regexp_matches(src, '\mdelete\s+from\M', 'g'));
+  n := (select count(*) from regexp_matches(src, del_re, 'g'));
   -- set aside every parenthesised group, innermost first: a WHERE in a subquery
   -- or CTE is not the DELETE's own WHERE
   loop
@@ -65,13 +67,13 @@ begin
     src := regexp_replace(src, '\([^()]*\)', ' ', 'g');
     exit when src = prev;
   end loop;
-  if n <> (select count(*) from regexp_matches(src, '\mdelete\s+from\M', 'g')) then
+  if n <> (select count(*) from regexp_matches(src, del_re, 'g')) then
     raise exception 'claim_availability_digest has a DELETE inside parentheses (a subquery or CTE) that this check cannot hold to the safe-update guard';
   end if;
-  for stmt in select s from regexp_split_to_table(src, ';') s where s ~ '\mdelete\s+from\M' loop
+  for stmt in select s from regexp_split_to_table(src, ';') s where s ~ del_re loop
     deletes := deletes + 1;
     -- the DELETE's own clauses run from "delete from" to its RETURNING (or the end)
-    stmt := split_part(substring(stmt from '\mdelete\s+from\M(.*)$'), 'returning', 1);
+    stmt := split_part(substring(stmt from del_re || '(.*)$'), 'returning', 1);
     if stmt !~ '\mwhere\M' then
       raise exception 'claim_availability_digest has a DELETE with no WHERE — the safe-update guard rejects it (#834): delete from%', stmt;
     end if;
