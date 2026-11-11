@@ -89,13 +89,17 @@ begin
   reset role;
   if n <> 1 then raise exception 'the next day''s availability claim did not return the waiting notice'; end if;
 
-  -- rows more than 60 days older than the day are pruned as the claim goes
-  insert into public.availability_digests (digest_day) values (v_day - 61), (v_day - 60);
+  -- rows more than 60 days older than the day are pruned as the claim goes; a row
+  -- exactly 60 days older is kept (2017-03-17 claims: 2017-01-15 goes, 2017-01-16 stays)
+  insert into public.availability_digests (digest_day) values (date '2017-01-15'), (date '2017-01-16');
   set local role service_role;
-  perform public.claim_availability_digest(v_day + 2);
+  perform public.claim_availability_digest(date '2017-03-17');
   reset role;
-  if exists (select 1 from public.availability_digests where digest_day = v_day - 61) then
+  if exists (select 1 from public.availability_digests where digest_day = date '2017-01-15') then
     raise exception 'an availability email row more than 60 days old was not pruned';
+  end if;
+  if not exists (select 1 from public.availability_digests where digest_day = date '2017-01-16') then
+    raise exception 'an availability email row exactly 60 days old was pruned';
   end if;
 
   -- ---- 3. only the service role may execute the claim --------------------------------
