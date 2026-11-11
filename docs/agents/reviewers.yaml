@@ -118,6 +118,8 @@ documentation_map:
     docs: [README.md]
   - paths: ["time-app/supabase/migration_48*.sql", "time-app/lib/shiftNotice.ts", "time-app/lib/availabilityNotice.ts", "time-app/lib/repeatUntil.ts", "time-app/app/api/availability/**", "time-app/components/AvailabilityCalendar.tsx"]
     docs: [README.md, time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/supabase/migration_55*.sql"]
+    docs: [README.md, time-app/SETUP-GUIDE.md]
   - paths: ["time-app/app/api/shifts/**", "time-app/lib/notify.ts", "time-app/lib/notifPrefs.ts", "time-app/lib/availabilityCheck.ts", "time-app/lib/availabilityRows.ts"]
     docs: [README.md, time-app/SETUP-GUIDE.md]
   - paths: ["time-app/app/api/cron/missed-clockins/route.ts"]
