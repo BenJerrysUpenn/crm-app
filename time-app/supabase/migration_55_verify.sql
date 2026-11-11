@@ -11,13 +11,15 @@
 -- database it is exercised only on a day long past, restored by the ROLLBACK).
 --
 -- WHAT IS CHECKED
---   1. THE GUARD (#834). The fixed claim_availability_digest's DELETE carries
---      an explicit WHERE and no longer has the bare "using fresh" that
---      migration 48 shipped. That WHERE is exactly what the service-role
---      safe-update guard (pg-safeupdate) demands — a DELETE with no WHERE is
---      what raised "DELETE requires a WHERE clause" on every cron run. The
---      guard extension is not present in this throwaway Postgres, so the
---      property is asserted against the function the catalog actually holds.
+--   1. THE GUARD (#834). The service-role safe-update guard (pg-safeupdate)
+--      rejects any DELETE whose statement has no WHERE of its own — that is
+--      what raised "DELETE requires a WHERE clause" on every cron run against
+--      migration 48's "delete ... using fresh returning ...". The extension is
+--      not present in this throwaway Postgres, so its rule is applied here to
+--      the body the catalog actually holds: every DELETE in
+--      claim_availability_digest must carry a WHERE before its RETURNING. The
+--      rule, not one phrasing, is checked, so reformatting the body or choosing
+--      a different WHERE does not fail it; dropping the WHERE does.
 --   2. BEHAVIOUR UNCHANGED. The first claim of a day takes every queued notice
 --      once and records the day; a second claim the same day returns nothing;
 --      a notice queued after that day's email waits for the next day's; rows
@@ -34,7 +36,9 @@ declare
   other   uuid;
   v_day   date := date '2017-03-15';
   n       integer;
-  def     text;
+  src     text;
+  stmt    text;
+  deletes integer := 0;
 begin
   select id into emp from public.profiles where role = 'employee' order by created_at limit 1;
   select id into other from public.profiles where role = 'employee' and id <> emp order by created_at limit 1;
@@ -42,13 +46,19 @@ begin
     raise exception 'need two employees in profiles to run this file';
   end if;
 
-  -- ---- 1. the guard: the DELETE is WHERE-qualified, the migration-48 shape is gone ----
-  def := pg_get_functiondef('public.claim_availability_digest(date)'::regprocedure);
-  if position('where exists (select 1 from fresh)' in lower(def)) = 0 then
-    raise exception 'claim_availability_digest has no "where exists (select 1 from fresh)" — the #834 WHERE is missing';
-  end if;
-  if position('using fresh' in lower(def)) <> 0 then
-    raise exception 'claim_availability_digest still has the unqualified "using fresh" delete that raised #834';
+  -- ---- 1. the guard: pg-safeupdate's rule, every DELETE carries its own WHERE ----------
+  select lower(p.prosrc) into src from pg_proc p
+   where p.oid = 'public.claim_availability_digest(date)'::regprocedure;
+  for stmt in select s from regexp_split_to_table(src, ';') s where s ~ '\mdelete\s+from\M' loop
+    deletes := deletes + 1;
+    -- the DELETE's own clauses run from "delete from" to its RETURNING (or the end)
+    stmt := split_part(substring(stmt from '\mdelete\s+from\M(.*)$'), 'returning', 1);
+    if stmt !~ '\mwhere\M' then
+      raise exception 'claim_availability_digest has a DELETE with no WHERE — the safe-update guard rejects it (#834): delete from%', stmt;
+    end if;
+  end loop;
+  if deletes = 0 then
+    raise exception 'found no DELETE in claim_availability_digest to hold to the safe-update guard';
   end if;
 
   -- ---- 2. the first claim takes the whole queue once a day ---------------------------
