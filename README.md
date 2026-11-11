@@ -559,7 +559,10 @@ availability answers 503 with a message.
   own availability (`/api/availability` POST and DELETE, `week`, `copy-week`, `recurring`) puts
   an in-app row on each scheduler's bell and queues the dates or weekdays whose blocks changed in
   `availability_notices`. The same 8pm cron claims the day's queue once
-  (`claim_availability_digest`) and emails each scheduler one list, by person. Schedulers: every
+  (`claim_availability_digest`, whose DELETE migration 55 qualifies with `where exists (select 1
+  from fresh)`: the service-role connection's safe-update guard rejects a DELETE with no WHERE,
+  bj-finance #834; apply `time-app/supabase/migration_55.sql` by hand after migration 54, with
+  `_verify.sql` and `_down.sql` beside it) and emails each scheduler one list, by person. Schedulers: every
   owner plus every active manager, not archived or banned. Off with
   notif_prefs `availability_change` or `email`. Time-off requests, a scheduler's own changes and a
   manager's edits to someone else's rows are left out.
