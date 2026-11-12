@@ -76,11 +76,13 @@ export type CakeOrderResult =
       /** "2026-11-03 16:05", New York. */
       at: string;
       /** What the mailbox gave on this tick; null when it could not be read. */
-      mail: { read: number; orders: number; notCake: number; unrecognised: number } | null;
+      mail: { read: number; orders: number; notCustomCake: number; unrecognised: number } | null;
       /** People on a store punch now; null when the punches were not loaded. */
       onClock: number | null;
       posted: { order: string; source: string; mentioned: number; note?: string }[];
       held: { order: string; why: string }[];
+      /** Olo orders read and not posted because there is no custom cake on them (a named cake, or no cake), with why. */
+      skipped: { order: string; why: string }[];
       followups: { order: string; outcome: string; how?: string; source?: string; note?: string }[];
       errors: string[];
       /** Dry run only: the emails not read as orders, by sender and subject. */
@@ -108,6 +110,7 @@ export async function runCakeOrderReminders(deps: RunDeps): Promise<CakeOrderRes
     onClock: null,
     posted: [],
     held: [],
+    skipped: [],
     followups: [],
     errors: [],
     ...(dryRun ? { unread: [], messages: [] } : {}),
@@ -179,7 +182,8 @@ export async function runCakeOrderReminders(deps: RunDeps): Promise<CakeOrderRes
   try {
     const mail = await deps.mail.search(orderMailQuery(deps.orderAddress, MAIL_DAYS));
     const seen = new Set<string>();
-    const counts = { read: mail.length, orders: 0, notCake: 0, unrecognised: 0 };
+    const skippedKeys = new Set<string>();
+    const counts = { read: mail.length, orders: 0, notCustomCake: 0, unrecognised: 0 };
     for (const m of mail) {
       let parsed;
       try {
@@ -187,8 +191,12 @@ export async function runCakeOrderReminders(deps: RunDeps): Promise<CakeOrderRes
       } catch (e) {
         parsed = { kind: "unrecognised" as const, why: `the parser failed: ${errText(e)}` };
       }
-      if (parsed.kind === "not_cake") {
-        counts.notCake += 1;
+      if (parsed.kind === "not_custom_cake") {
+        counts.notCustomCake += 1;
+        if (parsed.order && !skippedKeys.has(parsed.order)) {
+          skippedKeys.add(parsed.order);
+          result.skipped.push({ order: parsed.order, why: parsed.why });
+        }
         continue;
       }
       if (parsed.kind === "unrecognised") {
@@ -269,7 +277,7 @@ export async function runCakeOrderReminders(deps: RunDeps): Promise<CakeOrderRes
     const onClock = onStoreClock(snap, now);
     if (dryRun && duePosts === 0 && onClock.length) {
       const addressees = await people.forProfiles(onClock);
-      const sample: CakeOrder = { key: "preview", customer: "(customer)", pickupAt: null, pickupText: "(pickup time)", cake: ["(the cake, from the email)"] };
+      const sample: CakeOrder = { key: "preview", customer: "(customer)", pickupAt: null };
       result.messages!.push(dryMessage("post", "preview", "preview", "on the clock now", addressees, await writePost({ ask, people: addressees, order: sample, random: deps.random })));
       result.messages!.push(dryMessage("followup", "preview", "preview", "an hour later, not packed", [], await writeFollowup({ ask, random: deps.random })));
     }
