@@ -115,6 +115,12 @@ test("the tiles show the last bookkeeping pass, what it booked, what still waits
   assert.doesNotMatch(t, /99,999/);
 });
 
+test("the tiles read the bookkeeping pass, not a later run of another pass", () => {
+  const t = text(render({ status: "ok", runs: [...RUNS, run({ run_date: "2030-11-05", pass_code: "DAILY-03", posted_count: null, posted_dollars: null, queue_after: 40, cash: 812.4 })] }));
+  assert.match(t, /Last bookkeeping pass Nov 4 scheduled/);
+  assert.match(t, /Bank lines waiting now 9 /);
+});
+
 test("set to 90 days, the card reaches back 90 days", () => {
   const t = text(render({ status: "ok", runs: RUNS }, "90d"));
   assert.match(t, /Booked, last 90 days \$101,499\.50 2 issues filed/);
