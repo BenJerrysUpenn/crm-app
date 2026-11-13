@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
+import { useUndo } from "./UndoProvider";
+import { send } from "@/lib/undo";
 import { fmtDate, fmtTime, hoursBetween } from "@/lib/format";
 import type { Profile, TimeEntryWithEmployee } from "@/lib/types";
 
@@ -50,6 +52,7 @@ export default function Timesheets({
   tardyGraceMin: number;
 }) {
   const router = useRouter();
+  const { record } = useUndo();
   const [draft, setDraft] = useState<EntryDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -90,14 +93,63 @@ export default function Timesheets({
       setErr((await res.json().catch(() => ({}))).error ?? "Save failed.");
       return;
     }
+    const saved = ((await res.json().catch(() => ({}))) as { entry?: { id: number } }).entry;
+    if (saved?.id) recordSave(draft.id ?? null, saved.id, payload);
     setDraft(null);
     router.refresh();
   }
+
+  // "Sam's punch, Nov 12": how the undo bar names a time entry.
+  function entryLabel(employeeId: string, clockIn: string) {
+    const who = (employees.find((e) => e.id === employeeId)?.full_name ?? "someone").split(" ")[0];
+    return `${who}'s punch, ${fmtDate(clockIn)}`;
+  }
+
+  type Times = { clock_in_at: string; clock_out_at: string | null };
+  function recordSave(editedId: number | null, savedId: number, payload: Times & { employee_id: string }) {
+    const label = entryLabel(payload.employee_id, payload.clock_in_at);
+    if (editedId === null) {
+      // A new punch: Undo deletes it, Redo puts that one back.
+      let id = savedId;
+      record({
+        label: `Added ${label}`,
+        undo: async () => { await send(`/api/time-entries/${id}`, "DELETE"); },
+        redo: async () => { id = (await send<{ entry: { id: number } }>("/api/time-entries", "POST", { restores: id })).entry.id; },
+      });
+      return;
+    }
+    const was = entries.find((e) => e.id === editedId);
+    if (!was) return;
+    const before: Times = { clock_in_at: was.clock_in_at, clock_out_at: was.clock_out_at };
+    const after: Times = { clock_in_at: payload.clock_in_at, clock_out_at: payload.clock_out_at };
+    record({
+      label: `Changed ${label}`,
+      undo: async () => { await send(`/api/time-entries/${editedId}`, "PATCH", before); },
+      redo: async () => { await send(`/api/time-entries/${editedId}`, "PATCH", after); },
+    });
+  }
+
   async function deleteEntry() {
     if (!draft?.id) return;
     setBusy(true);
-    await fetch(`/api/time-entries/${draft.id}`, { method: "DELETE" });
+    setErr(null);
+    const res = await fetch(`/api/time-entries/${draft.id}`, { method: "DELETE" });
     setBusy(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setErr(j.error ?? "Delete failed.");
+      return;
+    }
+    if (j.entry) {
+      // Undo puts the punch back as it was, from the database's own copy
+      // (POST /api/time-entries restores); Redo deletes it again.
+      let id: number = j.entry.id;
+      record({
+        label: `Deleted ${entryLabel(j.entry.employee_id, j.entry.clock_in_at)}`,
+        undo: async () => { id = (await send<{ entry: { id: number } }>("/api/time-entries", "POST", { restores: id })).entry.id; },
+        redo: async () => { await send(`/api/time-entries/${id}`, "DELETE"); },
+      });
+    }
     setDraft(null);
     router.refresh();
   }

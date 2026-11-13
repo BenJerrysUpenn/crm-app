@@ -156,6 +156,8 @@ export async function PATCH(
 
 // DELETE: remove a shift (manager only). The person on it, if anyone, is told
 // it was removed: on their bell now, in the 8pm summary (lib/shiftNotice.ts).
+// Returns the shift as it was, so the screen can offer Undo (POST /api/shifts
+// with restores: its id).
 export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } },
@@ -166,7 +168,7 @@ export async function DELETE(
   const supabase = createClient();
   const { data: before } = await supabase
     .from("shifts")
-    .select("id, employee_id, starts_at, ends_at, position")
+    .select("id, employee_id, location_id, starts_at, ends_at, position, notes, deal_id")
     .eq("id", params.id)
     .maybeSingle();
   // Asked before the delete, which takes the shift's queued notices with it.
@@ -174,5 +176,5 @@ export async function DELETE(
   const { error } = await supabase.from("shifts").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   if (before?.employee_id) await tellEmployeeShiftRemoved(before.employee_id, before, newToThem);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, shift: before ?? null });
 }

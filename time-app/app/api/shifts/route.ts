@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
+import { tellEmployeeAboutShift, tellEmployeeShiftRestored } from "@/lib/shiftNotice";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
@@ -14,7 +14,11 @@ import { planEventLink, requestedEvent, writeWithEventLink } from "@/lib/shiftEv
 export const fetchCache = "force-no-store";
 
 // POST: create a shift (manager only). Body: employee_id, starts_at, ends_at,
-// position, notes, location_id, confirmLong, deal_id.
+// position, notes, location_id, confirmLong, deal_id, restores.
+//
+// restores: Undo of a delete on the schedule puts the shift back with a new id
+// and names the old one here, so the person on it is told as
+// tellEmployeeShiftRestored says (lib/shiftNotice.ts).
 //
 // deal_id is the shift's event: it is checked and given a free
 // deal_slot by lib/shiftEventLink.ts. Absent or null, the shift has no event.
@@ -94,8 +98,10 @@ export async function POST(request: Request) {
   );
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+  const restores = Number.isInteger(body.restores) && body.restores > 0 ? (body.restores as number) : null;
   if (data && body.employee_id) {
-    await tellEmployeeAboutShift("posted", { ...data, employee_id: body.employee_id });
+    if (restores) await tellEmployeeShiftRestored(restores, { ...data, employee_id: body.employee_id });
+    else await tellEmployeeAboutShift("posted", { ...data, employee_id: body.employee_id });
   }
   return NextResponse.json({ shift: data });
 }

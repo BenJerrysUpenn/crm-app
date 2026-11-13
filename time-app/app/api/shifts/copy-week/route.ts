@@ -19,6 +19,7 @@ function nyDate(iso: string) {
 // employee is told about each copy as creating the shift by hand tells them
 // (lib/shiftNotice.ts: on the bell now, in the 8pm summary by email and text).
 // Body: { weekStart: "YYYY-MM-DD" }  -> source is weekStart - 7 days.
+// Returns the copies' ids, so the screen can offer Undo (delete each one).
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile || !isManager(profile))
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
     const d = nyDate(s.starts_at as string);
     return d >= srcStart && d < weekStart;
   });
-  if (inWeek.length === 0) return NextResponse.json({ ok: true, copied: 0 });
+  if (inWeek.length === 0) return NextResponse.json({ ok: true, copied: 0, ids: [] });
 
   const rows = inWeek.map((s) => ({
     employee_id: s.employee_id,
@@ -68,5 +69,5 @@ export async function POST(request: Request) {
     await tellEmployeeAboutShift("posted", { ...s, employee_id: s.employee_id });
   }
 
-  return NextResponse.json({ ok: true, copied: rows.length });
+  return NextResponse.json({ ok: true, copied: rows.length, ids: copies.map((s) => s.id) });
 }

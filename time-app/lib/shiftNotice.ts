@@ -136,6 +136,35 @@ export async function tellEmployeeShiftRemoved(
   }).catch(() => {});
 }
 
+// A deleted shift put back by Undo (POST /api/shifts with restores). It comes
+// back with a new id. If the person's "Removed" line for the old one is still
+// waiting for the 8pm summary, they were never emailed that it went: take the
+// line back and say nothing more in the summary, so a delete and its undo
+// between two summaries add up to nothing. Otherwise they were told it was
+// removed, and it is a new shift to them again. The bell hears it either way.
+export async function tellEmployeeShiftRestored(
+  formerShiftId: number,
+  shift: { id: number; employee_id: string; starts_at: string; ends_at: string; position: string | null },
+): Promise<void> {
+  const { data, error } = await createAdminClient()
+    .from("shift_notices")
+    .delete()
+    .eq("former_shift_id", formerShiftId)
+    .eq("employee_id", shift.employee_id)
+    .eq("notice", "removed")
+    .select("id");
+  if (error || (data ?? []).length === 0) {
+    await tellEmployeeAboutShift("posted", shift);
+    return;
+  }
+  await notify({
+    userId: shift.employee_id,
+    ...MESSAGE.posted,
+    body: summary(shift),
+    inAppOnly: true,
+  }).catch(() => {});
+}
+
 // The New York day whose 8pm summary is due at this instant: that day from
 // 20:00 to 20:14, otherwise null. Intl applies the clock changes, so 8pm is
 // 00:00 UTC in summer and 01:00 UTC in winter.

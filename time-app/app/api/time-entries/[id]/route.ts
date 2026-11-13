@@ -39,7 +39,13 @@ export async function DELETE(
   if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const supabase = createClient();
+  const { data: before } = await supabase
+    .from("time_entries")
+    .select("id, employee_id, clock_in_at, clock_out_at")
+    .eq("id", params.id)
+    .maybeSingle();
   const { error } = await supabase.from("time_entries").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true });
+  // The punch as it was, so the screen can offer Undo (POST with restores).
+  return NextResponse.json({ ok: true, entry: before ?? null });
 }

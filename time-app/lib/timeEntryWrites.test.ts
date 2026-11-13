@@ -310,3 +310,61 @@ test("a fix that puts the clock-out before the clock-in is refused, and the punc
   assert.equal(res.status, 400);
   assert.equal(db.rows("time_entries")[0].clock_out_at, null);
 });
+
+// ---- Undo on Timesheets (lib/undo.ts, components/Timesheets.tsx) ----
+// A deleted punch is put back from the copy the database kept when it was
+// deleted (row_audit, migration 25's trigger; the stand-in has no trigger, so
+// the test writes that copy itself). Nothing from the browser is written.
+
+const REAL_PUNCH = {
+  id: 7,
+  employee_id: EMPLOYEE,
+  shift_id: null,
+  location_id: 1,
+  clock_in_at: "2026-11-12T17:00:00.000Z",
+  clock_in_lat: SHOP.lat,
+  clock_in_lng: SHOP.lng,
+  clock_in_accuracy_m: 12,
+  clock_in_distance_m: 3,
+  clock_out_at: "2026-11-12T22:00:00.000Z",
+  clock_out_lat: SHOP.lat,
+  clock_out_lng: SHOP.lng,
+  clock_out_distance_m: 4,
+  status: "closed",
+  created_at: "2026-11-12T17:00:01.000Z",
+  manual: false,
+};
+
+test("deleting a punch hands back who and when, for Undo", async () => {
+  db.tables.time_entries.push({ ...REAL_PUNCH });
+  db.signIn(MANAGER);
+  const res = await timesheetEntry.DELETE(new Request("http://time.test/api", { method: "DELETE" }), { params: { id: "7" } });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), {
+    ok: true,
+    entry: { id: 7, employee_id: EMPLOYEE, clock_in_at: REAL_PUNCH.clock_in_at, clock_out_at: REAL_PUNCH.clock_out_at },
+  });
+  assert.equal(db.rows("time_entries").length, 0);
+});
+
+test("Undo puts a deleted punch back as it was: a real clock-in stays real, with its location", async () => {
+  db.tables.row_audit = [{ id: 1, table_name: "time_entries", row_id: 7, op: "DELETE", before_image: { ...REAL_PUNCH } }];
+  db.signIn(MANAGER);
+  const res = await timesheet.POST(post({ restores: 7 }), noParams);
+  assert.equal(res.status, 200);
+  const [back] = db.rows("time_entries");
+  const { id: newId, ...rest } = back;
+  const { id: _old, ...expected } = REAL_PUNCH;
+  assert.notEqual(newId, undefined);
+  assert.deepEqual(rest, expected);
+});
+
+test("Undo refuses a punch it has no record of, and anyone but a manager", async () => {
+  db.tables.row_audit = [{ id: 1, table_name: "time_entries", row_id: 7, op: "DELETE", before_image: { ...REAL_PUNCH } }];
+  db.signIn(MANAGER);
+  assert.equal((await timesheet.POST(post({ restores: 8 }), noParams)).status, 404);
+  assert.equal((await timesheet.POST(post({ restores: "7" }), noParams)).status, 400);
+  db.signIn(EMPLOYEE);
+  assert.equal((await timesheet.POST(post({ restores: 7 }), noParams)).status, 403);
+  assert.equal(db.rows("time_entries").length, 0);
+});
