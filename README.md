@@ -159,6 +159,15 @@ edit inputs hold Eastern wall-clock time in any browser; the call routes convert
 with `parseCalledAt`, never with the server's own zone (Vercel runs in UTC). An edit sends
 `called_at` only when the time was changed, so saving untouched leaves it as stored.
 
+## Last picklist failure (deal drawer)
+On open the drawer loads the deal's latest `quote_jobs` row of kind `picklist`. If it failed
+(`status = 'error'`), a rose banner reads "Last picklist failed <Eastern time>: <reason>", so the
+reason survives closing the drawer; a picklist asked for from the drawer replaces it, and a
+success clears it. The decision, the time (`processed_at`, else `created_at`) and the removal of
+the worker's `RuntimeError: Picklist refused to render: #<n>: ` prefixes are in
+`lastPicklistFailure` (`lib/picklistJob.ts`). A picklist job's `error_message` is not also shown
+in the generic banner.
+
 ## COI panel (deal drawer)
 `components/CoiPanel.tsx` renders on deals with `coi_required = 1` and assembles the
 Hartford certificate request from the deal (`buildCoiRequest` in `lib/coi.ts`). It never
