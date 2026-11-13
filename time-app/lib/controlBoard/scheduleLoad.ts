@@ -107,7 +107,7 @@ export async function loadScheduleLabor(
  * the season or weekly pattern in force. A failed read says so and counts
  * no day closed, so the target is projected as before rather than guessed.
  */
-export async function loadClosedDays(supabase: SupabaseClient, dates: string[]): Promise<{ closed: Set<string>; problem: string | null }> {
+async function loadClosedDays(supabase: SupabaseClient, dates: string[]): Promise<{ closed: Set<string>; problem: string | null }> {
   const from = dates[0];
   const to = dates[dates.length - 1];
   const [hours, seasons, exceptions, notes] = await Promise.all([
