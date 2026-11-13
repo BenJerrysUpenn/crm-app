@@ -484,7 +484,11 @@ a higher $ against the same target; the day headers show only the day and date. 
 solo-close bonus per qualifying night as the board had them on that date, plus open shifts at the
 average rate of active hourly staff; salaried and overhead staff are left out. A day's projected
 sales are IN-STORE ONLY: last year's in-store sales on the same weekday 52 weeks earlier
-(`sales_daily_in_store`) times the trend factor; catering bookings never feed them. The in-store
+(`sales_daily_in_store`) times the trend factor; catering bookings never feed them. A closed day
+(`resolveOpenWindow` in `lib/coverage.ts`: a Targets-tab closed day, a "Business closed" note, or a
+weekday the season closes, as the Labor Hours Planning card reads them) projects zero in-store sales
+and so has no in-store target, whatever last year did; booked catering that day still offsets. If the
+closed-day reads fail, the page says so and projects every day as open. The in-store
 target $ is that times the hourly goal in force that day; its hours divide it by the average
 active hourly rate. Catering crew labor is cancelled out by what the client paid for (Alina,
 2026-10-16): for each booked deal that day the target adds the crew hours billed on it in the CRM

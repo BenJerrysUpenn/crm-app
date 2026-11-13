@@ -29,6 +29,15 @@
 //                              cap_rate per person, exactly as the scheduled
 //                              side applies it.
 //   Target $ / hours         = in-store target + catering offset.
+//   Closed day               = the store is closed that date (a closed day
+//                              from the Targets tab, a "Business closed"
+//                              note, a weekday the season closes; resolved
+//                              by lib/coverage.ts resolveOpenWindow, as the
+//                              Labor Hours Planning card does): no projected
+//                              in-store sales, so no in-store target, even
+//                              if the store was open the year before or has
+//                              no sales on file. Booked catering that day
+//                              still offsets.
 //
 // "We are simply taking out all catering labor by canceling it out with what
 // the client paid for" (Alina, 2026-10-16). Scheduled Catering shifts stay on
@@ -114,16 +123,20 @@ export type ScheduleLaborInput = {
   inStoreByDay: Map<string, number>;
   /** This week's booked catering deals, or null when the bookings could not be read. */
   catering: CateringBooking[] | null;
+  /** The week's dates the store is closed. None given: every day is open. */
+  closedDays?: Set<string>;
 };
 
 export type DayLabor = {
   date: string;
   /** The same weekday 52 weeks earlier. */
   lastYearDay: string;
+  /** The store is closed: no in-store target that day. */
+  closed: boolean;
   scheduledHours: number;
   lastYearInStore: Derived;
   trendedInStore: Derived;
-  /** In-store only: catering bookings never feed it. */
+  /** In-store only: catering bookings never feed it. Zero on a closed day. */
   projectedSales: Derived;
   hourlyGoal: Derived;
   /** The day's catering offset: crew hours billed on its booked deals, and their $ at crew cost + premium. */
@@ -445,10 +458,11 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   const days: DayLabor[] = dates.map((date) => {
     const scheduledHours = input.shifts.filter((s) => nyDate(s.starts_at) === date).reduce((a, s) => a + hoursOf(s), 0);
     const lastYearDay = addDays(date, -364);
+    const closed = input.closedDays?.has(date) ?? false;
     const ly = input.inStoreByDay.get(lastYearDay);
     const lastYearInStore = ly == null ? missing(lastYearNeed(lastYearDay)) : known(ly);
     const trendedInStore = both(lastYearInStore, input.trend.factor, (a, t) => a * t);
-    const projectedSales = trendedInStore;
+    const projectedSales = closed ? known(0) : trendedInStore;
     const board = boardOn(date, settings, input.salaries, input.salaried);
     const hourlyGoal: Derived = board.hourlyGoalPct.value == null
       ? missing(...board.hourlyGoalPct.needs.map((n) => (n === "sales above zero" ? "a sales estimate above zero" : n)))
@@ -458,7 +472,7 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     const { hours: cateringHours, dollars: cateringDollars } = cateringOffset({ catering: input.catering, shifts: input.shifts, people, settings }, date);
     const targetDollars = both(inStoreDollars, cateringDollars, (a, c) => a + c);
     const targetHours = both(inStoreHours, cateringHours, (a, c) => a + c);
-    const day = { date, lastYearDay, scheduledHours, lastYearInStore, trendedInStore, projectedSales, hourlyGoal, cateringHours, cateringDollars, targetDollars, targetHours, short: null as string | null };
+    const day = { date, lastYearDay, closed, scheduledHours, lastYearInStore, trendedInStore, projectedSales, hourlyGoal, cateringHours, cateringDollars, targetDollars, targetHours, short: null as string | null };
     day.short = shortReason(day);
     return day;
   });
