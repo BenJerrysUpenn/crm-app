@@ -422,6 +422,15 @@ after migration 38. Each has `_verify.sql` and `_down.sql` beside it. Sales targ
 change them with an UPDATE in the SQL editor. Snapshots are published by bj-finance, never
 written through the API, and never updated or deleted.
 
+`migration_57.sql` lets `metrics_snapshots` take a third kind, `sales_lanes`: bj-finance's
+daily sales lane numbers (emails sent against each lane's daily target, opens, replies, deals,
+bookings, spend, mailbox health, offers, alerts), payload schema 1 like the other kinds. Apply it
+by hand in the Supabase SQL editor after migration 40, once the code that ships it shows Vercel
+success on main; until then the publisher's insert is refused by the kind check. Verify with
+`migration_57_verify.sql`; roll back with `migration_57_down.sql` (it deletes every `sales_lanes`
+snapshot, switching the keep-as-published trigger off for that delete only; turn the publisher
+off first).
+
 ## Sales history tables (Withers Time, bj-finance #694)
 Apply `time-app/supabase/migration_41.sql` by hand in the Supabase SQL editor, after migration 40.
 It adds `sales_daily_in_store` (one row per day) and `sales_monthly` (one row per month and
