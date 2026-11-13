@@ -194,7 +194,7 @@ export function availabilityDigestLines(claimed: Claimed[], names: Map<string, s
     .map((x) => `${x.name}: ${x.parts.join(" · ")}`);
 }
 
-// Sends the day's availability email if it is 8pm or later in New York. Safe
+// Sends the day's availability email from 8:00 to 8:14pm New York time. Safe
 // on every cron tick: claim_availability_digest (migration 48) hands the
 // queue out once per day. Returns which schedulers were emailed.
 export async function sendAvailabilityDigest(now: number = Date.now()): Promise<{ told: string[]; error: string | null }> {

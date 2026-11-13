@@ -322,9 +322,7 @@ test("8pm is New York's 8pm on both sides of a clock change", () => {
   // Summer (EDT, UTC-4): 20:00 is 00:00 UTC the next day.
   assert.equal(digestDayAt(Date.parse("2026-10-08T23:59:00Z")), null);
   assert.equal(digestDayAt(Date.parse("2026-10-09T00:00:00Z")), "2026-10-08");
-  assert.equal(digestDayAt(Date.parse("2026-10-09T03:59:00Z")), "2026-10-08");
-  // Midnight in New York starts a new day that is not yet due.
-  assert.equal(digestDayAt(Date.parse("2026-10-09T04:00:00Z")), null);
+  assert.equal(digestDayAt(Date.parse("2026-10-09T00:14:00Z")), "2026-10-08");
   // Clocks go back 2026-11-01 (EST, UTC-5): 20:00 is 01:00 UTC the next day.
   assert.equal(digestDayAt(Date.parse("2026-11-01T00:00:00Z")), "2026-10-31");
   assert.equal(digestDayAt(Date.parse("2026-11-02T00:30:00Z")), null);
@@ -334,6 +332,29 @@ test("8pm is New York's 8pm on both sides of a clock change", () => {
   assert.equal(digestDayAt(Date.parse("2026-03-08T01:00:00Z")), "2026-03-07");
   assert.equal(digestDayAt(Date.parse("2026-03-08T23:59:00Z")), null);
   assert.equal(digestDayAt(Date.parse("2026-03-09T00:00:00Z")), "2026-03-08");
+});
+
+// 2026-11-12: a schedule copied by mistake at 11:21pm reached five people at
+// 11:25pm, because the window ran until midnight. It is 8:00 to 8:14pm now.
+test("the summary goes out only from 8:00 to 8:14pm", () => {
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "20:00"))), "2026-11-12");
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "20:14"))), "2026-11-12");
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "20:15"))), null);
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "21:00"))), null);
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "23:25"))), null);
+});
+
+test("a late-evening save waits for tomorrow's 8pm, even for someone with nothing in tonight's", async () => {
+  at(est("2026-11-12", "23:21"));
+  await create(SAM, "2026-11-17", "12:30", "16:00");
+  await tick(est("2026-11-12", "23:25"));
+  await tick(est("2026-11-12", "23:55"));
+  await tick(est("2026-11-13", "19:55"));
+  assert.deepEqual(sent, []);
+
+  await tick(est("2026-11-13", "20:00"));
+  assert.equal(to("sam@example.test").length, 1);
+  assert.deepEqual(db.rows("shift_digests").map((d) => d.digest_day), ["2026-11-13"]);
 });
 
 test("the night the clocks go back, the summary waits for 8pm EST, not 8pm EDT", async () => {
