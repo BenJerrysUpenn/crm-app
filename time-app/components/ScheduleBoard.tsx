@@ -15,9 +15,11 @@ import {
 } from "@/lib/availabilityCheck";
 import { availabilityCell, type CellAvailability, type CellLine } from "@/lib/availabilityCell";
 import { managerAssignsOnly } from "@/lib/managerAssigns";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
+import type { Profile, Shift, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 import type { ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
 import ScheduleLaborLine from "./ScheduleLaborLine";
+import { useUndo } from "./UndoProvider";
+import { each, send } from "@/lib/undo";
 import {
   eventBadgeText,
   eventBadges,
@@ -86,6 +88,29 @@ type Draft = {
   preselect_event: boolean;
 };
 
+// What Undo and Redo send to put a shift back as it was. The person was
+// already asked about a long shift or a gap in availability when it was first
+// saved, so the steps do not ask again.
+type ShiftFields = Pick<Shift, "employee_id" | "location_id" | "starts_at" | "ends_at" | "position" | "notes"> & { deal_id: number | null };
+const ALREADY_CONFIRMED = { confirmLong: true, confirmAvailability: true };
+function fieldsOf(s: Pick<Shift, keyof Omit<ShiftFields, "deal_id">> & { deal_id?: number | null }): ShiftFields {
+  return {
+    employee_id: s.employee_id ?? null,
+    location_id: s.location_id ?? null,
+    starts_at: s.starts_at,
+    ends_at: s.ends_at,
+    position: s.position ?? null,
+    notes: s.notes ?? null,
+    deal_id: s.deal_id ?? null,
+  };
+}
+// A PATCH back to `to` from `from`: the event is sent only when it differs,
+// as the popup does (lib/scheduleEvents.ts eventSaveFields).
+function patchTo(to: ShiftFields, from: ShiftFields) {
+  const { deal_id, ...rest } = to;
+  return { ...rest, ...ALREADY_CONFIRMED, ...(deal_id !== from.deal_id ? { deal_id } : {}) };
+}
+
 type DropReq = ShiftRequest & { profiles?: Pick<Profile, "id" | "full_name"> };
 
 export default function ScheduleBoard({
@@ -136,6 +161,7 @@ export default function ScheduleBoard({
     return m === "00" ? `${h12}${ap}` : `${h12}:${m}${ap}`;
   }
   const router = useRouter();
+  const { record } = useUndo();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -176,13 +202,42 @@ export default function ScheduleBoard({
     });
     setBusy(false);
     if (res.ok) {
+      const made = ((await res.json().catch(() => ({}))) as { annotation?: Annotation }).annotation;
+      if (made?.id) {
+        const fields = { ...annDraft };
+        let id = made.id;
+        record({
+          label: `Added note "${fields.title}"`,
+          undo: async () => { await send(`/api/annotations/${id}`, "DELETE"); },
+          redo: async () => { id = (await send<{ annotation: Annotation }>("/api/annotations", "POST", fields)).annotation.id; },
+        });
+      }
       setAnnDraft(null);
       router.refresh();
     }
   }
-  async function deleteAnnotation(id: number) {
-    await fetch(`/api/annotations/${id}`, { method: "DELETE" });
+  async function deleteAnnotation(a: Annotation) {
+    const res = await fetch(`/api/annotations/${a.id}`, { method: "DELETE" });
+    if (res.ok) {
+      const fields = {
+        title: a.title, message: a.message ?? "", start_date: a.start_date, end_date: a.end_date, color: a.color,
+        business_closed: a.business_closed, no_time_off: a.no_time_off, announcement: a.announcement,
+      };
+      let id = a.id;
+      record({
+        label: `Removed note "${a.title}"`,
+        undo: async () => { id = (await send<{ annotation: Annotation }>("/api/annotations", "POST", fields)).annotation.id; },
+        redo: async () => { await send(`/api/annotations/${id}`, "DELETE"); },
+      });
+    }
     router.refresh();
+  }
+
+  // "Donte's shift, Tue Nov 17" / "open shift, Tue Nov 17": how the undo bar names a shift.
+  function shiftLabel(employeeId: string | null | undefined, startsAt: string) {
+    const who = employeeId ? `${(nameById.get(employeeId) ?? "someone").split(" ")[0]}'s shift` : "open shift";
+    const day = new Date(startsAt).toLocaleDateString("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" });
+    return `${who}, ${day}`;
   }
 
   const OT_THRESHOLD = 40; // hours per week before overtime
@@ -352,6 +407,14 @@ export default function ScheduleBoard({
       setCopyMsg(j.error ?? "Auto-fill failed.");
       return;
     }
+    const picked = (j.picked ?? []) as { id: number; employee_id: string }[];
+    if (picked.length) {
+      record({
+        label: `Auto-filled ${picked.length} open shift${picked.length === 1 ? "" : "s"}`,
+        undo: () => each(picked, (p) => send(`/api/shifts/${p.id}`, "PATCH", { employee_id: null })),
+        redo: () => each(picked, (p) => send(`/api/shifts/${p.id}`, "PATCH", { employee_id: p.employee_id, confirmAvailability: true, confirmLong: true })),
+      });
+    }
     setCopyMsg(
       j.assigned
         ? `Auto-assigned ${j.assigned} open shift${j.assigned === 1 ? "" : "s"}${j.left ? `, ${j.left} left open (no one available).` : "."}`
@@ -374,7 +437,16 @@ export default function ScheduleBoard({
       setCopyMsg(j.error ?? "Copy failed.");
       return;
     }
-    setCopyMsg(j.copied ? `Copied ${j.copied} shifts from last week.` : "No shifts found last week.");
+    let ids = (j.ids ?? []) as number[];
+    if (ids.length) {
+      const target = weekStart;
+      record({
+        label: `Copied ${ids.length} shift${ids.length === 1 ? "" : "s"} from last week`,
+        undo: () => each(ids, (id) => send(`/api/shifts/${id}`, "DELETE")),
+        redo: async () => { ids = (await send<{ ids: number[] }>("/api/shifts/copy-week", "POST", { weekStart: target })).ids ?? []; },
+      });
+    }
+    setCopyMsg(j.copied ? `Copied ${j.copied} shifts from last week. Undo is at the bottom of the screen.` : "No shifts found last week.");
     router.refresh();
   }
 
@@ -462,6 +534,7 @@ export default function ScheduleBoard({
       // Open shifts can be created in bulk (How Many).
       const count = !draft.id && !draft.employee_id ? Math.max(1, Math.min(20, howMany)) : 1;
       const url = draft.id ? `/api/shifts/${draft.id}` : "/api/shifts";
+      const saved: Shift[] = [];
       for (let i = 0; i < count; i++) {
         const res = await fetch(url, {
           method: draft.id ? "PATCH" : "POST",
@@ -485,7 +558,10 @@ export default function ScheduleBoard({
           setErr(j.error ?? `Save failed (${res.status}).`);
           return;
         }
+        const j = await res.json().catch(() => ({}));
+        if (j.shift) saved.push(j.shift as Shift);
       }
+      recordSave(draft.id ?? null, saved, count);
       setDraft(null);
       setLongSave(null);
       setAvailSave(null);
@@ -497,11 +573,62 @@ export default function ScheduleBoard({
     }
   }
 
+  // The popup's save, as an undo step. An edit goes back to the shift as the
+  // page loaded it; new shifts are deleted again.
+  function recordSave(editedId: number | null, saved: Shift[], count: number) {
+    if (saved.length === 0) return;
+    if (editedId !== null) {
+      const loaded = shifts.find((x) => x.id === editedId);
+      if (!loaded) return;
+      const before = fieldsOf(loaded);
+      const after = fieldsOf(saved[0]);
+      record({
+        label: `Changed ${shiftLabel(before.employee_id, before.starts_at)}`,
+        undo: async () => { await send(`/api/shifts/${editedId}`, "PATCH", patchTo(before, after)); },
+        redo: async () => { await send(`/api/shifts/${editedId}`, "PATCH", patchTo(after, before)); },
+      });
+      return;
+    }
+    const made = fieldsOf(saved[0]);
+    let ids = saved.map((x) => x.id);
+    record({
+      label: count > 1 ? `Added ${count} open shifts, ${shiftLabel(null, made.starts_at).replace("open shift, ", "")}` : `Added ${shiftLabel(made.employee_id, made.starts_at)}`,
+      undo: async () => {
+        await each([...ids], async (id) => {
+          await send(`/api/shifts/${id}`, "DELETE");
+          ids = ids.filter((x) => x !== id);
+        });
+      },
+      // Picks up where a failed redo stopped, so a retry never makes extras.
+      redo: async () => {
+        while (ids.length < count) ids.push((await send<{ shift: Shift }>("/api/shifts", "POST", { ...made, ...ALREADY_CONFIRMED })).shift.id);
+      },
+    });
+  }
+
   async function remove() {
     if (!draft?.id) return;
     setBusy(true);
-    await fetch(`/api/shifts/${draft.id}`, { method: "DELETE" });
+    setErr(null);
+    const res = await fetch(`/api/shifts/${draft.id}`, { method: "DELETE" });
     setBusy(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setErr(j.error ?? `Delete failed (${res.status}).`);
+      return;
+    }
+    if (j.shift) {
+      const gone = fieldsOf(j.shift as Shift);
+      // Undo puts it back with a new id; Redo deletes that one.
+      let id: number = j.shift.id;
+      record({
+        label: `Deleted ${shiftLabel(gone.employee_id, gone.starts_at)}`,
+        undo: async () => {
+          id = (await send<{ shift: Shift }>("/api/shifts", "POST", { ...gone, ...ALREADY_CONFIRMED, restores: id })).shift.id;
+        },
+        redo: async () => { await send(`/api/shifts/${id}`, "DELETE"); },
+      });
+    }
     setDraft(null);
     router.refresh();
   }
@@ -552,7 +679,7 @@ export default function ScheduleBoard({
                 {a.message && <div className="text-xs text-slate-500 mt-0.5">{a.message}</div>}
                 <div className="text-[11px] text-slate-400 mt-0.5">{dayLabel(a.start_date)}{a.end_date !== a.start_date ? ` – ${dayLabel(a.end_date)}` : ""}</div>
               </div>
-              {isManager && <button onClick={() => deleteAnnotation(a.id)} className="text-xs text-slate-500 hover:text-rose-400 shrink-0">Remove</button>}
+              {isManager && <button onClick={() => deleteAnnotation(a)} className="text-xs text-slate-500 hover:text-rose-400 shrink-0">Remove</button>}
             </div>
           ))}
         </div>

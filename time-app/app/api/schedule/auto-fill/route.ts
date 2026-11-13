@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     .filter((s) => !s.employee_id)
     .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
   if (openShifts.length === 0)
-    return NextResponse.json({ ok: true, assigned: 0, left: 0 });
+    return NextResponse.json({ ok: true, assigned: 0, left: 0, picked: [] });
 
   // Active employees.
   const { data: emps } = await supabase
@@ -130,5 +130,11 @@ export async function POST(request: Request) {
     await tellEmployeeAboutShift("posted", p);
   }
 
-  return NextResponse.json({ ok: true, assigned, left: openShifts.length - assigned });
+  // picked: who went on which shift, so the screen can offer Undo (each back to open).
+  return NextResponse.json({
+    ok: true,
+    assigned,
+    left: openShifts.length - assigned,
+    picked: picked.map((p) => ({ id: p.id, employee_id: p.employee_id })),
+  });
 }

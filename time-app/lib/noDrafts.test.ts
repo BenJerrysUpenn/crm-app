@@ -109,9 +109,10 @@ test("copy last week writes live shifts and tells each person once per shift", a
   );
   const res = await copyWeek.POST(req("POST", { weekStart: WEEK }), noParams);
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true, copied: 3 });
-
+  const body = (await res.json()) as { ok: boolean; copied: number; ids: number[] };
   const copies = db.rows("shifts").slice(3);
+  // ids: the copies, so the schedule can offer Undo.
+  assert.deepEqual(body, { ok: true, copied: 3, ids: copies.map((s) => s.id) });
   assert.equal(copies.length, 3);
   assert.ok(copies.every((s) => s.published === true));
   assert.equal(copies[0].starts_at, edt("2026-10-06", "12:00"));
