@@ -44,8 +44,23 @@ describe("lastPicklistFailure", () => {
     expect(
       lastPicklistFailure({ ...failed, error_message: "DOCX not found" })?.reason,
     ).toBe("DOCX not found");
+  });
+
+  it("drops the exception class from a failure that was not a refusal", () => {
+    expect(
+      lastPicklistFailure({
+        ...failed,
+        error_message: "FileNotFoundError: picklist template missing",
+      })?.reason,
+    ).toBe("picklist template missing");
+  });
+
+  it("says no reason was recorded when the job has no message", () => {
     expect(
       lastPicklistFailure({ ...failed, error_message: null })?.reason,
+    ).toBe("no reason recorded");
+    expect(
+      lastPicklistFailure({ ...failed, error_message: "  " })?.reason,
     ).toBe("no reason recorded");
   });
 });
