@@ -41,7 +41,7 @@ const { AppRouterContext } = require("next/dist/shared/lib/app-router-context.sh
 
 type Handler = (request: Request, ctx: { params: { id: string } }) => Promise<Response>;
 const { default: ScheduleBoard } = await loadAppModule<{ default: (props: never) => React.ReactElement }>("components/ScheduleBoard.tsx");
-const { default: UndoProvider } = await loadAppModule<{ default: (props: { children: React.ReactNode }) => React.ReactElement }>("components/UndoProvider.tsx");
+const { default: UndoProvider } = await loadAppModule<{ default: (props: { children?: React.ReactNode }) => React.ReactElement }>("components/UndoProvider.tsx");
 const shiftById = await loadAppModule<{ PATCH: Handler; DELETE: Handler }>("app/api/shifts/[id]/route.ts");
 const shiftsRoute = await loadAppModule<{ POST: (request: Request) => Promise<Response> }>("app/api/shifts/route.ts");
 const copyWeek = await loadAppModule<{ POST: (request: Request) => Promise<Response> }>("app/api/shifts/copy-week/route.ts");
@@ -121,7 +121,7 @@ async function onSchedule(fn: (page: HTMLElement) => Promise<void>) {
   const root = createRoot(container);
   try {
     await act(() =>
-      root.render(React.createElement(AppRouterContext.Provider, { value: router }, React.createElement(UndoProvider, { children: board }))),
+      root.render(React.createElement(AppRouterContext.Provider, { value: router }, React.createElement(UndoProvider, null, board))),
     );
     await fn(container);
   } finally {
