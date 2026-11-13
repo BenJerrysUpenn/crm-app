@@ -105,7 +105,7 @@ export async function loadScheduleLabor(
  * Planning card resolves them (lib/coverage.ts resolveOpenWindow): a
  * "Business closed" note, a closed day or special hours from the Targets tab,
  * the season or weekly pattern in force. A failed read says so and counts
- * no day closed, so the target is projected as before rather than guessed.
+ * no day closed, so every day is projected as open rather than guessed.
  */
 async function loadClosedDays(supabase: SupabaseClient, dates: string[]): Promise<{ closed: Set<string>; problem: string | null }> {
   const from = dates[0];
