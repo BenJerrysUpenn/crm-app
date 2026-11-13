@@ -349,6 +349,17 @@ pressed while the range is that month. Every save of a saved view goes through `
 order and leave the older choice saved. Tests: `npm test` in `time-app/` includes
 `lib/metrics/*.test.ts`.
 
+The Bookkeeping passes card (bj-finance #937, `lib/metrics/passHistory.ts`,
+`components/metrics/PassHistoryWidget.tsx`) reads `public.bookkeeping_pass_runs` (migration 56): one
+row per run of DAILY-02, DAILY-03 and WEEKLY-02, written by bj-finance `modules/pass_history.py` over
+the Mac's database connection at the end of each run. One row per day, pass and sitting (`run_label`): a re-run updates its row. Managers and
+owners read it; nothing in the app writes it. Until migration 56 is applied the card says the history is
+not set up yet. Apply `time-app/supabase/migration_56.sql` by hand in the Supabase SQL editor, after
+migration 54 and after this app deploys, then run bj-finance's `modules.pass_history backfill` once to
+import the old run logs. Verify with `migration_56_verify.sql`; roll back with `migration_56_down.sql`
+(it drops every run row; the backfill can import the old logs again, rows the passes wrote since cannot
+be recovered).
+
 ## Travel Reimbursements (Withers Time)
 Staff log mileage, tolls and parking in `time-app/` at `/reimbursements`; Approvers decide
 them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. Decisions:

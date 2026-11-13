@@ -31,6 +31,7 @@ import type { LaborShift } from "@/lib/controlBoard/schedule";
 import { laborHoursPlanning, type LaborPlanning } from "./laborPlanning";
 import { nyMidnight, paged } from "./supabaseReads";
 import { loadLaborPlanningRows, planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
+import { PASS_RUN_COLUMNS, parsePassRun, type PassRun } from "./passHistory.ts";
 
 /** What the page's data spans on `today`: the weeks and months behind it, and the days from the first of those months to the end of the last month ahead. */
 function metricsWindow(today: string): { weeks: string[]; months: string[]; from: string; to: string } {
@@ -55,8 +56,16 @@ export type MetricsInputs = {
   /** Labor Hours Planning's reads (bj-finance #742); null when they failed (named in problems). */
   laborPlanning: LaborPlanningRows | null;
   feed: FeedInputs;
+  /** The bookkeeping pass history (bj-finance #937, migration 56). */
+  passRuns: PassRunsData;
   problems: string[];
 };
+
+/** public.bookkeeping_pass_runs as read: not set up yet, unreadable, or the runs of the last few months. */
+export type PassRunsData =
+  | { status: "not_enabled" }
+  | { status: "unreadable"; message: string }
+  | { status: "ok"; runs: PassRun[] };
 
 /** The finance feed as read: raw rows, parsed in buildMetricsData. */
 export type FeedInputs =
@@ -108,6 +117,7 @@ export type MetricsData = {
   /** Labor Hours Planning: 52 weeks ahead from this one; a card shows its first `weeks`. */
   laborPlanning: LaborPlanning | null;
   feed: FeedData;
+  passRuns: PassRunsData;
   problems: string[];
 };
 
@@ -128,7 +138,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     }
   }
 
-  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed] = await Promise.all([
+  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed, passRuns] = await Promise.all([
     attempt("catering deals", () =>
       paged<DealRow>(() =>
         supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", firstMonth).lte("event_date", `${lastDay}T23:59:59`).order("id"),
@@ -181,6 +191,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     attempt("labor vs target", () => loadLaborTarget(supabase, today, problems)),
     attempt("labor hours planning", () => loadLaborPlanningRows(supabase, today)),
     loadFeed(supabase, addDays(today, -95), addMonths(today, -13)),
+    loadPassRuns(supabase, addDays(today, -95)),
   ]);
 
   let deals: DealRow[] | null = null;
@@ -192,7 +203,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
 
   if (laborPlanning) problems.push(...laborPlanning.problems);
 
-  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed, problems };
+  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed, passRuns, problems };
 }
 
 /**
@@ -277,6 +288,20 @@ async function loadFeed(supabase: SupabaseClient, cashFrom: string, monthsFrom: 
     };
   } catch (e) {
     return { status: "unreadable", message: (e as Error).message };
+  }
+}
+
+/** Reads public.bookkeeping_pass_runs (migration 56) from `from` on: every pass's runs, oldest first. */
+export async function loadPassRuns(supabase: SupabaseClient, from: string): Promise<PassRunsData> {
+  try {
+    const rows = await paged<Record<string, unknown>>(() =>
+      supabase.from("bookkeeping_pass_runs").select(PASS_RUN_COLUMNS).gte("run_date", from).order("run_date").order("id"),
+    );
+    return { status: "ok", runs: rows.map(parsePassRun).filter((r): r is PassRun => r != null) };
+  } catch (e) {
+    const error = e as { message?: string; code?: string };
+    if (isMissingTable(error)) return { status: "not_enabled" };
+    return { status: "unreadable", message: error?.message ?? String(e) };
   }
 }
 
@@ -367,6 +392,7 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
       : null,
     laborPlanning: inputs.laborPlanning ? laborHoursPlanning(planningInputsFrom(inputs.laborPlanning)) : null,
     feed: buildFeed(inputs.feed),
+    passRuns: inputs.passRuns,
     problems: inputs.problems,
   };
 }

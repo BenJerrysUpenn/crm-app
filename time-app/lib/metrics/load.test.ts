@@ -388,3 +388,37 @@ test("labor hours planning before migration 47: the weekly hours, no events, and
   assert.equal(week?.estimatedHours.value, null);
   assert.ok(data.problems.includes("labor hours planning: last year's catering hours are not loaded yet (migration 47)"));
 });
+
+// ---- The bookkeeping pass history (bj-finance #937, migration 56) ------------------
+
+test("the pass history reads every pass's runs of the last few months, oldest first", async () => {
+  db.tables.bookkeeping_pass_runs = [
+    { id: 1, run_date: "2026-06-01", pass_code: "DAILY-02", run_label: "", attended: false, posted_count: 1, posted_dollars: "10.00", queue_before: 2, queue_after: 1, cash: null, issues_filed: [], note: "too old", source: "backfill" },
+    { id: 3, run_date: "2026-10-09", pass_code: "WEEKLY-02", run_label: "", attended: false, posted_count: null, posted_dollars: null, queue_before: null, queue_after: null, cash: null, issues_filed: [], note: "sales vs targets sent", source: "pass" },
+    { id: 2, run_date: "2026-10-09", pass_code: "DAILY-02", run_label: "", attended: false, posted_count: 3, posted_dollars: "2017.80", queue_before: 13, queue_after: 10, cash: null, issues_filed: [846], note: "3 posted", source: "pass" },
+    { id: 4, run_date: "2026-09-15", pass_code: "DAILY-02", run_label: "", attended: true, posted_count: 1, posted_dollars: "45.00", queue_before: 5, queue_after: 4, cash: null, issues_filed: [], note: "written late", source: "backfill" },
+  ];
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  assert.equal(data.passRuns.status, "ok");
+  if (data.passRuns.status !== "ok") return;
+  assert.deepEqual(
+    data.passRuns.runs.map((r) => `${r.runDate} ${r.passCode} ${r.postedDollars}`),
+    ["2026-09-15 DAILY-02 45", "2026-10-09 DAILY-02 2017.8", "2026-10-09 WEEKLY-02 null"],
+  );
+  assert.deepEqual(data.problems, []);
+});
+
+test("before migration 56 the pass history is not set up, which is not a problem to report", async () => {
+  db.missingTables = ["bookkeeping_pass_runs"];
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  assert.deepEqual(data.passRuns, { status: "not_enabled" });
+  assert.deepEqual(data.problems, []);
+});
+
+test("a pass history read that is refused is unreadable and says why, never an empty history", async () => {
+  const client = managerClient((url) =>
+    url.pathname.endsWith("/bookkeeping_pass_runs") ? refusal(403, "42501", "permission denied for table bookkeeping_pass_runs") : undefined,
+  );
+  const data = buildMetricsData(await loadMetricsInputs(client, NOW));
+  assert.deepEqual(data.passRuns, { status: "unreadable", message: "permission denied for table bookkeeping_pass_runs" });
+});
