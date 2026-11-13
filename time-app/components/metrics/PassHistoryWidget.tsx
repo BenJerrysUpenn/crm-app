@@ -10,7 +10,7 @@ import Chart, { formatValue } from "./Chart";
 import { CouldNotLoad, Empty, Method, Tile, Tiles } from "./parts";
 import type { MetricsData } from "@/lib/metrics/load";
 import type { WidgetSettings } from "@/lib/metrics/widgets";
-import { addDays, shortDay } from "@/lib/metrics/dates";
+import { shortDay } from "@/lib/metrics/dates";
 import { periodCount } from "@/lib/metrics/series";
 import { BOOKKEEPING_PASS, passDays, runsInPeriod, whoRan, type PassRun } from "@/lib/metrics/passHistory";
 
@@ -94,7 +94,7 @@ export function PassHistoryWidget({ data, settings }: { data: MetricsData; setti
 
   const days = periodCount(settings.period);
   const shown = runsInPeriod(pr.runs, data.today, days);
-  const chartDays = passDays(pr.runs, addDays(data.today, -days), data.today);
+  const chartDays = passDays(pr.runs, data.today, days);
   const lastBookkeeping = shown.find((r) => r.passCode === BOOKKEEPING_PASS) ?? null;
   const bookedTotal = chartDays.reduce((s, d) => s + (d.booked ?? 0), 0);
   const issues = new Set(shown.flatMap((r) => r.issuesFiled));

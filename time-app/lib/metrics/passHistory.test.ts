@@ -79,8 +79,8 @@ test("the chart's days: the bookkeeping pass only, sittings added up, the queue 
       run({ run_date: "2026-11-12", run_label: "evening", posted_dollars: 5, queue_after: null }),
       run({ run_date: "2026-11-12", posted_dollars: null, queue_after: 9 }),
     ],
-    "2026-11-05",
     "2026-11-12",
+    7,
   );
   assert.deepEqual(days, [
     { day: "2026-11-10", booked: 30.3, waiting: 4 },

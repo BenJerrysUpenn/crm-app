@@ -76,13 +76,15 @@ export type PassDay = {
 };
 
 /**
- * The bookkeeping pass's days from `from` through `to`, one per day it ran:
- * a day it did not run is left out, never drawn as nothing booked.
+ * The bookkeeping pass's days in the last `days` days through `today` (the
+ * same period as runsInPeriod), one per day it ran: a day it did not run is
+ * left out, never drawn as nothing booked.
  */
-export function passDays(runs: PassRun[], from: string, to: string): PassDay[] {
+export function passDays(runs: PassRun[], today: string, days: number): PassDay[] {
+  const from = addDays(today, -days);
   const byDay = new Map<string, PassRun[]>();
   for (const r of sortRuns(runs)) {
-    if (r.passCode !== BOOKKEEPING_PASS || r.runDate < from || r.runDate > to) continue;
+    if (r.passCode !== BOOKKEEPING_PASS || r.runDate < from || r.runDate > today) continue;
     byDay.set(r.runDate, [...(byDay.get(r.runDate) ?? []), r]);
   }
   return [...byDay.entries()].map(([day, rs]) => {
