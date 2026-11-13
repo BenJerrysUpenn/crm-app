@@ -11,6 +11,7 @@ import {
 } from "@/lib/dateFormat";
 import { calledAtFormValue, callEditBody } from "@/lib/callLog";
 import { createClient } from "@/lib/supabase/client";
+import { lastPicklistFailure } from "@/lib/picklistJob";
 import {
   FLAVOR_NAMES,
   EXTRA_LABELS,
@@ -122,6 +123,10 @@ export default function DealDetailDrawer({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quoteJob, setQuoteJob] = useState<QuoteJob | null>(null);
+  // The deal's latest picklist job, loaded on open and kept current while a
+  // new one runs, so a failed picklist's reason and time survive closing the
+  // drawer.
+  const [lastPicklist, setLastPicklist] = useState<QuoteJob | null>(null);
   const [quoteRequesting, setQuoteRequesting] = useState(false);
   // Log-a-call state. callAt is an HTML datetime-local string
   // ("YYYY-MM-DDTHH:MM") in Eastern time; the server stores it as naive UTC.
@@ -167,6 +172,31 @@ export default function DealDetailDrawer({
     setError(null);
     setQuoteJob(null);
   }, [deal.id]);
+
+  // Load the deal's latest picklist job.
+  useEffect(() => {
+    let cancelled = false;
+    setLastPicklist(null);
+    (async () => {
+      const { data } = await supabase
+        .from("quote_jobs")
+        .select("*")
+        .eq("deal_id", deal.id)
+        .eq("kind", "picklist")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled && data) setLastPicklist(data as QuoteJob);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, deal.id]);
+
+  // A picklist job asked for here becomes the latest one.
+  useEffect(() => {
+    if (quoteJob?.kind === "picklist") setLastPicklist(quoteJob);
+  }, [quoteJob]);
 
   // Poll the quote job while it's in flight.
   useEffect(() => {
@@ -692,11 +722,24 @@ export default function DealDetailDrawer({
             </div>
           );
         })()}
-        {(error || quoteJob?.error_message) && (
-          <div className="px-5 py-2 bg-rose-950 border-b border-rose-900 text-sm text-rose-200">
-            {error || quoteJob?.error_message}
-          </div>
-        )}
+        {(() => {
+          // A picklist failure shows below with its time, not here.
+          const jobError =
+            quoteJob?.kind === "picklist" ? null : quoteJob?.error_message;
+          return (error || jobError) ? (
+            <div className="px-5 py-2 bg-rose-950 border-b border-rose-900 text-sm text-rose-200">
+              {error || jobError}
+            </div>
+          ) : null;
+        })()}
+        {(() => {
+          const failure = lastPicklistFailure(lastPicklist);
+          return failure ? (
+            <div className="px-5 py-2 bg-rose-950 border-b border-rose-900 text-sm text-rose-200">
+              Last picklist failed {failure.at}: {failure.reason}
+            </div>
+          ) : null;
+        })()}
         {eventMessage && (
           <div className="px-5 py-2 bg-emerald-950 border-b border-emerald-900 text-sm text-emerald-200">
             {eventMessage}
