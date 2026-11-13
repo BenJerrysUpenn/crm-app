@@ -122,6 +122,7 @@ export const DEFAULT_VIEWS: Omit<View, "id">[] = [
       widget("weekly_ler"),
       widget("cash_on_hand"),
       widget("closed_month"),
+      widget("pass_history"),
     ],
   },
   {
