@@ -18,7 +18,7 @@ const money = (v: number | null) => (v == null ? "–" : formatValue(v, "money")
 const count = (v: number | null) => (v == null ? "–" : formatValue(v, "count"));
 
 const PASS_NAME: Record<string, string> = {
-  "DAILY-02": "Bookkeeping",
+  [BOOKKEEPING_PASS]: "Bookkeeping",
   "DAILY-03": "Cash total",
   "WEEKLY-02": "Sales report",
 };
