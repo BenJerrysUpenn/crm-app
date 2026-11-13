@@ -42,10 +42,12 @@ test("a row parses, numeric columns arriving as strings included; a row that is 
     source: "pass",
   });
   assert.equal(run({ source: "backfill" }).source, "backfill");
-  assert.equal(run({ posted_dollars: null, queue_after: "" }).postedDollars, null);
+  assert.equal(run({ posted_dollars: null }).postedDollars, null);
+  assert.equal(run({ queue_after: "" }).queueAfter, null);
   assert.equal(run({ posted_dollars: "n/a" }).postedDollars, null);
   assert.deepEqual(run({ issues_filed: null }).issuesFiled, []);
-  assert.equal(run({ note: null, run_label: null }).note, "");
+  assert.equal(run({ note: null }).note, "");
+  assert.equal(run({ run_label: null }).runLabel, "");
   assert.equal(parsePassRun(row({ run_date: "yesterday" })), null);
   assert.equal(parsePassRun(row({ run_date: 20261112 })), null);
   assert.equal(parsePassRun(row({ pass_code: null })), null);
@@ -70,7 +72,7 @@ test("the chart's days: the bookkeeping pass only, sittings added up, the queue 
   const days = passDays(
     [
       run({ run_date: "2026-11-01", posted_dollars: 50 }),
-      run({ run_date: "2026-11-10", posted_dollars: 100.1, queue_after: 7 }),
+      run({ run_date: "2026-11-10", posted_dollars: 10.1, queue_after: 7 }),
       run({ run_date: "2026-11-10", run_label: "evening", attended: true, posted_dollars: 20.2, queue_after: 4 }),
       run({ run_date: "2026-11-11", posted_dollars: null, queue_after: null }),
       run({ run_date: "2026-11-11", pass_code: "WEEKLY-02", posted_dollars: 999, queue_after: 1 }),
@@ -81,7 +83,7 @@ test("the chart's days: the bookkeeping pass only, sittings added up, the queue 
     "2026-11-12",
   );
   assert.deepEqual(days, [
-    { day: "2026-11-10", booked: 120.3, waiting: 4 },
+    { day: "2026-11-10", booked: 30.3, waiting: 4 },
     { day: "2026-11-11", booked: null, waiting: null },
     { day: "2026-11-12", booked: 5, waiting: 9 },
   ]);
