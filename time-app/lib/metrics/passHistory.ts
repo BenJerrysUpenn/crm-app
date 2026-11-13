@@ -1,6 +1,6 @@
 // The bookkeeping pass history (bj-finance #937, migration 56): one row per
 // run of DAILY-02, DAILY-03 or WEEKLY-02, written by the pass itself (bj-finance
-// modules/pass_history.py) instead of a run log in a pull request. The
+// modules/pass_history.py) at the end of its run. The
 // Metrics page draws it as a card: dollars booked and bank lines left waiting
 // for review, day by day, with every run behind "Show numbers".
 //
