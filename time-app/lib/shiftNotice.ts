@@ -140,14 +140,14 @@ export async function tellEmployeeShiftRemoved(
 // 20:00 to 20:14, otherwise null. Intl applies the clock changes, so 8pm is
 // 00:00 UTC in summer and 01:00 UTC in winter.
 //
-// ONLY AT 8PM (2026-11-12). The window used to run until midnight, so a
-// person with nothing queued at 8pm was sent a summary by the first cron tick
-// after a later save: Alina copied last week's schedule by mistake at 11:21pm
-// and five people were emailed and texted the copies at 11:25pm, before it
-// could be undone. Now a save after the window waits, queued, for the next
-// day's 8pm summary. The cron ticks every 5 minutes (ALEX-CRON-SETUP.md), so
-// the window holds three ticks; if the Mac misses all three, the summaries go
-// out the next evening and nothing is lost.
+// ONLY AT 8PM (2026-11-12). A window that ran to midnight would send a person
+// with nothing queued at 8pm a summary on the first cron tick after any later
+// save: Alina copied last week's schedule by mistake at 11:21pm and five
+// people were emailed and texted the copies at 11:25pm, before it could be
+// undone. So a save after the window waits, queued, for the next day's 8pm
+// summary. The cron ticks every 5 minutes (ALEX-CRON-SETUP.md), so the window
+// holds three ticks; if the Mac misses all three, the summaries go out the
+// next evening and nothing is lost.
 export function digestDayAt(nowMs: number): string | null {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-CA", {
