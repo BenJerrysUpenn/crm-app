@@ -204,6 +204,21 @@ test("one email a day however many ticks; a change after it waits for tomorrow's
   assert.equal(mail(OWNER)[1].text, "Availability changes\n\nSam Lee: Wed, Oct 14");
 });
 
+// 2026-11-12: the 8pm sends ran until midnight, so a late change went out on
+// the next tick. The email follows the shift summary's 8:00 to 8:14pm window.
+test("a change after 8:14pm, on a day with no email yet, waits for tomorrow's 8pm", async () => {
+  mock.timers.setTime(Date.parse(edt("2026-10-08", "20:15")));
+  as(SAM);
+  await addDay("2026-10-14");
+  await tick(edt("2026-10-08", "20:15"));
+  await tick(edt("2026-10-08", "21:05"));
+  await tick(edt("2026-10-08", "23:55"));
+  assert.deepEqual(db.outbox, []);
+
+  await tick(edt("2026-10-09", "20:14"));
+  assert.deepEqual(mail(OWNER).map((m) => m.text), ["Availability changes\n\nSam Lee: Wed, Oct 14"]);
+});
+
 test("availability_change switched off: no bell and no email; email switched off: the bell only", async () => {
   db.tables.profiles.find((p) => p.id === OWNER)!.notif_prefs = { availability_change: false };
   db.tables.profiles.find((p) => p.id === MANAGER)!.notif_prefs = { email: false };
