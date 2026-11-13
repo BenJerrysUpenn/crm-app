@@ -7,7 +7,64 @@
    "ok": true,
    "raw_sum_cents": 1234567,
    "ledger_sum_cents": 1234567
-  }
+  },
+  "categorized_through": "2026-08-14",
+  "categories": [
+   "Paychecks",
+   "Interest",
+   "Dividends & Capital Gains",
+   "Other Income",
+   "401K Contribution",
+   "Transfer",
+   "Credit Card Payment",
+   "Balance Adjustments",
+   "Buy",
+   "Mortgage",
+   "Auto Payment",
+   "Student Loans",
+   "Loan Repayment",
+   "Groceries",
+   "Restaurants & Bars",
+   "Shopping",
+   "Furniture & Housewares",
+   "Electronics",
+   "Home Improvement",
+   "Cleaning",
+   "Household Employees ",
+   "Child Care",
+   "Child Activities",
+   "Entertainment & Recreation",
+   "Public Transit",
+   "Taxi & Ride Shares",
+   "Parking & Tolls",
+   "Gas",
+   "Auto Maintenance",
+   "Gas & Electric",
+   "Water",
+   "Phone",
+   "Internet & Cable",
+   "Subscriptions",
+   "Yearly Subscriptions",
+   "Pets",
+   "Medical",
+   "Dentist",
+   "Fitness",
+   "Personal",
+   "Travel & Vacation",
+   "Charity",
+   "Taxes",
+   "Financial & Legal Services",
+   "Financial Fees",
+   "Insurance",
+   "Cash & ATM",
+   "Miscellaneous",
+   "Advertising & Promotion",
+   "Business Travel & Meals",
+   "Business Utilities & Communication",
+   "Employee Wages & Contract Labor",
+   "Office Supplies & Expenses",
+   "Postage & Shipping"
+  ]
  },
  "explorer": {
   "months": [
@@ -23,7 +80,9 @@
     "g": "income",
     "s": "Paychecks",
     "g2": "income",
-    "s2": "Paychecks"
+    "s2": "Paychecks",
+    "id": "fx-001",
+    "c": "Paychecks"
    },
    {
     "d": "2026-06-19",
@@ -32,7 +91,9 @@
     "g": "income",
     "s": "Paychecks",
     "g2": "income",
-    "s2": "Paychecks"
+    "s2": "Paychecks",
+    "id": "fx-002",
+    "c": "Paychecks"
    },
    {
     "d": "2026-06-28",
@@ -41,7 +102,9 @@
     "g": "income",
     "s": "Interest & dividends",
     "g2": "income",
-    "s2": "Interest & dividends"
+    "s2": "Interest & dividends",
+    "id": "fx-003",
+    "c": "Interest"
    },
    {
     "d": "2026-06-01",
@@ -50,7 +113,9 @@
     "g": "debt",
     "s": "Mortgage",
     "g2": "standing",
-    "s2": "Mortgage"
+    "s2": "Mortgage",
+    "id": "fx-004",
+    "c": "Mortgage"
    },
    {
     "d": "2026-06-03",
@@ -59,7 +124,9 @@
     "g": "debt",
     "s": "Autos",
     "g2": "standing",
-    "s2": "Autos"
+    "s2": "Autos",
+    "id": "fx-005",
+    "c": "Auto Payment"
    },
    {
     "d": "2026-06-12",
@@ -68,7 +135,9 @@
     "g": "debt",
     "s": "BNPL other",
     "g2": "standing",
-    "s2": "BNPL 0%"
+    "s2": "BNPL 0%",
+    "id": "fx-006",
+    "c": "Shopping"
    },
    {
     "d": "2026-06-07",
@@ -77,7 +146,9 @@
     "g": "child",
     "s": "Nanny (cash)",
     "g2": "standing",
-    "s2": "Nanny (cash)"
+    "s2": "Nanny (cash)",
+    "id": "fx-007",
+    "c": "Shopping"
    },
    {
     "d": "2026-06-14",
@@ -86,7 +157,9 @@
     "g": "child",
     "s": "Nanny (cash)",
     "g2": "standing",
-    "s2": "Nanny (cash)"
+    "s2": "Nanny (cash)",
+    "id": "fx-008",
+    "c": "Shopping"
    },
    {
     "d": "2026-06-21",
@@ -95,7 +168,9 @@
     "g": "child",
     "s": "Nanny (cash)",
     "g2": "standing",
-    "s2": "Nanny (cash)"
+    "s2": "Nanny (cash)",
+    "id": "fx-009",
+    "c": "Shopping"
    },
    {
     "d": "2026-06-10",
@@ -104,7 +179,9 @@
     "g": "child",
     "s": "Childcare (sitters)",
     "g2": "habit",
-    "s2": "Childcare (sitters)"
+    "s2": "Childcare (sitters)",
+    "id": "fx-010",
+    "c": "Child Care"
    },
    {
     "d": "2026-06-02",
@@ -113,7 +190,9 @@
     "g": "food",
     "s": "Groceries",
     "g2": "habit",
-    "s2": "Groceries"
+    "s2": "Groceries",
+    "id": "fx-011",
+    "c": "Groceries"
    },
    {
     "d": "2026-06-09",
@@ -122,7 +201,9 @@
     "g": "food",
     "s": "Groceries",
     "g2": "habit",
-    "s2": "Groceries"
+    "s2": "Groceries",
+    "id": "fx-012",
+    "c": "Groceries"
    },
    {
     "d": "2026-06-23",
@@ -131,7 +212,9 @@
     "g": "food",
     "s": "Groceries",
     "g2": "habit",
-    "s2": "Groceries"
+    "s2": "Groceries",
+    "id": "fx-013",
+    "c": "Groceries"
    },
    {
     "d": "2026-06-11",
@@ -140,7 +223,9 @@
     "g": "food",
     "s": "Restaurants & takeout",
     "g2": "habit",
-    "s2": "Restaurants & takeout"
+    "s2": "Restaurants & takeout",
+    "id": "fx-014",
+    "c": "Restaurants & Bars"
    },
    {
     "d": "2026-06-16",
@@ -149,7 +234,9 @@
     "g": "food",
     "s": "Restaurants & takeout",
     "g2": "habit",
-    "s2": "Restaurants & takeout"
+    "s2": "Restaurants & takeout",
+    "id": "fx-015",
+    "c": "Restaurants & Bars"
    },
    {
     "d": "2026-06-08",
@@ -158,7 +245,9 @@
     "g": "shop",
     "s": "Shopping",
     "g2": "habit",
-    "s2": "Shopping"
+    "s2": "Shopping",
+    "id": "fx-016",
+    "c": "Shopping"
    },
    {
     "d": "2026-06-04",
@@ -167,7 +256,9 @@
     "g": "transport",
     "s": "Commute (NY/transit)",
     "g2": "habit",
-    "s2": "Commute (NY/transit)"
+    "s2": "Commute (NY/transit)",
+    "id": "fx-017",
+    "c": "Public Transit"
    },
    {
     "d": "2026-06-13",
@@ -176,7 +267,9 @@
     "g": "transport",
     "s": "Rideshare",
     "g2": "habit",
-    "s2": "Rideshare"
+    "s2": "Rideshare",
+    "id": "fx-018",
+    "c": "Taxi & Ride Shares"
    },
    {
     "d": "2026-06-06",
@@ -185,7 +278,9 @@
     "g": "transport",
     "s": "Parking & tolls",
     "g2": "habit",
-    "s2": "Parking & tolls"
+    "s2": "Parking & tolls",
+    "id": "fx-019",
+    "c": "Parking & Tolls"
    },
    {
     "d": "2026-06-15",
@@ -194,7 +289,9 @@
     "g": "home",
     "s": "Phone/Internet",
     "g2": "standing",
-    "s2": "Phone/Internet"
+    "s2": "Phone/Internet",
+    "id": "fx-020",
+    "c": "Phone"
    },
    {
     "d": "2026-06-05",
@@ -203,7 +300,9 @@
     "g": "home",
     "s": "Utilities",
     "g2": "standing",
-    "s2": "Utilities"
+    "s2": "Utilities",
+    "id": "fx-021",
+    "c": "Gas & Electric"
    },
    {
     "d": "2026-06-24",
@@ -212,7 +311,9 @@
     "g": "home",
     "s": "Home, yard & electronics",
     "g2": "oneoff",
-    "s2": "Home, yard & electronics"
+    "s2": "Home, yard & electronics",
+    "id": "fx-022",
+    "c": "Electronics"
    },
    {
     "d": "2026-06-01",
@@ -221,7 +322,9 @@
     "g": "subs",
     "s": "Subscriptions",
     "g2": "standing",
-    "s2": "Subscriptions"
+    "s2": "Subscriptions",
+    "id": "fx-023",
+    "c": "Subscriptions"
    },
    {
     "d": "2026-06-02",
@@ -230,7 +333,9 @@
     "g": "subs",
     "s": "Subscriptions",
     "g2": "standing",
-    "s2": "Subscriptions"
+    "s2": "Subscriptions",
+    "id": "fx-024",
+    "c": "Subscriptions"
    },
    {
     "d": "2026-06-20",
@@ -239,7 +344,9 @@
     "g": "other",
     "s": "Vacation & travel",
     "g2": "oneoff",
-    "s2": "Vacation & travel"
+    "s2": "Vacation & travel",
+    "id": "fx-025",
+    "c": "Travel & Vacation"
    },
    {
     "d": "2026-06-09",
@@ -248,7 +355,9 @@
     "g": "other",
     "s": "Charity",
     "g2": "oneoff",
-    "s2": "Charity"
+    "s2": "Charity",
+    "id": "fx-026",
+    "c": "Charity"
    },
    {
     "d": "2026-06-12",
@@ -257,7 +366,9 @@
     "g": "other",
     "s": "Pets",
     "g2": "habit",
-    "s2": "Pets"
+    "s2": "Pets",
+    "id": "fx-027",
+    "c": "Pets"
    },
    {
     "d": "2026-07-05",
@@ -266,7 +377,9 @@
     "g": "income",
     "s": "Paychecks",
     "g2": "income",
-    "s2": "Paychecks"
+    "s2": "Paychecks",
+    "id": "fx-028",
+    "c": "Paychecks"
    },
    {
     "d": "2026-07-19",
@@ -275,7 +388,9 @@
     "g": "income",
     "s": "Paychecks",
     "g2": "income",
-    "s2": "Paychecks"
+    "s2": "Paychecks",
+    "id": "fx-029",
+    "c": "Paychecks"
    },
    {
     "d": "2026-07-28",
@@ -284,7 +399,9 @@
     "g": "income",
     "s": "Interest & dividends",
     "g2": "income",
-    "s2": "Interest & dividends"
+    "s2": "Interest & dividends",
+    "id": "fx-030",
+    "c": "Interest"
    },
    {
     "d": "2026-07-01",
@@ -293,7 +410,9 @@
     "g": "debt",
     "s": "Mortgage",
     "g2": "standing",
-    "s2": "Mortgage"
+    "s2": "Mortgage",
+    "id": "fx-031",
+    "c": "Mortgage"
    },
    {
     "d": "2026-07-03",
@@ -302,7 +421,9 @@
     "g": "debt",
     "s": "Autos",
     "g2": "standing",
-    "s2": "Autos"
+    "s2": "Autos",
+    "id": "fx-032",
+    "c": "Auto Payment"
    },
    {
     "d": "2026-07-12",
@@ -311,7 +432,9 @@
     "g": "debt",
     "s": "BNPL other",
     "g2": "standing",
-    "s2": "BNPL 0%"
+    "s2": "BNPL 0%",
+    "id": "fx-033",
+    "c": "Shopping"
    },
    {
     "d": "2026-07-07",
@@ -320,7 +443,9 @@
     "g": "child",
     "s": "Nanny (cash)",
     "g2": "standing",
-    "s2": "Nanny (cash)"
+    "s2": "Nanny (cash)",
+    "id": "fx-034",
+    "c": "Shopping"
    },
    {
     "d": "2026-07-14",
@@ -329,7 +454,9 @@
     "g": "child",
     "s": "Nanny (cash)",
     "g2": "standing",
-    "s2": "Nanny (cash)"
+    "s2": "Nanny (cash)",
+    "id": "fx-035",
+    "c": "Shopping"
    },
    {
     "d": "2026-07-21",
@@ -338,7 +465,9 @@
     "g": "child",
     "s": "Nanny (cash)",
     "g2": "standing",
-    "s2": "Nanny (cash)"
+    "s2": "Nanny (cash)",
+    "id": "fx-036",
+    "c": "Shopping"
    },
    {
     "d": "2026-07-10",
@@ -347,7 +476,9 @@
     "g": "child",
     "s": "Childcare (sitters)",
     "g2": "habit",
-    "s2": "Childcare (sitters)"
+    "s2": "Childcare (sitters)",
+    "id": "fx-037",
+    "c": "Child Care"
    },
    {
     "d": "2026-07-02",
@@ -356,7 +487,9 @@
     "g": "food",
     "s": "Groceries",
     "g2": "habit",
-    "s2": "Groceries"
+    "s2": "Groceries",
+    "id": "fx-038",
+    "c": "Groceries"
    },
    {
     "d": "2026-07-09",
@@ -365,7 +498,9 @@
     "g": "food",
     "s": "Groceries",
     "g2": "habit",
-    "s2": "Groceries"
+    "s2": "Groceries",
+    "id": "fx-039",
+    "c": "Groceries"
    },
    {
     "d": "2026-07-23",
@@ -374,7 +509,9 @@
     "g": "food",
     "s": "Groceries",
     "g2": "habit",
-    "s2": "Groceries"
+    "s2": "Groceries",
+    "id": "fx-040",
+    "c": "Groceries"
    },
    {
     "d": "2026-07-11",
@@ -383,7 +520,9 @@
     "g": "food",
     "s": "Restaurants & takeout",
     "g2": "habit",
-    "s2": "Restaurants & takeout"
+    "s2": "Restaurants & takeout",
+    "id": "fx-041",
+    "c": "Restaurants & Bars"
    },
    {
     "d": "2026-07-16",
@@ -392,7 +531,9 @@
     "g": "food",
     "s": "Restaurants & takeout",
     "g2": "habit",
-    "s2": "Restaurants & takeout"
+    "s2": "Restaurants & takeout",
+    "id": "fx-042",
+    "c": "Restaurants & Bars"
    },
    {
     "d": "2026-07-08",
@@ -401,7 +542,9 @@
     "g": "shop",
     "s": "Shopping",
     "g2": "habit",
-    "s2": "Shopping"
+    "s2": "Shopping",
+    "id": "fx-043",
+    "c": "Shopping"
    },
    {
     "d": "2026-07-20",
@@ -410,7 +553,9 @@
     "g": "shop",
     "s": "Shopping",
     "g2": "oneoff",
-    "s2": "Shopping"
+    "s2": "Shopping",
+    "id": "fx-044",
+    "c": "Shopping"
    },
    {
     "d": "2026-07-04",
@@ -419,7 +564,9 @@
     "g": "transport",
     "s": "Commute (NY/transit)",
     "g2": "habit",
-    "s2": "Commute (NY/transit)"
+    "s2": "Commute (NY/transit)",
+    "id": "fx-045",
+    "c": "Public Transit"
    },
    {
     "d": "2026-07-13",
@@ -428,7 +575,9 @@
     "g": "transport",
     "s": "Rideshare",
     "g2": "habit",
-    "s2": "Rideshare"
+    "s2": "Rideshare",
+    "id": "fx-046",
+    "c": "Taxi & Ride Shares"
    },
    {
     "d": "2026-07-06",
@@ -437,7 +586,9 @@
     "g": "transport",
     "s": "Parking & tolls",
     "g2": "habit",
-    "s2": "Parking & tolls"
+    "s2": "Parking & tolls",
+    "id": "fx-047",
+    "c": "Parking & Tolls"
    },
    {
     "d": "2026-07-15",
@@ -446,7 +597,9 @@
     "g": "home",
     "s": "Phone/Internet",
     "g2": "standing",
-    "s2": "Phone/Internet"
+    "s2": "Phone/Internet",
+    "id": "fx-048",
+    "c": "Phone"
    },
    {
     "d": "2026-07-05",
@@ -455,7 +608,9 @@
     "g": "home",
     "s": "Utilities",
     "g2": "standing",
-    "s2": "Utilities"
+    "s2": "Utilities",
+    "id": "fx-049",
+    "c": "Gas & Electric"
    },
    {
     "d": "2026-07-01",
@@ -464,7 +619,9 @@
     "g": "subs",
     "s": "Subscriptions",
     "g2": "standing",
-    "s2": "Subscriptions"
+    "s2": "Subscriptions",
+    "id": "fx-050",
+    "c": "Subscriptions"
    },
    {
     "d": "2026-07-02",
@@ -473,7 +630,9 @@
     "g": "subs",
     "s": "Subscriptions",
     "g2": "standing",
-    "s2": "Subscriptions"
+    "s2": "Subscriptions",
+    "id": "fx-051",
+    "c": "Subscriptions"
    },
    {
     "d": "2026-07-18",
@@ -482,7 +641,9 @@
     "g": "other",
     "s": "Pets",
     "g2": "shock",
-    "s2": "Vet emergency"
+    "s2": "Vet emergency",
+    "id": "fx-052",
+    "c": "Pets"
    },
    {
     "d": "2026-07-09",
@@ -491,7 +652,9 @@
     "g": "other",
     "s": "Charity",
     "g2": "oneoff",
-    "s2": "Charity"
+    "s2": "Charity",
+    "id": "fx-053",
+    "c": "Charity"
    },
    {
     "d": "2026-07-12",
@@ -500,7 +663,9 @@
     "g": "other",
     "s": "Pets",
     "g2": "habit",
-    "s2": "Pets"
+    "s2": "Pets",
+    "id": "fx-054",
+    "c": "Pets"
    },
    {
     "d": "2026-08-05",
@@ -509,7 +674,9 @@
     "g": "income",
     "s": "Paychecks",
     "g2": "income",
-    "s2": "Paychecks"
+    "s2": "Paychecks",
+    "id": "fx-055",
+    "c": "Paychecks"
    },
    {
     "d": "2026-08-16",
@@ -518,7 +685,9 @@
     "g": "income",
     "s": "Interest & dividends",
     "g2": "income",
-    "s2": "Interest & dividends"
+    "s2": "Interest & dividends",
+    "id": "fx-056",
+    "c": "Interest"
    },
    {
     "d": "2026-08-01",
@@ -527,7 +696,9 @@
     "g": "debt",
     "s": "Mortgage",
     "g2": "standing",
-    "s2": "Mortgage"
+    "s2": "Mortgage",
+    "id": "fx-057",
+    "c": "Mortgage"
    },
    {
     "d": "2026-08-03",
@@ -536,7 +707,9 @@
     "g": "debt",
     "s": "Autos",
     "g2": "standing",
-    "s2": "Autos"
+    "s2": "Autos",
+    "id": "fx-058",
+    "c": "Auto Payment"
    },
    {
     "d": "2026-08-12",
@@ -545,7 +718,9 @@
     "g": "debt",
     "s": "BNPL other",
     "g2": "standing",
-    "s2": "BNPL 0%"
+    "s2": "BNPL 0%",
+    "id": "fx-059",
+    "c": "Shopping"
    },
    {
     "d": "2026-08-07",
@@ -554,7 +729,9 @@
     "g": "child",
     "s": "Nanny (cash)",
     "g2": "standing",
-    "s2": "Nanny (cash)"
+    "s2": "Nanny (cash)",
+    "id": "fx-060",
+    "c": "Shopping"
    },
    {
     "d": "2026-08-14",
@@ -563,7 +740,9 @@
     "g": "child",
     "s": "Nanny (cash)",
     "g2": "standing",
-    "s2": "Nanny (cash)"
+    "s2": "Nanny (cash)",
+    "id": "fx-061",
+    "c": "Shopping"
    },
    {
     "d": "2026-08-10",
@@ -572,7 +751,9 @@
     "g": "child",
     "s": "Childcare (sitters)",
     "g2": "habit",
-    "s2": "Childcare (sitters)"
+    "s2": "Childcare (sitters)",
+    "id": "fx-062",
+    "c": "Child Care"
    },
    {
     "d": "2026-08-02",
@@ -581,7 +762,9 @@
     "g": "food",
     "s": "Groceries",
     "g2": "habit",
-    "s2": "Groceries"
+    "s2": "Groceries",
+    "id": "fx-063",
+    "c": "Groceries"
    },
    {
     "d": "2026-08-09",
@@ -590,7 +773,9 @@
     "g": "food",
     "s": "Groceries",
     "g2": "habit",
-    "s2": "Groceries"
+    "s2": "Groceries",
+    "id": "fx-064",
+    "c": "Groceries"
    },
    {
     "d": "2026-08-11",
@@ -599,7 +784,9 @@
     "g": "food",
     "s": "Restaurants & takeout",
     "g2": "habit",
-    "s2": "Restaurants & takeout"
+    "s2": "Restaurants & takeout",
+    "id": "fx-065",
+    "c": "Restaurants & Bars"
    },
    {
     "d": "2026-08-16",
@@ -608,7 +795,9 @@
     "g": "food",
     "s": "Restaurants & takeout",
     "g2": "habit",
-    "s2": "Restaurants & takeout"
+    "s2": "Restaurants & takeout",
+    "id": "fx-066",
+    "c": "Restaurants & Bars"
    },
    {
     "d": "2026-08-08",
@@ -617,7 +806,9 @@
     "g": "shop",
     "s": "Shopping",
     "g2": "habit",
-    "s2": "Shopping"
+    "s2": "Shopping",
+    "id": "fx-067",
+    "c": "Shopping"
    },
    {
     "d": "2026-08-04",
@@ -626,7 +817,9 @@
     "g": "transport",
     "s": "Commute (NY/transit)",
     "g2": "habit",
-    "s2": "Commute (NY/transit)"
+    "s2": "Commute (NY/transit)",
+    "id": "fx-068",
+    "c": "Public Transit"
    },
    {
     "d": "2026-08-13",
@@ -635,7 +828,9 @@
     "g": "transport",
     "s": "Rideshare",
     "g2": "habit",
-    "s2": "Rideshare"
+    "s2": "Rideshare",
+    "id": "fx-069",
+    "c": "Taxi & Ride Shares"
    },
    {
     "d": "2026-08-06",
@@ -644,7 +839,9 @@
     "g": "transport",
     "s": "Parking & tolls",
     "g2": "habit",
-    "s2": "Parking & tolls"
+    "s2": "Parking & tolls",
+    "id": "fx-070",
+    "c": "Parking & Tolls"
    },
    {
     "d": "2026-08-15",
@@ -653,7 +850,9 @@
     "g": "home",
     "s": "Phone/Internet",
     "g2": "standing",
-    "s2": "Phone/Internet"
+    "s2": "Phone/Internet",
+    "id": "fx-071",
+    "c": "Phone"
    },
    {
     "d": "2026-08-05",
@@ -662,7 +861,9 @@
     "g": "home",
     "s": "Utilities",
     "g2": "standing",
-    "s2": "Utilities"
+    "s2": "Utilities",
+    "id": "fx-072",
+    "c": "Gas & Electric"
    },
    {
     "d": "2026-08-01",
@@ -671,7 +872,9 @@
     "g": "subs",
     "s": "Subscriptions",
     "g2": "standing",
-    "s2": "Subscriptions"
+    "s2": "Subscriptions",
+    "id": "fx-073",
+    "c": "Subscriptions"
    },
    {
     "d": "2026-08-02",
@@ -680,7 +883,9 @@
     "g": "subs",
     "s": "Subscriptions",
     "g2": "standing",
-    "s2": "Subscriptions"
+    "s2": "Subscriptions",
+    "id": "fx-074",
+    "c": "Subscriptions"
    },
    {
     "d": "2026-08-09",
@@ -689,7 +894,9 @@
     "g": "other",
     "s": "Charity",
     "g2": "oneoff",
-    "s2": "Charity"
+    "s2": "Charity",
+    "id": "fx-075",
+    "c": "Charity"
    },
    {
     "d": "2026-08-12",
@@ -698,7 +905,9 @@
     "g": "other",
     "s": "Pets",
     "g2": "habit",
-    "s2": "Pets"
+    "s2": "Pets",
+    "id": "fx-076",
+    "c": "Pets"
    }
   ],
   "eft": [
@@ -844,7 +1053,7 @@
     "start_ev": null,
     "end_ev": null,
     "resumed": false,
-    "note": "sample $400 ×2 — savings, not spend"
+    "note": "sample $400 \u00d72 \u2014 savings, not spend"
    },
    {
     "name": "Sample Power & Light",
@@ -956,7 +1165,7 @@
     "start_ev": null,
     "end_ev": "2026-01",
     "resumed": false,
-    "note": "sample — lapsed"
+    "note": "sample \u2014 lapsed"
    }
   ]
  },
