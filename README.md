@@ -354,8 +354,11 @@ The Bookkeeping passes card (bj-finance #937, `lib/metrics/passHistory.ts`,
 row per run of DAILY-02, DAILY-03 and WEEKLY-02, written by bj-finance `modules/pass_history.py` over
 the Mac's database connection at the end of each run. One row per day, pass and sitting (`run_label`): a re-run updates its row. Managers and
 owners read it; nothing in the app writes it. Until migration 56 is applied the card says the history is
-not set up yet. Apply it after this app deploys, then run bj-finance's `modules.pass_history backfill`
-once to import the old run logs.
+not set up yet. Apply `time-app/supabase/migration_56.sql` by hand in the Supabase SQL editor, after
+migration 54 and after this app deploys, then run bj-finance's `modules.pass_history backfill` once to
+import the old run logs. Verify with `migration_56_verify.sql`; roll back with `migration_56_down.sql`
+(it drops every run row; the backfill can import the old logs again, rows the passes wrote since cannot
+be recovered).
 
 ## Travel Reimbursements (Withers Time)
 Staff log mileage, tolls and parking in `time-app/` at `/reimbursements`; Approvers decide
