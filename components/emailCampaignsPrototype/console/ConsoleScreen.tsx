@@ -31,6 +31,7 @@ import { SCENARIOS, type ScenarioKey } from "@/lib/emailCampaignsPrototype/conso
 import { businessMinutesBetween, dateEt, dowEt, etDay as etDayOf, fmtAge, timeEt } from "@/lib/emailCampaignsPrototype/console/time";
 import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCampaignsPrototype/model";
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
+import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
 
 type Props = {
   facts: Facts;
@@ -57,6 +58,8 @@ function homeToNav(h: Home): Nav {
       return { panel: "replies", sel: `reply:${h.id}` };
     case "check":
       return { panel: `domain:${h.domain}`, sel: `check:${h.check}` };
+    case "sales":
+      return { panel: "sales" };
   }
 }
 
@@ -328,12 +331,14 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
             <FunnelIcon tier={LANE_TIER[l.key]} />
             <Glyph mark="off" />
             <span className="font-semibold text-slate-300">{l.label}</span>
+            <Badge r={r} label={`${l.label} lane`} />
             <span className="text-slate-500">{l.who}</span>
             <span>
               {l.status === "paused" ? `paused since ${l.pausedSince ? dateEt(l.pausedSince) : "?"} · ${l.statusNote}` : l.statusNote}
             </span>
             <span className="text-slate-500">· {l.upNext + l.emailed + l.held} people</span>
           </button>
+          <SalesSendLine sales={f.sales} lane={l.key} />
           {waiting.length ? (
             <AffectedLine
               text={`waiting on ${waiting.length} stopped mailbox${waiting.length > 1 ? "es" : ""} (${waiting.map((w) => mb(w.mailboxId)!.short).join(", ")})`}
@@ -368,6 +373,7 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
             {l.week.replies} · {l.week.quotes} · {l.week.bookings}
           </span>
         </div>
+        <SalesSendLine sales={f.sales} lane={l.key} />
         {/* Phone: lanes are cards and the steps show in the lane's sheet (spec 4, phone). */}
         <div className="mt-1 hidden flex-wrap items-center gap-1 sm:flex">
           {l.steps.length === 0 ? <span className="text-xs text-slate-500">no sequence</span> : null}
@@ -626,6 +632,13 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
           {weekBar("replies", "Replies")}
           {weekBar("quotes", "Quotes")}
           {weekBar("bookings", "Bookings")}
+          <button
+            type="button"
+            onClick={() => go({ ...nav, panel: "sales", sel: undefined, layer: undefined })}
+            className="ml-auto flex items-center gap-1.5 rounded px-1 py-0.5 text-xs text-slate-300 hover:bg-slate-900"
+          >
+            Sales numbers <Badge r={rollup(items, ["sales"])} label="Sales numbers" /> <SalesBuilt sales={f.sales} />
+          </button>
         </section>
       </div>
 
@@ -859,6 +872,9 @@ function AlertBlock({ items, say, onFix }: { items: AttentionItem[]; say: (s: st
   );
 }
 
+/** The sales numbers' period: this month, or since the start (?tab=since). */
+const salesWindow = (nav: Nav): SalesWindow => (nav.tab === "since" ? "since" : "mtd");
+
 function Row({ k, children }: { k: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[96px_1fr] gap-2 py-1 text-xs">
@@ -909,6 +925,16 @@ function SidePanel(p: PanelProps) {
         body = <StepBody {...p} l={l} s={s} />;
       } else body = <LaneBody {...p} l={l} />;
     }
+  } else if (kind === "sales") {
+    crumbs.push({ label: "This week", nav: null }, { label: "Sales numbers", nav: base });
+    body = (
+      <SalesPanelBody
+        f={f}
+        w={salesWindow(nav)}
+        onWindow={(w) => go({ ...nav, tab: w === "since" ? "since" : undefined }, "replace")}
+        alerts={<AlertBlock items={p.items.filter((i) => i.path[0] === "sales")} say={p.say} />}
+      />
+    );
   } else if (kind === "newlane") {
     crumbs.push({ label: "Lanes", nav: null }, { label: "Add lane", nav: null });
     body = <AddLaneBody {...p} />;
@@ -1042,6 +1068,7 @@ function MailboxBody(p: PanelProps & { m: MailboxFact }) {
             ))}
           </div>
         ) : null}
+        <SalesMailboxRows f={f} m={m} Row={Row} />
         <Row k="Lanes using it">
           {m.waiting?.length
             ? m.waiting.map((w) => `${LANE_LABEL[w.lane]} ${w.n} waiting`).join(" · ")
@@ -1157,6 +1184,7 @@ function LaneBody(p: PanelProps & { l: LaneFact }) {
           <NoData>not built in the prototype (the tab has them)</NoData>
         </Row>
       </div>
+      <SalesLaneSection f={f} lane={l.key} w={salesWindow(nav)} onWindow={(w) => go({ ...nav, tab: w === "since" ? "since" : undefined }, "replace")} />
       <div>
         <p className="mb-1 text-slate-500">Sequence: {l.sequenceName ?? "none"}</p>
         {l.steps.map((s) => (
