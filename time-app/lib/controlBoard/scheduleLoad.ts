@@ -2,12 +2,16 @@
 // Reads as the signed-in manager. The control board's own loader
 // (loadBoard) supplies the settings, salaries and the trend's sales; this
 // adds last year's days, this week's booked catering deals with the crew
-// hours billed on each (deals.labor_hours x staff_count) and the rates of
-// anyone on the week's shifts who is no longer active.
+// hours billed on each (deals.labor_hours x staff_count), the rates of
+// anyone on the week's shifts who is no longer active, and the week's closed
+// days (store hours with their seasons, the Targets tab's closed days,
+// "Business closed" notes), read as the Labor Hours Planning card reads them.
 //
 // A read that fails is reported and what it fed shows as missing, never zero.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveOpenWindow, type ClosedDateRange, type StoreHoursException, type StoreHoursRow } from "@/lib/coverage";
+import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons";
 import { BOOKED_STAGES, billedCrewHours, eventDay, isBooked, type DealRow } from "@/lib/metrics/catering";
 import { loadBoard } from "./load";
 import { trendFactor } from "./math";
@@ -60,12 +64,13 @@ export async function loadScheduleLabor(
   const people = new Map<string, LaborPerson>(week.employees.map((e) => [e.id, laborPerson(e)]));
   const absent = [...new Set(week.shifts.map((s) => s.employee_id).filter((id): id is string => !!id && !people.has(id)))];
 
-  const [absentRes, lastYearRes, bookings] = await Promise.all([
+  const [absentRes, lastYearRes, bookings, closedDays] = await Promise.all([
     absent.length
       ? supabase.from("profiles").select(PROFILE_COLUMNS).in("id", absent)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("sales_daily_in_store").select("day, in_store").gte("day", addDays(weekStart, -364)).lte("day", addDays(weekEnd, -364)),
     loadCateringBookings(supabase, weekStart, weekEnd, today),
+    loadClosedDays(supabase, dates),
   ]);
 
   if (absentRes.error) problems.push(`Staff on this week's shifts could not be read: ${absentRes.error.message}`);
@@ -77,6 +82,7 @@ export async function loadScheduleLabor(
 
   problems.push(...bookings.problems);
   const catering = bookings.catering;
+  if (closedDays.problem) problems.push(closedDays.problem);
 
   const labor = scheduleLabor({
     dates,
@@ -89,8 +95,34 @@ export async function loadScheduleLabor(
     trend: trendFactor(trendDay, board.monthly, board.daily),
     inStoreByDay,
     catering,
+    closedDays: closedDays.closed,
   });
   return { ready: true, labor, problems };
+}
+
+/**
+ * The dates among `dates` the store is closed, resolved as the Labor Hours
+ * Planning card resolves them (lib/coverage.ts resolveOpenWindow): a
+ * "Business closed" note, a closed day or special hours from the Targets tab,
+ * the season or weekly pattern in force. A failed read says so and counts
+ * no day closed, so the target is projected as before rather than guessed.
+ */
+export async function loadClosedDays(supabase: SupabaseClient, dates: string[]): Promise<{ closed: Set<string>; problem: string | null }> {
+  const from = dates[0];
+  const to = dates[dates.length - 1];
+  const [hours, seasons, exceptions, notes] = await Promise.all([
+    supabase.from("store_hours").select("weekday, is_closed, opens, closes"),
+    loadStoreHoursSeasons(supabase),
+    supabase.from("store_hours_exceptions").select("date, label, is_closed, opens, closes").gte("date", from).lte("date", to),
+    supabase.from("annotations").select("title, start_date, end_date").eq("business_closed", true).lte("start_date", to).gte("end_date", from),
+  ]);
+  const error = hours.error?.message ?? seasons.error ?? exceptions.error?.message ?? notes.error?.message;
+  if (error) return { closed: new Set(), problem: `Closed days could not be read, so every day is projected as open: ${error}` };
+  const storeHours = [...((hours.data ?? []) as StoreHoursRow[]), ...seasonHoursRows(seasons.seasons)];
+  const closed = dates.filter(
+    (d) => resolveOpenWindow(d, storeHours, (exceptions.data ?? []) as StoreHoursException[], (notes.data ?? []) as ClosedDateRange[]).state === "closed",
+  );
+  return { closed: new Set(closed), problem: null };
 }
 
 const PAGE = 1000; // PostgREST's row cap per request

@@ -555,3 +555,32 @@ test("a booked deal billed zero crew hours (a pickup with no crew) offsets nothi
   const noPremium = scheduleLabor(input({ settings: BOARD.filter((r) => r.key !== "rule.catering_premium"), catering: [deal(7, 0)] }));
   close(val(noPremium.days[1].targetDollars), inStoreMon);
 });
+
+// ---------------------------------------------------------------------------
+// Closed days (Thanksgiving 2026: the store closed 11-26 to 11-29)
+// ---------------------------------------------------------------------------
+
+test("a closed day has no in-store target, even when the store was open that day last year", () => {
+  const l = scheduleLabor(input({ closedDays: new Set(["2030-10-15"]) }));
+  const tue = l.days[2];
+  assert.equal(tue.closed, true);
+  close(val(tue.projectedSales), 0, "closed: nothing projected, whatever last year sold");
+  close(val(tue.targetDollars), 0);
+  close(val(tue.targetHours), 0);
+  assert.equal(tue.short, null);
+  close(val(l.target.dollars), 220 * 6, "the week's target is the six open days");
+  assert.equal(l.days[1].closed, false);
+});
+
+test("a closed day with no last-year sales on file does not make the week's target missing", () => {
+  const l = scheduleLabor(input({ inStoreByDay: lastYear(["2029-10-16"]), closedDays: new Set(["2030-10-15"]) }));
+  close(val(l.days[2].targetHours), 0);
+  assert.deepEqual(l.target.hours.needs, []);
+  close(val(l.target.hours), (220 * 6) / 15);
+});
+
+test("booked catering on a closed day still adds its billed crew hours to the target", () => {
+  const l = scheduleLabor(input({ closedDays: new Set(["2030-10-14"]), catering: [{ id: 7, day: "2030-10-14", billedHours: 10 }] }));
+  close(val(l.days[1].projectedSales), 0);
+  close(val(l.days[1].targetHours), 10, "only the deal's 10 billed crew hours");
+});

@@ -259,3 +259,26 @@ test("a future deal booked only by its stage history counts however many deals t
   assert.deepEqual(load.problems, []);
   assert.equal(load.labor.days[2].cateringHours.value, 6, "2h x 3 crew, booked by its history");
 });
+
+test("the week's closed days, from the Targets tab, a Business closed note or the weekly pattern, have no in-store target", async () => {
+  db.tables.store_hours = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, is_closed: weekday === 6, opens: weekday === 6 ? null : "12:00", closes: weekday === 6 ? null : "22:00" }));
+  db.tables.store_hours_exceptions = [{ date: "2030-10-13", label: "Invented holiday", is_closed: true, opens: null, closes: null }];
+  db.tables.annotations = [
+    { id: 1, title: "Closed", start_date: "2030-10-14", end_date: "2030-10-14", business_closed: true },
+    { id: 2, title: "Just a note", start_date: "2030-10-15", end_date: "2030-10-15", business_closed: false },
+  ];
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, []);
+  assert.deepEqual(load.labor.days.map((d) => d.closed), [true, true, false, false, false, false, true]);
+  assert.equal(load.labor.days[0].targetHours.value, 0, "closed by the Targets tab, though last year's Sunday sold 1,000");
+  assert.equal(load.labor.days[1].targetHours.value, 8, "closed by a note: only the booked deal's 8 billed crew hours");
+});
+
+test("when closed days cannot be read the line says so and projects every day as open", async () => {
+  db.missingTables.push("store_hours_exceptions");
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.ok(load.problems.some((p) => p.startsWith("Closed days could not be read")), load.problems.join(" | "));
+  assert.ok(load.labor.days.every((d) => !d.closed));
+});
