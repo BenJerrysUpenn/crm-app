@@ -6,7 +6,7 @@
 // Saving a shift still puts it on the person's bell straight away (the in-app
 // notification row, as before) and queues it. The missed-clock-in cron, which
 // an outside scheduler hits every few minutes (ALEX-CRON-SETUP.md), sends the
-// summary on its first tick at or after 20:00, once per person per day, from
+// summary on its first tick from 20:00 to 20:14, once per person per day, from
 // each shift as it stands then.
 //
 // bj-finance #754: "a daily notification whenever their schedule changes and

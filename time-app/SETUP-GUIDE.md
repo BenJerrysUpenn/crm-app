@@ -300,9 +300,9 @@ message the person yourself.
    lines, the schedulers' availability email and weekly repeat-until dates
    below.
 2. Nothing else to schedule: the summary rides the `missed-clockins` check
-   (Part 8). It goes out on that check's first run at or after 8pm, once per
-   person per day. If the check does not run between 8pm and midnight (the Mac
-   that runs it is asleep), that day's summary goes out the next evening instead.
+   (Part 8). It goes out on that check's first run from 8:00 to 8:14pm, once per
+   person per day. If the check does not run in that window (the Mac that runs
+   it is asleep), that day's summary goes out the next evening instead.
 
 Each person's **Notifications** settings still apply: switching off *A new shift
 is posted for me* or *When my schedule changes or a shift is removed* leaves

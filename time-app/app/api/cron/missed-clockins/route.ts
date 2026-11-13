@@ -233,16 +233,16 @@ export async function GET(request: Request) {
   }
 
   // ---- The 8pm shift summary (lib/shiftNotice.ts) ----
-  // From 20:00 New York time, each person with shifts saved since their last
-  // summary gets one email and text listing them. Once per person per day,
-  // however many ticks land after 8pm; before 8pm this does nothing.
+  // From 20:00 to 20:14 New York time, each person with shifts saved since
+  // their last summary gets one email and text listing them. Once per person
+  // per day, however many ticks land in that window; outside it this does nothing.
   const digests = await sendShiftDigests(now).catch((e: unknown) => ({
     told: [] as string[],
     error: e instanceof Error ? e.message : String(e),
   }));
 
   // ---- The schedulers' 8pm availability email (lib/availabilityNotice.ts) ----
-  // From 20:00 New York time, once a day, each scheduler gets one email
+  // From 20:00 to 20:14 New York time, once a day, each scheduler gets one email
   // listing who changed their availability since the last one, and which
   // dates or weekdays. No changes, no email.
   const availabilityDigest = await sendAvailabilityDigest(now).catch((e: unknown) => ({
