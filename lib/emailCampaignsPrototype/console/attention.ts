@@ -16,7 +16,8 @@ import {
   type Facts,
   type LaneKey,
 } from "./facts";
-import { businessMinutesBetween, dowEt, etParts, fmtAge, isWeekday } from "./time";
+import { businessMinutesBetween, dateEt, dowEt, etParts, fmtAge, isWeekday } from "./time";
+import { alertLane, offerName, salesFor, salesMailbox } from "./salesLanes";
 
 export type Level = "warning" | "caution" | "ready";
 export const LEVEL_RANK: Record<Level, number> = { warning: 3, caution: 2, ready: 1 };
@@ -27,11 +28,22 @@ export type Home =
   | { kind: "step"; lane: LaneKey; n: number }
   | { kind: "lane"; lane: LaneKey }
   | { kind: "reply"; id: string }
-  | { kind: "check"; domain: string; check: "seed" | "blocklist" };
+  | { kind: "check"; domain: string; check: "seed" | "blocklist" }
+  /** The sales numbers panel (bj-finance's daily sales lane numbers). */
+  | { kind: "sales" };
 
 export type AttentionItem = {
   id: string;
-  rule: "reply_aging" | "mailbox_frozen" | "mailbox_silent" | "step_no_copy" | "check_overdue" | "held_stale";
+  rule:
+    | "reply_aging"
+    | "mailbox_frozen"
+    | "mailbox_silent"
+    | "step_no_copy"
+    | "check_overdue"
+    | "held_stale"
+    | "sales_alert"
+    | "sales_not_current"
+    | "offer_deal_open";
   level: Level;
   /** The pill's area word ("■ 2 · Sending"). */
   area: string;
@@ -104,7 +116,7 @@ export function attentionItems(f: Facts): AttentionItem[] {
         pathLabel,
         home: { kind: "mailbox", id: m.id },
         title: `${m.short} stopped sending`,
-        detail: m.frozenReason ?? "stopped by the rules",
+        detail: [m.frozenReason ?? "stopped by the rules", againstTarget(f, m.address, m.lane)].filter(Boolean).join(". "),
         openedAt: m.frozenAt,
         stale: stale(m.frozenAt),
         fixes: m.fixes ?? (auth ? ["Check DNS now", "Move queued sends", "Shelve…"] : ["Open the checklist", "Resume at half cap", "Shelve…"]),
@@ -209,9 +221,92 @@ export function attentionItems(f: Facts): AttentionItem[] {
     });
   }
 
+  // 6. The sales lane numbers (metrics_snapshots kind 'sales_lanes', built
+  // once a day by bj-finance). Never built yet is gray "No data" and raises
+  // nothing (spec 9.9); built but not today, or not readable, is a Caution,
+  // because dark has to mean verified: without today's numbers their alerts
+  // cannot fire.
+  const sales = f.sales;
+  const salesHome = { path: ["sales"], pathLabel: "This week › Sales numbers", home: { kind: "sales" } as Home };
+  if (sales.status === "unreadable" || sales.status === "unrecognised" || (sales.status === "ok" && sales.stale)) {
+    items.push({
+      id: "sales:not-current",
+      rule: "sales_not_current",
+      level: "caution",
+      area: "Sales",
+      ...salesHome,
+      title:
+        sales.status === "ok"
+          ? `Sales numbers were last built ${dateEt(sales.builtAt)}`
+          : "Cannot read the sales numbers",
+      detail:
+        sales.status === "ok"
+          ? "Today's have not been built, so their alerts cannot fire. The numbers shown are from that day."
+          : sales.status === "unreadable"
+            ? `Reading them failed: ${sales.message}`
+            : `The newest snapshot (built ${dateEt(sales.builtAt)}) is not in a shape this screen reads.`,
+      openedAt: sales.status === "unreadable" ? null : sales.builtAt,
+      stale: false,
+      fixes: ["Check the sales publisher", "Shelve…"],
+      affects: [],
+      synthetic: sales.status === "ok" ? sales.synthetic : undefined,
+    });
+  }
+  if (sales.status === "ok") {
+    // The publisher's alerts, each homed on the lane it names, else on the panel.
+    sales.snapshot.alerts.forEach((a, i) => {
+      const lane = alertLane(a.text);
+      const where = lane ? { path: ["lanes", lane, "sales"], pathLabel: `Lanes › ${LANE_LABEL[lane]}`, home: { kind: "lane", lane } as Home } : salesHome;
+      items.push({
+        id: `sales:alert:${i}`,
+        rule: "sales_alert",
+        level: a.severity === "red" ? "warning" : "caution",
+        area: lane ? LANE_LABEL[lane] : "Sales",
+        ...where,
+        title: a.text,
+        detail: `From the sales numbers built ${dateEt(sales.builtAt)}. Clears when the next build no longer raises it.`,
+        openedAt: null,
+        stale: false,
+        fixes: [lane ? "Open the lane's mailboxes" : "Open the sales numbers", "Shelve…"],
+        affects: [],
+        synthetic: sales.synthetic,
+      });
+    });
+    // An offer with deals still open: a decision is waiting (Ready). One item
+    // per offer however many deals (R3).
+    for (const o of sales.snapshot.offers) {
+      if (!o.openDealIds.length) continue;
+      const lane = f.lanes.some((l) => l.key === "offer") ? ("offer" as LaneKey) : null;
+      items.push({
+        id: `sales:offer:${o.offer}`,
+        rule: "offer_deal_open",
+        level: "ready",
+        area: lane ? LANE_LABEL[lane] : "Sales",
+        ...(lane ? { path: ["lanes", lane, "sales"], pathLabel: `Lanes › ${LANE_LABEL[lane]}`, home: { kind: "lane", lane } as Home } : salesHome),
+        title: `${o.openDealIds.length} ${offerName(o.offer)} deal${o.openDealIds.length > 1 ? "s" : ""} open`,
+        detail: `Deal ${o.openDealIds.map((d) => `#${d}`).join(", ")}: not booked yet.`,
+        openedAt: null,
+        stale: false,
+        fixes: ["Open in the CRM", "Shelve…"],
+        affects: [],
+        synthetic: sales.synthetic,
+      });
+    }
+  }
+
   return items.sort(
     (a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level] || (a.openedAt ?? "9").localeCompare(b.openedAt ?? "9"),
   );
+}
+
+/** From the sales numbers: the mailbox's sends against its lane's daily target. */
+function againstTarget(f: Facts, address: string, lane: LaneKey): string | null {
+  const sm = salesMailbox(f.sales, address);
+  const sl = salesFor(f.sales, lane);
+  if (!sm && !sl) return null;
+  const sent = sm?.sentYesterday == null ? "not measured" : String(sm.sentYesterday);
+  const target = sl?.targetDailySends == null ? "no target set" : `${LANE_LABEL[lane]} target ${sl.targetDailySends} a day`;
+  return `Sent yesterday: ${sent}; ${target}`;
 }
 
 /** Idle (spec idea 13): silent under-use no error rule catches. Gray only in

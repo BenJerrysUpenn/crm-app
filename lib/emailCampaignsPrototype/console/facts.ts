@@ -31,6 +31,7 @@ import { stepSpec, type SequenceDoc } from "../sequences";
 import { resolveSequence, type SharedState } from "../sharedSequences";
 import { parseNaiveUtc } from "@/lib/dateFormat";
 import type { ConsoleExtras } from "./load";
+import type { SalesLanesData } from "./salesLanes";
 import { etDay, etParts, isWeekday } from "./time";
 
 export type LaneKey = "warm" | "offer" | "wedding" | "cold";
@@ -161,6 +162,8 @@ export type Facts = {
   memo: MemoFact[];
   bouncesNoMailbox14: number;
   notes: string[];
+  /** bj-finance's daily sales lane numbers (metrics_snapshots kind 'sales_lanes'). */
+  sales: SalesLanesData;
 };
 
 const lc = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
@@ -184,7 +187,7 @@ function seqSteps(doc: SequenceDoc | null): StepSpec[] {
   return (doc?.steps ?? []).map(stepSpec);
 }
 
-export function buildFacts(raw: RawData, extras: ConsoleExtras, shared: SharedState, now: Date): Facts {
+export function buildFacts(raw: RawData, extras: ConsoleExtras, shared: SharedState, now: Date, sales: SalesLanesData): Facts {
   const payload: Payload = compute(raw, now);
   const nowMs = now.getTime();
   const today = etDay(now);
@@ -540,6 +543,7 @@ export function buildFacts(raw: RawData, extras: ConsoleExtras, shared: SharedSt
     memo,
     bouncesNoMailbox14,
     notes: [],
+    sales,
   };
 }
 

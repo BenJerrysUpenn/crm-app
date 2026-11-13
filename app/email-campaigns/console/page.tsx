@@ -10,6 +10,25 @@ import { buildFacts } from "@/lib/emailCampaignsPrototype/console/facts";
 import { attentionItems, idleItems } from "@/lib/emailCampaignsPrototype/console/attention";
 import { applyScenario, parseScenario } from "@/lib/emailCampaignsPrototype/console/scenarios";
 import { syntheticData } from "@/lib/emailCampaignsPrototype/console/synthetic";
+import { buildSalesLanes, loadSalesLanes, salesLanesFixture, type SalesLanesData } from "@/lib/emailCampaignsPrototype/console/salesLanes";
+import { readFile } from "node:fs/promises";
+
+/**
+ * Local dev only (synthetic mode): the sales lane numbers. ?sales=empty |
+ * stale | unrecognised | unreadable shows each state; otherwise the
+ * synthetic fixture, or the JSON payload file CONSOLE_PROTO_SALES_LANES
+ * names (kept outside this public repo).
+ */
+async function devSalesLanes(param: string | string[] | undefined, now: Date): Promise<SalesLanesData> {
+  const want = Array.isArray(param) ? param[0] : param;
+  if (want === "empty") return buildSalesLanes({ status: "read", row: null }, now);
+  if (want === "unreadable") return buildSalesLanes({ status: "unreadable", message: "permission denied for table metrics_snapshots (synthetic)" }, now);
+  const file = process.env.CONSOLE_PROTO_SALES_LANES;
+  const payload = want === "unrecognised" ? { schema: 2 } : file ? JSON.parse(await readFile(file, "utf8")) : salesLanesFixture(now);
+  const builtAt = want === "stale" ? new Date(now.getTime() - 2 * 86_400_000).toISOString() : now.toISOString();
+  const data = buildSalesLanes({ status: "read", row: { period: "", built_at: builtAt, payload } }, now);
+  return data.status === "ok" ? { ...data, synthetic: file ? `local file ${file.split("/").pop()}` : "synthetic sales_lanes fixture" } : data;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +56,7 @@ export default async function EmailCampaignsConsolePage({
 
   if (synthetic) {
     const { raw, extras } = syntheticData(now);
-    facts = buildFacts(raw, extras, emptyState(), now);
+    facts = buildFacts(raw, extras, emptyState(), now, await devSalesLanes(searchParams.sales, now));
   } else {
     const supabase = createClient();
     const {
@@ -54,8 +73,8 @@ export default async function EmailCampaignsConsolePage({
       /* the seeds stand in, as on the tab */
     }
     try {
-      const [raw, extras] = await Promise.all([loadRawData(supabase), loadConsoleExtras(supabase, now)]);
-      facts = buildFacts(raw, extras, shared, now);
+      const [raw, extras, sales] = await Promise.all([loadRawData(supabase), loadConsoleExtras(supabase, now), loadSalesLanes(supabase)]);
+      facts = buildFacts(raw, extras, shared, now, buildSalesLanes(sales, now));
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e);
       facts = buildFacts(
@@ -63,6 +82,7 @@ export default async function EmailCampaignsConsolePage({
         { mailboxes: [], sends: [], outcomes: [] },
         emptyState(),
         now,
+        { status: "unreadable", message: error },
       );
     }
   }
