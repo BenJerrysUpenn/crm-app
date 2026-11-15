@@ -7,8 +7,10 @@ import { sequenceRepoForRequest } from "@/lib/emailCampaignsPrototype/sequenceRe
 import { emptyState, type SharedState } from "@/lib/emailCampaignsPrototype/sharedSequences";
 import { loadConsoleExtras } from "@/lib/emailCampaignsPrototype/console/load";
 import { buildFacts } from "@/lib/emailCampaignsPrototype/console/facts";
-import { attentionItems, idleItems } from "@/lib/emailCampaignsPrototype/console/attention";
-import { applyScenario, parseScenario } from "@/lib/emailCampaignsPrototype/console/scenarios";
+import { LEVEL_RANK, attentionItems, idleItems } from "@/lib/emailCampaignsPrototype/console/attention";
+import { applyLoopScenario, applyScenario, parseScenario } from "@/lib/emailCampaignsPrototype/console/scenarios";
+import { buildLoop, loadLoop, loopItems, loopWeekStart, type LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
+import { syntheticLoop } from "@/lib/emailCampaignsPrototype/console/loopSynthetic";
 import { syntheticData } from "@/lib/emailCampaignsPrototype/console/synthetic";
 import { buildSalesLanes, loadSalesLanes, salesLanesFixture, type SalesLanesData } from "@/lib/emailCampaignsPrototype/console/salesLanes";
 import { readFile } from "node:fs/promises";
@@ -53,6 +55,7 @@ export default async function EmailCampaignsConsolePage({
   let source: "real" | "synthetic" = "synthetic";
   let error: string | null = null;
   let facts;
+  let loop: LoopFacts = syntheticLoop(now);
 
   if (synthetic) {
     const { raw, extras } = syntheticData(now);
@@ -73,8 +76,23 @@ export default async function EmailCampaignsConsolePage({
       /* the seeds stand in, as on the tab */
     }
     try {
-      const [raw, extras, sales] = await Promise.all([loadRawData(supabase), loadConsoleExtras(supabase, now), loadSalesLanes(supabase)]);
+      const [raw, extras, sales, loopIn] = await Promise.all([
+        loadRawData(supabase),
+        loadConsoleExtras(supabase, now),
+        loadSalesLanes(supabase),
+        loadLoop(supabase, loopWeekStart(now)),
+      ]);
       facts = buildFacts(raw, extras, shared, now, buildSalesLanes(sales, now));
+      // Round 3: real loop rows when there are any; until the loop has run
+      // live (and the read policies exist, spec 10.5) the synthetic week.
+      if (loopIn.status === "read") {
+        const people = new Map(raw.prospects.map((x) => [x.id, { name: x.name, company: x.company, email: x.email }]));
+        loop = buildLoop(loopIn.rows, people, now, loop);
+      } else
+        loop = {
+          ...loop,
+          synthetic: `synthetic loop week: ${loopIn.status === "empty" ? "the loop has not run live yet" : `loop tables not readable yet (${loopIn.message})`}`,
+        };
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e);
       facts = buildFacts(
@@ -88,7 +106,8 @@ export default async function EmailCampaignsConsolePage({
   }
 
   const f = applyScenario(facts, scenario);
-  const items = attentionItems(f);
+  const L = applyLoopScenario(loop, scenario);
+  const items = [...loopItems(L), ...attentionItems(f)].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level]);
   const idle = idleItems(f);
 
   return (
@@ -100,7 +119,7 @@ export default async function EmailCampaignsConsolePage({
             ◌ No data. Could not load outreach data: {error}
           </div>
         ) : (
-          <ConsoleScreen facts={f} items={items} idle={idle} scenario={scenario} source={source} />
+          <ConsoleScreen facts={f} loop={L} items={items} idle={idle} scenario={scenario} source={source} />
         )}
       </main>
     </div>

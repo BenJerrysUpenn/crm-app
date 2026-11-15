@@ -32,9 +32,25 @@ import { businessMinutesBetween, dateEt, dowEt, etDay as etDayOf, fmtAge, timeEt
 import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCampaignsPrototype/model";
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
+import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
+import {
+  ApproachBody,
+  EmailBody,
+  EmailsBody,
+  LimitsBody,
+  LoopRegion,
+  LoopWeekBars,
+  LoopWeekLine,
+  NotesBody,
+  ResearchBody,
+  TypeBody,
+  WeekBody,
+  approachName,
+} from "./LoopBits";
 
 type Props = {
   facts: Facts;
+  loop: LoopFacts;
   items: AttentionItem[];
   idle: IdleItem[];
   scenario: ScenarioKey;
@@ -60,6 +76,8 @@ function homeToNav(h: Home): Nav {
       return { panel: `domain:${h.domain}`, sel: `check:${h.check}` };
     case "sales":
       return { panel: "sales" };
+    case "panel":
+      return { panel: h.panel, sel: h.sel };
   }
 }
 
@@ -193,7 +211,7 @@ function Popover({ pop, onClose }: { pop: Pop; onClose: () => void }) {
 
 // --- the screen -----------------------------------------------------------------
 
-export default function ConsoleScreen({ facts: f, items, idle, scenario, source }: Props) {
+export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario, source }: Props) {
   const { nav, go, pop, href } = useNav();
   const { msg, say } = useProtoToast();
   const [popover, setPopover] = useState<Pop | null>(null);
@@ -582,18 +600,33 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
               >
                 Recall 0
               </button>
+              <button
+                type="button"
+                onClick={() => go({ ...nav, panel: nav.panel ?? "week", modal: "pause" })}
+                className="rounded border border-slate-700 px-1.5 hover:text-slate-300"
+                title="Pause or resume every loop send"
+              >
+                Loop {L.paused ? "paused" : "on"}
+              </button>
               <button type="button" onClick={() => setPalette(true)} className="rounded border border-slate-700 px-1.5 hover:text-slate-300">
                 ⌘K
               </button>
             </span>
           </div>
+          <LoopWeekLine L={L} items={items} go={go} />
         </section>
 
-        {/* ② LANES */}
-        <section aria-label="Lanes" className="mt-3">
+        {/* ② THE LOOP (round 3), with the hand-run lanes under it */}
+        <LoopRegion
+          L={L}
+          items={items}
+          go={go}
+          fade={fade}
+          lanes={
+        <section aria-label="Hand-run lanes">
           <div className="grid grid-cols-[1fr_auto] items-baseline gap-2 text-[11px] uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_64px_64px_64px_120px]">
             <span className="flex items-center gap-2">
-              Lanes <Badge r={lanesR} label="Lanes" />
+              Not in the loop yet <Badge r={lanesR} label="Hand-run lanes" />
               <PlusButton label="Add lane" onClick={() => go({ panel: "newlane", dim: nav.dim })} />
             </span>
             <span className="text-right sm:hidden">next · emailed · held</span>
@@ -604,6 +637,8 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
           </div>
           {lanesByTier.map(laneRow)}
         </section>
+          }
+        />
 
         {/* ③ SENDING */}
         <section aria-label="Sending" className="mt-3 border-t border-slate-700 pt-2">
@@ -632,6 +667,7 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
           {weekBar("replies", "Replies")}
           {weekBar("quotes", "Quotes")}
           {weekBar("bookings", "Bookings")}
+          <LoopWeekBars L={L} onOpen={() => go({ ...nav, panel: "week", sel: undefined, layer: undefined })} />
           <button
             type="button"
             onClick={() => go({ ...nav, panel: "sales", sel: undefined, layer: undefined })}
@@ -644,10 +680,10 @@ export default function ConsoleScreen({ facts: f, items, idle, scenario, source 
 
       {popover ? <Popover pop={popover} onClose={closePop} /> : null}
       {nav.panel ? (
-        <SidePanel f={f} items={items} nav={nav} go={go} pop={pop} href={href} say={say} dirty={dirty} escape={escape} />
+        <SidePanel f={f} loop={L} items={items} nav={nav} go={go} pop={pop} href={href} say={say} dirty={dirty} escape={escape} />
       ) : null}
-      {nav.modal ? <ConfirmModal f={f} nav={nav} pop={pop} say={say} /> : null}
-      {palette ? <Palette f={f} onClose={() => setPalette(false)} go={(n) => { setPalette(false); go(n); }} /> : null}
+      {nav.modal ? <ConfirmModal f={f} loop={L} nav={nav} pop={pop} say={say} /> : null}
+      {palette ? <Palette f={f} loop={L} onClose={() => setPalette(false)} go={(n) => { setPalette(false); go(n); }} /> : null}
       {msg ? (
         <div role="status" className="fixed bottom-20 left-1/2 z-[70] -translate-x-1/2 rounded bg-fuchsia-950 px-3 py-2 text-xs text-fuchsia-100 shadow-lg">
           {msg}
@@ -794,10 +830,19 @@ function ScenarioBar({ scenario, source }: { scenario: ScenarioKey; source: "rea
   );
 }
 
-function Palette({ f, onClose, go }: { f: Facts; onClose: () => void; go: (n: Nav) => void }) {
+function Palette({ f, loop: L, onClose, go }: { f: Facts; loop: LoopFacts; onClose: () => void; go: (n: Nav) => void }) {
   const [q, setQ] = useState("");
   const entries = useMemo(() => {
-    const e: { label: string; nav: Nav }[] = [{ label: "Replies", nav: { panel: "replies" } }];
+    const e: { label: string; nav: Nav }[] = [
+      { label: "Replies", nav: { panel: "replies" } },
+      { label: "Loop › This week (Monday run)", nav: { panel: "week" } },
+      { label: "Loop › Emails this week", nav: { panel: "emails" } },
+      { label: "Loop › Your limits", nav: { panel: "limits" } },
+      { label: "Loop › Research", nav: { panel: "research" } },
+      { label: "Loop › Personal notes", nav: { panel: "notes" } },
+    ];
+    for (const t of L.types) e.push({ label: `Loop › ${t.label}`, nav: { panel: `type:${t.key}` } });
+    for (const a of Object.values(L.approaches)) e.push({ label: `Approach › ${a.name}`, nav: { panel: `approach:${a.id}` } });
     for (const l of f.lanes) {
       e.push({ label: `${l.label} lane`, nav: { panel: `lane:${l.key}` } });
       for (const s of l.steps) e.push({ label: `${l.label} › step ${s.n}`, nav: { panel: `lane:${l.key}`, sel: `step:${s.n}` } });
@@ -805,7 +850,7 @@ function Palette({ f, onClose, go }: { f: Facts; onClose: () => void; go: (n: Na
     for (const m of f.mailboxes) e.push({ label: `Mailbox ${m.short} (${m.address.split("@")[1]})`, nav: { panel: `mailbox:${m.id}` } });
     for (const d of f.domains) e.push({ label: `Domain ${d.domain}`, nav: { panel: `domain:${d.id}` } });
     return e;
-  }, [f]);
+  }, [f, L]);
   const shown = entries.filter((e) => e.label.toLowerCase().includes(q.toLowerCase())).slice(0, 12);
   return (
     <div className="fixed inset-0 z-[65] flex items-start justify-center bg-black/40 pt-24" onMouseDown={onClose}>
@@ -817,7 +862,7 @@ function Palette({ f, onClose, go }: { f: Facts; onClose: () => void; go: (n: Na
           onKeyDown={(e) => {
             if (e.key === "Enter" && shown[0]) go(shown[0].nav);
           }}
-          placeholder="Jump to a lane, step, mailbox, domain…"
+          placeholder="Jump to a type, approach, lane, mailbox…"
           className="w-full rounded bg-slate-800 px-2 py-1.5 text-sm text-slate-100 outline-none"
         />
         <ul className="mt-1 max-h-72 overflow-auto text-sm">
@@ -838,6 +883,7 @@ function Palette({ f, onClose, go }: { f: Facts; onClose: () => void; go: (n: Na
 
 type PanelProps = {
   f: Facts;
+  loop: LoopFacts;
   items: AttentionItem[];
   nav: Nav;
   go: (n: Nav, mode?: "push" | "replace") => void;
@@ -935,6 +981,51 @@ function SidePanel(p: PanelProps) {
         alerts={<AlertBlock items={p.items.filter((i) => i.path[0] === "sales")} say={p.say} />}
       />
     );
+  } else if (["week", "emails", "type", "approach", "limits", "research", "notes"].includes(kind)) {
+    const L = p.loop;
+    const bits = {
+      L,
+      items: p.items,
+      nav,
+      go,
+      say: p.say,
+      Proto: (b: { label: string; onClick?: () => void; primary?: boolean }) => <ProtoButton key={b.label} {...b} say={p.say} proto />,
+      Row,
+      Alerts: ({ items }: { items: AttentionItem[] }) => <AlertBlock items={items} say={p.say} />,
+    };
+    const loopCrumb = { label: "The loop", nav: null };
+    if (kind === "week") {
+      crumbs.push(loopCrumb, { label: "This week", nav: base });
+      body = <WeekBody {...bits} />;
+    } else if (kind === "emails") {
+      crumbs.push(loopCrumb, { label: "Emails this week", nav: { ...base, tab: nav.tab } });
+      const [sk, sid] = (nav.sel ?? "").split(":");
+      const d = sk === "email" ? L.drafts.find((x) => x.id === sid) : undefined;
+      if (d) {
+        crumbs.push({ label: d.person.name, nav: { ...base, sel: nav.sel, tab: nav.tab } });
+        if (nav.layer === "flag") crumbs.push({ label: "Flag", nav: null });
+        body = <EmailBody {...bits} d={d} />;
+      } else body = <EmailsBody {...bits} />;
+    } else if (kind === "type") {
+      const key = (nav.panel ?? "").slice(5);
+      const t = L.types.find((x) => x.key === key);
+      if (t) {
+        crumbs.push(loopCrumb, { label: t.label, nav: base });
+        body = <TypeBody {...bits} t={t} />;
+      }
+    } else if (kind === "approach") {
+      crumbs.push(loopCrumb, { label: "Approaches", nav: null }, { label: approachName(L, id), nav: base });
+      body = <ApproachBody {...bits} id={id} />;
+    } else if (kind === "limits") {
+      crumbs.push(loopCrumb, { label: "Your limits", nav: base });
+      body = <LimitsBody {...bits} />;
+    } else if (kind === "research") {
+      crumbs.push(loopCrumb, { label: "Research", nav: base });
+      body = <ResearchBody {...bits} />;
+    } else if (kind === "notes") {
+      crumbs.push(loopCrumb, { label: "Personal notes", nav: base });
+      body = <NotesBody {...bits} />;
+    }
   } else if (kind === "newlane") {
     crumbs.push({ label: "Lanes", nav: null }, { label: "Add lane", nav: null });
     body = <AddLaneBody {...p} />;
@@ -948,7 +1039,7 @@ function SidePanel(p: PanelProps) {
     } else body = <RepliesBody {...p} />;
   }
   if (!body) body = <p className="text-sm text-slate-400">Nothing here (the link points at something that is not on the screen).</p>;
-  if (nav.layer && nav.layer !== "editlane") crumbs.push({ label: nav.layer === "record" ? "Record result" : nav.layer === "reply" ? "Compose" : "Edit", nav: null });
+  if (nav.layer && nav.layer !== "editlane" && nav.layer !== "flag") crumbs.push({ label: nav.layer === "record" ? "Record result" : nav.layer === "reply" ? "Compose" : "Edit", nav: null });
 
   return (
     <aside
@@ -1498,7 +1589,7 @@ function ReplyBody(p: PanelProps & { r: Facts["replies"][number] }) {
   );
 }
 
-function ConfirmModal({ f, nav, pop, say }: { f: Facts; nav: Nav; pop: () => void; say: (s: string) => void }) {
+function ConfirmModal({ f, loop: L, nav, pop, say }: { f: Facts; loop: LoopFacts; nav: Nav; pop: () => void; say: (s: string) => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => ref.current?.focus(), []);
   let title = "Confirm";
@@ -1513,6 +1604,16 @@ function ConfirmModal({ f, nav, pop, say }: { f: Facts; nav: Nav; pop: () => voi
     const n = m?.waiting?.reduce((s, w) => s + w.n, 0) ?? 0;
     title = `Move ${n || "queued"} sends?`;
     text = `Move ${n || "the queued"} sends from ${m?.short} to ${others.slice(0, 2).map((o) => o.short).join(" and ")}? They go out today within those caps.`;
+  } else if (nav.modal === "approve") {
+    const planned = L.drafts.filter((d) => d.status === "planned");
+    const byType = [...new Set(planned.map((d) => d.type))].length;
+    title = `Approve ${planned.length} emails?`;
+    text = `${planned.length} emails to ${byType} customer types send ${L.weekStart.slice(5)} to the end of the week, 10am each sending day, within your daily cap of ${L.limits.dailyCap}. Held emails stay held. Sent emails cannot be called back.`;
+  } else if (nav.modal === "pause") {
+    title = L.paused ? "Resume the loop?" : "Pause the loop?";
+    text = L.paused
+      ? "The daily sender starts again at its next run. Emails whose event is now under two weeks away are skipped, not sent late."
+      : "Every loop send stops until you resume. This week's emails stay planned; replies, research and the Monday run carry on. Hand-run lanes are not touched.";
   } else if (nav.modal === "live") {
     const [, n] = (nav.sel ?? "").split(":");
     title = `Set step ${n} live?`;

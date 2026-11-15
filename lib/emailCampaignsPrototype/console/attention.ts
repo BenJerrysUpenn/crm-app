@@ -30,7 +30,9 @@ export type Home =
   | { kind: "reply"; id: string }
   | { kind: "check"; domain: string; check: "seed" | "blocklist" }
   /** The sales numbers panel (bj-finance's daily sales lane numbers). */
-  | { kind: "sales" };
+  | { kind: "sales" }
+  /** A loop panel (round 3): week, emails, type:<key>, approach:<id>, limits, research, notes. */
+  | { kind: "panel"; panel: string; sel?: string };
 
 export type AttentionItem = {
   id: string;
@@ -43,7 +45,15 @@ export type AttentionItem = {
     | "held_stale"
     | "sales_alert"
     | "sales_not_current"
-    | "offer_deal_open";
+    | "offer_deal_open"
+    | "loop_run_missing"
+    | "loop_week_approval"
+    | "loop_sender_silent"
+    | "loop_research_halted"
+    | "loop_unsub_pause"
+    | "loop_asks"
+    | "loop_notes_owed"
+    | "loop_flagged";
   level: Level;
   /** The pill's area word ("■ 2 · Sending"). */
   area: string;
