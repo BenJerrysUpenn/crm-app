@@ -388,7 +388,7 @@ export function WeekBody(p: PanelBits) {
       <H>Earlier weeks</H>
       <ul className="space-y-2">
         {L.runs
-          .filter((r) => r !== run)
+          .filter((r) => r.weekStart !== run?.weekStart)
           .map((r) => (
             <li key={r.weekStart} className="border-t border-slate-800 pt-1.5 text-xs">
               <p className="text-slate-400">
