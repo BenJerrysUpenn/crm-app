@@ -1,13 +1,17 @@
 // Server-side reads for the Schedule page's labor line (bj-finance #695).
 // Reads as the signed-in manager. The control board's own loader
 // (loadBoard) supplies the settings, salaries and the trend's sales; this
-// adds last year's days, this week's booked catering deals with the crew
-// hours billed on each (deals.labor_hours x staff_count), the rates of
-// anyone on the week's shifts who is no longer active, and the week's closed
-// days (store hours with their seasons, the Targets tab's closed days,
-// "Business closed" notes), read as the Labor Hours Planning card reads them.
+// adds last year's days, which of the deals on the week's shifts are
+// marketing deals (their shifts are marketing work, out of the line), the
+// rates of anyone on the week's shifts who is no longer active, and the
+// week's closed days (store hours with their seasons, the Targets tab's
+// closed days, "Business closed" notes), read as the Labor Hours Planning
+// card reads them. loadCateringBookings below serves that card; the labor
+// line reads no deal's quote.
 //
 // A read that fails is reported and what it fed shows as missing, never zero.
+// A failed marketing-deal read says so and leaves the shifts on those deals
+// to their position.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOpenWindow, type ClosedDateRange, type StoreHoursException, type StoreHoursRow } from "@/lib/coverage";
@@ -15,7 +19,7 @@ import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons"
 import { BOOKED_STAGES, billedCrewHours, eventDay, isBooked, type DealRow } from "@/lib/metrics/catering";
 import { loadBoard } from "./load";
 import { trendFactor } from "./math";
-import { addDays, scheduleLabor, type CateringBooking, type LaborPerson, type LaborShift, type ScheduleLabor } from "./schedule";
+import { addDays, isMarketingDeal, scheduleLabor, type CateringBooking, type LaborPerson, type LaborShift, type ScheduleLabor } from "./schedule";
 
 export type ScheduleLaborLoad = { ready: true; labor: ScheduleLabor; problems: string[] } | { ready: false; reason: string };
 
@@ -64,12 +68,14 @@ export async function loadScheduleLabor(
   const people = new Map<string, LaborPerson>(week.employees.map((e) => [e.id, laborPerson(e)]));
   const absent = [...new Set(week.shifts.map((s) => s.employee_id).filter((id): id is string => !!id && !people.has(id)))];
 
-  const [absentRes, lastYearRes, bookings, closedDays] = await Promise.all([
+  const dealIds = [...new Set(week.shifts.map((s) => s.deal_id).filter((id): id is number => id != null))];
+
+  const [absentRes, lastYearRes, marketing, closedDays] = await Promise.all([
     absent.length
       ? supabase.from("profiles").select(PROFILE_COLUMNS).in("id", absent)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("sales_daily_in_store").select("day, in_store").gte("day", addDays(weekStart, -364)).lte("day", addDays(weekEnd, -364)),
-    loadCateringBookings(supabase, weekStart, weekEnd, today),
+    loadMarketingDeals(supabase, dealIds),
     loadClosedDays(supabase, dates),
   ]);
 
@@ -80,8 +86,7 @@ export async function loadScheduleLabor(
   if (lastYearRes.error) problems.push(`Last year's daily sales could not be read: ${lastYearRes.error.message}`);
   for (const r of (lastYearRes.data as { day: string; in_store: number | string }[] | null) ?? []) inStoreByDay.set(r.day, Number(r.in_store));
 
-  problems.push(...bookings.problems);
-  const catering = bookings.catering;
+  if (marketing.problem) problems.push(marketing.problem);
   if (closedDays.problem) problems.push(closedDays.problem);
 
   const labor = scheduleLabor({
@@ -94,10 +99,27 @@ export async function loadScheduleLabor(
     salaried: board.salaried,
     trend: trendFactor(trendDay, board.monthly, board.daily),
     inStoreByDay,
-    catering,
+    marketingDeals: marketing.ids,
     closedDays: closedDays.closed,
   });
   return { ready: true, labor, problems };
+}
+
+/**
+ * The ids among `dealIds` (the deals on the week's shifts) that are marketing
+ * deals (isMarketingDeal). A failed read says so and returns none, so those
+ * shifts count by their position alone.
+ */
+async function loadMarketingDeals(supabase: SupabaseClient, dealIds: number[]): Promise<{ ids: Set<number>; problem: string | null }> {
+  const ids = new Set<number>();
+  for (let k = 0; k < dealIds.length; k += ID_CHUNK) {
+    const res = await supabase.from("deals").select("id, event_type, stage").in("id", dealIds.slice(k, k + ID_CHUNK));
+    if (res.error) {
+      return { ids: new Set(), problem: `Marketing deals could not be read, so shifts on a deal count by their position alone: ${res.error.message}` };
+    }
+    for (const d of (res.data as { id: number; event_type: string | null; stage: string | null }[] | null) ?? []) if (isMarketingDeal(d)) ids.add(d.id);
+  }
+  return { ids, problem: null };
 }
 
 /**
@@ -126,15 +148,15 @@ async function loadClosedDays(supabase: SupabaseClient, dates: string[]): Promis
 }
 
 const PAGE = 1000; // PostgREST's row cap per request
-const ID_CHUNK = 200; // deal ids per stage-history read, to keep the URL short
+const ID_CHUNK = 200; // deal ids per read, to keep the URL short
 
 /**
  * The booked catering deals with an event day from `from` to `to` (New York),
  * each with the crew hours billed on it (deals.labor_hours x staff_count). A
  * deal counts when there is evidence it is booked (isBooked, with its stage
- * history). The Schedule page's labor line and the Labor vs target metric
- * (bj-finance #696) both read them here. A read that fails returns null and
- * says why, so the offset shows as missing, never as no catering.
+ * history). The Labor Hours Planning card (bj-finance #742) reads them here. A
+ * read that fails returns null and says why, so the card shows its booked band
+ * as missing, never as no catering.
  */
 export async function loadCateringBookings(
   supabase: SupabaseClient,

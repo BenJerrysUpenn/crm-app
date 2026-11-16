@@ -339,8 +339,8 @@ the actual leaves out the catering work the clocks recorded, as paid (each day's
 Position is Catering before the time app, punches on Catering shifts after, each person at their own
 paid rate) and the whole catering premium. The hours a quote billed (`labor_hours` x `staff_count`) are
 not read, and nor are deals: a pickup, a drop-off or a deal with no crew on file cannot change a week or
-make it n/a. (The Schedule page still uses billed hours for the days ahead, where nothing has been worked
-yet.) **Marketing work never counts in the labor % either** (Alina, 2026-11-16: marketing work is a separate
+make it n/a. The Schedule page's labor line takes the same work out of the week on screen (see "The Schedule
+page's labor line"). **Marketing work never counts in the labor % either** (Alina, 2026-11-16: marketing work is a separate
 marketing budget and is taken out of the labor % like catering; catering and marketing are taken off at the
 hours actually worked): the actual also leaves out each day's `marketing_hours` and `marketing_wages`
 (migration 60, same writer: punches on a Marketing shift or on any shift of a marketing deal, a deal whose
@@ -529,28 +529,34 @@ block, label | hours | $ with the numbers right-aligned: `Target Hourly Labor`, 
 Labor`, and `Remaining Hourly Labor` (target minus scheduled, with a real minus sign and in red
 when either value is negative; `missing` when the target is). A week with higher-paid people shows
 a higher $ against the same target; the day headers show only the day and date. Hourly labor $ is hourly staff (`pay_type =
-'hourly'`, read strictly) at their rate, plus the catering premium on Catering shifts and the
-solo-close bonus per qualifying night as the board had them on that date, plus open shifts at the
-average rate of active hourly staff; salaried and overhead staff are left out. A day's projected
+'hourly'`, read strictly) at their rate on in-store shifts, plus the solo-close bonus per qualifying
+night as the board had it on that date, plus open in-store shifts at the average rate of active
+hourly staff; salaried and overhead staff are left out. **Catering work and marketing work never count
+in the labor line** (Alina, 2026-11-16: "since we're taking it out of the analytics, we should also be
+taking it out of the labor percent on the scheduler in the same way"), taken out as the Labor vs target
+card takes them out: a Catering shift, a Marketing shift, and any shift on a marketing deal (event type
+starting "Marketing", or stage Closed Marketing Event; never also catering) are left out of Scheduled
+Hourly Labor, hours and $ (the catering premium with them), and never close for the solo-close bonus.
+They stay in total hours and on the grid. The line shows scheduled hours on past days too, not punches.
+A day's projected
 sales are IN-STORE ONLY: last year's in-store sales on the same weekday 52 weeks earlier
 (`sales_daily_in_store`) times the trend factor; catering bookings never feed them. A closed day
 (`resolveOpenWindow` in `lib/coverage.ts`: a Targets-tab closed day, a "Business closed" note, or a
 weekday the season closes, as the Labor Hours Planning card reads them) projects zero in-store sales
-and so has no in-store target, whatever last year did; booked catering that day still offsets. If the
-closed-day reads fail, the page says so and projects every day as open. The in-store
-target $ is that times the hourly goal in force that day; its hours divide it by the average
-active hourly rate. Catering crew labor is cancelled out by what the client paid for (Alina,
-2026-10-16): for each booked deal that day the target adds the crew hours billed on it in the CRM
-(`deals.labor_hours`, which is per crew member, times `deals.staff_count`), priced at crew cost
-plus the board's catering premium in force (zero before the rule's first row; capped at its `cap_rate` per person, as on the
-scheduled side). Crew cost is the rate of whoever is on that deal's Catering shifts (`shifts.deal_id`,
-hours-weighted, open shifts at the average rate), else the average active hourly rate. The
-Catering shifts stay on the scheduled side, so an event staffed as billed nets to zero and
-over-staffing shows as over target. The math is `lib/controlBoard/schedule.ts` (it calls `boardOn`
-in `board.ts`, which runs `computeBoard`), the reads `scheduleLoad.ts`. Anything missing (nothing
-on the board yet, no last-year day on file, a partial trend month, a person with no rate, a booked
-deal with no billed crew hours on file, named by deal number; zero billed hours is a pickup and offsets nothing) shows as missing with its reason, never
-zero, and the empty board points to the Targets tab.
+and so has no target, whatever last year did. If the closed-day reads fail, the page says so and
+projects every day as open. The target $ is that times the hourly goal in force that day; its hours
+divide it by the average active hourly rate. The target is in-store only: nothing is added for booked
+catering, and no deal's quote (`labor_hours`, `staff_count`) is read, so a deal with no shifts, a pickup
+or a deal missing its quote fields cannot move the line or make it missing. The only deal read is
+which deals on the week's shifts are marketing deals; if it fails the page says so and those shifts
+count by their position. For a past week worked exactly as scheduled at the rates on the Team page,
+the line's scheduled $ over the week's sales, plus the board's taxes and comp, is the card's labor %,
+and its target the card's all-in target; the line differs where the week was not worked as scheduled,
+where pay differed from the Team page rate, and because its target uses projected (last year x trend),
+not actual, sales. The math is `lib/controlBoard/schedule.ts` (it calls `boardOn` in `board.ts`, which
+runs `computeBoard`), the reads `scheduleLoad.ts`. Anything missing (nothing on the board yet, no
+last-year day on file, a partial trend month, a person with no rate) shows as missing with its reason,
+never zero, and the empty board points to the Targets tab.
 Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
 entered value; run it before `migration_42_down.sql`).
 
@@ -558,8 +564,7 @@ entered value; run it before `migration_42_down.sql`).
 `profiles.is_overhead` (migration 45, default false) marks a person whose pay is overhead, not
 part of the payroll target. An overhead person is left out of fixed payroll on the board (and so
 out of the hourly goal), out of the Schedule page's hourly labor hours and $, and out of the
-average active hourly rate behind open shifts and target hours, and out of a catering deal's crew
-cost. They stay on the schedule grid
+average active hourly rate behind open shifts and target hours. They stay on the schedule grid
 and in total hours. A manager sets it (an owner's row only an owner); the guard on profiles stops
 anyone else, the person included. The Team page has no control for it yet: set it in the SQL
 editor. Apply `time-app/supabase/migration_45.sql` BEFORE deploying the time app: the board's
