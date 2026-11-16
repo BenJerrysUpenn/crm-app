@@ -19,9 +19,8 @@
 //   * A computed route is rounded per leg, to 0.1 mi half-up.
 //   * Miles for a Catering Event in the staff member's own car are the deal's
 //     stored round-trip miles (Catering-Manager's deals.round_trip_miles), to
-//     0.1 mi half-up; staff no longer type them (the owner, 2026-11-16, which
-//     replaces ruling 48 for Catering Events). mileage_mode 'deal' (migration
-//     58). Until the trip is Approved its miles follow the deal: priced on
+//     0.1 mi half-up; staff do not type them (the owner, 2026-11-16;
+//     ruling 54). mileage_mode 'deal' (migration 58). Until the trip is Approved its miles follow the deal: priced on
 //     every read from the deal's miles now, and written to the row by the
 //     database on every write and at Approve (migration 58), so an Approved
 //     trip pays the miles it was approved on. A deal with no round-trip miles
@@ -169,8 +168,9 @@ type MilesOf = { mileage_mode?: MileageMode | string; miles: number | string; mi
  *   'deal' miles (the owner, 2026-11-16): the deal has no round-trip miles,
  *     unless its quote charged $0 mileage ('no_rate_on_quote'), which pays 0c
  *     a mile whatever the miles (ruling 50);
- *   typed or destination miles from before that: the quote charged mileage
- *     but the deal has no round-trip miles to price them by ('no_miles_on_deal').
+ *   typed or destination miles (a trip already Approved when migration 58
+ *     ran, kept typed even if sent back since): the quote charged mileage but
+ *     the deal has no round-trip miles to price them by ('no_miles_on_deal').
  */
 export function milesPending(r: MilesOf): boolean {
   if (r.mileage_mode === "deal") return !(Number(r.miles) > 0) && r.mileage_cap?.basis !== "no_rate_on_quote";

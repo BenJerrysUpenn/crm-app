@@ -22,6 +22,6 @@ export async function GET(request: Request) {
   const listed = await listCateringEvents(dayKey(new Date().toISOString()));
   if (!listed.ok) return NextResponse.json({ error: listed.error }, { status: 500 });
   return NextResponse.json({
-    events: searchEvents(listed.events, q).map((e) => ({ id: e.id, date: e.date, address: e.address, label: eventLabel(e), mileage_cap: e.mileage_cap })),
+    events: searchEvents(listed.events, q).map((e) => ({ id: e.id, date: e.date, label: eventLabel(e), mileage_cap: e.mileage_cap })),
   });
 }

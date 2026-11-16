@@ -9,7 +9,7 @@
 //     off, two points at least (14, 45). Destination miles are computed on the
 //     server (lib/reimbursements/routeMiles.ts), never taken from the browser.
 //   * Mileage, a Catering Event: the deal's stored round-trip miles (the
-//     owner, 2026-11-16; replaces ruling 48 for Catering Events). Whatever
+//     owner, 2026-11-16; ruling 54). Whatever
 //     mileage the browser sends is ignored: mileage_mode 'deal', and the
 //     server reads the miles from the deal (lib/reimbursements/server.ts).
 //   * Tolls and parking: optional amounts on any Reason (3, 4, 8).
