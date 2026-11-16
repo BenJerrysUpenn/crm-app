@@ -117,6 +117,12 @@ test("events: staff see booked Catering Events of the last 365 days up to today,
   assert.equal(list[0].date, YESTERDAY);
 });
 
+test("events: only the label's fields leave the picker; the address reaches staff inside the label, never on its own", async () => {
+  db.signIn(DONTE);
+  const { events: list } = await (await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events"))).json();
+  for (const e of list) assert.deepEqual(Object.keys(e).sort(), ["date", "id", "label", "mileage_cap"]);
+});
+
 test("events: searchable by venue, company or address", async () => {
   db.signIn(DONTE);
   const res = await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events?q=burlington"));
