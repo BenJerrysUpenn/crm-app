@@ -39,7 +39,7 @@ import type { WithAmounts } from "@/lib/reimbursements/server";
 import { contentTypeOf } from "@/lib/reimbursements/submission";
 import { BUTTON, FilePreviews, INPUT, PRIMARY, staffFileHref, uploadFile, type PickedFile } from "./shared";
 
-type PickedEvent = { id: number; date: string; label: string; address: string | null; mileage_cap?: MileageCap | null };
+type PickedEvent = { id: number; date: string; label: string; mileage_cap?: MileageCap | null };
 
 const CONFIRM_NO_RECEIPT = "Are you sure there is no receipt?";
 
@@ -69,7 +69,7 @@ export default function ReimbursementForm({
   const [reasonKind, setReasonKind] = useState<"" | ReasonKind>(editing?.reason_kind ?? "");
   const [event, setEvent] = useState<PickedEvent | null>(
     editing?.deal_id && editing.event_label
-      ? { id: editing.deal_id, date: editing.event_date ?? editing.trip_date, label: editing.event_label, address: null, mileage_cap: editing.mileage_cap }
+      ? { id: editing.deal_id, date: editing.event_date ?? editing.trip_date, label: editing.event_label, mileage_cap: editing.mileage_cap }
       : null,
   );
   const [query, setQuery] = useState("");
