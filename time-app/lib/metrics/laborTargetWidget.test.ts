@@ -130,9 +130,9 @@ test("a range across months covers every week in it: tiles and one muted n/a lin
   assert.doesNotMatch(t, /catering crew billed to clients/);
 });
 
-test("the table behind Show numbers is the week-by-week table, with the catering crew taken off as a column", () => {
+test("the table behind Show numbers is the week-by-week table, with the catering work taken off as a column", () => {
   const t = table(DEFAULT);
-  assert.match(t, /Week Sales Hourly labor, all-in Actual % Target %, all-in Variance \$ Variance hours Catering crew taken off/);
+  assert.match(t, /Week Sales Hourly labor, all-in Actual % Target %, all-in Variance \$ Variance hours Catering work taken off/);
   // No catering: the column is blank.
   assert.match(t, /Oct 6–12 \$4,800 \$1,400 29\.2% 25\.0% \+\$200 \+10 h Oct 13/);
   assert.match(t, /Oct 13–19 \$4,800 \$1,400 29\.2% 25\.0% −\$40 −2 h 10 h, \$313 all-in/);
@@ -207,10 +207,18 @@ test("when its reads fail the card says it could not load, with no picker", () =
   assert.doesNotMatch(html, /id="from-w1"/);
 });
 
-test("both sides read all-in; the catering crew taken off is in the table, not a note under the chart", () => {
+test("both sides read all-in; the catering work taken off is in the table, not a note under the chart", () => {
   const t = text(render({}));
   assert.doesNotMatch(t, /catering crew billed to clients/);
-  assert.match(t, /Show numbers. lists each week.s catering crew taken off, hours and all-in \$/);
+  assert.match(t, /Show numbers. lists each week.s catering work taken off, hours and all-in \$/);
   assert.match(t, /all-in hourly goal/);
   assert.match(t, /25\.0% of sales in these weeks/);
+});
+
+test("the card says catering work comes off as worked and paid, never as a quote billed it (Alina, 2026-11-16)", () => {
+  const t = text(render({}));
+  assert.match(t, /Catering is billed to the client separately, so it never counts in the labor %/);
+  assert.match(t, /The hours a quote billed are not used, so a pickup, a drop-off or a deal with no crew on file changes nothing/);
+  assert.doesNotMatch(t, /labor hours x staff count/);
+  assert.doesNotMatch(t, /billed crew hours/);
 });
