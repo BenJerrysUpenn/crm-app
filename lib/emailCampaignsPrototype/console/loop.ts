@@ -78,7 +78,7 @@ export type TypeFact = {
   sentThisWeek: number;
   ready: number;
   held: { reason: string; n: number }[];
-  /** Emailed, but with a changed ask (round 4: small groups get the cake option). */
+  /** Emailed, but with a changed ask. Empty since 2026-11-16: small groups are not emailed. */
   adjusted: { reason: string; n: number }[];
   /** Per-type reads of each approach: diagnostic only, too few to decide. */
   arms: ArmFact[];

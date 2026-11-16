@@ -343,9 +343,9 @@ const party = (o: OccasionFact) => (o.id === "resident_events" ? "a resident hol
 
 function copy(approach: string, touch: number, first: string, company: string, o: OccasionFact, lastMonth: string, sender: string, small: boolean): { subject: string; body: string } {
   const S = SIGN(sender);
-  const ask = small
-    ? "If it's a smaller group this year, our ice cream cakes serve 10 to 30 and we deliver them. Reply and I'll send the options."
-    : "Reply with a date and a headcount and you'll have a quote the same day.";
+  // Small groups are never emailed (Alina 2026-11-16); the cake is offered only in a reply.
+  void small;
+  const ask = "Reply with a date and a headcount and you'll have a quote the same day.";
   switch (approach) {
     case "question_opener":
       return touch === 1
@@ -431,8 +431,10 @@ export function syntheticLoop(now: Date): LoopFacts {
       emailsThisWeek: t.week,
       sentThisWeek: 0,
       ready: t.ready,
-      held: t.held.map(([reason, n]) => ({ reason, n })),
-      adjusted: t.small ? [{ reason: "Under 40 guests last time: the same email, with the ice cream cake option as the ask", n: t.small }] : [],
+      // Alina 2026-11-16: no outreach to small groups; the cake is offered only in her reply draft.
+      held: [...t.held.map(([reason, n]) => ({ reason, n })),
+             ...(t.small ? [{ reason: "Under 40 guests last time: not emailed (the cake is offered only in a reply)", n: t.small }] : [])],
+      adjusted: [],
       arms,
       mostly: null,
     };

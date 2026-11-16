@@ -1090,7 +1090,7 @@ export function LimitsBody(p: PanelBits) {
         ))}
       </ul>
       <H>Who</H>
-      <p.Row k="Small groups">under {m.minGuests} guests last time: emailed, with the ice cream cake option as the ask</p.Row>
+      <p.Row k="Small groups">under {m.minGuests} guests last time: not emailed. The cake option comes only in your reply draft</p.Row>
       <p.Row k="Lost deals">held back {m.holdBackMonths} months</p.Row>
       <p.Row k="Never email">{m.neverEmail ? `${m.neverEmail} addresses and domains` : "nobody listed"}</p.Row>
       <H>Offers and occasions</H>
