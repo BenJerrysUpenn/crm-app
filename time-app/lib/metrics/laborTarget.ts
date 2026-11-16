@@ -152,8 +152,7 @@ export const WHY = {
   notOver: "the week is not over yet",
   rates: "payroll tax and workers' comp rates not set on the control board",
   labor: (n: number) => `hourly payroll on file for ${n} of 7 days`,
-  /** `n` is the number of days NOT yet split. */
-  split: (n: number) => `catering and marketing work not yet split out of the payroll for ${n} of 7 days`,
+  split: (unsplit: number) => `catering and marketing work not yet split out of the payroll for ${unsplit} of 7 days`,
   sales: (n: number) => `in-store sales on file for ${n} of 7 days`,
   varying: "the week's sales (the target changed during the week)",
   noInStoreHours: "no in-store hours left once the catering and marketing work is taken off",
