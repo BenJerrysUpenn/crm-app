@@ -158,7 +158,6 @@ test("when the deals on the week's shifts cannot be read the line still draws, s
   assert.equal(load.problems.length, 1);
   assert.match(load.problems[0], /^Marketing deals could not be read, so shifts on a deal count by their position alone: /);
   assert.equal(load.labor.hourlyHours, 4, "the Scooper shift stays in; the Catering one is out by its position");
-  assert.equal(load.labor.workOff.cateringHours, 3);
   assert.ok(Math.abs((load.labor.days[1].targetHours.value ?? 0) - 220 / 15) < 1e-6, "the target never waits on a deal");
 });
 
@@ -190,7 +189,7 @@ test("a booked deal missing its billed crew hours never makes the line missing: 
   assert.ok(load.ready);
   assert.deepEqual(load.problems, []);
   assert.ok(Math.abs((load.labor.days[1].targetHours.value ?? 0) - 220 / 15) < 1e-6);
-  assert.equal(load.labor.workOff.cateringHours, 4, "its Catering shift is catering work, out of the line");
+  assert.equal(load.labor.hourlyHours, 0, "its Catering shift is catering work, out of the line");
   assert.equal(load.labor.labor.total, 0);
 });
 
@@ -213,9 +212,7 @@ test("a shift on a marketing deal is marketing work whatever its position: event
   });
   assert.ok(load.ready);
   assert.deepEqual(load.problems, []);
-  assert.equal(load.labor.workOff.marketingHours, 7, "4h on the Marketing Event deal (never catering) + 3h on the Closed Marketing Event deal");
-  assert.equal(load.labor.workOff.cateringHours, 0);
-  assert.equal(load.labor.hourlyHours, 6, "only the Scooper shift on the catering deal stays: 6h at 10");
+  assert.equal(load.labor.hourlyHours, 6, "only the Scooper shift on the catering deal stays: 6h at 10; the 4h on the Marketing Event deal and the 3h on the Closed Marketing Event deal are out");
   assert.equal(load.labor.labor.total, 60);
 });
 
@@ -228,8 +225,7 @@ test("a marketing deal past the first 200 deals on the week's shifts is still re
   const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts, employees: ACTIVE, shiftTypes: [{ name: "Scooper", in_store: true }] });
   assert.ok(load.ready);
   assert.deepEqual(load.problems, []);
-  assert.equal(load.labor.workOff.marketingHours, 4, "the 201st deal's 4h Scooper shift is marketing work");
-  assert.equal(load.labor.hourlyHours, 0);
+  assert.equal(load.labor.hourlyHours, 0, "the 201st deal's 4h Scooper shift is marketing work, out of the line");
 });
 
 test("a shift type marked not in-store does not close the night for the solo-close bonus", async () => {

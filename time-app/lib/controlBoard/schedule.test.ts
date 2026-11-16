@@ -238,7 +238,6 @@ test("hourly labor $ is in-store hourly hours x rate, plus solo-close bonuses, p
   close(l.labor.open, 60);
   close(l.labor.solo, 0, "no night here has a closer out at or after the cut-off");
   close(l.labor.total, 140);
-  assert.deepEqual(l.workOff, { cateringHours: 5, marketingHours: 0 });
   assert.deepEqual(l.labor.notCounted, []);
   assert.equal(l.labor.none, false);
 });
@@ -368,7 +367,6 @@ test("catering and marketing shifts leave the scheduled side, hours and $, and t
   close(l.labor.total, base.labor.total, "$ alike: no wages, no premium, no open-shift $ for the work taken out");
   close(val(l.target.dollars)!, val(base.target.dollars)!);
   close(val(l.target.hours)!, val(base.target.hours)!);
-  assert.deepEqual(l.workOff, { cateringHours: 10, marketingHours: 7 });
   assert.equal(l.totalHours, 6 + 5 + 5 + 3 + 4, "still in total hours");
   assert.equal(l.days[1].scheduledHours, 16, "and in the day header");
 });
@@ -376,7 +374,8 @@ test("catering and marketing shifts leave the scheduled side, hours and $, and t
 test("a catering deal with nobody scheduled takes nothing off and adds nothing: the line never reads a quote", () => {
   const l = scheduleLabor(input());
   close(val(l.days[1].targetDollars), inStoreMon);
-  assert.deepEqual(l.workOff, { cateringHours: 0, marketingHours: 0 });
+  assert.equal(l.hourlyHours, 0);
+  close(l.labor.total, 0);
 });
 
 test("catering work by someone with no rate or no pay type is out of the line, not listed as a gap", () => {
@@ -390,7 +389,6 @@ test("catering work by someone with no rate or no pay type is out of the line, n
   assert.equal(l.hourlyHours, 0);
   assert.deepEqual(l.labor.notCounted, []);
   assert.equal(l.labor.none, false, "nothing in the line to price is a real $0");
-  assert.deepEqual(l.workOff, { cateringHours: 4, marketingHours: 0 }, "the hourly person's 4h; pay type not set was never hourly labor");
 });
 
 test("salaried and overhead staff on catering or marketing work stay out, as everywhere else, and are not counted as taken off", () => {
@@ -400,7 +398,6 @@ test("salaried and overhead staff on catering or marketing work stay out, as eve
   }));
   close(l.labor.total, 0);
   assert.equal(l.hourlyHours, 0);
-  assert.deepEqual(l.workOff, { cateringHours: 0, marketingHours: 0 });
 });
 
 test("a past week worked exactly as scheduled reads the same on the line as on the Labor vs target card", () => {

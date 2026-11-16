@@ -37,8 +37,8 @@
 // solo-close bonus either. The target is in-store only: nothing is added for
 // a booked deal, so a deal's quote (labor_hours, staff_count) is never read
 // and a deal with no shifts, a pickup or a deal missing its quote fields
-// cannot move the line or make it missing. `workOff` holds the hours taken
-// off. The page shows scheduled hours on past days too, never punches.
+// cannot move the line or make it missing. The page shows scheduled hours
+// on past days too, never punches.
 //
 // Overhead staff (profiles.is_overhead, migration 45; bj-finance #692, ruled
 // 2026-10-15) are not part of the payroll target: out of hourly labor hours
@@ -168,8 +168,6 @@ export type ScheduleLabor = {
   totalHours: number;
   /** Hours of hourly-paid staff who are not overhead, and of open shifts. */
   hourlyHours: number;
-  /** Scheduled hours left out as catering and marketing work: hourly-paid staff who are not overhead, and open shifts. */
-  workOff: { cateringHours: number; marketingHours: number };
   labor: {
     wages: number;
     solo: number;
@@ -306,18 +304,11 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   const noRate = new Map<string, number>();
   const noPayType = new Map<string, number>();
   let openUnpriced = 0;
-  const workOff = { cateringHours: 0, marketingHours: 0 };
 
   for (const s of shifts) {
+    // Catering and marketing work are out of the line, whoever works it.
+    if (kind(s)) continue;
     const h = hoursOf(s);
-    const person = s.employee_id ? people.get(s.employee_id) : null;
-    if (s.employee_id && (person?.pay_type === "salaried" || person?.overhead)) continue;
-    const work = kind(s);
-    if (work) {
-      // Out of the line whoever works it; counted as taken off when it would have been hourly labor.
-      if (!s.employee_id || person?.pay_type === "hourly") workOff[work === "catering" ? "cateringHours" : "marketingHours"] += h;
-      continue;
-    }
     if (!s.employee_id) {
       hourlyHours += h;
       if (avgRate.value == null) {
@@ -328,6 +319,8 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
       priced++;
       continue;
     }
+    const person = people.get(s.employee_id);
+    if (person?.pay_type === "salaried" || person?.overhead) continue;
     const who = person?.name ?? "Someone not on the Team page";
     if (person?.pay_type !== "hourly") {
       noPayType.set(who, (noPayType.get(who) ?? 0) + h);
@@ -411,7 +404,6 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   return {
     totalHours: shifts.reduce((a, s) => a + hoursOf(s), 0),
     hourlyHours,
-    workOff,
     labor: {
       wages,
       solo,
