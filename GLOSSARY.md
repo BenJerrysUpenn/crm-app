@@ -79,7 +79,7 @@ For a week ahead, last year's Catering shift hours in the same week, leaving out
 _Avoid_: Forecast catering, catering pipeline
 
 **Labor %**:
-A past week's in-store hourly labor, all-in (wages, solo close, employer taxes and workers' comp), over its in-store sales. Catering work is never in it: catering is billed to the client separately (Alina, 2026-11-16). Marketing work is never in it either: it is a separate marketing budget (Alina, 2026-11-16). Both come off at the hours actually worked, as paid. Compared with the all-in hourly goal on the Labor vs target card. The Schedule page's labor line follows the same rule for the week on screen (Alina, 2026-11-16: "we should also be taking it out of the labor percent on the scheduler in the same way"): Catering and Marketing shifts, and every shift on a marketing deal, are left out of scheduled hourly labor, and the target is in-store only.
+A past week's in-store hourly labor, all-in (wages, solo close, employer taxes and workers' comp), over its in-store sales. Catering work is never in it: catering is billed to the client separately (Alina, 2026-11-16). Marketing work is never in it either: it is a separate marketing budget (Alina, 2026-11-16). Both come off at the hours actually worked, as paid. Compared with the all-in hourly goal on the Labor vs target card. The Schedule page's labor line follows the same rule for the week on screen (Alina, 2026-11-16): Catering and Marketing shifts, and every shift on a marketing deal, are left out of scheduled hourly labor, and the target is in-store only.
 _Avoid_: Labor cost % (that includes salaried pay), LER
 
 **Catering work**:
