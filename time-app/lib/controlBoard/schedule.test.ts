@@ -348,6 +348,7 @@ test("a marketing deal: event type starting Marketing, or stage Closed Marketing
   assert.equal(isMarketingDeal({ event_type: "  marketing - tabling", stage: "Booked Paid" }), true);
   assert.equal(isMarketingDeal({ event_type: "Birthday Party", stage: "Closed Marketing Event" }), true);
   assert.equal(isMarketingDeal({ event_type: "Birthday Party", stage: "Event Complete" }), false);
+  assert.equal(isMarketingDeal({ event_type: "Corporate (marketing budget)", stage: "Event Complete" }), false, "the event type must start with Marketing, not merely mention it");
   assert.equal(isMarketingDeal({ event_type: null, stage: null }), false);
 });
 
