@@ -219,6 +219,19 @@ test("a shift on a marketing deal is marketing work whatever its position: event
   assert.equal(load.labor.labor.total, 60);
 });
 
+test("a marketing deal past the first 200 deals on the week's shifts is still read as marketing", async () => {
+  // 200 quotes crewed by a Scooper shift each fill the first read; the marketing deal is the 201st.
+  for (let id = 1001; id <= 1200; id++) db.tables.deals.push(quote(id));
+  db.tables.deals.push({ id: 1300, stage: "Closed Marketing Event", payment_status: null, event_type: "Marketing Event", event_date: "2030-10-15", created_at: "2030-09-01", subtotal_pretax: "0", total_with_tax: null, amount_paid: null, company: "Invented Expo", source: "manual", archived: 0, labor_hours: 0, staff_count: 1 });
+  const shifts = Array.from({ length: 200 }, (_, k) => ({ id: k + 1, employee_id: "p-twenty", starts_at: at("2030-10-14", 10), ends_at: at("2030-10-14", 10), position: "Scooper", deal_id: 1001 + k }));
+  shifts.push({ id: 300, employee_id: "p-twenty", starts_at: at("2030-10-15", 10), ends_at: at("2030-10-15", 14), position: "Scooper", deal_id: 1300 });
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts, employees: ACTIVE, shiftTypes: [{ name: "Scooper", in_store: true }] });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, []);
+  assert.equal(load.labor.workOff.marketingHours, 4, "the 201st deal's 4h Scooper shift is marketing work");
+  assert.equal(load.labor.hourlyHours, 0);
+});
+
 test("a shift type marked not in-store does not close the night for the solo-close bonus", async () => {
   db.tables.control_settings.push({ id: 8, key: "rule.solo_close", value: "30", detail: { min_alone_hours: 4, out_at_or_after: "22:00" }, ...NOTE });
   const shifts = [
