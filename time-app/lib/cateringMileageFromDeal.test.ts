@@ -1,5 +1,5 @@
-// STORY (the owner, 2026-11-16; bj-finance #210, replaces ruling 48 for
-// Catering Events): "Take the miles from the deal. Staff stop typing miles.
+// STORY (the owner, 2026-11-16; bj-finance #210; ruling 54, Catering Events):
+// "Take the miles from the deal. Staff stop typing miles.
 // The app pays the round trip Catering-Manager already saved for that event,
 // under the existing pay cap."
 //
