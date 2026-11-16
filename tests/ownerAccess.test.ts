@@ -16,7 +16,7 @@ import { join, relative } from "node:path";
 import { NextRequest } from "next/server";
 import React from "react";
 
-import { isManagerRole, isOwnerRole, isPfPath } from "@/lib/roles";
+import { isManagerRole, isOwnerRole, isPfPath, isPfRoute } from "@/lib/roles";
 
 // ---- a stand-in Supabase: one signed-in person with a role -----------------
 const who = vi.hoisted(() => ({
@@ -102,6 +102,22 @@ describe("the role rules", () => {
   it.each(["/", "/moneyx", "/call-desk", "/safely"])("%s is not", (p) => {
     expect(isPfPath(p)).toBe(false);
   });
+
+  // isPfRoute is the whole pf set — the pages plus the /api/pf API — named once
+  // here so the middleware does not repeat the prefix (CODING_STANDARDS.md:9).
+  it.each(["/money", "/safe/anything", "/api/pf", "/api/pf/overrides"])(
+    "%s is a personal-finance route",
+    (p) => {
+      expect(isPfRoute(p)).toBe(true);
+    },
+  );
+
+  it.each(["/", "/call-desk", "/api/pfx", "/api/deals"])(
+    "%s is not a personal-finance route",
+    (p) => {
+      expect(isPfRoute(p)).toBe(false);
+    },
+  );
 });
 
 describe("the middleware gate", () => {
@@ -281,6 +297,38 @@ describe("the page-level check (loadPfForOwner)", () => {
     const importers = sourceFiles(root)
       .filter((f) => /lib\/pf\/data["']|\.\/data["']/.test(readFileSync(f, "utf8")))
       .map((f) => relative(root, f));
+    expect(importers).toEqual([join("lib", "pf", "access.ts")]);
+  });
+
+  it("only the pf door reaches the service-role admin client", () => {
+    // crm/011's corrections table admits only the service role, after the
+    // owner check. lib/pf/access.ts builds the admin client behind that check
+    // (loadMoneyForOwner reads the corrections, savePfOverride writes one) and
+    // is the one pf module that imports it; no pf page or route reaches the
+    // admin client itself, so none can touch the table around the gate. The
+    // admin client is used all over the CRM, so this scopes to the pf surface
+    // rather than the whole tree. Same import-rule-in-test-form, and the same
+    // declared CODING_STANDARDS.md:20 exception, as "nothing else reads the
+    // feed" above.
+    const root = join(__dirname, "..");
+    const pfDirs = [
+      join("lib", "pf"),
+      join("app", "money"),
+      join("app", "dial"),
+      join("app", "safe"),
+      join("app", "api", "pf"),
+    ];
+    const sourceFiles = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) return sourceFiles(full);
+        return /\.(ts|tsx)$/.test(name) ? [full] : [];
+      });
+    const importers = pfDirs
+      .flatMap((d) => sourceFiles(join(root, d)))
+      .filter((f) => /supabase\/admin["']/.test(readFileSync(f, "utf8")))
+      .map((f) => relative(root, f))
+      .sort();
     expect(importers).toEqual([join("lib", "pf", "access.ts")]);
   });
 });

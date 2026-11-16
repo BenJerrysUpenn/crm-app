@@ -90,6 +90,13 @@ documentation_map:
       - GLOSSARY.md
   - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
     docs: [README.md]
+  - paths:
+      - "app/api/pf/overrides/route.ts"
+      - "components/pf/**"
+      - "lib/pf/**"
+      - "fixtures/pf_data.sample.json"
+      - "supabase/crm/011_pf_category_overrides*.sql"
+    docs: [README.md]
   - paths: ["time-app/lib/hosts.ts", "time-app/middleware.ts"]
     docs: [time-app/SETUP-GUIDE.md]
   - paths: ["time-app/app/metrics/**", "time-app/app/api/metrics/**", "time-app/components/metrics/**", "time-app/lib/metrics/**"]
