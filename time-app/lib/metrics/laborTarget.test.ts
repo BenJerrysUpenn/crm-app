@@ -45,7 +45,7 @@ const OCT = "2030-10";
 const octWeeks = (i: LaborTargetInputs) => ({ weeks: laborVsTarget(monthWeeks(OCT), i) });
 const TODAY = "2030-11-20";
 
-// Each day: 10 hours, 150 wages + 10 solo close = 160, no catering work,
+// Each day: 10 hours, 150 wages + 10 solo close = 160, no catering or marketing work,
 // x 1.25 with taxes and comp = 200. A week: 70 hours, 1,400.
 const day = (d: string, over: Partial<LaborDayRow> = {}): LaborDayRow => ({
   day: d,
@@ -55,6 +55,8 @@ const day = (d: string, over: Partial<LaborDayRow> = {}): LaborDayRow => ({
   solo_close: 10,
   catering_hours: 0,
   catering_wages: 0,
+  marketing_hours: 0,
+  marketing_wages: 0,
   ...over,
 });
 /** inputs() with some days changed. */
@@ -106,6 +108,8 @@ test("a complete week: actual labor with taxes and comp, against the hourly goal
   close(w.targetPct.value, 0.25);
   close(w.cateringHours, 0);
   close(w.cateringOffset, 0);
+  close(w.marketingHours, 0);
+  close(w.marketingOffset, 0);
   close(w.targetDollars, 1_200);
   close(w.varianceDollars, 200); // over target
   close(w.varianceHours, 10); // 200 at the week's 20 an hour
@@ -252,7 +256,8 @@ test("a day whose catering work is not yet split out of the payroll makes the we
   assert.equal(w.actual, null);
   assert.equal(w.cateringHours, null);
   assert.equal(w.cateringOffset, null);
-  assert.deepEqual(w.why, ["catering work not yet split out of the payroll for 6 of 7 days"]);
+  // The count is of the days NOT yet split: one here.
+  assert.deepEqual(w.why, ["catering and marketing work not yet split out of the payroll for 1 of 7 days"]);
   close(w.sales, 4_800);
   close(w.hours, 70);
   close(w.targetPct.value, 0.25);
@@ -264,7 +269,7 @@ test("when catering takes up every hour paid, the week is n/a and says why, neve
   const w = octWeeks(withDays(all)).weeks[0];
   assert.equal(w.available, false);
   assert.equal(w.varianceHours, null);
-  assert.ok(w.why.includes("no in-store hours left once the catering work is taken off"), w.why.join("; "));
+  assert.ok(w.why.includes("no in-store hours left once the catering and marketing work is taken off"), w.why.join("; "));
 });
 
 test("when the catering work leaves hourly labor at zero or less, the week is n/a and says why", () => {
@@ -273,7 +278,7 @@ test("when the catering work leaves hourly labor at zero or less, the week is n/
   close(w.actual, -100);
   assert.equal(w.available, false);
   assert.equal(w.varianceHours, null);
-  assert.deepEqual(w.why, ["hourly labor is zero or less once the catering work is taken off"]);
+  assert.deepEqual(w.why, ["hourly labor is zero or less once the catering and marketing work is taken off"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -297,4 +302,48 @@ test("a salaried person hired after the week is not in that week's target; someo
   close(weeks[2].targetDollars, 542.5, "Person S counted through the archive day, not after");
   // After the 25th only Person T: the last week is 162,500 / 1,000,000 all week.
   close(weeks[3].targetPct.value, 0.1625);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 2026-11-16 (Alina): marketing work is a separate marketing budget,
+// taken out of the labor % like catering, at the hours actually worked.
+// ---------------------------------------------------------------------------
+
+test("the marketing work recorded comes off hourly labor at what it was paid, with that day's taxes and comp", () => {
+  // Tuesday the 8th: 3 of its 10 hours were catering (paid 45), 5 were marketing (paid 75).
+  // In-store pay: 1,050 + 70 solo close - 45 - 75 = 1,000; with 25% taxes and comp, 1,250.
+  const w = octWeeks(withDays({ "2030-10-08": { catering_hours: 3, catering_wages: 45, marketing_hours: 5, marketing_wages: 75 } })).weeks[0];
+  assert.equal(w.available, true, w.why.join("; "));
+  close(w.hours, 70);
+  close(w.cateringHours, 3);
+  close(w.marketingHours, 5);
+  close(w.cateringOffset, 45 * 1.25);
+  close(w.marketingOffset, 75 * 1.25); // no premium on marketing
+  close(w.taxesWc, 250);
+  close(w.actual, 1_250);
+  close(w.actualPct, 1_250 / 4_800);
+  close(w.targetPct.value, 0.25); // sales stay in-store only, the target is untouched
+  close(w.varianceDollars, 50);
+  close(w.varianceHours, 50 / (1_250 / 62)); // 62 in-store hours
+});
+
+test("a day whose marketing work is not yet split makes the week's labor n/a, and the reason counts the days not split", () => {
+  const unsplit = { marketing_hours: null, marketing_wages: null };
+  const w = octWeeks(withDays({ "2030-10-15": unsplit, "2030-10-16": unsplit, "2030-10-17": unsplit })).weeks[1];
+  assert.equal(w.available, false);
+  assert.equal(w.actual, null);
+  assert.equal(w.marketingHours, null);
+  assert.equal(w.marketingOffset, null);
+  assert.equal(w.cateringHours, null);
+  assert.deepEqual(w.why, ["catering and marketing work not yet split out of the payroll for 3 of 7 days"]);
+  const none = Object.fromEntries(eachDay("2030-10-13", "2030-10-19").map((d) => [d, unsplit]));
+  assert.deepEqual(octWeeks(withDays(none)).weeks[1].why, ["catering and marketing work not yet split out of the payroll for 7 of 7 days"]);
+});
+
+test("when catering and marketing together take up every hour paid, the week is n/a, never a variance in hours", () => {
+  const all = Object.fromEntries(eachDay("2030-10-06", "2030-10-12").map((d) => [d, { catering_hours: 4, catering_wages: 56, marketing_hours: 6, marketing_wages: 84 }]));
+  const w = octWeeks(withDays(all)).weeks[0];
+  assert.equal(w.available, false);
+  assert.equal(w.varianceHours, null);
+  assert.ok(w.why.includes("no in-store hours left once the catering and marketing work is taken off"), w.why.join("; "));
 });

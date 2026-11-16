@@ -46,7 +46,7 @@ after(async () => {
 function pending(start: string, end: string): LaborTargetWeek {
   return {
     start, end, available: false, why: ["the week is not over yet"], sales: null, hours: null, wages: null, premium: null, solo: null,
-    cateringHours: null, cateringOffset: null, taxesWc: null, actual: null, actualPct: null,
+    cateringHours: null, cateringOffset: null, marketingHours: null, marketingOffset: null, taxesWc: null, actual: null, actualPct: null,
     allInGoalPct: { value: 0.25, needs: [] }, targetPct: { value: 0.25, needs: [] }, targetDollars: null, varianceDollars: null, varianceHours: null,
   };
 }

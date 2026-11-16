@@ -330,7 +330,7 @@ views in the browser's localStorage. Sales targets come only from `public.sales_
 (migration 39): there is no copy in the page code, and when the read fails the sales widget
 draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
 bj-finance feed (migration 40). Labor vs target (bj-finance #696, `lib/metrics/laborTarget.ts`)
-reads `labor_daily_actuals` (migrations 46 and 59), `sales_daily_in_store` (migration 41) and the control
+reads `labor_daily_actuals` (migrations 46, 59 and 60), `sales_daily_in_store` (migration 41) and the control
 board's settings in force on each day. Both sides are all-in (taxes and workers' comp): the target is
 the board's `hourlyAllInPct`. **Catering never counts in the labor %** (Alina, 2026-11-16: "catering
 shouldn't be affecting the labor percent because catering revenue covers that as a separate bill"):
@@ -340,11 +340,19 @@ Position is Catering before the time app, punches on Catering shifts after, each
 paid rate) and the whole catering premium. The hours a quote billed (`labor_hours` x `staff_count`) are
 not read, and nor are deals: a pickup, a drop-off or a deal with no crew on file cannot change a week or
 make it n/a. (The Schedule page still uses billed hours for the days ahead, where nothing has been worked
-yet.) Every board value is the one in force on the day, so a past week
+yet.) **Marketing work never counts in the labor % either** (Alina, 2026-11-16: marketing work is a separate
+marketing budget and is taken out of the labor % like catering; catering and marketing are taken off at the
+hours actually worked): the actual also leaves out each day's `marketing_hours` and `marketing_wages`
+(migration 60, same writer: punches on a Marketing shift or on any shift of a marketing deal, a deal whose
+event type starts "Marketing" or whose stage is Closed Marketing Event, the part of a punch with no shift
+that overlaps the same person's unpunched marketing shift, and When I Work's Marketing position before the
+time app; each person at their own paid rate). A marketing shift's hours are never also catering hours.
+"Show numbers" lists each week's catering and marketing work taken off. Every board value is the one in force on the day, so a past week
 is judged by the board as it stood then, and fixed payroll
 counts only the people salaried that day. A Sunday-to-Saturday week shows only once it is over with all
-seven days of payroll, their catering split, and sales on file, and hours and hourly labor
-still above zero after the catering work comes off, otherwise "n/a" with the reason. The card covers a range of weeks
+seven days of payroll, their catering and marketing split, and sales on file, and hours and hourly labor
+still above zero after the catering and marketing work comes off, otherwise "n/a" with the reason (for a split
+missing, how many of the 7 days are not split yet). The card covers a range of weeks
 (`lib/metrics/weekRange.ts`), saved in the widget's settings as `from` and `to`, the Sundays of its first and last
 week, chosen from 2026-05-03 (`FIRST_LABOR_WEEK`) to the week holding today. Unset, it shows the last 8 weeks ending
 with the most recent one that is over. A view saved under the old month picker keeps its `month`, read as the weeks
@@ -580,6 +588,12 @@ Apply it after the app that reads them deploys green; until bj-finance has split
 not yet split out of the payroll"). bj-finance writes the split with each new pay period and sets it on the days already
 published with `python -m modules.labor_actuals rebuild --wiw <the When I Work exports>`, which writes a period only when it
 places every day exactly as published. Verify with `migration_59_verify.sql`; roll back with `migration_59_down.sql`.
+
+Migration 60 adds each day's marketing split beside it: `marketing_hours` and `marketing_wages`, null on a day not split
+yet, never the same hours as catering (the two together are never more than the day's hours). It only adds columns, so
+apply it BEFORE the app that reads them deploys (the card asks for both columns and says it could not load without
+them); until bj-finance has split a day, its week reads n/a. The same `rebuild` sets it on the days already published.
+Verify with `migration_60_verify.sql`; roll back with `migration_60_down.sql`.
 
 ### Labor Hours Planning (bj-finance #742)
 Apply `time-app/supabase/migration_47.sql` by hand in the Supabase SQL editor, after migration 46, BEFORE

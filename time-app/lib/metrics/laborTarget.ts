@@ -18,11 +18,21 @@
 //                         catering premium. Booked deals and the hours a quote
 //                         billed are not read: a deal with no crew, a pickup
 //                         or a drop-off, cannot change a week.
+//   Marketing work        never in it either (Alina, 2026-11-16: marketing
+//                         work is a separate marketing budget, taken out like
+//                         catering, at the hours actually worked): each day's
+//                         marketing_hours and marketing_wages (migration 60;
+//                         modules/labor_days.py: punches on a Marketing shift
+//                         or on any shift of a marketing deal, When I Work's
+//                         Marketing position before the time app, each person
+//                         at their own paid rate). Never the same hours as
+//                         catering.
 //   Actual hourly labor $ ALL-IN: wages + solo close as QBO paid them
 //                         (public.labor_daily_actuals, migration 46: hourly,
 //                         non-overhead staff, a pay period's dollars spread
 //                         over its days by hours) less the day's catering
-//                         wages, plus employer taxes and workers' comp on that
+//                         and marketing wages, plus employer taxes and
+//                         workers' comp on that
 //                         at the control board's hourly rate in force on the
 //                         day (FICA + FUTA + PA UC + WC, no caps: the board's
 //                         hourlyLoad).
@@ -40,14 +50,14 @@
 //                         Above zero is over target.
 //   Variance hours        variance $ at the week's own in-store cost per hour
 //                         (actual hourly labor $ / (hours paid - catering
-//                         hours worked)).
+//                         and marketing hours worked)).
 //
 // Every board value is the one in force on the day, so a past week is judged
 // by the board as it stood then: fixed payroll counts only the people salaried
 // that day (inFixedPayroll).
 //
 // A week counts only when it is over and all seven of its days have a
-// labor_daily_actuals row with its catering split; otherwise its labor is not
+// labor_daily_actuals row with its catering and marketing split; otherwise its labor is not
 // available, never zero. The same for sales: a missing day makes the week's
 // sales not available. Nothing is estimated from punches or the schedule.
 //
@@ -62,7 +72,8 @@ import { laborWeekStarts } from "./weekRange.ts";
 
 /**
  * A row of public.labor_daily_actuals, as the card reads it. The catering
- * split (migration 59) is null on a day bj-finance has not split yet.
+ * split (migration 59) and the marketing split (migration 60) are null on a
+ * day bj-finance has not split yet.
  */
 export type LaborDayRow = {
   day: string;
@@ -72,6 +83,8 @@ export type LaborDayRow = {
   solo_close: number;
   catering_hours: number | null;
   catering_wages: number | null;
+  marketing_hours: number | null;
+  marketing_wages: number | null;
 };
 /** A row of public.sales_daily_in_store, as the card reads it. */
 export type SalesDayRow = { day: string; in_store: number };
@@ -107,6 +120,10 @@ export type LaborTargetWeek = {
   cateringHours: number | null;
   /** What that catering work cost all-in (wages + premium + taxes and comp); not in the actual. */
   cateringOffset: number | null;
+  /** Hours worked on marketing, as the clocks recorded them. */
+  marketingHours: number | null;
+  /** What that marketing work cost all-in (wages + taxes and comp); not in the actual. */
+  marketingOffset: number | null;
   /** Employer taxes and comp on the in-store hourly pay. */
   taxesWc: number | null;
   /** All-in in-store hourly labor $. */
@@ -135,11 +152,12 @@ export const WHY = {
   notOver: "the week is not over yet",
   rates: "payroll tax and workers' comp rates not set on the control board",
   labor: (n: number) => `hourly payroll on file for ${n} of 7 days`,
-  split: (n: number) => `catering work not yet split out of the payroll for ${n} of 7 days`,
+  /** `n` is the number of days NOT yet split. */
+  split: (n: number) => `catering and marketing work not yet split out of the payroll for ${n} of 7 days`,
   sales: (n: number) => `in-store sales on file for ${n} of 7 days`,
   varying: "the week's sales (the target changed during the week)",
-  noInStoreHours: "no in-store hours left once the catering work is taken off",
-  noInStoreLabor: "hourly labor is zero or less once the catering work is taken off",
+  noInStoreHours: "no in-store hours left once the catering and marketing work is taken off",
+  noInStoreLabor: "hourly labor is zero or less once the catering and marketing work is taken off",
 } as const;
 
 function week(
@@ -171,25 +189,37 @@ function week(
   let cateringHours: number | null = null;
   let cateringWages: number | null = null;
   let cateringAllIn: number | null = null;
+  let marketingHours: number | null = null;
+  let marketingWages: number | null = null;
+  let marketingAllIn: number | null = null;
   if (over && laborDays === 7) {
     const rows = laborRows as LaborDayRow[];
     hours = rows.reduce((a, r) => a + r.hours, 0);
     wages = rows.reduce((a, r) => a + r.wages, 0);
     premium = rows.reduce((a, r) => a + r.catering_premium, 0);
     solo = rows.reduce((a, r) => a + r.solo_close, 0);
-    const split = rows.filter((r) => r.catering_hours != null && r.catering_wages != null).length;
-    if (split < 7) why.push(WHY.split(split));
+    const split = rows.filter(
+      (r) => r.catering_hours != null && r.catering_wages != null && r.marketing_hours != null && r.marketing_wages != null,
+    ).length;
+    if (split < 7) why.push(WHY.split(7 - split));
     const ratesSet = loads.every((l) => l.value != null);
     if (!ratesSet) why.push(WHY.rates);
-    if (split === 7) cateringHours = rows.reduce((a, r) => a + r.catering_hours!, 0);
+    if (split === 7) {
+      cateringHours = rows.reduce((a, r) => a + r.catering_hours!, 0);
+      marketingHours = rows.reduce((a, r) => a + r.marketing_hours!, 0);
+    }
     if (ratesSet && split === 7) {
       cateringWages = rows.reduce((a, r) => a + r.catering_wages!, 0);
+      marketingWages = rows.reduce((a, r) => a + r.marketing_wages!, 0);
       cateringAllIn = rows.reduce((a, r, k) => a + (r.catering_wages! + r.catering_premium) * (1 + loads[k].value!), 0);
-      taxesWc = rows.reduce((a, r, k) => a + (r.wages - r.catering_wages! + r.solo_close) * loads[k].value!, 0);
+      marketingAllIn = rows.reduce((a, r, k) => a + r.marketing_wages! * (1 + loads[k].value!), 0);
+      taxesWc = rows.reduce((a, r, k) => a + (r.wages - r.catering_wages! - r.marketing_wages! + r.solo_close) * loads[k].value!, 0);
     }
   }
   const actual =
-    wages != null && solo != null && cateringWages != null && taxesWc != null ? wages - cateringWages + solo + taxesWc : null;
+    wages != null && solo != null && cateringWages != null && marketingWages != null && taxesWc != null
+      ? wages - cateringWages - marketingWages + solo + taxesWc
+      : null;
 
   // Sales: all seven days on file, and the week over.
   const salesDays = days.filter((d) => sales.has(d)).length;
@@ -214,7 +244,7 @@ function week(
 
   const actualPct = actual != null && weekSales != null && weekSales > 0 ? actual / weekSales : null;
   const varianceDollars = actual != null && targetDollars != null ? actual - targetDollars : null;
-  const inStoreHours = hours != null && cateringHours != null ? hours - cateringHours : null;
+  const inStoreHours = hours != null && cateringHours != null && marketingHours != null ? hours - cateringHours - marketingHours : null;
   if (actual != null && inStoreHours != null && !(inStoreHours > 0)) why.push(WHY.noInStoreHours);
   else if (actual != null && inStoreHours != null && !(actual > 0)) why.push(WHY.noInStoreLabor);
   const varianceHours =
@@ -232,6 +262,8 @@ function week(
     solo,
     cateringHours,
     cateringOffset: cateringAllIn,
+    marketingHours,
+    marketingOffset: marketingAllIn,
     taxesWc,
     actual,
     actualPct,

@@ -201,7 +201,7 @@ function seedLaborTarget() {
   db.tables.profile_salaries = [];
   // Each day 10 hours and 160 paid (as PostgREST sends numerics: strings), 200 with taxes and comp; sales 700 a day.
   db.tables.labor_daily_actuals = SEPT_WEEK.map((day) => ({
-    day, hours: "10.00", wages: "150.00", catering_premium: "0.00", solo_close: "10.00", catering_hours: "0.00", catering_wages: "0.00", period_start: "2026-08-31", period_end: "2026-09-13", source: "punches", built_by: "test", updated_at: "2026-09-15T00:00:00Z",
+    day, hours: "10.00", wages: "150.00", catering_premium: "0.00", solo_close: "10.00", catering_hours: "0.00", catering_wages: "0.00", marketing_hours: "0.00", marketing_wages: "0.00", period_start: "2026-08-31", period_end: "2026-09-13", source: "punches", built_by: "test", updated_at: "2026-09-15T00:00:00Z",
   }));
   db.tables.sales_daily_in_store = SEPT_WEEK.map((day) => ({ day, in_store: "700.00", basis: "booked", source: "square" }));
 }
@@ -249,6 +249,29 @@ test("labor vs target: the catering work recorded on a day comes off at what it 
   assert.equal(first.varianceDollars, 1_325 - 1_225);
 });
 
+test("labor vs target: the marketing work recorded on a day comes off at what it was paid, all-in", async () => {
+  seedLaborTarget();
+  // Invented: Tuesday the 8th, 4 of its 10 hours marketing, paid 60 (as PostgREST sends numerics).
+  laborDay("2026-09-08", { marketing_hours: "4.00", marketing_wages: "60.00" });
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  assert.deepEqual(data.problems, []);
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
+  assert.equal(first.available, true, first.why.join("; "));
+  assert.equal(first.marketingHours, 4);
+  assert.equal(first.marketingOffset, 75);
+  assert.equal(first.cateringHours, 0);
+  assert.equal(first.actual, 1_325);
+});
+
+test("labor vs target: a day the marketing split has not reached reads n/a, never zero", async () => {
+  seedLaborTarget();
+  laborDay("2026-09-08", { marketing_hours: null, marketing_wages: null });
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
+  assert.equal(first.available, false);
+  assert.deepEqual(first.why, ["catering and marketing work not yet split out of the payroll for 1 of 7 days"]);
+});
+
 test("labor vs target: booked deals never change a week, a deal with no billed crew hours or a drop-off with no crew included", async () => {
   seedLaborTarget();
   db.tables.control_settings.push({
@@ -273,7 +296,7 @@ test("labor vs target: a day bj-finance has not split yet reads n/a for its week
   const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, false);
   assert.equal(first.actual, null);
-  assert.ok(first.why.includes("catering work not yet split out of the payroll for 6 of 7 days"), first.why.join("; "));
+  assert.ok(first.why.includes("catering and marketing work not yet split out of the payroll for 1 of 7 days"), first.why.join("; "));
 });
 
 // A past week is judged by the board as it stood that week (bj-finance #696):

@@ -207,7 +207,8 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
 /**
  * Labor vs target (bj-finance #696): public.labor_daily_actuals (migration
  * 46) and public.sales_daily_in_store (migration 41) over the weeks on
- * offer, with each day's catering split (migration 59), and the control
+ * offer, with each day's catering split (migration 59) and marketing split
+ * (migration 60), and the control
  * board's settings, salaries and fixed-payroll people (loadBoard, the same
  * reads the Targets tab makes). Any of them failing fails the card: a target
  * without its actuals, or the reverse, is not shown. Catering deals are not
@@ -219,7 +220,7 @@ async function loadLaborTarget(supabase: SupabaseClient, today: string): Promise
     paged<Record<string, unknown>>(() =>
       supabase
         .from("labor_daily_actuals")
-        .select("day, hours, wages, catering_premium, solo_close, catering_hours, catering_wages")
+        .select("day, hours, wages, catering_premium, solo_close, catering_hours, catering_wages, marketing_hours, marketing_wages")
         .gte("day", from)
         .lte("day", to)
         .order("day"),
@@ -238,6 +239,8 @@ async function loadLaborTarget(supabase: SupabaseClient, today: string): Promise
         solo_close: Number(r.solo_close),
         catering_hours: r.catering_hours == null ? null : Number(r.catering_hours),
         catering_wages: r.catering_wages == null ? null : Number(r.catering_wages),
+        marketing_hours: r.marketing_hours == null ? null : Number(r.marketing_hours),
+        marketing_wages: r.marketing_wages == null ? null : Number(r.marketing_wages),
       }),
     ),
     sales: sales.map((r): SalesDayRow => ({ day: String(r.day), in_store: Number(r.in_store) })),
