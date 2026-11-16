@@ -23,7 +23,7 @@ One booked catering deal as staff recognise it: date, start time, venue or compa
 _Avoid_: Deal (in staff-facing language), job, gig
 
 **Mileage**:
-Miles driven in a staff member's own car for a Reason. For a Catering Event, the round trip stored on the event's deal (Catering-Manager's `round_trip_miles`); staff do not type them, and the form shows them read only (owner's ruling 2026-11-16, which replaces "staff with their actual trip mileage are paid on it" for Catering Events; time-app migration 58). For Groceries / errands, typed by the staff member or computed from the stops they enter.
+Miles driven in a staff member's own car for a Reason. For a Catering Event, the round trip stored on the event's deal (Catering-Manager's `round_trip_miles`); staff do not type them, and the form shows them read only (owner's ruling 2026-11-16; time-app migration 58). For Groceries / errands, typed by the staff member or computed from the stops they enter.
 
 **Mileage rate**:
 The IRS business standard mileage rate in effect on the trip date. For a Catering Event, never more per mile than the event's quote charged the customer: a quote that charged mileage caps it at its per-mile rate; a quote that charged no mileage caps it at 0c, as does one that charged mileage on a deal with no round-trip miles until the miles land (the time app queues a miles-only recalculation for that deal, `quote_jobs` kind `miles`); no quote and the Uber flat fee do not cap it (time-app migrations 49, 50 and 52). A Catering Event trip is paid its deal's round-trip miles at this rate; while the deal has none, the trip waits for them and cannot be approved.

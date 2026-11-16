@@ -378,9 +378,8 @@ preferred when staff have them. Both are for Groceries / errands only: a Caterin
 intermediates, no traffic-aware routing, no departure time. Rules, sources and the billing triggers:
 the header of `time-app/lib/reimbursements/routeMiles.ts`.
 
-**A Catering Event trip in the staff member's own car is paid on the deal's stored round-trip miles; staff no
-longer type them (owner's ruling 2026-11-16, replacing "staff with their actual trip mileage are paid on it" for
-Catering Events).** The form shows the miles and what they pay, read only ("Mileage for this event: 6.4 miles round
+**A Catering Event trip in the staff member's own car is paid on the deal's stored round-trip miles; staff do not
+type them (owner's ruling 2026-11-16).** The form shows the miles and what they pay, read only ("Mileage for this event: 6.4 miles round
 trip, $4.64"); tolls, parking and Receipts are as before. The server ignores any mileage the browser sends for a
 Catering Event and stores `mileage_mode` `'deal'` with the deal's `round_trip_miles` to 0.1 mi
 (`lib/reimbursements/submission.ts`, `server.ts`); migration 58's trigger does the same in the database for every
@@ -390,7 +389,7 @@ it; the Approve writes the deal's miles to the row and an Approved trip keeps th
 yet: the trip is accepted with nothing else to pay, a miles-only recalculation is queued and Approve is refused until
 the miles land (below), unless the quote charged $0 mileage, which pays 0c whatever the miles. Trips submitted before
 migration 58 with typed or destination miles: an Approved one keeps them; a Submitted or Rejected one moves to the
-deal's miles when migration 58 runs (none were open on 2026-11-16), and an Approver's Mileage Adjustment on it
+deal's miles when migration 58 runs, and an Approver's Mileage Adjustment on it
 stays. Groceries / errands keep typed and destination miles. Apply `migration_58.sql` right after the app deploys:
 until it runs the database refuses `'deal'`, so staff cannot submit a Catering Event trip.
 
