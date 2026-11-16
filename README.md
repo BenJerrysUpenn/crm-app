@@ -330,12 +330,12 @@ views in the browser's localStorage. Sales targets come only from `public.sales_
 (migration 39): there is no copy in the page code, and when the read fails the sales widget
 draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
 bj-finance feed (migration 40). Labor vs target (bj-finance #696, `lib/metrics/laborTarget.ts`)
-reads `labor_daily_actuals` (migrations 46 and 58), `sales_daily_in_store` (migration 41) and the control
+reads `labor_daily_actuals` (migrations 46 and 59), `sales_daily_in_store` (migration 41) and the control
 board's settings in force on each day. Both sides are all-in (taxes and workers' comp): the target is
 the board's `hourlyAllInPct`. **Catering never counts in the labor %** (Alina, 2026-11-16: "catering
 shouldn't be affecting the labor percent because catering revenue covers that as a separate bill"):
 the actual leaves out the catering work the clocks recorded, as paid (each day's `catering_hours` and
-`catering_wages`, migration 58, written by bj-finance `modules/labor_days.py`: When I Work lines whose
+`catering_wages`, migration 59, written by bj-finance `modules/labor_days.py`: When I Work lines whose
 Position is Catering before the time app, punches on Catering shifts after, each person at their own
 paid rate) and the whole catering premium. The hours a quote billed (`labor_hours` x `staff_count`) are
 not read, and nor are deals: a pickup, a drop-off or a deal with no crew on file cannot change a week or
@@ -558,12 +558,12 @@ Sunday to Saturday weeks are the reader's grouping. Only the Labor vs target car
 migration before deploying that card, or it says it could not load. Verify with `migration_46_verify.sql`; roll back with
 `migration_46_down.sql`.
 
-Migration 58 adds each day's catering split to `labor_daily_actuals`: `catering_hours` (of the day's hours, those worked
+Migration 59 adds each day's catering split to `labor_daily_actuals`: `catering_hours` (of the day's hours, those worked
 on catering) and `catering_wages` (what they cost, each person at their own paid rate), both null on a day not split yet.
 Apply it after the app that reads them deploys green; until bj-finance has split a day, its week reads n/a ("catering work
 not yet split out of the payroll"). bj-finance writes the split with each new pay period and sets it on the days already
 published with `python -m modules.labor_actuals rebuild --wiw <the When I Work exports>`, which writes a period only when it
-places every day exactly as published. Verify with `migration_58_verify.sql`; roll back with `migration_58_down.sql`.
+places every day exactly as published. Verify with `migration_59_verify.sql`; roll back with `migration_59_down.sql`.
 
 ### Labor Hours Planning (bj-finance #742)
 Apply `time-app/supabase/migration_47.sql` by hand in the Supabase SQL editor, after migration 46, BEFORE

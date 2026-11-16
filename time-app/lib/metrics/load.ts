@@ -207,7 +207,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
 /**
  * Labor vs target (bj-finance #696): public.labor_daily_actuals (migration
  * 46) and public.sales_daily_in_store (migration 41) over the weeks on
- * offer, with each day's catering split (migration 58), and the control
+ * offer, with each day's catering split (migration 59), and the control
  * board's settings, salaries and fixed-payroll people (loadBoard, the same
  * reads the Targets tab makes). Any of them failing fails the card: a target
  * without its actuals, or the reverse, is not shown. Catering deals are not

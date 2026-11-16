@@ -11,7 +11,7 @@
 //                         revenue covers that as a separate bill"). What comes
 //                         off is the catering work the clocks recorded, as
 //                         paid: each day's catering_hours and catering_wages
-//                         (migration 58; bj-finance modules/labor_days.py:
+//                         (migration 59; bj-finance modules/labor_days.py:
 //                         When I Work lines whose Position is Catering before
 //                         the time app, punches on Catering shifts after, each
 //                         person at their own paid rate) and the whole
@@ -62,7 +62,7 @@ import { laborWeekStarts } from "./weekRange.ts";
 
 /**
  * A row of public.labor_daily_actuals, as the card reads it. The catering
- * split (migration 58) is null on a day bj-finance has not split yet.
+ * split (migration 59) is null on a day bj-finance has not split yet.
  */
 export type LaborDayRow = {
   day: string;

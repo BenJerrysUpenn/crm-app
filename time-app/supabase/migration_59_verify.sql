@@ -1,10 +1,10 @@
 -- ============================================================================
--- Withers Time, verification for migration 58 (catering work kept apart on
+-- Withers Time, verification for migration 59 (catering work kept apart on
 -- labor_daily_actuals)
 --
--- Run by hand against a database with migration 58 applied, or locally with
+-- Run by hand against a database with migration 59 applied, or locally with
 -- every other verify file: `npm run test:db`. Everything happens inside one
--- transaction that ends in ROLLBACK. A clean run ends with "migration 58
+-- transaction that ends in ROLLBACK. A clean run ends with "migration 59
 -- verified". Every figure below is invented.
 --
 -- WHAT IS CHECKED
@@ -24,7 +24,7 @@ declare
   w numeric;
 begin
   insert into public.labor_daily_actuals (day, hours, wages, catering_premium, solo_close, period_start, period_end, source, built_by)
-  values ('2099-01-05', 8, 120, 0, 0, '2099-01-05', '2099-01-18', 'punches', 'verify 58');
+  values ('2099-01-05', 8, 120, 0, 0, '2099-01-05', '2099-01-18', 'punches', 'verify 59');
   select catering_hours, catering_wages into h, w from public.labor_daily_actuals where day = '2099-01-05';
   if h is not null or w is not null then
     raise exception '1: a day written without the split should keep both columns null';
@@ -61,7 +61,7 @@ begin
   end;
   if not refused then raise exception '2: negative catering wages should be refused'; end if;
 
-  raise notice 'migration 58 verified';
+  raise notice 'migration 59 verified';
 end
 $$;
 

@@ -1,9 +1,9 @@
 -- ============================================================================
--- Withers Time, migration 58: each day of hourly labor keeps its catering work apart
+-- Withers Time, migration 59: each day of hourly labor keeps its catering work apart
 -- Run once in the Supabase SQL editor, after migration_46.sql and after the
 -- app that ships this file deploys green on main. Safe to re-run.
 --
--- VERIFY. supabase/migration_58_verify.sql. ROLLBACK. supabase/migration_58_down.sql.
+-- VERIFY. supabase/migration_59_verify.sql. ROLLBACK. supabase/migration_59_down.sql.
 --
 -- WHY (Alina, 2026-11-16). "Catering shouldn't be affecting the labor percent
 -- because catering revenue covers that as a separate bill." The Labor vs
