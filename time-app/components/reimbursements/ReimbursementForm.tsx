@@ -120,15 +120,16 @@ export default function ReimbursementForm({
   // than its quote charged (migrations 49, 50, 52): 0c when it charged none.
   const isEvent = reasonKind === "catering_event";
   const eventCap = isEvent ? event?.mileage_cap ?? null : null;
-  const eventMilesPending = isEvent && milesPending({ mileage_mode: "deal", miles: dealMiles(eventCap?.round_trip_miles), mileage_cap: eventCap });
+  const eventMiles = dealMiles(eventCap?.round_trip_miles);
+  const eventMilesPending = isEvent && milesPending({ mileage_mode: "deal", miles: eventMiles, mileage_cap: eventCap });
 
   const estimate = useMemo(() => {
-    const m = isEvent ? dealMiles(eventCap?.round_trip_miles) : mileageMode === "typed" ? milesFromInput(miles || "0") : route?.miles ?? null;
+    const m = isEvent ? eventMiles : mileageMode === "typed" ? milesFromInput(miles || "0") : route?.miles ?? null;
     const t = centsFromDollars(tolls);
     const p = centsFromDollars(parking);
     if (m == null || t == null || p == null) return null;
     return reimbursementCents({ trip_date: tripDate, miles: m, tolls_cents: t, parking_cents: p, mileage_cents_override: null, cap_cents_per_mile: eventCap?.cap_cents_per_mile ?? null }, rates);
-  }, [isEvent, mileageMode, miles, route, tolls, parking, tripDate, rates, eventCap]);
+  }, [isEvent, eventMiles, mileageMode, miles, route, tolls, parking, tripDate, rates, eventCap]);
 
   function reasonBody() {
     return reasonKind === "errands" ? { kind: "errands", note } : { kind: "catering_event", event_id: event?.id, note };
