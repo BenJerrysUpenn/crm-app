@@ -28,7 +28,24 @@ export type ApproachFact = {
   brief: string;
   createdBy: string;
   createdAt: string;
+  /** Round 4: where the idea came from. "human" is an email people sent
+   * before the loop (its sends are the starting data); "research" came from
+   * Alina's reading; "loop" is the loop's own idea. */
+  origin: "human" | "research" | "loop";
+  /** What it is meant to change in the reader. */
+  purpose: string;
+  /** Why it was started, in a sentence. */
+  whyTried: string;
+  /** What the rest of the email has to do so the whole reads as one. */
+  fitsWith: string;
+  /** What result would mean it is not working. */
+  stopIf: string;
+  evidence: EvidenceFact[];
+  /** Only sent in these send-time slots (empty: any). */
+  slots: string[];
 };
+
+export type EvidenceFact = { source: string; url: string | null; finding: string };
 
 export type Verdict = "baseline" | "learning" | "live" | "retire" | "crown";
 
@@ -41,7 +58,9 @@ export type ArmFact = {
   reply: RateFact;
   lead: RateFact;
   booking: RateFact;
-  /** Chance of being best on leads, 0..1. Null before any send. */
+  /** Chance of being best on replies, 0..1 (round 4: replies come about
+   * three times as often as leads, so they decide about three times as fast;
+   * a reply winner must not trail on leads). Null before any send. */
   best: number | null;
   verdict: Verdict;
   emailsThisWeek: number;
@@ -59,7 +78,41 @@ export type TypeFact = {
   sentThisWeek: number;
   ready: number;
   held: { reason: string; n: number }[];
+  /** Emailed, but with a changed ask (round 4: small groups get the cake option). */
+  adjusted: { reason: string; n: number }[];
+  /** Per-type reads of each approach: diagnostic only, too few to decide. */
   arms: ArmFact[];
+  /** The approach most of this week's emails use. */
+  mostly: string | null;
+};
+
+/** Round 4: one question at a time, pooled across every type it fits. */
+export type TestFact = {
+  id: string;
+  tier: Tier | "all";
+  factor: "approach" | "send time";
+  question: string;
+  /** Pooled arms; for a send-time test, approachId is the slot id. */
+  arms: ArmFact[];
+  weekly: number;
+  started: string;
+  why: string;
+};
+
+export type SlotFact = { id: string; label: string; at: string; why: string; evidence: EvidenceFact[] };
+
+/** What people sent before the loop: its starting data (round 4). */
+export type HistoryFact = {
+  id: string;
+  name: string;
+  lane: string;
+  sent: number | null;
+  replied: number | null;
+  deals: number | null;
+  booked: number | null;
+  status: "baseline" | "in the loop" | "retired";
+  becomes: string;
+  synthetic?: string;
 };
 
 export type DraftFact = {
@@ -86,6 +139,13 @@ export type DraftFact = {
     evidence: string | null;
   };
   prior: { touch: number; subject: string; sentOn: string }[];
+  /** Round 4: when it lands (a slot of the send-time test), as ISO. */
+  slot: string;
+  sendAt: string;
+  /** Round 4: the judge read the whole email before it was planned. */
+  judge: { verdict: "pass" | "rewritten" | "held"; note: string };
+  /** Why this approach for this person, in a sentence. */
+  pick: string;
 };
 
 export type DecisionFact = { kind: "add" | "retire" | "crown" | "reopen" | "hold"; type: string | null; approachId: string; reason: string };
@@ -124,8 +184,11 @@ export type LimitsFact = {
   minGuests: number;
   holdBackMonths: number;
   minDaysBeforeEvent: number;
-  willSay: string[];
-  wontSay: string[];
+  /** Round 4: hard lines, never crossed. */
+  never: string[];
+  /** Round 4: suggestions. The loop may go past one when it has a reason, and says why. */
+  leanToward: string[];
+  coldDailyCap: number;
   allowedOffers: string[];
   approvedAsk: string[];
   linkedinCap: number;
@@ -147,6 +210,10 @@ export type LoopFacts = {
   runs: RunFact[];
   types: TypeFact[];
   cold: { enabled: boolean; ready: number };
+  tests: TestFact[];
+  slots: Record<string, SlotFact>;
+  history: HistoryFact[];
+  judge: { passed: number; rewritten: number; held: number; youOverruled: number };
   approaches: Record<string, ApproachFact>;
   drafts: DraftFact[];
   limits: LimitsFact;
@@ -157,7 +224,7 @@ export type LoopFacts = {
     accuracy: { source: string; checked: number; medianDaysOff: number | null }[];
   };
   notes: NoteFact[];
-  volume: { ready: number; roomPerWeek: number };
+  volume: { ready: number; roomPerWeek: number; warm: { ready: number; room: number }; cold: { ready: number; room: number } };
   unsub: { n: number; sends: number };
   week: { replies: number; leads: number; bookings: number; avg4: { replies: number; leads: number; bookings: number } };
   flagged: { draftId: string; words: string | null }[];
@@ -185,11 +252,11 @@ const TYPE_WORDS: Record<string, string> = {
 
 export const typeLabel = (key: string) => TYPE_WORDS[key.split(":")[1] ?? key] ?? key;
 export const tierOf = (key: string): Tier => (key.split(":")[0] as Tier) ?? "warm";
-export const TIER_WORD: Record<Tier, string> = { warm: "Warm", cold: "Cold", offer: "Offer" };
+export const TIER_WORD: Record<Tier, string> = { warm: "Past customers and enquirers", cold: "New to us (cold)", offer: "Offer" };
 
 export const VERDICT_WORD: Record<Verdict, string> = {
   baseline: "baseline, never retired",
-  learning: "too early (under 150 sends)",
+  learning: `too early (under ${5} replies)`,
   live: "still competing",
   retire: "due to retire (under 5% chance of best)",
   crown: "due to win (over 95% chance of best)",
@@ -204,7 +271,39 @@ export const SOURCE_WORD: Record<string, string> = {
   occasion_calendar: "the occasion calendar",
 };
 
-export const MIN_SENDS_FOR_VERDICT = 150;
+/** Under this many replies an approach's range spans more than three times
+ * its rate, so it is drawn gray and judged by nothing (round 4: replaces the
+ * round 3 placeholder of 150 sends, which was not derived from anything). */
+export const EARLY_REPLIES = 5;
+export const isEarly = (a: ArmFact) => a.reply.k < EARLY_REPLIES;
+
+/**
+ * Weeks until the first challenger can be called, if it is twice as good as
+ * the baseline on replies (one-sided 95%, 80% power). When the baseline
+ * carries a long history (1,000+ sends) its rate counts as known and a
+ * challenger needs about a quarter of the emails a two-arm test would.
+ * Null when no challenger is live; Infinity when the volume never gets there.
+ */
+export function weeksToDecide(t: TestFact, baselineShare: number): number | null {
+  const base = t.arms.find((a) => a.verdict === "baseline");
+  const challengers = t.arms.filter((a) => a.status === "live" && a.verdict !== "baseline");
+  if (!base || !challengers.length) return null;
+  const p0 = Math.max(base.reply.k, 1) / Math.max(base.reply.n, 1);
+  const p1 = Math.min(2 * p0, 0.99);
+  const za = 1.645;
+  const zb = 0.84;
+  const need =
+    base.reply.n >= 1000
+      ? (za * Math.sqrt(p0 * (1 - p0)) + zb * Math.sqrt(p1 * (1 - p1))) ** 2 / (p1 - p0) ** 2
+      : ((za + zb) ** 2 * (p0 * (1 - p0) + p1 * (1 - p1))) / (p1 - p0) ** 2;
+  const perArm = (t.weekly * (1 - baselineShare)) / challengers.length;
+  if (perArm <= 0) return Infinity;
+  const left = Math.min(...challengers.map((a) => Math.max(0, need - a.sends)));
+  return left / perArm;
+}
+
+export const weeksWord = (w: number | null) =>
+  w === null ? "nothing to decide" : w === 0 ? "ready to call" : w > 26 ? "not this season" : `about ${Math.max(1, Math.round(w))} week${Math.round(w) > 1 ? "s" : ""}`;
 
 /** Wilson 90% range per 1,000, as scorer.py computes it. */
 export function rate(k: number, n: number): RateFact {
@@ -563,6 +662,10 @@ export function buildLoop(
         evidence: null,
       },
       prior: [],
+      slot: "late_morning",
+      sendAt: `${d.send_on}T15:00:00Z`,
+      judge: { verdict: "pass", note: "No judge record yet (spec 10.5)." },
+      pick: d.assigned_by === "baseline_quota" ? "The baseline's share." : "The daily draw.",
     };
   });
   const score = obj(obj(thisRun?.score ?? rows.runs[0]?.score).types);
@@ -580,6 +683,8 @@ export function buildLoop(
       sentThisWeek: mine.filter((d) => d.status === "sent").length,
       ready: 0,
       held: [],
+      adjusted: [],
+      mostly: null,
       arms: rows.arms
         .filter((a) => a.customer_type === key)
         .map((a) => {
@@ -617,7 +722,14 @@ export function buildLoop(
         brief: a.brief,
         createdBy: a.created_by,
         createdAt: a.created_at,
-      },
+        origin: a.created_by.startsWith("human") ? "human" : "loop",
+        purpose: "",
+        whyTried: a.brief,
+        fitsWith: "",
+        stopIf: "",
+        evidence: [],
+        slots: [],
+      } satisfies ApproachFact,
     ]),
   );
   const runs = rows.runs.map((r) => runOf(r, r.week_start === weekStart ? drafts.length : 0));
@@ -634,4 +746,92 @@ export function buildLoop(
     drafts,
     flagged: [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Round 4: chance of best, and the starting data from what people sent
+// ---------------------------------------------------------------------------
+
+/** Chance each live arm is best on replies: draws from each arm's Beta(1+k,
+ * 1+n-k), normal approximation, seeded so the page is stable on reload. */
+export function chanceBest(arms: ArmFact[], draws = 4000): void {
+  // An arm with no sends has nothing to rank yet (a flat prior would win
+  // half the draws); it shows as "new".
+  const live = arms.filter((a) => a.status === "live" && a.reply.n > 0);
+  for (const a of arms) if (a.status === "live" && a.reply.n === 0) a.best = null;
+  let s = 1234567;
+  const u = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return (s + 0.5) / 2 ** 32;
+  };
+  const z = () => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u());
+  const wins = live.map(() => 0);
+  const par = live.map((a) => {
+    const al = 1 + a.reply.k;
+    const be = 1 + a.reply.n - a.reply.k;
+    const m = al / (al + be);
+    return { m, sd: Math.sqrt((al * be) / ((al + be) ** 2 * (al + be + 1))) };
+  });
+  for (let i = 0; i < draws; i++) {
+    let best = -1;
+    let at = 0;
+    par.forEach((p, j) => {
+      const x = p.m + p.sd * z();
+      if (x > best) {
+        best = x;
+        at = j;
+      }
+    });
+    wins[at]++;
+  }
+  live.forEach((a, j) => (a.best = Math.round((wins[j] / draws) * 100) / 100));
+  for (const a of arms) if (a.status !== "live") a.best = 0;
+}
+
+export function verdictOf(a: ArmFact, baseline: boolean): Verdict {
+  if (baseline) return "baseline";
+  if (a.status === "retired") return "retire";
+  if (isEarly(a)) return "learning";
+  if (a.best !== null && a.best > 0.95) return "crown";
+  if (a.best !== null && a.best < 0.05) return "retire";
+  return "live";
+}
+
+/** The sales_lanes lanes that were emails people sent by hand, and what each
+ * becomes in the loop. */
+const HAND_RUN: { lane: string; id: string; name: string; status: HistoryFact["status"]; becomes: string }[] = [
+  { lane: "warm", id: "holiday_letter", name: "Holiday letter", status: "baseline", becomes: "The baseline for past customers and enquirers: what every new first email has to beat." },
+  { lane: "holiday gift", id: "holiday_gift", name: "$100 Holiday Gift", status: "in the loop", becomes: "An approach for past customers who booked, competing in the same test." },
+  { lane: "cold", id: "cold_pilot_a", name: "Cold Pilot A", status: "baseline", becomes: "The baseline for new-to-us people." },
+  { lane: "warm: wedding", id: "wedding_expo", name: "Wedding expo follow-up", status: "retired", becomes: "Retired: no more wedding emails. Its replies stay in the history." },
+];
+
+type SalesLaneLike = { lane: string; sinceStart: { sent: number | null; replied: number | null; deals: number | null; booked: number | null } };
+
+/** Fold what people already sent into the loop: history rows, and the
+ * baselines' and the folded approaches' pooled counts (round 4). */
+export function withHistory(L: LoopFacts, lanes: SalesLaneLike[] | null, tag?: string): LoopFacts {
+  if (!lanes) return { ...L, history: HAND_RUN.map((h) => ({ ...h, sent: null, replied: null, deals: null, booked: null, synthetic: "sales numbers not readable" })) };
+  const history: HistoryFact[] = HAND_RUN.map((h) => {
+    const s = lanes.find((x) => x.lane === h.lane)?.sinceStart;
+    return { id: h.id, name: h.name, lane: h.lane, status: h.status, becomes: h.becomes, sent: s?.sent ?? null, replied: s?.replied ?? null, deals: s?.deals ?? null, booked: s?.booked ?? null, synthetic: tag };
+  });
+  const tests = L.tests.map((t) => {
+    const arms = t.arms.map((a) => {
+      const h = t.factor === "approach" ? history.find((x) => x.id === a.approachId) : undefined;
+      if (!h || h.sent === null) return { ...a };
+      const n = a.sends + h.sent;
+      return {
+        ...a,
+        sends: n,
+        reply: rate(a.reply.k + (h.replied ?? 0), n),
+        lead: rate(a.lead.k + (h.deals ?? 0), n),
+        booking: rate(a.booking.k + (h.booked ?? 0), n),
+      };
+    });
+    chanceBest(arms);
+    for (const a of arms) a.verdict = verdictOf(a, L.approaches[a.approachId]?.baseline ?? a.verdict === "baseline");
+    return { ...t, arms };
+  });
+  return { ...L, history, tests };
 }

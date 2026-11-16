@@ -9,7 +9,7 @@ import { loadConsoleExtras } from "@/lib/emailCampaignsPrototype/console/load";
 import { buildFacts } from "@/lib/emailCampaignsPrototype/console/facts";
 import { LEVEL_RANK, attentionItems, idleItems } from "@/lib/emailCampaignsPrototype/console/attention";
 import { applyLoopScenario, applyScenario, parseScenario } from "@/lib/emailCampaignsPrototype/console/scenarios";
-import { buildLoop, loadLoop, loopItems, loopWeekStart, type LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
+import { buildLoop, loadLoop, loopItems, loopWeekStart, withHistory, type LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
 import { syntheticLoop } from "@/lib/emailCampaignsPrototype/console/loopSynthetic";
 import { syntheticData } from "@/lib/emailCampaignsPrototype/console/synthetic";
 import { buildSalesLanes, loadSalesLanes, salesLanesFixture, type SalesLanesData } from "@/lib/emailCampaignsPrototype/console/salesLanes";
@@ -106,8 +106,14 @@ export default async function EmailCampaignsConsolePage({
   }
 
   const f = applyScenario(facts, scenario);
+  // Round 4: what people sent by hand is the loop's starting data, read from
+  // the sales numbers at runtime (real when they load; the fixture, or a local
+  // file outside this repo, in synthetic mode).
+  const sales = f.sales.status === "ok" ? f.sales : null;
+  loop = withHistory(loop, sales ? sales.snapshot.lanes : null, sales?.synthetic);
   const L = applyLoopScenario(loop, scenario);
-  const items = [...loopItems(L), ...attentionItems(f)].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level]);
+  // Round 4: the hand-run lanes are gone from the screen, so their rules are too.
+  const items = [...loopItems(L), ...attentionItems(f).filter((i) => i.path[0] !== "lanes")].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level]);
   const idle = idleItems(f);
 
   return (

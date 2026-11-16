@@ -40,8 +40,12 @@ import {
   LimitsBody,
   LoopRegion,
   LoopWeekBars,
-  LoopWeekLine,
+  HistoryBody,
+  Icon,
   NotesBody,
+  Pill,
+  TestBody,
+  loopPills,
   ResearchBody,
   TypeBody,
   WeekBody,
@@ -316,7 +320,7 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
         );
       }}
       aria-label={all.level ? `Needs you: ${all.count} open, worst in ${worst?.area}` : "Needs you: nothing open"}
-      className={`rounded-full border px-3 py-1 text-sm ${
+      className={`h-7 shrink-0 whitespace-nowrap rounded-full border px-2.5 text-xs ${
         all.level ? `${LEVEL_BORDER[all.level]} ${LEVEL_TEXT[all.level]} font-semibold ${acked ? "" : "animate-pulse"}` : "border-slate-600 text-slate-400"
       }`}
     >
@@ -545,121 +549,132 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
     );
   };
 
+  // --- the mailboxes popover (round 4: off the main screen, one pill) --------------
+  const sendingBody = (
+    <div className="space-y-1">
+      {f.domains.map((d) => (
+        <div key={d.id} className="border-t border-slate-800 py-1 first:border-t-0">
+          <button
+            type="button"
+            onClick={() => {
+              setPopover(null);
+              go({ ...nav, panel: `domain:${d.id}`, sel: undefined, layer: undefined });
+            }}
+            className="text-left text-xs text-slate-300 hover:text-white"
+          >
+            {d.domain} <Badge r={rollup(items, ["sending", d.id])} label={d.domain} />
+          </button>
+          <div className="mt-0.5 flex flex-wrap gap-1">{d.mailboxIds.map((id) => mailboxTile(mb(id)!))}</div>
+          <div className="mt-0.5 flex flex-wrap gap-1">{d.checks.map((c) => checkChip(d.id, c))}</div>
+        </div>
+      ))}
+      {idle.length ? <p className="text-slate-400">Unused room: {idle.map((i) => i.text).join("; ")}</p> : null}
+      <p className="text-[10px] text-slate-600">bar = sent today · | = daily cap · shading = normal band (last 10 sending days)</p>
+    </div>
+  );
+  const lp = loopPills(L, items);
+
   // --- render ---------------------------------------------------------------
   const panelOpen = !!nav.panel;
   return (
     <div className={`relative pb-24 text-slate-200 ${panelOpen ? "sm:pr-[480px]" : ""}`}>
       <div className="mx-auto max-w-[1280px] px-4 py-3">
-        {/* ① HEADER */}
-        <section aria-label="Header" className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            {pill}
-            <button
-              type="button"
-              onClick={() => go({ ...nav, panel: "replies", sel: undefined, layer: undefined })}
-              className={`rounded-full border px-3 py-1 text-sm ${
-                replyItems.level ? `${LEVEL_BORDER[replyItems.level]} ${LEVEL_TEXT[replyItems.level]}` : "border-slate-700 text-slate-400"
-              }`}
-            >
-              {replyItems.level ? <Glyph mark={replyItems.level} /> : null} Replies {openReplies.length}
-              {oldest !== undefined ? ` · ${replyItems.level === "ready" ? "new" : fmtAge(oldest)}` : ""}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!idle.length) return;
-                const it = idle[idleIx.current % idle.length];
-                idleIx.current++;
-                go(homeToNav(it.home));
-              }}
-              title={idle.length ? idle.map((i) => i.text).join("\n") : "Nothing idle"}
-              className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-400"
-            >
-              Idle{idle.length ? ` ${idle.length}` : ""}
-            </button>
-            <span className="ml-auto flex items-center gap-3 text-xs text-slate-500">
-              <button
-                type="button"
-                onClick={(e) => openPop(e, "memo", "MEMO: overrides in effect", <MemoList f={f} say={say} />)}
-                title="Overrides in effect"
-                className="hover:text-slate-300"
-              >
-                MEMO {f.memo.length}
-              </button>
-              <button
-                type="button"
-                onClick={(e) => openPop(e, "shelf", "Shelf", <p>Nothing shelved. Shelving is a prototype button here: nothing is stored, so nothing comes back at expiry.</p>)}
-                className="hover:text-slate-300"
-              >
-                Shelf 0
-              </button>
-              <button
-                type="button"
-                onClick={(e) => openPop(e, "recall", "Recall", <p>Nothing held. Busy mode is a prototype button here, so nothing is held for recall.</p>)}
-                className="hover:text-slate-300"
-              >
-                Recall 0
-              </button>
-              <button
-                type="button"
-                onClick={() => go({ ...nav, panel: nav.panel ?? "week", modal: "pause" })}
-                className="rounded border border-slate-700 px-1.5 hover:text-slate-300"
-                title="Pause or resume every loop send"
-              >
-                Loop {L.paused ? "paused" : "on"}
-              </button>
-              <button type="button" onClick={() => setPalette(true)} className="rounded border border-slate-700 px-1.5 hover:text-slate-300">
-                ⌘K
-              </button>
-            </span>
-          </div>
-          <LoopWeekLine L={L} items={items} go={go} />
+        {/* ① TOOLBAR (round 4): one row of pills; labels drop to icons on narrow screens, never wraps or scrolls */}
+        <section aria-label="Toolbar" className={`flex flex-nowrap items-center gap-1.5 overflow-hidden ${panelOpen ? "[&_.pill-label]:!hidden" : ""}`}>
+          {pill}
+          <Pill
+            icon="reply"
+            label="Replies"
+            count={`${openReplies.length}${oldest !== undefined ? ` · ${replyItems.level === "ready" ? "new" : fmtAge(oldest)}` : ""}`}
+            level={replyItems.level}
+            onClick={() => go({ ...nav, panel: "replies", sel: undefined, layer: undefined })}
+          />
+          <Pill
+            icon={lp.approve.level === "warning" && (!L.run || !L.run.check.ok) ? "alert" : "approve"}
+            label={lp.approve.label}
+            count={lp.approve.count}
+            level={lp.approve.level}
+            strong={!!lp.approve.level}
+            title={lp.approve.title}
+            onClick={() => go({ ...nav, panel: L.run?.check.ok ? "emails" : "week", sel: undefined, layer: undefined, tab: undefined })}
+          />
+          <Pill
+            icon="memo"
+            label="This week's memo"
+            count={lp.memo.asks ? `${lp.memo.asks} ask${lp.memo.asks > 1 ? "s" : ""}` : undefined}
+            level={lp.memo.level}
+            title={lp.memo.title}
+            onClick={() => go({ ...nav, panel: "week", sel: undefined, layer: undefined })}
+          />
+          <Pill icon="limits" label="Limits" level={rollup(items, ["loop", "limits"]).level} onClick={() => go({ ...nav, panel: "limits", sel: undefined, layer: undefined })} className="hidden sm:flex" />
+          <Pill icon="research" label="Research" level={rollup(items, ["loop", "research"]).level} onClick={() => go({ ...nav, panel: "research", sel: undefined, layer: undefined })} className="hidden sm:flex" />
+          <Pill
+            icon="notes"
+            label="Notes"
+            count={L.notes.filter((n) => !n.noteSentAt).length || undefined}
+            level={rollup(items, ["loop", "notes"]).level}
+            onClick={() => go({ ...nav, panel: "notes", sel: undefined, layer: undefined })}
+            className="hidden sm:flex"
+          />
+          <Pill
+            icon="sending"
+            label="Mailboxes"
+            count={`${f.mailboxes.filter((m) => !m.frozen).length}/${f.mailboxes.length}`}
+            level={sendingR.level}
+            title={idle.length ? `Unused room: ${idle.map((i) => i.text).join("; ")}` : "Every mailbox and its checks"}
+            onClick={(e) => openPop(e, "sending", "Mailboxes", sendingBody)}
+          />
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            <Pill
+              icon={L.paused ? "play" : "pause"}
+              label={L.paused ? "Loop paused" : "Loop on"}
+              level={L.paused ? "caution" : null}
+              title="Pause or resume every loop send"
+              onClick={() => go({ ...nav, panel: nav.panel ?? "week", modal: "pause" })}
+            />
+            <Pill icon="search" label="Find" onClick={() => setPalette(true)} title="Jump to anything (⌘K)" className="hidden sm:flex" />
+            <Pill
+              icon="more"
+              label="More"
+              onClick={(e) =>
+                openPop(
+                  e,
+                  "more",
+                  "More",
+                  <div className="space-y-1">
+                    {[
+                      ["Your limits", "limits"],
+                      ["Research", "research"],
+                      ["Personal notes", "notes"],
+                      ["What we sent by hand", "history"],
+                    ].map(([label, panel]) => (
+                      <button
+                        key={panel}
+                        type="button"
+                        className="block w-full rounded px-1 py-0.5 text-left text-slate-200 hover:bg-slate-800"
+                        onClick={() => {
+                          setPopover(null);
+                          go({ ...nav, panel, sel: undefined, layer: undefined });
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <div className="border-t border-slate-800 pt-1 text-slate-400">
+                      <p>Overrides in effect: {f.memo.length}</p>
+                      <MemoList f={f} say={say} />
+                      <p className="mt-1">Shelf 0 · Recall 0 (prototype: nothing is stored)</p>
+                    </div>
+                  </div>,
+                )
+              }
+            />
+          </span>
+          <SyntheticTag what={L.synthetic} />
         </section>
 
-        {/* ② THE LOOP (round 3), with the hand-run lanes under it */}
-        <LoopRegion
-          L={L}
-          items={items}
-          go={go}
-          fade={fade}
-          lanes={
-        <section aria-label="Hand-run lanes">
-          <div className="grid grid-cols-[1fr_auto] items-baseline gap-2 text-[11px] uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_64px_64px_64px_120px]">
-            <span className="flex items-center gap-2">
-              Not in the loop yet <Badge r={lanesR} label="Hand-run lanes" />
-              <PlusButton label="Add lane" onClick={() => go({ panel: "newlane", dim: nav.dim })} />
-            </span>
-            <span className="text-right sm:hidden">next · emailed · held</span>
-            <span className="hidden text-right sm:block">Up next</span>
-            <span className="hidden text-right sm:block">Emailed</span>
-            <span className="hidden text-right sm:block">Held</span>
-            <span className="hidden text-right normal-case sm:block">7 days: rep · quote · book</span>
-          </div>
-          {lanesByTier.map(laneRow)}
-        </section>
-          }
-        />
-
-        {/* ③ SENDING */}
-        <section aria-label="Sending" className="mt-3 border-t border-slate-700 pt-2">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-500">
-            Sending <Badge r={sendingR} label="Sending" />
-          </div>
-          {f.domains.map((d) => (
-            <div key={d.id} className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-slate-900 py-1">
-              <button
-                type="button"
-                onClick={() => go({ ...nav, panel: `domain:${d.id}`, sel: undefined, layer: undefined })}
-                className="w-full text-left text-xs text-slate-400 hover:text-slate-200 sm:w-56"
-              >
-                {d.domain} <span className="text-slate-600">({d.lane})</span> <Badge r={rollup(items, ["sending", d.id])} label={d.domain} />
-              </button>
-              <div className="flex flex-wrap gap-1">{d.mailboxIds.map((id) => mailboxTile(mb(id)!))}</div>
-              <div className="ml-auto flex gap-1">{d.checks.map((c) => checkChip(d.id, c))}</div>
-            </div>
-          ))}
-          <p className="mt-1 text-[10px] text-slate-600">bar = sent today · | = daily cap · shading = normal band (last 10 sending days)</p>
-        </section>
+        {/* ② THE LOOP */}
+        <LoopRegion L={L} items={items} go={go} fade={fade} />
 
         {/* ④ THIS WEEK */}
         <section aria-label="This week" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-700 pt-2">
@@ -841,12 +856,10 @@ function Palette({ f, loop: L, onClose, go }: { f: Facts; loop: LoopFacts; onClo
       { label: "Loop › Research", nav: { panel: "research" } },
       { label: "Loop › Personal notes", nav: { panel: "notes" } },
     ];
-    for (const t of L.types) e.push({ label: `Loop › ${t.label}`, nav: { panel: `type:${t.key}` } });
+    e.push({ label: "Loop › What we sent by hand", nav: { panel: "history" } });
+    for (const t of L.tests) e.push({ label: `Test › ${t.question}`, nav: { panel: `test:${t.id}` } });
+    for (const t of L.types) e.push({ label: `Loop › ${t.tier === "cold" ? "Cold: " : ""}${t.label}`, nav: { panel: `type:${t.key}` } });
     for (const a of Object.values(L.approaches)) e.push({ label: `Approach › ${a.name}`, nav: { panel: `approach:${a.id}` } });
-    for (const l of f.lanes) {
-      e.push({ label: `${l.label} lane`, nav: { panel: `lane:${l.key}` } });
-      for (const s of l.steps) e.push({ label: `${l.label} › step ${s.n}`, nav: { panel: `lane:${l.key}`, sel: `step:${s.n}` } });
-    }
     for (const m of f.mailboxes) e.push({ label: `Mailbox ${m.short} (${m.address.split("@")[1]})`, nav: { panel: `mailbox:${m.id}` } });
     for (const d of f.domains) e.push({ label: `Domain ${d.domain}`, nav: { panel: `domain:${d.id}` } });
     return e;
@@ -981,7 +994,7 @@ function SidePanel(p: PanelProps) {
         alerts={<AlertBlock items={p.items.filter((i) => i.path[0] === "sales")} say={p.say} />}
       />
     );
-  } else if (["week", "emails", "type", "approach", "limits", "research", "notes"].includes(kind)) {
+  } else if (["week", "emails", "type", "approach", "limits", "research", "notes", "test", "history"].includes(kind)) {
     const L = p.loop;
     const bits = {
       L,
@@ -1025,6 +1038,15 @@ function SidePanel(p: PanelProps) {
     } else if (kind === "notes") {
       crumbs.push(loopCrumb, { label: "Personal notes", nav: base });
       body = <NotesBody {...bits} />;
+    } else if (kind === "test") {
+      const t = L.tests.find((x) => x.id === id);
+      if (t) {
+        crumbs.push(loopCrumb, { label: t.factor === "send time" ? "Send time" : t.tier === "cold" ? "Cold first email" : "Warm first email", nav: base });
+        body = <TestBody {...bits} t={t} />;
+      }
+    } else if (kind === "history") {
+      crumbs.push(loopCrumb, { label: "What we sent by hand", nav: base });
+      body = <HistoryBody {...bits} />;
     }
   } else if (kind === "newlane") {
     crumbs.push({ label: "Lanes", nav: null }, { label: "Add lane", nav: null });
