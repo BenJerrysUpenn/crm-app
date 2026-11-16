@@ -15,7 +15,7 @@ const pct = (v: number | null) => ({ value: v, needs: v == null ? ["Total payrol
 
 function wk(start: string, end: string, over: Partial<LaborTargetWeek> = {}): LaborTargetWeek {
   return {
-    start, end, available: true, why: [], sales: 4_000, hours: 60, wages: 900, premium: 0, solo: 0, cateringHours: 0, cateringOffset: 0,
+    start, end, available: true, why: [], sales: 4_000, hours: 60, wages: 900, premium: 0, solo: 0, cateringHours: 0, cateringOffset: 0, marketingHours: 0, marketingOffset: 0,
     taxesWc: 100, actual: 1_000, actualPct: 0.25, allInGoalPct: pct(0.2), targetPct: pct(0.2), targetDollars: 800, varianceDollars: 200, varianceHours: 10, ...over,
   };
 }

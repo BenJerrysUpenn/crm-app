@@ -112,6 +112,8 @@ documentation_map:
     docs: [README.md, docs/payroll-verify.md]
   - paths: ["time-app/supabase/migration_49*.sql", "time-app/supabase/migration_50*.sql", "time-app/supabase/migration_52*.sql", "time-app/supabase/migration_58*.sql"]
     docs: [README.md, GLOSSARY.md, docs/payroll-verify.md]
+  - paths: ["time-app/supabase/migration_59*.sql", "time-app/supabase/migration_60*.sql", "time-app/lib/metrics/laborTarget.ts"]
+    docs: [README.md, GLOSSARY.md]
   - paths: ["time-app/supabase/migration_47*.sql", "time-app/lib/coverage.ts", "time-app/lib/weekCoverage.ts", "time-app/lib/storeHours*.ts", "time-app/lib/localPreview.ts", "time-app/components/StoreHoursAdmin.tsx", "time-app/app/api/store-hours/**", "time-app/app/api/dev/**", "time-app/app/dev/**"]
     docs: [README.md, GLOSSARY.md]
   - paths: ["time-app/app/api/schedule/check-week/**", "time-app/components/CheckWeekButton.tsx"]

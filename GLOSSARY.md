@@ -79,12 +79,16 @@ For a week ahead, last year's Catering shift hours in the same week, leaving out
 _Avoid_: Forecast catering, catering pipeline
 
 **Labor %**:
-A past week's in-store hourly labor, all-in (wages, solo close, employer taxes and workers' comp), over its in-store sales. Catering work is never in it: catering is billed to the client separately (Alina, 2026-11-16). Compared with the all-in hourly goal on the Labor vs target card.
+A past week's in-store hourly labor, all-in (wages, solo close, employer taxes and workers' comp), over its in-store sales. Catering work is never in it: catering is billed to the client separately (Alina, 2026-11-16). Marketing work is never in it either: it is a separate marketing budget (Alina, 2026-11-16). Both come off at the hours actually worked, as paid. Compared with the all-in hourly goal on the Labor vs target card.
 _Avoid_: Labor cost % (that includes salaried pay), LER
 
 **Catering work**:
 Hours staff actually worked on catering, as the clocks recorded them: When I Work's Catering position before the time app, punches on Catering shifts after (marketing deals left out). Priced at each person's own paid rate, plus the catering premium. It is what comes off the labor %, never the hours a quote billed.
 _Avoid_: Catering offset, billed crew hours (those are the quote's estimate)
+
+**Marketing work**:
+Hours staff actually worked on marketing, as the clocks recorded them: punches on a Marketing shift or on any shift of a marketing deal (event type starting Marketing, or stage Closed Marketing Event), When I Work's Marketing position before the time app. Priced at each person's own paid rate. It comes off the labor % like catering work and is never also counted as catering.
+_Avoid_: Marketing labor (ambiguous between worked and booked), marketing booked hours (those are the days ahead)
 
 **Store-hours season**:
 A period of open hours with a first day (winter, summer). From that day its hours replace the weekly store hours until the next season starts; before the first season the weekly hours apply.
