@@ -248,14 +248,20 @@ test("story: a recalculation that finished without miles tells staff a manager w
 
 // ---------- trips submitted before the change ----------------------------------------------------
 
-test("story: a Catering Event trip typed before the change moves to the deal's miles when it is edited, dropping a Mileage Adjustment made on the typed miles", async () => {
+/** Donte's trip 1 as already on file: a Submitted Catering Event trip on deal 501's miles. */
+function onFile(over: Record<string, unknown> = {}) {
   db.tables.travel_reimbursements.push({
     id: 1, profile_id: DONTE, reason_kind: "catering_event", deal_id: QUOTED, event_label: "Old label", event_date: YESTERDAY, reason_note: null,
-    trip_date: YESTERDAY, mileage_mode: "typed", miles: 15, stops: null, start_at_store: null, end_at_store: null, route_legs: null,
-    tolls_cents: 0, parking_cents: 0, mileage_cents_override: 1000, receipt_paths: [], no_receipt_confirmed: false, status: "submitted",
+    trip_date: YESTERDAY, mileage_mode: "deal", miles: 6.4, stops: null, start_at_store: null, end_at_store: null, route_legs: null,
+    tolls_cents: 0, parking_cents: 0, mileage_cents_override: null, receipt_paths: [], no_receipt_confirmed: false, status: "submitted",
     rejection_reason: null, decided_by: null, decided_at: null, paid_on: null, paid_by: null, receipts_emailed_at: null,
     submitted_at: "2026-11-01T00:00:00Z", created_at: "2026-11-01T00:00:00Z", updated_at: "2026-11-01T00:00:00Z",
+    ...over,
   });
+}
+
+test("story: a Catering Event trip typed before the change moves to the deal's miles when it is edited, dropping a Mileage Adjustment made on the typed miles", async () => {
+  onFile({ mileage_mode: "typed", miles: 15, mileage_cents_override: 1000 });
   db.signIn(DONTE);
   const res = await one.PATCH(req("PATCH", trip(QUOTED, { mileage: { mode: "typed", miles: "15" } })), at(1));
   assert.equal(res.status, 200);
@@ -264,4 +270,42 @@ test("story: a Catering Event trip typed before the change moves to the deal's m
   assert.equal(Number(stored.miles), 6.4);
   assert.equal(stored.mileage_cents_override, null);
   assert.equal((await mine(1)).amounts.mileage_cents, 464);
+});
+
+test("story: editing a Catering Event trip already on the deal's miles keeps an Approver's Mileage Adjustment: its miles did not change", async () => {
+  onFile({ mileage_cents_override: 1000 });
+  db.signIn(DONTE);
+  const res = await one.PATCH(req("PATCH", trip(QUOTED, { tolls: "4.50", no_receipt_confirmed: true })), at(1));
+  assert.equal(res.status, 200);
+  const stored = db.rows("travel_reimbursements")[0];
+  assert.equal(stored.mileage_cents_override, 1000);
+  assert.equal((await mine(1)).amounts.total_cents, 1450, "the $10.00 Adjustment + $4.50 tolls");
+});
+
+test("story: moving a deal-miles trip to Groceries / errands is a change of miles, even at the same number: the Mileage Adjustment is dropped", async () => {
+  onFile({ mileage_cents_override: 1000 });
+  db.signIn(DONTE);
+  const res = await one.PATCH(req("PATCH", { reason: { kind: "errands", note: "Restaurant Depot" }, trip_date: YESTERDAY, mileage: { mode: "typed", miles: "6.4" } }), at(1));
+  assert.equal(res.status, 200);
+  const stored = db.rows("travel_reimbursements")[0];
+  assert.equal(stored.mileage_mode, "typed");
+  assert.equal(stored.mileage_cents_override, null);
+  assert.equal((await mine(1)).amounts.mileage_cents, 486, "6.4 mi x 76c = 486.4 -> 486");
+});
+
+test("story: a Rejected Catering Event trip also follows the deal's miles once they land", async () => {
+  onFile({ deal_id: NO_MILES, miles: 0, status: "rejected", rejection_reason: "Wrong date" });
+  db.tables.deals.find((d) => d.id === NO_MILES)!.round_trip_miles = 12.25;
+  const r = await mine(1);
+  assert.equal(Number(r.miles), 12.3);
+  assert.equal(r.amounts.mileage_cents, 935, "12.3 mi x 76c = 934.8 -> 935");
+});
+
+test("story: when the deals' round-trip miles cannot be read, the page says so rather than pricing the trip at no miles", async () => {
+  onFile();
+  db.missingColumns = { deals: ["round_trip_miles"] };
+  db.signIn(DONTE);
+  const page = await loadMine(createClient(), DONTE);
+  assert.equal(page.ok, false);
+  assert.match(String((page as { error: string }).error), /round-trip miles could not be read/);
 });
