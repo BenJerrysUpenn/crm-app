@@ -126,7 +126,7 @@ export const METRICS: Record<MetricId, MetricDef> = {
     id: "labor_vs_target",
     code: "W6",
     title: "Labor vs target",
-    blurb: "Each week of the chosen range, Sunday to Saturday: in-store sales, hourly labor all-in (less the catering crew clients paid for), and how far it sits from the all-in target.",
+    blurb: "Each week of the chosen range, Sunday to Saturday: in-store sales, hourly labor all-in (catering work left out: it is billed separately), and how far it sits from the all-in target.",
     periods: ["mtd"],
     defaultPeriod: "mtd",
     streams: false,

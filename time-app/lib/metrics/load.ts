@@ -26,8 +26,6 @@ import { parseCash, parseClosedMonth, parseDaily, type ClosedMonth, type DailySn
 import { laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs, type LaborTargetWeek, type SalesDayRow } from "./laborTarget.ts";
 import { defaultLaborRange, laborWeekStarts, type WeekRange } from "./weekRange.ts";
 import { loadBoard } from "@/lib/controlBoard/load";
-import { PROFILE_COLUMNS, laborPerson, loadCateringBookings } from "@/lib/controlBoard/scheduleLoad";
-import type { LaborShift } from "@/lib/controlBoard/schedule";
 import { laborHoursPlanning, type LaborPlanning } from "./laborPlanning";
 import { nyMidnight, paged } from "./supabaseReads";
 import { loadLaborPlanningRows, planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
@@ -188,7 +186,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
       if (error) throw error;
       return ((data ?? []) as SalesTargetRow[]).map((r) => ({ ...r, amount: Number(r.amount) }));
     }),
-    attempt("labor vs target", () => loadLaborTarget(supabase, today, problems)),
+    attempt("labor vs target", () => loadLaborTarget(supabase, today)),
     attempt("labor hours planning", () => loadLaborPlanningRows(supabase, today)),
     loadFeed(supabase, addDays(today, -95), addMonths(today, -13)),
     loadPassRuns(supabase, addDays(today, -95)),
@@ -209,36 +207,27 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
 /**
  * Labor vs target (bj-finance #696): public.labor_daily_actuals (migration
  * 46) and public.sales_daily_in_store (migration 41) over the weeks on
- * offer, the control board's settings, salaries and fixed-payroll people
- * (loadBoard, the same reads the Targets tab makes), and for the catering
- * offset the booked deals (loadCateringBookings, the Schedule page's read),
- * the shifts that crew them and the team. Any of the first three, the shifts
- * or the team failing fails the card: a target without its actuals, or the
- * reverse, is not shown. Bookings that cannot be read are named in
- * `problems` and make each week's labor not available.
+ * offer, with each day's catering split (migration 59), and the control
+ * board's settings, salaries and fixed-payroll people (loadBoard, the same
+ * reads the Targets tab makes). Any of them failing fails the card: a target
+ * without its actuals, or the reverse, is not shown. Catering deals are not
+ * read: the catering work comes off as the clocks recorded it.
  */
-async function loadLaborTarget(supabase: SupabaseClient, today: string, problems: string[]): Promise<Omit<LaborTargetInputs, "today">> {
+async function loadLaborTarget(supabase: SupabaseClient, today: string): Promise<Omit<LaborTargetInputs, "today">> {
   const { from, to } = laborWindow(today);
-  const [labor, sales, board, bookings, crewShifts, team] = await Promise.all([
+  const [labor, sales, board] = await Promise.all([
     paged<Record<string, unknown>>(() =>
-      supabase.from("labor_daily_actuals").select("day, hours, wages, catering_premium, solo_close").gte("day", from).lte("day", to).order("day"),
+      supabase
+        .from("labor_daily_actuals")
+        .select("day, hours, wages, catering_premium, solo_close, catering_hours, catering_wages")
+        .gte("day", from)
+        .lte("day", to)
+        .order("day"),
     ),
     paged<Record<string, unknown>>(() => supabase.from("sales_daily_in_store").select("day, in_store").gte("day", from).lte("day", to).order("day")),
     loadBoard(supabase, today),
-    loadCateringBookings(supabase, from, to, today),
-    paged<LaborShift>(() =>
-      supabase
-        .from("shifts")
-        .select("id, employee_id, starts_at, ends_at, position, deal_id")
-        .not("deal_id", "is", null)
-        .gte("starts_at", nyMidnight(addDays(from, -1)))
-        .lte("starts_at", nyMidnight(addDays(to, 2)))
-        .order("id"),
-    ),
-    paged<Parameters<typeof laborPerson>[0]>(() => supabase.from("profiles").select(PROFILE_COLUMNS).order("id")),
   ]);
   if (!board.ready) throw new Error(board.reason);
-  problems.push(...bookings.problems.map((p) => `labor vs target: ${p}`));
   return {
     labor: labor.map(
       (r): LaborDayRow => ({
@@ -247,13 +236,14 @@ async function loadLaborTarget(supabase: SupabaseClient, today: string, problems
         wages: Number(r.wages),
         catering_premium: Number(r.catering_premium),
         solo_close: Number(r.solo_close),
+        catering_hours: r.catering_hours == null ? null : Number(r.catering_hours),
+        catering_wages: r.catering_wages == null ? null : Number(r.catering_wages),
       }),
     ),
     sales: sales.map((r): SalesDayRow => ({ day: String(r.day), in_store: Number(r.in_store) })),
     settings: board.settings,
     salaries: board.salaries,
     salaried: board.salaried,
-    catering: { bookings: bookings.catering, shifts: crewShifts, people: team.map(laborPerson) },
   };
 }
 

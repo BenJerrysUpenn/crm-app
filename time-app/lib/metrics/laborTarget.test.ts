@@ -14,7 +14,6 @@ import { monthWeeks } from "./weekRange.ts";
 import { addDays, eachDay } from "./dates.ts";
 import type { SalaryRow, SettingRow } from "../controlBoard/settings.ts";
 import { boardOn } from "../controlBoard/board.ts";
-import type { CateringBooking, LaborPerson, LaborShift } from "../controlBoard/schedule.ts";
 
 const close = (a: number | null, b: number, msg?: string) => {
   assert.ok(a != null, msg ?? `expected ${b}, got null`);
@@ -46,9 +45,21 @@ const OCT = "2030-10";
 const octWeeks = (i: LaborTargetInputs) => ({ weeks: laborVsTarget(monthWeeks(OCT), i) });
 const TODAY = "2030-11-20";
 
-// Each day: 10 hours, 150 wages + 6 catering premium + 4 solo close = 160,
+// Each day: 10 hours, 150 wages + 10 solo close = 160, no catering work,
 // x 1.25 with taxes and comp = 200. A week: 70 hours, 1,400.
-const day = (d: string, over: Partial<LaborDayRow> = {}): LaborDayRow => ({ day: d, hours: 10, wages: 150, catering_premium: 6, solo_close: 4, ...over });
+const day = (d: string, over: Partial<LaborDayRow> = {}): LaborDayRow => ({
+  day: d,
+  hours: 10,
+  wages: 150,
+  catering_premium: 0,
+  solo_close: 10,
+  catering_hours: 0,
+  catering_wages: 0,
+  ...over,
+});
+/** inputs() with some days changed. */
+const withDays = (over: Record<string, Partial<LaborDayRow>>, more: Partial<LaborTargetInputs> = {}) =>
+  inputs({ labor: inputs().labor.map((r) => (over[r.day] ? { ...r, ...over[r.day] } : r)), ...more });
 
 // A week's sales of 4,800, unevenly spread, Sunday to Saturday.
 const SALES_DAY = [300, 500, 600, 700, 800, 900, 1000];
@@ -62,7 +73,6 @@ function inputs(over: Partial<LaborTargetInputs> = {}): LaborTargetInputs {
     settings: BOARD,
     salaries: [],
     salaried: [],
-    catering: { bookings: [], shifts: [], people: [] },
     ...over,
   };
 }
@@ -87,8 +97,8 @@ test("a complete week: actual labor with taxes and comp, against the hourly goal
   close(w.sales, 4_800);
   close(w.hours, 70);
   close(w.wages, 1_050);
-  close(w.premium, 42);
-  close(w.solo, 28);
+  close(w.premium, 0);
+  close(w.solo, 70);
   close(w.taxesWc, 280); // 1,120 x 25%
   close(w.actual, 1_400);
   close(w.actualPct, 1_400 / 4_800);
@@ -198,86 +208,72 @@ test("the target % is the all-in hourly goal the Targets tab derives: payroll ta
   close(w.targetDollars, 4_800 * 0.1875);
 });
 
-// The catering crew: two active hourly people at 16 and 24 (an average of 20),
-// and a premium of 5 an hour on the board.
-const PREMIUM = row("rule.catering_premium", 5, { cap_rate: null });
-const PEOPLE: LaborPerson[] = [
-  { id: "p1", name: "Person One", hourly_rate: 16, pay_type: "hourly", active: true },
-  { id: "p2", name: "Person Two", hourly_rate: 24, pay_type: "hourly", active: true },
-  { id: "p3", name: "Person Three", hourly_rate: 30, pay_type: "hourly", active: false },
-];
-const booking = (id: number, d: string, billedHours: number | null): CateringBooking => ({ id, day: d, billedHours });
+// ---------------------------------------------------------------------------
+// Ruling 2026-11-16 (Alina): "catering shouldn't be affecting the labor
+// percent because catering revenue covers that as a separate bill". What
+// comes off is the catering work the clocks recorded, as paid.
+// ---------------------------------------------------------------------------
 
-test("the catering crew the client paid for comes off hourly labor, at crew cost + premium, with that day's taxes and comp", () => {
-  // Tuesday the 8th: deal 7 billed 10 crew hours, nobody on its shifts, so the average rate 20 + premium 5 = 25 an hour.
-  // 250 of crew cost off the week's 1,120 of pay leaves 870; with 25% taxes and comp, 1,087.50.
-  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[0];
-  assert.equal(w.available, true);
-  close(w.cateringHours, 10);
-  close(w.cateringOffset, 312.5); // 250 x 1.25
-  close(w.taxesWc, 217.5); // 870 x 25%
-  close(w.actual, 1_087.5);
-  close(w.actualPct, 1_087.5 / 4_800);
+test("the catering work recorded comes off hourly labor at what it was paid, premium and all, with that day's taxes and comp", () => {
+  // Tuesday the 8th: 4 of its 10 hours were catering, paid 60 in wages and 20 of premium.
+  // In-store pay: 1,050 + 70 solo close - 60 = 1,060; with 25% taxes and comp, 1,325.
+  const w = octWeeks(withDays({ "2030-10-08": { catering_hours: 4, catering_wages: 60, catering_premium: 20 } })).weeks[0];
+  assert.equal(w.available, true, w.why.join("; "));
+  close(w.hours, 70);
+  close(w.cateringHours, 4);
+  close(w.premium, 20);
+  close(w.cateringOffset, 100); // (60 + 20) x 1.25
+  close(w.taxesWc, 265);
+  close(w.actual, 1_325);
+  close(w.actualPct, 1_325 / 4_800);
   close(w.targetPct.value, 0.25); // sales stay in-store only, the target is untouched
-  close(w.varianceDollars, 1_087.5 - 1_200);
-  // In-store hours 70 - 10 = 60 at 1,087.50: 18.125 an hour.
-  close(w.varianceHours, -6.2068965517); // -112.50 / 18.125
-  // The other weeks carry no offset.
-  close(octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[1].actual, 1_400);
+  close(w.varianceDollars, 125);
+  close(w.varianceHours, 125 / (1_325 / 66)); // 66 in-store hours
+  // The other weeks lose nothing.
+  close(octWeeks(withDays({ "2030-10-08": { catering_hours: 4, catering_wages: 60, catering_premium: 20 } })).weeks[1].actual, 1_400);
 });
 
-test("the crew rate is whoever is on the deal's Catering shifts, as on the schedule, even someone no longer active", () => {
-  const shift: LaborShift = { id: 1, employee_id: "p3", starts_at: "2030-10-08T16:00:00Z", ends_at: "2030-10-08T21:00:00Z", position: "Catering", deal_id: 7 };
-  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [shift], people: PEOPLE } })).weeks[0];
-  // 10 billed hours at 30 + 5 = 350 of crew cost; 770 left, 962.50 with taxes and comp.
-  close(w.cateringOffset, 350 * 1.25);
-  close(w.actual, 962.5);
+test("the catering premium is never in the actual, whatever day it was spread over", () => {
+  const premiums = Object.fromEntries(eachDay("2030-10-06", "2030-10-12").map((d) => [d, { catering_premium: 6 }]));
+  const w = octWeeks(withDays(premiums)).weeks[0];
+  close(w.premium, 42);
+  close(w.actual, 1_400);
+  close(w.cateringOffset, 42 * 1.25);
 });
 
-test("a booked deal with no billed crew hours makes the week's labor n/a, naming the deal, never zero", () => {
-  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", null)], shifts: [], people: PEOPLE } })).weeks[0];
+test("a week's catering is what was worked, so the same week reads the same however many deals were booked or billed", () => {
+  // Nothing about deals is an input: the card has no deals to read.
+  assert.deepEqual(Object.keys(inputs()).sort(), ["labor", "salaried", "salaries", "sales", "settings", "today"]);
+});
+
+test("a day whose catering work is not yet split out of the payroll makes the week's labor n/a, never zero", () => {
+  const w = octWeeks(withDays({ "2030-10-15": { catering_hours: null, catering_wages: null } })).weeks[1];
   assert.equal(w.available, false);
   assert.equal(w.actual, null);
+  assert.equal(w.cateringHours, null);
   assert.equal(w.cateringOffset, null);
-  assert.ok(w.why.includes("no billed crew hours on catering deal #7"), w.why.join("; "));
+  assert.deepEqual(w.why, ["catering work not yet split out of the payroll for 6 of 7 days"]);
   close(w.sales, 4_800);
+  close(w.hours, 70);
+  close(w.targetPct.value, 0.25);
+  assert.equal(octWeeks(withDays({ "2030-10-15": { catering_hours: null, catering_wages: null } })).weeks[0].available, true);
 });
 
-test("when the catering bookings could not be read, every week's labor is n/a rather than counting no catering", () => {
-  const w = octWeeks(inputs({ catering: { bookings: null, shifts: [], people: PEOPLE } })).weeks[0];
-  assert.equal(w.available, false);
-  assert.equal(w.actual, null);
-  assert.ok(w.why.includes("catering bookings could not be read"));
-});
-
-test("when the catering crew's billed hours take up every hour paid, the week is n/a and says why, never a variance in hours", () => {
-  // 70 hours paid in the week and 70 crew hours billed on Tuesday's deal: no in-store hours left to price a variance at.
-  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 70)], shifts: [], people: PEOPLE } })).weeks[0];
+test("when catering takes up every hour paid, the week is n/a and says why, never a variance in hours", () => {
+  const all = Object.fromEntries(eachDay("2030-10-06", "2030-10-12").map((d) => [d, { catering_hours: 10, catering_wages: 140 }]));
+  const w = octWeeks(withDays(all)).weeks[0];
   assert.equal(w.available, false);
   assert.equal(w.varianceHours, null);
-  assert.ok(w.why.includes("no in-store hours left once the catering crew's billed hours are taken off"), w.why.join("; "));
+  assert.ok(w.why.includes("no in-store hours left once the catering work is taken off"), w.why.join("; "));
 });
 
-test("when the catering offset leaves hourly labor at zero or less, the week is n/a and says why", () => {
-  // An invented crew rate of 100 an hour (the only active hourly person), + 5 premium.
-  const people: LaborPerson[] = [{ id: "p9", name: "Person Nine", hourly_rate: 100, pay_type: "hourly", active: true }];
-  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 20)], shifts: [], people } })).weeks[0];
-  // 20 billed hours x 105 = 2,100 off 1,120 paid: -980, -1,225 all-in. 50 in-store hours remain.
-  close(w.actual, -1_225);
+test("when the catering work leaves hourly labor at zero or less, the week is n/a and says why", () => {
+  // 1,120 of pay, 1,200 of it catering: -80, -100 all-in, with 60 in-store hours left.
+  const w = octWeeks(withDays({ "2030-10-08": { catering_hours: 10, catering_wages: 1_200 } })).weeks[0];
+  close(w.actual, -100);
   assert.equal(w.available, false);
   assert.equal(w.varianceHours, null);
-  assert.ok(w.why.includes("hourly labor is zero or less once the catering crew's billed hours are taken off"), w.why.join("; "));
-});
-
-test("when the catering offset leaves hourly labor at exactly zero, the week is n/a and says why, never a variance in hours", () => {
-  // An invented crew rate of 107 an hour (the only active hourly person), + 5 premium: 112 an hour.
-  // 10 billed hours x 112 = 1,120 off the week's 1,120 paid: nothing left, 0 all-in. 60 in-store hours remain.
-  const people: LaborPerson[] = [{ id: "p9", name: "Person Nine", hourly_rate: 107, pay_type: "hourly", active: true }];
-  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people } })).weeks[0];
-  assert.equal(w.actual, 0);
-  assert.equal(w.available, false);
-  assert.equal(w.varianceHours, null);
-  assert.deepEqual(w.why, ["hourly labor is zero or less once the catering crew's billed hours are taken off"]);
+  assert.deepEqual(w.why, ["hourly labor is zero or less once the catering work is taken off"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -285,13 +281,6 @@ test("when the catering offset leaves hourly labor at exactly zero, the week is 
 // because the premium rule, a salary and one deal's billed hours were judged
 // by today's board instead of the week's.
 // ---------------------------------------------------------------------------
-
-test("a week before the catering premium's first row prices the crew at cost, no premium, instead of reading n/a", () => {
-  const settings = [...BOARD, row("rule.catering_premium", 5, { cap_rate: null }, "2030-10-20")];
-  const w = octWeeks(inputs({ settings, catering: { bookings: [booking(7, "2030-10-08", 10)], shifts: [], people: PEOPLE } })).weeks[0];
-  assert.equal(w.available, true, w.why.join("; "));
-  close(w.cateringOffset, 10 * 20 * 1.25, "10 billed hours at the average 20, no premium, with taxes and comp");
-});
 
 test("a salaried person hired after the week is not in that week's target; someone salaried then is", () => {
   const salaries: SalaryRow[] = [
@@ -308,12 +297,4 @@ test("a salaried person hired after the week is not in that week's target; someo
   close(weeks[2].targetDollars, 542.5, "Person S counted through the archive day, not after");
   // After the 25th only Person T: the last week is 162,500 / 1,000,000 all week.
   close(weeks[3].targetPct.value, 0.1625);
-});
-
-test("a booked deal billed zero crew hours offsets nothing and leaves the week available", () => {
-  const w = octWeeks(inputs({ settings: [...BOARD, PREMIUM], catering: { bookings: [booking(7, "2030-10-08", 0)], shifts: [], people: PEOPLE } })).weeks[0];
-  assert.equal(w.available, true, w.why.join("; "));
-  close(w.cateringHours, 0);
-  close(w.cateringOffset, 0);
-  close(w.actual, 1_400);
 });
