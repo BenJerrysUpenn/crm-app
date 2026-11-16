@@ -22,8 +22,8 @@
 --   4. A quote that charged $0 mileage: 0c a mile, tolls and parking in full.
 --   5. 'deal' is refused on Groceries / errands; errands keep typed miles.
 --   6. Step 3 of the migration: a Submitted Catering Event trip on typed miles
---      (as written before it) moves to the deal's miles; an Approved one does
---      not move.
+--      (as written before it) moves to the deal's miles and keeps an
+--      Approver's Mileage Adjustment; an Approved one does not move.
 -- ============================================================================
 
 begin;
@@ -134,6 +134,8 @@ begin
   insert into public.travel_reimbursements (profile_id, reason_kind, deal_id, event_label, trip_date, mileage_mode, miles)
   values (emp, 'catering_event', d_zero, 'Approved before', '2026-10-22', 'typed', 15.0) returning id into t_appr;
   update public.travel_reimbursements set status = 'approved' where id = t_appr;
+  -- An Approver's Mileage Adjustment of $10.00 on the typed miles.
+  update public.travel_reimbursements set mileage_cents_override = 1000 where id = t_old;
   if (select mileage_mode from public.travel_reimbursements where id = t_old) <> 'typed' then
     raise exception 'a write with no signed-in user was switched to deal';
   end if;
@@ -143,8 +145,11 @@ begin
    where reason_kind = 'catering_event'
      and status in ('submitted', 'rejected')
      and mileage_mode <> 'deal';
-  select mileage_mode, miles into r from public.travel_reimbursements where id = t_old;
+  select mileage_mode, miles, mileage_cents_override into r from public.travel_reimbursements where id = t_old;
   if r.mileage_mode <> 'deal' or r.miles <> 8.0 then raise exception 'a Submitted typed trip moved to % % mi, not the deal''s 8', r.mileage_mode, r.miles; end if;
+  if r.mileage_cents_override is distinct from 1000 then
+    raise exception 'the move dropped the Mileage Adjustment: % c, not 1000', r.mileage_cents_override;
+  end if;
   select mileage_mode, miles into r from public.travel_reimbursements where id = t_appr;
   if r.mileage_mode <> 'typed' or r.miles <> 15.0 then raise exception 'an Approved typed trip moved to % % mi', r.mileage_mode, r.miles; end if;
 
