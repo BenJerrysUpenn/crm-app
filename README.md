@@ -379,9 +379,25 @@ Google's default route favors time and on short city trips takes the expressway,
 shorter; on some legs (b) is, so no leg pays more than (b). If (b)
 fails every leg pays (a); if a leg's (a) fails that leg pays (b); if both fail for a leg, staff type the
 miles. Each leg is rounded to 0.1 mi after the choice and the legs are summed. Typed miles stay and are
-preferred when staff have them. Every request stays on the Compute Routes Essentials SKU: at most 10
+preferred when staff have them. Both are for Groceries / errands only: a Catering Event pays the deal's miles (below). Every request stays on the Compute Routes Essentials SKU: at most 10
 intermediates, no traffic-aware routing, no departure time. Rules, sources and the billing triggers:
 the header of `time-app/lib/reimbursements/routeMiles.ts`.
+
+**A Catering Event trip in the staff member's own car is paid on the deal's stored round-trip miles; staff do not
+type them (owner's ruling 2026-11-16).** The form shows the miles and what they pay, read only ("Mileage for this event: 6.4 miles round
+trip, $4.64"); tolls, parking and Receipts are as before. The server ignores any mileage the browser sends for a
+Catering Event and stores `mileage_mode` `'deal'` with the deal's `round_trip_miles` to 0.1 mi
+(`lib/reimbursements/submission.ts`, `server.ts`); migration 58's trigger does the same in the database for every
+write, so a staff member's own Catering Event trip is `'deal'` even if sent straight to the API. Until the trip is
+Approved its miles follow the deal (priced from the deal on every read, `milesNow`), so miles that land later reach
+it; the Approve writes the deal's miles to the row and an Approved trip keeps them. A deal with no round-trip miles
+yet: the trip is accepted with nothing else to pay, a miles-only recalculation is queued and Approve is refused until
+the miles land (below), unless the quote charged $0 mileage, which pays 0c whatever the miles. Trips submitted before
+migration 58 with typed or destination miles: an Approved one keeps them; a Submitted or Rejected one moves to the
+deal's miles when migration 58 runs, and an Approver's Mileage Adjustment on it
+stays. Groceries / errands keep typed and destination miles. Apply `migration_58.sql` right after the app deploys:
+until it runs the database refuses `'deal'`, so staff cannot submit a Catering Event trip. Verify with
+`migration_58_verify.sql`; roll back with `migration_58_down.sql` (a `'deal'` trip becomes typed, keeping its miles).
 
 Mileage is paid at the IRS rate for the trip date (`mileage_rates`), and for a Catering Event at no more
 a mile than its quote charged the customer (owner's ruling 2026-10-29): `deal_mileage_cap()` in
@@ -402,7 +418,7 @@ Recalculate fills the miles too: none while one is pending or running, and at mo
 hour. When a miles job has finished and the deal still has none, staff and the Approver are told a manager should check the venue
 address. Meanwhile the decide route refuses Approve and Paid outside payroll
 on that trip (`decideRefusal` in `lib/reimbursements/money.ts`; the queue disables the same buttons), unless the
-trip has no miles or carries a Mileage Adjustment; Send back, Reject and Adjust are never refused. Staff and the Approver see why a trip's miles pay $0, and tolls
+trip carries a Mileage Adjustment or is a typed-miles trip with no miles; Send back, Reject and Adjust are never refused. Staff and the Approver see why a trip's miles pay $0, and tolls
 and parking are paid either way. Deploy the app, then apply migration 49, then 50, then 52 (each has `_verify.sql` and
 `_down.sql` beside it). The `miles` kind needs Catering-Manager's quote worker with `_process_miles_job`
 pulled first and its migration 027 applied, before this app deploys: an older worker would treat `miles` as a quote

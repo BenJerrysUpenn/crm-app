@@ -11,7 +11,7 @@ import { notify, emailForUser } from "@/lib/notify";
 import { emailConfigured, sendEmail, type EmailAttachment } from "@/lib/email";
 import { isMissingTable } from "@/lib/storeHours";
 import { money } from "@/lib/payroll/paySheet";
-import { amountsBeforeAdjustments, reimbursementCents, type Amounts, type BeforeAdjustments, type MileageCap, type MileageRate } from "./money";
+import { amountsBeforeAdjustments, dealMiles, reimbursementCents, type Amounts, type BeforeAdjustments, type MileageCap, type MileageMode, type MileageRate } from "./money";
 import {
   CATERING_EVENT_STAGES,
   EVENT_DEAL_COLUMNS,
@@ -49,7 +49,9 @@ export type ReimbursementRow = {
   event_date: string | null;
   reason_note: string | null;
   trip_date: string;
-  mileage_mode: "typed" | "destinations";
+  /** 'deal': a Catering Event trip paid on the deal's round-trip miles (migration 58). */
+  mileage_mode: MileageMode;
+  /** For a 'deal' trip: the deal's miles when the row was last written (migration 58); withAmounts reads them live until Approved. */
   miles: number | string;
   stops: string[] | null;
   /** Destinations mode's checkboxes (ruling 45); null when the miles are typed. */
@@ -122,8 +124,11 @@ export type MileageCaps = ReadonlyMap<number, MileageCap>;
 /**
  * Each deal's cap per mile: the most a staff mile on its Catering Event pays,
  * from what its quote charged the customer (event_mileage_caps(), migration
- * 49, which reads the quotes staff cannot). Before migration 49 there is no
- * such function and no cap, so every trip is at the IRS rate, as it was.
+ * 49, which reads the quotes staff cannot), with the deal's stored
+ * round-trip miles, which a trip in the car is paid on (the owner,
+ * 2026-11-16), read with the service role because staff cannot read deals.
+ * Before migration 49 there is no such function and no cap, so every trip is
+ * at the IRS rate, as it was.
  */
 export async function loadMileageCaps(db: Db, dealIds: (number | null)[]): Promise<{ ok: true; caps: MileageCaps } | { ok: false; error: string }> {
   const ids = Array.from(new Set(dealIds.filter((d): d is number => d != null)));
@@ -133,9 +138,18 @@ export async function loadMileageCaps(db: Db, dealIds: (number | null)[]): Promi
     if (isMissingTable(error)) return { ok: true, caps: new Map() };
     return { ok: false, error: `What the Catering Events' quotes charged per mile could not be read: ${error.message}` };
   }
+  const rows = (data ?? []) as { deal_id: number | string; cap_cents_per_mile: number | string | null; basis: MileageCap["basis"] }[];
+  const miles = new Map<number, number | null>();
+  if (rows.length) {
+    const { data: deals, error: dealsError } = await createAdminClient().from("deals").select("id, round_trip_miles").in("id", ids);
+    if (dealsError) return { ok: false, error: `The Catering Events' round-trip miles could not be read: ${dealsError.message}` };
+    for (const d of (deals ?? []) as { id: number | string; round_trip_miles: number | string | null }[])
+      miles.set(Number(d.id), d.round_trip_miles == null ? null : Number(d.round_trip_miles));
+  }
   const caps = new Map<number, MileageCap>();
-  for (const c of (data ?? []) as { deal_id: number | string; cap_cents_per_mile: number | string | null; basis: MileageCap["basis"] }[]) {
-    caps.set(Number(c.deal_id), { cap_cents_per_mile: c.cap_cents_per_mile == null ? null : Number(c.cap_cents_per_mile), basis: c.basis });
+  for (const c of rows) {
+    const id = Number(c.deal_id);
+    caps.set(id, { cap_cents_per_mile: c.cap_cents_per_mile == null ? null : Number(c.cap_cents_per_mile), basis: c.basis, round_trip_miles: miles.get(id) ?? null });
   }
   return { ok: true, caps };
 }
@@ -159,13 +173,26 @@ export function capFor(r: CapKey, caps: MileageCaps): MileageCap | null {
 }
 
 /**
+ * A trip's miles as they stand: for a 'deal' trip not yet Approved
+ * (Submitted or Rejected), the deal's round-trip miles now, so miles that
+ * land after it was submitted reach it (ruling 51); otherwise the miles on
+ * the row (an Approved 'deal' trip keeps the deal's miles as approved,
+ * migration 58).
+ */
+export function milesNow(r: Pick<ReimbursementRow, "mileage_mode" | "status" | "miles">, cap: MileageCap | null): number | string {
+  return r.mileage_mode === "deal" && (r.status === "submitted" || r.status === "rejected") ? dealMiles(cap?.round_trip_miles) : r.miles;
+}
+
+/**
  * Rows with their amounts at today's reading of the rates and caps, and their
- * Adjustments, oldest first.
+ * Adjustments, oldest first. A 'deal' trip not yet Approved carries the
+ * deal's miles now (milesNow).
  */
 export function withAmounts(rows: ReimbursementRow[], rates: MileageRate[], adjustments: AdjustmentRow[], caps: MileageCaps): WithAmounts[] {
-  return rows.map((r) => {
-    const own = adjustments.filter((a) => a.reimbursement_id === r.id).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
-    const mileage_cap = capFor(r, caps);
+  return rows.map((row) => {
+    const own = adjustments.filter((a) => a.reimbursement_id === row.id).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
+    const mileage_cap = capFor(row, caps);
+    const r = { ...row, miles: milesNow(row, mileage_cap) };
     const priced = { ...r, cap_cents_per_mile: mileage_cap?.cap_cents_per_mile ?? null };
     return { ...r, mileage_cap, amounts: reimbursementCents(priced, rates), adjustments: own, before_adjustments: amountsBeforeAdjustments(priced, own, rates) };
   });
@@ -398,24 +425,33 @@ type ResolvedColumns = Pick<
  */
 export type Unresolved = { ok: false; error: string; status: 400 | 503 };
 
-/** The Reason's columns: a Catering Event must still be in the picker's window. */
+/** The Reason's columns, and its deal's round-trip miles: a Catering Event must still be in the picker's window. */
 export async function resolveReason(
   v: ReasonValue,
   today: string,
-): Promise<{ ok: true; cols: Pick<ReimbursementRow, "reason_kind" | "deal_id" | "event_label" | "event_date" | "reason_note"> } | Unresolved> {
+): Promise<
+  | { ok: true; cols: Pick<ReimbursementRow, "reason_kind" | "deal_id" | "event_label" | "event_date" | "reason_note">; round_trip_miles: number | null }
+  | Unresolved
+> {
   if (v.reason_kind === "errands")
-    return { ok: true, cols: { reason_kind: "errands", deal_id: null, event_label: null, event_date: null, reason_note: v.reason_note } };
+    return { ok: true, cols: { reason_kind: "errands", deal_id: null, event_label: null, event_date: null, reason_note: v.reason_note }, round_trip_miles: null };
   const found = await findCateringEvent(v.event_id!, today);
   if (!found.ok) return { ...found, status: 503 };
   const event = found.event;
   if (!event) return { ok: false, error: "That Catering Event is not in the list (the last 365 days, up to today). Pick it again.", status: 400 };
-  return { ok: true, cols: { reason_kind: "catering_event", deal_id: event.id, event_label: eventLabel(event), event_date: event.date, reason_note: v.reason_note } };
+  return {
+    ok: true,
+    cols: { reason_kind: "catering_event", deal_id: event.id, event_label: eventLabel(event), event_date: event.date, reason_note: v.reason_note },
+    round_trip_miles: event.round_trip_miles,
+  };
 }
 
 /**
- * Everything a submission writes, with destination miles computed here and a
- * Mileage rate checked for the trip date. A missing migration is `loadRates`'
- * failure, answered 503 before this runs.
+ * Everything a submission writes, with destination miles computed here, a
+ * Catering Event's miles taken from its deal (the owner, 2026-11-16; the
+ * database writes the same, migration 58), and a Mileage rate checked for
+ * the trip date. A missing migration is `loadRates`' failure, answered 503
+ * before this runs.
  */
 export async function resolveSubmission(
   v: ReimbursementValue,
@@ -424,7 +460,7 @@ export async function resolveSubmission(
 ): Promise<{ ok: true; cols: ResolvedColumns } | Unresolved> {
   const reason = await resolveReason(v, today);
   if (!reason.ok) return reason;
-  let miles = v.miles ?? 0;
+  let miles = v.mileage_mode === "deal" ? dealMiles(reason.round_trip_miles) : v.miles ?? 0;
   let legs: ReimbursementRow["route_legs"] = null;
   const ends = v.mileage_mode === "destinations" ? routeEnds(v) : null;
   if (ends) {
@@ -433,7 +469,8 @@ export async function resolveSubmission(
     miles = route.miles;
     legs = route.legs;
   }
-  if (!(miles > 0) && v.tolls_cents === 0 && v.parking_cents === 0)
+  // A Catering Event whose deal has no round-trip miles yet waits for them (ruling 51).
+  if (v.mileage_mode !== "deal" && !(miles > 0) && v.tolls_cents === 0 && v.parking_cents === 0)
     return { ok: false, error: "There is nothing to pay back: add miles, tolls or parking.", status: 400 };
   if (miles > 0 && reimbursementCents({ trip_date: v.trip_date, miles, tolls_cents: 0, parking_cents: 0, mileage_cents_override: null }, rates).rate == null)
     return { ok: false, error: `There is no Mileage rate for ${v.trip_date}. Ask a manager.`, status: 400 };

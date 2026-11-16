@@ -85,8 +85,11 @@ begin
   if not refused then raise exception 'staff inserted a Mileage rate'; end if;
 
   -- ---- 2. submit ------------------------------------------------------------------------
-  insert into public.travel_reimbursements (profile_id, reason_kind, deal_id, event_label, trip_date, mileage_mode, miles, tolls_cents, parking_cents)
-  values (emp, 'catering_event', 9001, 'Sat Oct 3, 2026, Acme', '2026-06-30', 'typed', 10.0, 450, 1200)
+  -- Errands, not a Catering Event: since migration 58 a staff member's own
+  -- Catering Event trip is always the deal's round-trip miles, and the edits
+  -- below retype the miles (migration_58_verify.sql checks Catering Events).
+  insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles, tolls_cents, parking_cents)
+  values (emp, 'errands', 'Acme supplies', '2026-06-30', 'typed', 10.0, 450, 1200)
   returning id into v_id;
   insert into public.travel_reimbursements (profile_id, reason_kind, reason_note, trip_date, mileage_mode, miles, stops, start_at_store, end_at_store)
   values (emp, 'errands', 'Restaurant Depot', '2026-07-01', 'destinations', 0.2, '["Restaurant Depot"]', false, true)

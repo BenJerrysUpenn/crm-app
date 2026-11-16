@@ -17,6 +17,14 @@
 //     rate (cents per mile, possibly half a cent), rounded half-up to the cent.
 //     The arithmetic is done in integers so 0.2 mi x 72.5c is 15c, not 14.
 //   * A computed route is rounded per leg, to 0.1 mi half-up.
+//   * Miles for a Catering Event in the staff member's own car are the deal's
+//     stored round-trip miles (Catering-Manager's deals.round_trip_miles), to
+//     0.1 mi half-up; staff do not type them (the owner, 2026-11-16;
+//     ruling 54). mileage_mode 'deal' (migration 58). Until the trip is Approved its miles follow the deal: priced on
+//     every read from the deal's miles now, and written to the row by the
+//     database on every write and at Approve (migration 58), so an Approved
+//     trip pays the miles it was approved on. A deal with no round-trip miles
+//     yet waits for them (ruling 51): milesPending, noMilesRefusal.
 //
 // migration_49.sql's travel_reimbursements_payable view is the database's
 // copy of reimbursementCents(); migration_49_verify.sql,
@@ -61,7 +69,25 @@ export type CapBasis = "no_quote" | "uber_flat_fee" | "quoted_rate" | "quote_der
  * 'no_miles_on_deal', a miles recalculation has finished and the deal still has
  * no miles (lib/reimbursements/milesRecalc.ts); absent when unknown.
  */
-export type MileageCap = { cap_cents_per_mile: number | null; basis: CapBasis; recalc_failed?: boolean };
+export type MileageCap = {
+  cap_cents_per_mile: number | null;
+  basis: CapBasis;
+  recalc_failed?: boolean;
+  /**
+   * The deal's stored round-trip miles (deals.round_trip_miles), what a
+   * Catering Event trip in the car is paid on (mileage_mode 'deal'); null
+   * when the deal has none. Read with the service role: staff cannot read
+   * deals (lib/reimbursements/server.ts, loadMileageCaps).
+   */
+  round_trip_miles?: number | null;
+};
+
+/**
+ * How a trip's miles were given: typed by staff, computed from the stops they
+ * entered (Groceries / errands), or the deal's stored round trip (a Catering
+ * Event, the owner 2026-11-16; migration 58).
+ */
+export type MileageMode = "typed" | "destinations" | "deal";
 
 /** The longest single trip anyone may type, in miles. */
 export const MAX_MILES = 2000;
@@ -119,6 +145,65 @@ export function mileageRateText(a: Pick<Amounts, "rate" | "capped">, cap?: Milea
   const zero = a.capped ? zeroCapText(cap) : null;
   if (zero) return `${a.rate}¢/mi: ${zero}`;
   return `${a.rate}¢/mi, ${a.capped ? "what the Catering Event's quote charged per mile (below the IRS rate)" : "the IRS rate for the trip date"}`;
+}
+
+/**
+ * A deal's stored round-trip miles (double precision, e.g. 6.43) as the miles
+ * a trip is paid on: 0.1 mi half-up, as migration 58 stores them; 0 when the
+ * deal has none.
+ */
+export function dealMiles(roundTrip: number | string | null | undefined): number {
+  const m = Number(roundTrip);
+  if (!(m > 0)) return 0;
+  // The epsilon keeps an exact half (6.25) from falling to floating error.
+  return Math.floor(m * 10 + 0.5 + 1e-9) / 10;
+}
+
+/** What milesPending reads of a trip. */
+type MilesOf = { mileage_mode?: MileageMode | string; miles: number | string; mileage_cap?: MileageCap | null };
+
+/**
+ * Whether a Catering Event trip's mileage is waiting on its deal's round-trip
+ * miles (ruling 51), so it may not be approved or paid yet:
+ *   'deal' miles (the owner, 2026-11-16): the deal has no round-trip miles,
+ *     unless its quote charged $0 mileage ('no_rate_on_quote'), which pays 0c
+ *     a mile whatever the miles (ruling 50);
+ *   typed or destination miles (a trip already Approved when migration 58
+ *     ran, kept typed even if sent back since): the quote charged mileage but
+ *     the deal has no round-trip miles to price them by ('no_miles_on_deal').
+ */
+export function milesPending(r: MilesOf): boolean {
+  if (r.mileage_mode === "deal") return !(Number(r.miles) > 0) && r.mileage_cap?.basis !== "no_rate_on_quote";
+  return r.mileage_cap?.basis === "no_miles_on_deal" && Number(r.miles) > 0;
+}
+
+/**
+ * For staff: a Catering Event's mileage while its deal has no round-trip
+ * miles yet, in words a new hire knows.
+ */
+export function pendingMilesText(cap: MileageCap | null | undefined): string {
+  return cap?.recalc_failed
+    ? "Mileage for this event: the round-trip miles could not be found automatically, so a manager will check the event's address. Your mileage is added once the miles are in."
+    : "Mileage for this event: the round-trip miles are not in yet. They are being looked up automatically, and your mileage is added once they are in.";
+}
+
+/**
+ * The read-only Mileage line on the form for a Catering Event in the staff
+ * member's own car: "Mileage for this event: 6.4 miles round trip, $4.64".
+ * The miles are the deal's (dealMiles of cap.round_trip_miles), at the lower
+ * of the IRS rate for the trip date and what the event's quote charged a mile.
+ */
+export function eventMileageText(cap: MileageCap | null | undefined, tripDate: string, rates: MileageRate[]): string {
+  const miles = dealMiles(cap?.round_trip_miles);
+  if (milesPending({ mileage_mode: "deal", miles, mileage_cap: cap })) return pendingMilesText(cap);
+  const a = reimbursementCents(
+    { trip_date: tripDate, miles, tolls_cents: 0, parking_cents: 0, mileage_cents_override: null, cap_cents_per_mile: cap?.cap_cents_per_mile ?? null },
+    rates,
+  );
+  const head = `Mileage for this event: ${miles.toFixed(1)} miles round trip`;
+  if (a.mileage_cents == null) return `${head}. There is no Mileage rate for ${tripDate}.`;
+  if (cap?.basis === "no_rate_on_quote") return `${head}, ${money(0)}. The event's quote charged the customer no mileage, so mileage is not paid back.`;
+  return `${head}, ${money(a.mileage_cents)}`;
 }
 
 /** Miles x cents-per-mile, half-up to the cent, in integers. */
@@ -246,29 +331,33 @@ export function amountsBeforeAdjustments(
   return { before: reimbursementCents({ ...r, tolls_cents: tolls, parking_cents: parking, mileage_cents_override: null }, rates), adjusted };
 }
 
-/** What decideRefusal and noMilesRefusal read of a reimbursement: its amounts, miles and cap. */
+/** What decideRefusal and noMilesRefusal read of a reimbursement: its amounts, miles, how they were given, and cap. */
 export type Approvable = Pick<Priceable, "trip_date" | "miles" | "mileage_cents_override"> & {
   amounts: Pick<Amounts, "total_cents">;
+  mileage_mode?: MileageMode | string;
   mileage_cap?: MileageCap | null;
 };
 
 /**
  * Why a Catering Event trip may not be approved or paid yet, or null: its
- * quote charged mileage but its deal has no round-trip miles
- * ('no_miles_on_deal'), so its miles price at 0c until they land (the owner,
- * 2026-10-29: never pay a 0c trip by mistake; "just recalculate miles"). The
- * miles are recalculated automatically (./milesRecalc.ts); when one has
- * finished without finding them, a manager should check the venue address.
- * `next` is the step once they are in, e.g. "approve it". Not refused: no miles on the trip
- * (only tolls or parking, which the cap does not touch), or a Mileage
- * Adjustment, which an Approver made with evidence and which replaces the
- * capped amount. 'no_rate_on_quote' (the quote charged no mileage, 0c on
- * purpose) is never refused.
+ * mileage is waiting on the deal's round-trip miles (milesPending; the owner,
+ * 2026-10-29: never pay a 0c trip by mistake; "just recalculate miles"; and
+ * 2026-11-16: a trip in the car is paid the deal's round trip). The miles are
+ * recalculated automatically (./milesRecalc.ts); when one has finished
+ * without finding them, a manager should check the venue address. `next` is
+ * the step once they are in, e.g. "approve it". Not refused: a typed trip
+ * with no miles (only tolls or parking, which the cap does not touch), a
+ * Mileage Adjustment, which an Approver made with evidence and which replaces
+ * the amount, or a quote that charged no mileage ('no_rate_on_quote', 0c on
+ * purpose).
  */
 export function noMilesRefusal(r: Approvable, next: string): string | null {
-  if (r.mileage_cap?.basis !== "no_miles_on_deal" || r.mileage_cents_override != null || !(Number(r.miles) > 0)) return null;
-  const why = "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢.";
-  return r.mileage_cap.recalc_failed
+  if (r.mileage_cents_override != null || !milesPending(r)) return null;
+  const why =
+    r.mileage_mode === "deal"
+      ? "Its Catering Event's deal has no round-trip miles yet, so its mileage cannot be priced."
+      : "Its Catering Event's quote charged mileage, but the deal has no round-trip miles, so its miles pay 0¢.";
+  return r.mileage_cap?.recalc_failed
     ? `${why} The automatic recalculation did not find them, so a manager should check the venue address on the deal; once the miles are in, ${next}.`
     : `${why} They are being recalculated automatically; once they are in, ${next}.`;
 }
