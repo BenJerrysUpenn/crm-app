@@ -309,22 +309,35 @@ test("a salaried person hired after the week is not in that week's target; someo
 // taken out of the labor % like catering, at the hours actually worked.
 // ---------------------------------------------------------------------------
 
-test("the marketing work recorded comes off hourly labor at what it was paid, with that day's taxes and comp", () => {
-  // Tuesday the 8th: 3 of its 10 hours were catering (paid 45), 5 were marketing (paid 75).
+test("the marketing work recorded comes off hourly labor at what it was paid, never with the catering premium", () => {
+  // Tuesday the 8th: 3 of its 10 hours were catering (paid 45, and 9 of premium), 5 were marketing (paid 75).
   // In-store pay: 1,050 + 70 solo close - 45 - 75 = 1,000; with 25% taxes and comp, 1,250.
-  const w = octWeeks(withDays({ "2030-10-08": { catering_hours: 3, catering_wages: 45, marketing_hours: 5, marketing_wages: 75 } })).weeks[0];
+  const w = octWeeks(
+    withDays({ "2030-10-08": { catering_hours: 3, catering_wages: 45, catering_premium: 9, marketing_hours: 5, marketing_wages: 75 } }),
+  ).weeks[0];
   assert.equal(w.available, true, w.why.join("; "));
   close(w.hours, 70);
   close(w.cateringHours, 3);
   close(w.marketingHours, 5);
-  close(w.cateringOffset, 45 * 1.25);
-  close(w.marketingOffset, 75 * 1.25); // no premium on marketing
+  close(w.cateringOffset, 67.5); // (45 + 9) x 1.25
+  close(w.marketingOffset, 93.75); // 75 x 1.25: the premium is catering's alone
   close(w.taxesWc, 250);
   close(w.actual, 1_250);
   close(w.actualPct, 1_250 / 4_800);
   close(w.targetPct.value, 0.25); // sales stay in-store only, the target is untouched
   close(w.varianceDollars, 50);
-  close(w.varianceHours, 50 / (1_250 / 62)); // 62 in-store hours
+  close(w.varianceHours, 2.48); // 50 over, at 1,250 / 62 in-store hours = 20.16 an hour
+});
+
+test("the marketing work on a day comes off with that day's taxes and comp", () => {
+  // From Thursday the 10th FICA is 25%, so taxes and comp are 35%. Friday the 11th: 5 hours of marketing, paid 75.
+  // All-in that is 75 x 1.35 = 101.25; the week without it was 4 x 200 + 3 x 216 = 1,448.
+  const settings = [...BOARD, row("tax.fica", 0.25, { wage_cap: null }, "2030-10-10")];
+  const w = octWeeks(withDays({ "2030-10-11": { marketing_hours: 5, marketing_wages: 75 } }, { settings })).weeks[0];
+  assert.equal(w.available, true, w.why.join("; "));
+  close(w.marketingOffset, 101.25);
+  close(w.taxesWc, 301.75); // 4 x 40 + 2 x 56 + (160 - 75) x 35%
+  close(w.actual, 1_346.75);
 });
 
 test("a day whose marketing work is not yet split makes the week's labor n/a, and the reason counts the days not split", () => {
