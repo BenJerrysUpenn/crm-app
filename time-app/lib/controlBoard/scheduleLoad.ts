@@ -154,8 +154,9 @@ const ID_CHUNK = 200; // deal ids per read, to keep the URL short
  * The booked catering deals with an event day from `from` to `to` (New York),
  * each with the crew hours billed on it (deals.labor_hours x staff_count). A
  * deal counts when there is evidence it is booked (isBooked, with its stage
- * history). The Labor Hours Planning card (bj-finance #742) reads them here. A read that fails returns null and
- * says why, so the offset shows as missing, never as no catering.
+ * history). The Labor Hours Planning card (bj-finance #742) reads them here. A
+ * read that fails returns null and says why, so the card shows its booked band
+ * as missing, never as no catering.
  */
 export async function loadCateringBookings(
   supabase: SupabaseClient,
