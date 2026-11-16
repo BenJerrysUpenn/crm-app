@@ -391,7 +391,8 @@ the miles land (below), unless the quote charged $0 mileage, which pays 0c whate
 migration 58 with typed or destination miles: an Approved one keeps them; a Submitted or Rejected one moves to the
 deal's miles when migration 58 runs, and an Approver's Mileage Adjustment on it
 stays. Groceries / errands keep typed and destination miles. Apply `migration_58.sql` right after the app deploys:
-until it runs the database refuses `'deal'`, so staff cannot submit a Catering Event trip.
+until it runs the database refuses `'deal'`, so staff cannot submit a Catering Event trip. Verify with
+`migration_58_verify.sql`; roll back with `migration_58_down.sql` (a `'deal'` trip becomes typed, keeping its miles).
 
 Mileage is paid at the IRS rate for the trip date (`mileage_rates`), and for a Catering Event at no more
 a mile than its quote charged the customer (owner's ruling 2026-10-29): `deal_mileage_cap()` in
@@ -412,7 +413,7 @@ Recalculate fills the miles too: none while one is pending or running, and at mo
 hour. When a miles job has finished and the deal still has none, staff and the Approver are told a manager should check the venue
 address. Meanwhile the decide route refuses Approve and Paid outside payroll
 on that trip (`decideRefusal` in `lib/reimbursements/money.ts`; the queue disables the same buttons), unless the
-trip has no miles or carries a Mileage Adjustment; Send back, Reject and Adjust are never refused. Staff and the Approver see why a trip's miles pay $0, and tolls
+trip carries a Mileage Adjustment or is a typed-miles trip with no miles; Send back, Reject and Adjust are never refused. Staff and the Approver see why a trip's miles pay $0, and tolls
 and parking are paid either way. Deploy the app, then apply migration 49, then 50, then 52 (each has `_verify.sql` and
 `_down.sql` beside it). The `miles` kind needs Catering-Manager's quote worker with `_process_miles_job`
 pulled first and its migration 027 applied, before this app deploys: an older worker would treat `miles` as a quote
