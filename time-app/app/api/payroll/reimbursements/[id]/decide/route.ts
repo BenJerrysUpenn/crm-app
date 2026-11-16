@@ -27,8 +27,12 @@ const MAX_REASON = 500;
 //                         for a Catering Event whose quote charged mileage but
 //                         whose deal has no round-trip miles, until the
 //                         automatic miles recalculation fills them (its miles would
-//                         pay 0c; the owner, 2026-10-29). A quote that charged
-//                         no mileage is 0c on purpose and is approved as usual.
+//                         pay 0c; the owner, 2026-10-29), and for a trip paid
+//                         on the deal's miles while the deal has none yet (the
+//                         owner, 2026-11-16). A quote that charged no mileage
+//                         is 0c on purpose and is approved as usual. A trip on
+//                         the deal's miles is approved on the deal's miles now:
+//                         they are written to it, and stay while it is Approved.
 //   reject                Submitted -> Rejected, with a reason the employee is told.
 //   send_back             Approved -> Submitted, until it is Paid (20).
 //   paid_outside_payroll  an owner's Approved one, by an owner, paid today (18).
@@ -66,7 +70,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
         : action === "paid_outside_payroll"
           ? { paid_on: dayKey(now), paid_by: me.id }
           : {};
-  const patch: Partial<ReimbursementRow> = { status: step.to, ...stamp };
+  // A Catering Event trip paid on the deal's miles is approved on the deal's
+  // miles as read now (migration 58's trigger writes the same).
+  const miles: Partial<ReimbursementRow> = action === "approve" && row.mileage_mode === "deal" ? { miles: row.miles } : {};
+  const patch: Partial<ReimbursementRow> = { status: step.to, ...stamp, ...miles };
 
   const { data, error } = await supabase
     .from("travel_reimbursements")

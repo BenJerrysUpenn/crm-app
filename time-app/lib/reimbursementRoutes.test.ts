@@ -76,11 +76,11 @@ beforeEach(() => {
       { starts_on: "2026-07-01", cents_per_mile: 76 },
     ],
     deals: [
-      { id: 501, stage: "Event Complete", event_date: YESTERDAY, event_start_time: "14:00", company: "Acme", venue_name: "Houston Hall", venue_address: "3417 Spruce St" },
+      { id: 501, stage: "Event Complete", event_date: YESTERDAY, event_start_time: "14:00", company: "Acme", venue_name: "Houston Hall", venue_address: "3417 Spruce St", round_trip_miles: 10 },
       { id: 502, stage: "Booked Paid", event_date: addDays(TODAY, 3), event_start_time: "10:00", company: "Future Co", venue_name: null, venue_address: "1 Market St" },
       { id: 503, stage: "Booked Paid", event_date: addDays(TODAY, -400), event_start_time: "10:00", company: "Old Co", venue_name: null, venue_address: "2 Market St" },
       { id: 504, stage: "Closed Lost", event_date: YESTERDAY, event_start_time: "10:00", company: "Lost Co", venue_name: null, venue_address: "3 Market St" },
-      { id: 505, stage: "Booked Unpaid", event_date: addDays(TODAY, -2), event_start_time: "18:00", company: "Burlington Coat", venue_name: "HQ", venue_address: "1830 Route 130, Burlington NJ" },
+      { id: 505, stage: "Booked Unpaid", event_date: addDays(TODAY, -2), event_start_time: "18:00", company: "Burlington Coat", venue_name: "HQ", venue_address: "1830 Route 130, Burlington NJ", round_trip_miles: 38.6 },
     ],
     travel_reimbursements: [],
     travel_reimbursement_adjustments: [],
@@ -178,8 +178,8 @@ test("events and submit: each Catering Event carries its cap a mile, and the App
   db.signIn(DONTE);
   const listed = await (await events.GET(req("GET", undefined, "http://time.test/api/reimbursements/events"))).json();
   assert.deepEqual(listed.events.map((e: { id: number; mileage_cap: unknown }) => [e.id, e.mileage_cap]), [
-    [501, { cap_cents_per_mile: 72.5, basis: "quote_derived" }],
-    [505, { cap_cents_per_mile: null, basis: "uber_flat_fee" }],
+    [501, { cap_cents_per_mile: 72.5, basis: "quote_derived", round_trip_miles: 10 }],
+    [505, { cap_cents_per_mile: null, basis: "uber_flat_fee", round_trip_miles: 38.6 }],
   ]);
   const res = await create.POST(req("POST", { ...errands, reason: { kind: "catering_event", event_id: 501 } }));
   assert.equal(res.status, 200);
@@ -192,6 +192,7 @@ test("events and submit: each Catering Event carries its cap a mile, and the App
 
 /** 501's quote charged mileage but the deal has no round-trip miles; every other deal is capped at its quote's rate. */
 function noMilesOn501() {
+  db.tables.deals.find((d) => d.id === 501)!.round_trip_miles = null;
   db.rpc.event_mileage_caps = (args) =>
     ((args.p_deal_ids as number[]) ?? []).map((id) => (id === 501 ? { deal_id: id, cap_cents_per_mile: 0, basis: "no_miles_on_deal" } : { deal_id: id, cap_cents_per_mile: 72.5, basis: "quote_derived" }));
 }

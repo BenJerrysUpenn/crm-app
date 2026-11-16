@@ -159,7 +159,7 @@ test("loadMine and loadQueue: a Catering Event trip is paid the lower of the IRS
   assert.ok(mine.ok);
   assert.equal(mine.reimbursements[0].amounts.total_cents, 725, "10 mi on 2026-10-03 at the quote's 72.5c, not the IRS 76c");
   assert.equal(mine.reimbursements[0].amounts.capped, true);
-  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 72.5, basis: "quote_derived" });
+  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 72.5, basis: "quote_derived", round_trip_miles: null });
 
   db.signIn(MANAGER.id);
   const q = await loadQueue(createClient(), MANAGER);
@@ -180,7 +180,7 @@ test("loadMine: a Catering Event with no quote, or a quote that charged no milea
     assert.ok(mine.ok);
     assert.equal(mine.reimbursements[0].amounts.total_cents, 760, `${basis}: 10 mi at the IRS 76c`);
     assert.equal(mine.reimbursements[0].amounts.capped, false);
-    assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: null, basis });
+    assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: null, basis, round_trip_miles: null });
   }
 });
 
@@ -200,7 +200,7 @@ test("loadMine: a cap Postgres answers as a numeric string still caps the trip",
   const mine = await loadMine(createClient(), DONTE.id);
   assert.ok(mine.ok);
   assert.equal(mine.reimbursements[0].amounts.total_cents, 725);
-  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 72.5, basis: "quoted_rate" });
+  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 72.5, basis: "quoted_rate", round_trip_miles: null });
 });
 
 test("loadMine: before migration 49 (no event_mileage_caps) every trip is at the IRS rate, as before", async () => {
@@ -242,7 +242,7 @@ test("loadQueue: each deal with no round-trip miles that an unpaid trip waits on
     [{ deal_id: 501, status: "pending", kind: "miles", requested_by: "withers-time:no-miles-on-deal" }],
   );
   const one = q.submitted.find((i) => i.id === 1)!;
-  assert.deepEqual(one.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal" }, "nothing has failed yet");
+  assert.deepEqual(one.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal", round_trip_miles: null }, "nothing has failed yet");
   // Pending: a second load, or a second Approver, queues nothing more.
   assert.ok((await loadQueue(createClient(), MANAGER)).ok);
   db.signIn(OWNER.id);
@@ -282,7 +282,7 @@ test("loadQueue: a Recalculate that did not find the miles says so on the trip, 
   const q = await loadQueue(createClient(), MANAGER);
   assert.ok(q.ok);
   assert.equal(queued().length, 0, "the last one was 30 minutes ago");
-  assert.deepEqual(q.submitted.find((i) => i.id === 1)!.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal", recalc_failed: true });
+  assert.deepEqual(q.submitted.find((i) => i.id === 1)!.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal", round_trip_miles: null, recalc_failed: true });
   assert.equal(q.approved.find((i) => i.id === 2)!.mileage_cap?.recalc_failed, true);
 
   db.tables.quote_jobs[0].created_at = minutesAgo(61);
@@ -299,7 +299,7 @@ test("loadQueue: once the miles land the deal is capped at the quote's rate and 
   const q = await loadQueue(createClient(), MANAGER);
   assert.ok(q.ok);
   assert.equal(db.rows("quote_jobs").length, 1);
-  assert.deepEqual(q.submitted.find((i) => i.id === 1)!.mileage_cap, { cap_cents_per_mile: 72.5, basis: "quote_derived" });
+  assert.deepEqual(q.submitted.find((i) => i.id === 1)!.mileage_cap, { cap_cents_per_mile: 72.5, basis: "quote_derived", round_trip_miles: null });
 });
 
 test("loadQueue: when the miles jobs cannot be read the queue still loads, the trip still capped at 0c", async () => {
@@ -321,7 +321,7 @@ test("loadQueue: when the miles recalculation's insert is refused the queue stil
   assert.equal(db.rows("quote_jobs").length, 0);
   const one = q.submitted.find((i) => i.id === 1)!;
   assert.equal(one.amounts.mileage_cents, 0);
-  assert.deepEqual(one.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal" }, "nothing finished, so nothing failed");
+  assert.deepEqual(one.mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal", round_trip_miles: null }, "nothing finished, so nothing failed");
 
   db.missingColumns = {};
   assert.ok((await loadQueue(createClient(), MANAGER)).ok);
@@ -334,7 +334,7 @@ test("loadMine: staff loading their page queue no miles recalculation, but are t
   const mine = await loadMine(createClient(), DONTE.id);
   assert.ok(mine.ok);
   assert.equal(db.rows("quote_jobs").length, 0);
-  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal" });
+  assert.deepEqual(mine.reimbursements[0].mileage_cap, { cap_cents_per_mile: 0, basis: "no_miles_on_deal", round_trip_miles: null });
 
   db.tables.quote_jobs = [recalcJob(1, 501, "error", 10)];
   const after = await loadMine(createClient(), DONTE.id);

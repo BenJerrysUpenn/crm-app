@@ -4,10 +4,14 @@
 //   * Reason: Groceries / errands, which needs a "what for / where" note
 //     (ruling 12), or a Catering Event picked from the list (16, 17).
 //   * Trip date: a real day, not in the future. No pay-period limit (11).
-//   * Mileage: typed miles, or destinations: the stops, with "Start at the
-//     store" and "End at the store" each on unless turned off, two points at
-//     least (14, 45). Destination miles are computed on the server
-//     (lib/reimbursements/routeMiles.ts), never taken from the browser.
+//   * Mileage, Groceries / errands: typed miles, or destinations: the stops,
+//     with "Start at the store" and "End at the store" each on unless turned
+//     off, two points at least (14, 45). Destination miles are computed on the
+//     server (lib/reimbursements/routeMiles.ts), never taken from the browser.
+//   * Mileage, a Catering Event: the deal's stored round-trip miles (the
+//     owner, 2026-11-16; replaces ruling 48 for Catering Events). Whatever
+//     mileage the browser sends is ignored: mileage_mode 'deal', and the
+//     server reads the miles from the deal (lib/reimbursements/server.ts).
 //   * Tolls and parking: optional amounts on any Reason (3, 4, 8).
 //   * Receipts: the staff member's own uploads. Tolls or parking with no
 //     Receipt needs "Are you sure there is no receipt?" answered yes (9).
@@ -15,7 +19,7 @@
 // Pure, so `node --test` runs it.
 
 import { isISODate } from "../holidays.ts";
-import { centsFromDollars, milesFromInput } from "./money.ts";
+import { centsFromDollars, milesFromInput, type MileageMode } from "./money.ts";
 import { cleanRoute, routeEnds } from "./routeMiles.ts";
 import type { ReasonKind } from "./events.ts";
 
@@ -27,8 +31,8 @@ export type ReasonValue = { reason_kind: ReasonKind; event_id: number | null; re
 
 export type ReimbursementValue = ReasonValue & {
   trip_date: string;
-  mileage_mode: "typed" | "destinations";
-  /** Typed miles; null in destinations mode until the server computes them. */
+  mileage_mode: MileageMode;
+  /** Typed miles; null in destinations and deal mode until the server works them out. */
   miles: number | null;
   stops: string[] | null;
   /** Destinations mode's checkboxes; null when the miles are typed. */
@@ -91,7 +95,10 @@ export function parseReimbursement(body: unknown, ctx: Ctx): Parsed<Reimbursemen
 
   const m = obj(b.mileage);
   let mileage: Pick<ReimbursementValue, "mileage_mode" | "miles" | "stops" | "start_at_store" | "end_at_store">;
-  if (m.mode === "destinations") {
+  if (reason.value.reason_kind === "catering_event") {
+    // The deal's round trip, never the browser's miles (the owner, 2026-11-16).
+    mileage = { mileage_mode: "deal", miles: null, stops: null, start_at_store: null, end_at_store: null };
+  } else if (m.mode === "destinations") {
     const ends = routeEnds(m);
     const stops = cleanRoute(m.stops, ends);
     if (!stops.ok) return stops;

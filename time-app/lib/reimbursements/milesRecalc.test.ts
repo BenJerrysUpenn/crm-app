@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { noMilesDeals, planRecalc, withRecalcState, type RecalcJob } from "./milesRecalc.ts";
+import type { MileageCap } from "./money.ts";
 
 const NOW = Date.parse("2026-10-29T15:00:00.000Z");
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -74,4 +75,16 @@ test("withRecalcState: marks the cap of each trip whose deal's last miles recalc
   assert.deepEqual(out[1].mileage_cap, noMiles);
   assert.deepEqual(out[2].mileage_cap, { cap_cents_per_mile: 72.5, basis: "quote_derived" });
   assert.equal(rows[0].mileage_cap, noMiles, "the input is not changed");
+});
+
+test("noMilesDeals and withRecalcState: a trip paid on the deal's miles waits on a deal with none yet, whatever its quote, except a $0 mileage quote (the owner, 2026-11-16)", () => {
+  const rows = [
+    { id: 1, reason_kind: "catering_event", deal_id: 601, mileage_mode: "deal", miles: 0, mileage_cap: { cap_cents_per_mile: null, basis: "no_quote" as const } },
+    { id: 2, reason_kind: "catering_event", deal_id: 602, mileage_mode: "deal", miles: 0, mileage_cap: { cap_cents_per_mile: null, basis: "uber_flat_fee" as const } },
+    { id: 3, reason_kind: "catering_event", deal_id: 603, mileage_mode: "deal", miles: 0, mileage_cap: { cap_cents_per_mile: 0, basis: "no_rate_on_quote" as const } },
+    { id: 4, reason_kind: "catering_event", deal_id: 604, mileage_mode: "deal", miles: 6.4, mileage_cap: { cap_cents_per_mile: 72.5, basis: "quoted_rate" as const } },
+  ];
+  assert.deepEqual(noMilesDeals(rows), [601, 602]);
+  const out = withRecalcState(rows, new Set([601, 603, 604]));
+  assert.deepEqual(out.map((r) => (r.mileage_cap as MileageCap).recalc_failed ?? false), [true, false, false, false]);
 });

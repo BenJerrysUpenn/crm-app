@@ -11,7 +11,7 @@ import { money } from "@/lib/payroll/paySheet";
 import { FIELD_LABEL, STATUS_LABEL, type ReimbursementStatus } from "@/lib/reimbursements/lifecycle";
 import { reasonLabel } from "@/lib/reimbursements/events";
 import { BUCKET, contentTypeOf, extOf } from "@/lib/reimbursements/submission";
-import { amountText, totalText, zeroCapText } from "@/lib/reimbursements/money";
+import { amountText, milesPending, pendingMilesText, totalText, zeroCapText } from "@/lib/reimbursements/money";
 import { routeEnds, routeText } from "@/lib/reimbursements/routeMiles";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 
@@ -142,13 +142,18 @@ export function ReimbursementDetail({
       {(miles > 0 || r.mileage_cents_override != null) && (
         <div>
           Mileage: {miles.toFixed(1)} mi
-          {r.mileage_mode === "destinations" && r.stops?.length
-            ? ` (${routeText(r.stops, routeEnds(r))})`
-            : ""}
+          {r.mileage_mode === "deal"
+            ? " round trip, from the Catering Event"
+            : r.mileage_mode === "destinations" && r.stops?.length
+              ? ` (${routeText(r.stops, routeEnds(r))})`
+              : ""}
           {" × "}
           {rateText(a.rate)}
           {a.capped ? ` (${zeroCapText(r.mileage_cap) ?? "the event's quoted rate"})` : ""} = {amountText(r, "mileage")}
         </div>
+      )}
+      {r.mileage_cents_override == null && r.mileage_mode === "deal" && milesPending(r) && (
+        <div className="text-amber-700 dark:text-amber-400">{pendingMilesText(r.mileage_cap)}</div>
       )}
       {(a.tolls_cents > 0 || adjusted.includes("tolls")) && <div>Tolls: {amountText(r, "tolls")}</div>}
       {(a.parking_cents > 0 || adjusted.includes("parking")) && <div>Parking: {amountText(r, "parking")}</div>}

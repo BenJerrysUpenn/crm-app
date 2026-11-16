@@ -13,8 +13,12 @@ import assert from "node:assert/strict";
 import {
   amountText,
   amountsBeforeAdjustments,
+  dealMiles,
   decideRefusal,
+  eventMileageText,
+  milesPending,
   noMilesRefusal,
+  pendingMilesText,
   centsFromDollars,
   fieldCents,
   dollarsText,
@@ -358,4 +362,75 @@ test("fieldCents and dollarsText: the Adjust panel shows and pre-fills the curre
   assert.equal(dollarsText(0), "0.00");
   assert.equal(dollarsText(null), "");
   assert.equal(centsFromDollars(dollarsText(1672)), 1672);
+});
+
+// ---------- a Catering Event is paid the deal's round-trip miles (the owner, 2026-11-16) ----------
+
+test("dealMiles: the deal's stored round trip to 0.1 mi half-up, as migration 58 stores it; none is 0", () => {
+  assert.equal(dealMiles(6.43), 6.4);
+  assert.equal(dealMiles(6.25), 6.3);
+  assert.equal(dealMiles("12.25"), 12.3);
+  assert.equal(dealMiles(42), 42);
+  for (const none of [null, undefined, 0, -3, "", "x"]) assert.equal(dealMiles(none as number | null), 0);
+});
+
+test("milesPending: a deal-miles trip waits while the deal has no miles, unless its quote charged $0 mileage; a typed one as before", () => {
+  const cap = (basis: MileageCap["basis"], c: number | null = 0): MileageCap => ({ cap_cents_per_mile: c, basis });
+  assert.equal(milesPending({ mileage_mode: "deal", miles: 0, mileage_cap: cap("no_quote", null) }), true);
+  assert.equal(milesPending({ mileage_mode: "deal", miles: 0, mileage_cap: cap("no_miles_on_deal") }), true);
+  assert.equal(milesPending({ mileage_mode: "deal", miles: 0, mileage_cap: cap("uber_flat_fee", null) }), true);
+  assert.equal(milesPending({ mileage_mode: "deal", miles: 0, mileage_cap: null }), true);
+  assert.equal(milesPending({ mileage_mode: "deal", miles: 0, mileage_cap: cap("no_rate_on_quote") }), false, "$0 quote: 0c on purpose");
+  assert.equal(milesPending({ mileage_mode: "deal", miles: 6.4, mileage_cap: cap("quoted_rate", 72.5) }), false);
+  assert.equal(milesPending({ mileage_mode: "typed", miles: 10, mileage_cap: cap("no_miles_on_deal") }), true);
+  assert.equal(milesPending({ mileage_mode: "typed", miles: 0, mileage_cap: cap("no_miles_on_deal") }), false);
+  assert.equal(milesPending({ mileage_mode: "typed", miles: 10, mileage_cap: cap("no_quote", null) }), false);
+});
+
+test("noMilesRefusal: a deal-miles trip waiting on the deal is refused in plain words; an Adjustment or a $0 quote is not", () => {
+  const base = { trip_date: "2026-11-14", miles: 0, mileage_cents_override: null, amounts: { total_cents: 0 }, mileage_mode: "deal" };
+  assert.equal(
+    noMilesRefusal({ ...base, mileage_cap: { cap_cents_per_mile: null, basis: "no_quote" } }, "approve it"),
+    "Its Catering Event's deal has no round-trip miles yet, so its mileage cannot be priced. They are being recalculated automatically; once they are in, approve it.",
+  );
+  assert.match(
+    String(noMilesRefusal({ ...base, mileage_cap: { cap_cents_per_mile: null, basis: "no_quote", recalc_failed: true } }, "approve it")),
+    /did not find them, so a manager should check the venue address on the deal; once the miles are in, approve it\.$/,
+  );
+  assert.equal(noMilesRefusal({ ...base, mileage_cents_override: 500, mileage_cap: { cap_cents_per_mile: null, basis: "no_quote" } }, "approve it"), null);
+  assert.equal(noMilesRefusal({ ...base, mileage_cap: { cap_cents_per_mile: 0, basis: "no_rate_on_quote" } }, "approve it"), null);
+  assert.equal(decideRefusal("approve", { ...base, miles: 6.4, amounts: { total_cents: 464 }, mileage_cap: { cap_cents_per_mile: 72.5, basis: "quoted_rate" } }), null);
+});
+
+test("eventMileageText: the form's read-only line is the deal's miles x the lower of the IRS rate and the quote's rate, in plain words", () => {
+  const cap = (c: number | null, basis: MileageCap["basis"], miles: number | null): MileageCap => ({ cap_cents_per_mile: c, basis, round_trip_miles: miles });
+  // 6.4 mi x min(76, 72.5) = 464.
+  assert.equal(eventMileageText(cap(72.5, "quoted_rate", 6.43), "2026-11-14", RATES), "Mileage for this event: 6.4 miles round trip, $4.64");
+  // The quote charged more than the IRS rate: 10 mi x 76 = 760.
+  assert.equal(eventMileageText(cap(90.5, "quoted_rate", 10), "2026-11-14", RATES), "Mileage for this event: 10.0 miles round trip, $7.60");
+  // No quote, or the Uber flat fee: the IRS rate for the trip date.
+  assert.equal(eventMileageText(cap(null, "no_quote", 30), "2026-06-30", RATES), "Mileage for this event: 30.0 miles round trip, $21.75");
+  assert.equal(
+    eventMileageText(cap(0, "no_rate_on_quote", 8), "2026-11-14", RATES),
+    "Mileage for this event: 8.0 miles round trip, $0.00. The event's quote charged the customer no mileage, so mileage is not paid back.",
+  );
+  assert.equal(eventMileageText(cap(null, "no_quote", null), "2026-11-14", RATES), pendingMilesText(cap(null, "no_quote", null)));
+  assert.equal(eventMileageText(cap(null, "no_quote", 12), "2024-06-01", RATES), "Mileage for this event: 12.0 miles round trip. There is no Mileage rate for 2024-06-01.");
+});
+
+test("staff mileage words: no em dashes, no deal ids, no design shorthand", () => {
+  const texts = [
+    pendingMilesText(null),
+    pendingMilesText({ cap_cents_per_mile: null, basis: "no_quote", recalc_failed: true }),
+    eventMileageText({ cap_cents_per_mile: 72.5, basis: "quoted_rate", round_trip_miles: 6.43 }, "2026-11-14", RATES),
+    eventMileageText({ cap_cents_per_mile: 0, basis: "no_rate_on_quote", round_trip_miles: 8 }, "2026-11-14", RATES),
+  ];
+  for (const t of texts) {
+    assert.doesNotMatch(t, /\u2014/, t);
+    assert.doesNotMatch(t, /\bdeal\b|basis|recalc|cap\b/i, t);
+  }
+  assert.equal(
+    pendingMilesText(null),
+    "Mileage for this event: the round-trip miles are not in yet. They are being looked up automatically, and your mileage is added once they are in.",
+  );
 });

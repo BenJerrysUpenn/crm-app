@@ -1,7 +1,9 @@
 // The miles recalculation for a Catering Event whose quote charged mileage but
 // whose deal has no round-trip miles (cap basis 'no_miles_on_deal', migration
-// 50). The owner, 2026-10-29: "if there's a charge there should be miles. If
-// you get into that case, just recalculate miles." And: the automatic
+// 50), and for a Catering Event trip paid on the deal's round-trip miles
+// (mileage_mode 'deal', the owner 2026-11-16) whose deal has none yet. The
+// owner, 2026-10-29: "if there's a charge there should be miles. If you get
+// into that case, just recalculate miles." And: the automatic
 // recalculation changes ONLY the miles; nothing else on the deal may change.
 //
 // So the time app does not queue the CRM's Recalculate (kind 'retriage'),
@@ -23,7 +25,7 @@
 //
 // Pure, so `node --test` runs it.
 
-import type { MileageCap } from "./money.ts";
+import { milesPending, type MileageCap } from "./money.ts";
 
 /** quote_jobs.kind the time app queues: round-trip miles only. */
 export const RECALC_KIND = "miles";
@@ -75,12 +77,28 @@ export function planRecalc(jobs: RecalcJob[], now: number): RecalcPlan {
   return { queue: true, why: "retry", failed };
 }
 
-type Capped = { reason_kind: string; deal_id: number | null; mileage_cap: MileageCap | null };
+type Capped = {
+  reason_kind: string;
+  deal_id: number | null;
+  mileage_cap: MileageCap | null;
+  /** Absent: read as typed miles. */
+  mileage_mode?: string;
+  miles?: number | string;
+};
 
-/** The deals, each once, whose trips here cap at 0c because the deal has no round-trip miles. */
+/**
+ * Whether this trip waits on its deal's round-trip miles: its quote charged
+ * mileage but the deal has none ('no_miles_on_deal'), or it is paid on the
+ * deal's miles and the deal has none yet (milesPending; the owner, 2026-11-16).
+ */
+function waitsOnDealMiles(r: Capped): boolean {
+  return r.mileage_cap?.basis === "no_miles_on_deal" || milesPending({ mileage_mode: r.mileage_mode, miles: r.miles ?? 0, mileage_cap: r.mileage_cap });
+}
+
+/** The deals, each once, whose Catering Event trips here wait on the deal's round-trip miles. */
 export function noMilesDeals(rows: Capped[]): number[] {
   const ids = rows
-    .filter((r) => r.reason_kind === "catering_event" && r.deal_id != null && r.mileage_cap?.basis === "no_miles_on_deal")
+    .filter((r) => r.reason_kind === "catering_event" && r.deal_id != null && waitsOnDealMiles(r))
     .map((r) => r.deal_id as number);
   return Array.from(new Set(ids));
 }
@@ -88,7 +106,7 @@ export function noMilesDeals(rows: Capped[]): number[] {
 /** Rows with `recalc_failed` on the cap of each trip whose deal has a finished miles job and still no miles. */
 export function withRecalcState<T extends Capped>(rows: T[], failed: ReadonlySet<number>): T[] {
   return rows.map((r) =>
-    r.mileage_cap?.basis === "no_miles_on_deal" && r.deal_id != null && failed.has(r.deal_id)
+    r.mileage_cap && waitsOnDealMiles(r) && r.deal_id != null && failed.has(r.deal_id)
       ? { ...r, mileage_cap: { ...r.mileage_cap, recalc_failed: true } }
       : r,
   );
