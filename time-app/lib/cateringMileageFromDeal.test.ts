@@ -138,7 +138,6 @@ test("story: a Catering Event trip is paid the deal's round-trip miles x the quo
   const r = await mine(id);
   // 6.4 mi x min(76c IRS, 72.5c quote) = 464c.
   assert.equal(r.amounts.rate, 72.5);
-  assert.equal(r.amounts.mileage_cents, Math.round(6.4 * Math.min(IRS, 72.5)));
   assert.equal(r.amounts.mileage_cents, 464);
   const notice = db.rows("notifications").find((n) => n.title === "Travel Reimbursement submitted")!;
   assert.match(String(notice.body), /, \$4\.64\. Approve/);
@@ -148,7 +147,7 @@ test("story: when the quote charged more a mile than the IRS rate, the IRS rate"
   const { id } = await submit(trip(DEAR));
   const r = await mine(id);
   assert.equal(r.amounts.rate, IRS);
-  assert.equal(r.amounts.mileage_cents, 10 * Math.min(IRS, 90.5));
+  assert.equal(r.amounts.mileage_cents, 760, "10 mi x 76c (the IRS rate, below the quote's 90.5c)");
 });
 
 test("story: miles a staff member types or routes for a Catering Event are ignored: the server takes the deal's", async () => {
@@ -167,14 +166,14 @@ test("story: miles a staff member types or routes for a Catering Event are ignor
 test("story: tolls and parking on a Catering Event are as before, on top of the deal's mileage", async () => {
   const { id } = await submit(trip(QUOTED, { tolls: "4.50", parking: "12.00", no_receipt_confirmed: true }));
   const r = await mine(id);
-  assert.equal(r.amounts.total_cents, 464 + 450 + 1200);
+  assert.equal(r.amounts.total_cents, 2114, "$4.64 mileage + $4.50 tolls + $12.00 parking");
 });
 
 test("story: Groceries / errands still pay the typed miles at the IRS rate", async () => {
   const { id } = await submit({ reason: { kind: "errands", note: "Restaurant Depot" }, trip_date: YESTERDAY, mileage: { mode: "typed", miles: "10" } });
   const r = await mine(id);
   assert.equal(r.mileage_mode, "typed");
-  assert.equal(r.amounts.mileage_cents, 10 * IRS);
+  assert.equal(r.amounts.mileage_cents, 760, "10 mi x 76c");
 });
 
 // ---------- a $0 mileage quote (ruling 50) ------------------------------------------------------
