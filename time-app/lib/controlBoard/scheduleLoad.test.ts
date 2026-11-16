@@ -12,7 +12,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "../testing/fakeSupabase.ts";
 
 type LoadModule = typeof import("./scheduleLoad.ts");
-const { loadScheduleLabor } = await loadAppModule<LoadModule>("lib/controlBoard/scheduleLoad.ts");
+const { loadScheduleLabor, loadCateringBookings } = await loadAppModule<LoadModule>("lib/controlBoard/scheduleLoad.ts");
 const { NEEDS_MIGRATION } = await loadAppModule<typeof import("./load.ts")>("lib/controlBoard/load.ts");
 const { createClient } = await loadAppModule<{ createClient: () => SupabaseClient }>("lib/supabase/server.ts");
 
@@ -96,7 +96,7 @@ beforeEach(() => {
       { day: "2029-10-22", in_store: "9999.00", basis: "booked", source: "seller" },
     ],
     deals: [
-      // Booked: 2 crew billed 4h each = 8 crew hours.
+      // Booked: 2 crew billed 4h each = 8 crew hours. The labor line never reads it; the Labor Hours Planning card's bookings do.
       { id: 1, stage: "Booked Paid", payment_status: "Paid", event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "400", total_with_tax: "432", amount_paid: "432", company: "Invented Co", source: "form", archived: 0, labor_hours: 4, staff_count: 2 },
       { id: 2, stage: "Sent Quote", payment_status: null, event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "999", total_with_tax: null, amount_paid: null, company: "Not Booked", source: "form", archived: 0, labor_hours: 5, staff_count: 3 },
     ],
@@ -109,7 +109,7 @@ beforeEach(() => {
 
 const at = (day: string, hh: number) => new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), hh + 4)).toISOString();
 
-test("a manager's week: last year's same weekdays, the booked deal's billed crew hours, the board's goal, and an inactive person's shift at their rate", async () => {
+test("a manager's week: last year's same weekdays, the board's goal, and an inactive person's shift at their rate; a booked deal adds nothing", async () => {
   const load = await loadScheduleLabor(createClient(), {
     weekStart: WEEK,
     today: TODAY,
@@ -122,9 +122,8 @@ test("a manager's week: last year's same weekdays, the booked deal's billed crew
   assert.deepEqual(load.problems, []);
   assert.equal(labor.boardEmpty, false);
   assert.equal(labor.days[0].lastYearInStore.value, 1_000);
-  assert.equal(labor.days[1].cateringHours.value, 8, "the booked deal's 4h x 2 crew; the quote does not count");
   assert.ok(Math.abs((labor.days[1].projectedSales.value ?? 0) - 1_100) < 1e-6, "in-store only: the deal's $ is not in it");
-  assert.ok(Math.abs((labor.days[1].targetHours.value ?? 0) - (220 / 15 + 8)) < 1e-6, "1,100 x 20% / an average of 15, plus the 8 billed crew hours");
+  assert.ok(Math.abs((labor.days[1].targetHours.value ?? 0) - 220 / 15) < 1e-6, "1,100 x 20% / an average of 15; the booked deal's 8 billed crew hours are not added");
   assert.equal(labor.days[2].targetHours.value, null, "no last-year Tuesday on file");
   assert.equal(labor.labor.wages, 60, "5h at the inactive person's 12");
 });
@@ -135,13 +134,32 @@ test("before migration 43 the line says so", async () => {
   assert.deepEqual(load, { ready: false, reason: NEEDS_MIGRATION });
 });
 
-test("when the catering bookings cannot be read the line still draws, says what failed, and the target is missing", async () => {
-  db.missingTables.push("deals");
+test("with no deal on the week's shifts the line reads no deals at all, so a deals outage cannot touch it", async () => {
+  db.missingTables.push("deals", "deal_events");
   const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
   assert.ok(load.ready);
-  assert.match(load.problems[0], /^Catering bookings could not be read: /);
-  assert.equal(load.labor.days[0].cateringHours.value, null);
-  assert.equal(load.labor.days[0].targetHours.value, null);
+  assert.deepEqual(load.problems, []);
+  assert.ok(Math.abs((load.labor.days[0].targetHours.value ?? 0) - 220 / 15) < 1e-6);
+});
+
+test("when the deals on the week's shifts cannot be read the line still draws, says so, and those shifts count by their position", async () => {
+  db.missingTables.push("deals");
+  const load = await loadScheduleLabor(createClient(), {
+    weekStart: WEEK,
+    today: TODAY,
+    shifts: [
+      { id: 1, employee_id: "p-twenty", starts_at: at("2030-10-14", 10), ends_at: at("2030-10-14", 14), position: "Scooper", deal_id: 1 },
+      { id: 2, employee_id: "p-twenty", starts_at: at("2030-10-14", 15), ends_at: at("2030-10-14", 18), position: "Catering", deal_id: 1 },
+    ],
+    employees: ACTIVE,
+    shiftTypes: [{ name: "Scooper", in_store: true }, { name: "Catering", in_store: false }],
+  });
+  assert.ok(load.ready);
+  assert.equal(load.problems.length, 1);
+  assert.match(load.problems[0], /^Marketing deals could not be read, so shifts on a deal count by their position alone: /);
+  assert.equal(load.labor.hourlyHours, 4, "the Scooper shift stays in; the Catering one is out by its position");
+  assert.equal(load.labor.workOff.cateringHours, 3);
+  assert.ok(Math.abs((load.labor.days[1].targetHours.value ?? 0) - 220 / 15) < 1e-6, "the target never waits on a deal");
 });
 
 test("a week still ahead takes its trend from the last full month before today", async () => {
@@ -160,47 +178,45 @@ test("when last year's daily sales cannot be read the line says so and every day
   assert.equal(load.labor.days[0].targetHours.value, null);
 });
 
-test("when the booking history cannot be read, catering is missing rather than guessed", async () => {
-  db.missingTables.push("deal_events");
-  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
-  assert.ok(load.ready);
-  assert.match(load.problems[0], /^Catering bookings could not be read: /);
-  assert.equal(load.labor.days[1].cateringHours.value, null);
-  assert.equal(load.labor.days[1].targetHours.value, null);
-});
-
-test("a booked deal with no billed crew hours makes the target missing, naming the deal", async () => {
-  db.tables.deals.push({ id: 3, stage: "Booked Paid", payment_status: "Paid", event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "300", total_with_tax: null, amount_paid: "100", company: "No Hours Co", source: "form", archived: 0, labor_hours: null, staff_count: 2 });
-  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
-  assert.ok(load.ready);
-  assert.equal(load.labor.days[1].targetHours.value, null);
-  assert.deepEqual(load.labor.days[1].targetHours.needs, ["no billed crew hours on catering deal #3"]);
-  assert.ok(load.labor.target.hours.needs.includes("no billed crew hours on catering deal #3"), "the week line names the deal");
-});
-
-test("a booked deal billed zero crew hours (a pickup the client collects) offsets nothing, where no hours on file is missing", async () => {
-  db.tables.deals.push({ id: 4, stage: "Booked Paid", payment_status: "Paid", event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "200", total_with_tax: null, amount_paid: "200", company: "Pickup Co", source: "form", archived: 0, labor_hours: 0, staff_count: 1 });
-  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
-  assert.ok(load.ready);
-  assert.ok(!load.labor.target.hours.needs.includes("no billed crew hours on catering deal #4"), "deal 4 bills no crew: nothing to wait for");
-  assert.equal(load.labor.days[1].cateringHours.value, 8, "deal 1's 8 hours plus deal 4's none");
-});
-
-test("the deal's crew on its Catering shifts sets the crew cost, with the board's premium", async () => {
-  db.tables.control_settings.push({ id: 9, key: "rule.catering_premium", value: "2", detail: { cap_rate: 21 }, ...NOTE });
+test("a booked deal missing its billed crew hours never makes the line missing: the line reads no quote", async () => {
+  db.tables.deals.push({ id: 3, stage: "Booked Paid", payment_status: "Paid", event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "300", total_with_tax: null, amount_paid: "100", company: "No Hours Co", source: "form", archived: 0, labor_hours: null, staff_count: null });
   const load = await loadScheduleLabor(createClient(), {
     weekStart: WEEK,
     today: TODAY,
-    shifts: [
-      { id: 1, employee_id: "p-twenty", starts_at: at("2030-10-14", 10), ends_at: at("2030-10-14", 14), position: "Catering", deal_id: 1 },
-      { id: 2, employee_id: "p-twenty", starts_at: at("2030-10-14", 10), ends_at: at("2030-10-14", 14), position: "Catering", deal_id: 1 },
-    ],
+    shifts: [{ id: 1, employee_id: "p-twenty", starts_at: at("2030-10-14", 10), ends_at: at("2030-10-14", 14), position: "Catering", deal_id: 3 }],
     employees: ACTIVE,
     shiftTypes: [{ name: "Catering", in_store: false }],
   });
   assert.ok(load.ready);
-  assert.equal(load.labor.days[1].cateringDollars.value, 8 * 21, "8 billed hours at 20 + 2, capped at 21");
-  assert.equal(load.labor.labor.total, 8 * 21, "the same on the scheduled side: it nets to zero");
+  assert.deepEqual(load.problems, []);
+  assert.ok(Math.abs((load.labor.days[1].targetHours.value ?? 0) - 220 / 15) < 1e-6);
+  assert.equal(load.labor.workOff.cateringHours, 4, "its Catering shift is catering work, out of the line");
+  assert.equal(load.labor.labor.total, 0);
+});
+
+test("a shift on a marketing deal is marketing work whatever its position: event type starting Marketing, or stage Closed Marketing Event", async () => {
+  db.tables.control_settings.push({ id: 9, key: "rule.catering_premium", value: "2", detail: { cap_rate: 21 }, ...NOTE });
+  db.tables.deals.push(
+    { id: 5, stage: "Event Complete", payment_status: null, event_type: "Marketing Event", event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "0", total_with_tax: null, amount_paid: null, company: "Invented Expo", source: "manual", archived: 0, labor_hours: 0, staff_count: 2 },
+    { id: 6, stage: "Closed Marketing Event", payment_status: null, event_type: "Birthday Party", event_date: "2030-10-15", created_at: "2030-09-01", subtotal_pretax: "0", total_with_tax: null, amount_paid: null, company: "Invented Tabling", source: "manual", archived: 0, labor_hours: 5, staff_count: 1 },
+  );
+  const load = await loadScheduleLabor(createClient(), {
+    weekStart: WEEK,
+    today: TODAY,
+    shifts: [
+      { id: 1, employee_id: "p-twenty", starts_at: at("2030-10-14", 10), ends_at: at("2030-10-14", 14), position: "Catering", deal_id: 5 },
+      { id: 2, employee_id: MANAGER, starts_at: at("2030-10-15", 10), ends_at: at("2030-10-15", 13), position: "Scooper", deal_id: 6 },
+      { id: 3, employee_id: MANAGER, starts_at: at("2030-10-16", 12), ends_at: at("2030-10-16", 18), position: "Scooper", deal_id: 1 },
+    ],
+    employees: ACTIVE,
+    shiftTypes: [{ name: "Scooper", in_store: true }, { name: "Catering", in_store: false }],
+  });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, []);
+  assert.equal(load.labor.workOff.marketingHours, 7, "4h on the Marketing Event deal (never catering) + 3h on the Closed Marketing Event deal");
+  assert.equal(load.labor.workOff.cateringHours, 0);
+  assert.equal(load.labor.hourlyHours, 6, "only the Scooper shift on the catering deal stays: 6h at 10");
+  assert.equal(load.labor.labor.total, 60);
 });
 
 test("a shift type marked not in-store does not close the night for the solo-close bonus", async () => {
@@ -237,27 +253,36 @@ test("overhead staff: an overhead salary stays out of the goal, and an overhead 
   assert.ok(!labor.labor.notCounted.some((n) => /Overhead/.test(n)), "overhead people are not listed as gaps");
 });
 
-test("a booked deal past the first 1,000 deals of the week still adds its billed crew hours", async () => {
+// loadCateringBookings serves the Labor Hours Planning card's booked band.
+
+test("the Labor Hours Planning bookings: a deal whose booking history cannot be read makes them missing, not guessed", async () => {
+  db.missingTables.push("deal_events");
+  const bookings = await loadCateringBookings(createClient(), WEEK, "2030-10-19", TODAY);
+  assert.equal(bookings.catering, null);
+  assert.match(bookings.problems[0], /^Catering bookings could not be read: /);
+});
+
+test("the Labor Hours Planning bookings: a booked deal past the first 1,000 deals of the week is still read", async () => {
   capRowsPerRequestOf("deals");
   for (let id = 1001; id <= 2000; id++) db.tables.deals.push(quote(id));
   // Ordered by id it is the 1,003rd deal: 3h x 2 crew on the Tuesday.
   db.tables.deals.push({ id: 3000, stage: "Booked Paid", payment_status: "Paid", event_date: "2030-10-15", created_at: "2030-09-01", subtotal_pretax: "300", total_with_tax: null, amount_paid: "300", company: "Late Row Co", source: "form", archived: 0, labor_hours: 3, staff_count: 2 });
-  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
-  assert.ok(load.ready);
-  assert.deepEqual(load.problems, []);
-  assert.equal(load.labor.days[1].cateringHours.value, 8, "Monday's booked deal, on the first page");
-  assert.equal(load.labor.days[2].cateringHours.value, 6, "Tuesday's booked deal, on the second page");
+  const bookings = await loadCateringBookings(createClient(), WEEK, "2030-10-19", TODAY);
+  assert.deepEqual(bookings.problems, []);
+  assert.deepEqual(bookings.catering, [
+    { id: 1, day: "2030-10-14", billedHours: 8 },
+    { id: 3000, day: "2030-10-15", billedHours: 6 },
+  ], "Monday's booked deal on the first page, Tuesday's on the second");
 });
 
-test("a future deal booked only by its stage history counts however many deals the week has", async () => {
+test("the Labor Hours Planning bookings: a future deal booked only by its stage history counts however many deals the week has", async () => {
   // 252 deals in the week; the 252nd is marked Event Complete ahead of its day, and only its history shows it was booked.
   for (let id = 1001; id <= 1250; id++) db.tables.deals.push(quote(id));
   db.tables.deals.push({ id: 1300, stage: "Event Complete", payment_status: null, event_date: "2030-10-15", created_at: "2030-09-01", subtotal_pretax: "300", total_with_tax: null, amount_paid: null, company: "History Co", source: "form", archived: 0, labor_hours: 2, staff_count: 3 });
   db.tables.deal_events.push({ id: 1, deal_id: 1300, field: "stage", new_value: "Booked Paid", at: "2030-09-02T12:00:00Z" });
-  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
-  assert.ok(load.ready);
-  assert.deepEqual(load.problems, []);
-  assert.equal(load.labor.days[2].cateringHours.value, 6, "2h x 3 crew, booked by its history");
+  const bookings = await loadCateringBookings(createClient(), WEEK, "2030-10-19", TODAY);
+  assert.deepEqual(bookings.problems, []);
+  assert.deepEqual(bookings.catering?.find((b) => b.id === 1300), { id: 1300, day: "2030-10-15", billedHours: 6 }, "2h x 3 crew, booked by its history");
 });
 
 test("the week's closed days, from the Targets tab, a Business closed note or the weekly pattern, have no in-store target", async () => {
@@ -272,7 +297,7 @@ test("the week's closed days, from the Targets tab, a Business closed note or th
   assert.deepEqual(load.problems, []);
   assert.deepEqual(load.labor.days.map((d) => d.closed), [true, true, false, false, false, false, true]);
   assert.equal(load.labor.days[0].targetHours.value, 0, "closed by the Targets tab, though last year's Sunday sold 1,000");
-  assert.equal(load.labor.days[1].targetHours.value, 8, "closed by a note: only the booked deal's 8 billed crew hours");
+  assert.equal(load.labor.days[1].targetHours.value, 0, "closed by a note: the booked deal adds nothing");
 });
 
 test("a Business closed note that began before the week closes the week's days it still covers", async () => {
