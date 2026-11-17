@@ -26,11 +26,10 @@ import { parseCash, parseClosedMonth, parseDaily, type ClosedMonth, type DailySn
 import { laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs, type LaborTargetWeek, type SalesDayRow } from "./laborTarget.ts";
 import { defaultLaborRange, laborWeekStarts, type WeekRange } from "./weekRange.ts";
 import { loadBoard } from "@/lib/controlBoard/load";
-import { PROFILE_COLUMNS, laborPerson, loadCateringBookings } from "@/lib/controlBoard/scheduleLoad";
-import type { LaborShift } from "@/lib/controlBoard/schedule";
 import { laborHoursPlanning, type LaborPlanning } from "./laborPlanning";
 import { nyMidnight, paged } from "./supabaseReads";
 import { loadLaborPlanningRows, planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
+import { PASS_RUN_COLUMNS, parsePassRun, type PassRun } from "./passHistory.ts";
 
 /** What the page's data spans on `today`: the weeks and months behind it, and the days from the first of those months to the end of the last month ahead. */
 function metricsWindow(today: string): { weeks: string[]; months: string[]; from: string; to: string } {
@@ -55,8 +54,16 @@ export type MetricsInputs = {
   /** Labor Hours Planning's reads (bj-finance #742); null when they failed (named in problems). */
   laborPlanning: LaborPlanningRows | null;
   feed: FeedInputs;
+  /** The bookkeeping pass history (bj-finance #937, migration 56). */
+  passRuns: PassRunsData;
   problems: string[];
 };
+
+/** public.bookkeeping_pass_runs as read: not set up yet, unreadable, or the runs of the last few months. */
+export type PassRunsData =
+  | { status: "not_enabled" }
+  | { status: "unreadable"; message: string }
+  | { status: "ok"; runs: PassRun[] };
 
 /** The finance feed as read: raw rows, parsed in buildMetricsData. */
 export type FeedInputs =
@@ -108,6 +115,7 @@ export type MetricsData = {
   /** Labor Hours Planning: 52 weeks ahead from this one; a card shows its first `weeks`. */
   laborPlanning: LaborPlanning | null;
   feed: FeedData;
+  passRuns: PassRunsData;
   problems: string[];
 };
 
@@ -128,7 +136,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
     }
   }
 
-  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed] = await Promise.all([
+  const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed, passRuns] = await Promise.all([
     attempt("catering deals", () =>
       paged<DealRow>(() =>
         supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", firstMonth).lte("event_date", `${lastDay}T23:59:59`).order("id"),
@@ -178,9 +186,10 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
       if (error) throw error;
       return ((data ?? []) as SalesTargetRow[]).map((r) => ({ ...r, amount: Number(r.amount) }));
     }),
-    attempt("labor vs target", () => loadLaborTarget(supabase, today, problems)),
+    attempt("labor vs target", () => loadLaborTarget(supabase, today)),
     attempt("labor hours planning", () => loadLaborPlanningRows(supabase, today)),
     loadFeed(supabase, addDays(today, -95), addMonths(today, -13)),
+    loadPassRuns(supabase, addDays(today, -95)),
   ]);
 
   let deals: DealRow[] | null = null;
@@ -192,42 +201,34 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
 
   if (laborPlanning) problems.push(...laborPlanning.problems);
 
-  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed, problems };
+  return { today, deals, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed, passRuns, problems };
 }
 
 /**
  * Labor vs target (bj-finance #696): public.labor_daily_actuals (migration
  * 46) and public.sales_daily_in_store (migration 41) over the weeks on
- * offer, the control board's settings, salaries and fixed-payroll people
- * (loadBoard, the same reads the Targets tab makes), and for the catering
- * offset the booked deals (loadCateringBookings, the Schedule page's read),
- * the shifts that crew them and the team. Any of the first three, the shifts
- * or the team failing fails the card: a target without its actuals, or the
- * reverse, is not shown. Bookings that cannot be read are named in
- * `problems` and make each week's labor not available.
+ * offer, with each day's catering split (migration 59) and marketing split
+ * (migration 60), and the control
+ * board's settings, salaries and fixed-payroll people (loadBoard, the same
+ * reads the Targets tab makes). Any of them failing fails the card: a target
+ * without its actuals, or the reverse, is not shown. Catering deals are not
+ * read: the catering work comes off as the clocks recorded it.
  */
-async function loadLaborTarget(supabase: SupabaseClient, today: string, problems: string[]): Promise<Omit<LaborTargetInputs, "today">> {
+async function loadLaborTarget(supabase: SupabaseClient, today: string): Promise<Omit<LaborTargetInputs, "today">> {
   const { from, to } = laborWindow(today);
-  const [labor, sales, board, bookings, crewShifts, team] = await Promise.all([
+  const [labor, sales, board] = await Promise.all([
     paged<Record<string, unknown>>(() =>
-      supabase.from("labor_daily_actuals").select("day, hours, wages, catering_premium, solo_close").gte("day", from).lte("day", to).order("day"),
+      supabase
+        .from("labor_daily_actuals")
+        .select("day, hours, wages, catering_premium, solo_close, catering_hours, catering_wages, marketing_hours, marketing_wages")
+        .gte("day", from)
+        .lte("day", to)
+        .order("day"),
     ),
     paged<Record<string, unknown>>(() => supabase.from("sales_daily_in_store").select("day, in_store").gte("day", from).lte("day", to).order("day")),
     loadBoard(supabase, today),
-    loadCateringBookings(supabase, from, to, today),
-    paged<LaborShift>(() =>
-      supabase
-        .from("shifts")
-        .select("id, employee_id, starts_at, ends_at, position, deal_id")
-        .not("deal_id", "is", null)
-        .gte("starts_at", nyMidnight(addDays(from, -1)))
-        .lte("starts_at", nyMidnight(addDays(to, 2)))
-        .order("id"),
-    ),
-    paged<Parameters<typeof laborPerson>[0]>(() => supabase.from("profiles").select(PROFILE_COLUMNS).order("id")),
   ]);
   if (!board.ready) throw new Error(board.reason);
-  problems.push(...bookings.problems.map((p) => `labor vs target: ${p}`));
   return {
     labor: labor.map(
       (r): LaborDayRow => ({
@@ -236,13 +237,16 @@ async function loadLaborTarget(supabase: SupabaseClient, today: string, problems
         wages: Number(r.wages),
         catering_premium: Number(r.catering_premium),
         solo_close: Number(r.solo_close),
+        catering_hours: r.catering_hours == null ? null : Number(r.catering_hours),
+        catering_wages: r.catering_wages == null ? null : Number(r.catering_wages),
+        marketing_hours: r.marketing_hours == null ? null : Number(r.marketing_hours),
+        marketing_wages: r.marketing_wages == null ? null : Number(r.marketing_wages),
       }),
     ),
     sales: sales.map((r): SalesDayRow => ({ day: String(r.day), in_store: Number(r.in_store) })),
     settings: board.settings,
     salaries: board.salaries,
     salaried: board.salaried,
-    catering: { bookings: bookings.catering, shifts: crewShifts, people: team.map(laborPerson) },
   };
 }
 
@@ -277,6 +281,20 @@ async function loadFeed(supabase: SupabaseClient, cashFrom: string, monthsFrom: 
     };
   } catch (e) {
     return { status: "unreadable", message: (e as Error).message };
+  }
+}
+
+/** Reads public.bookkeeping_pass_runs (migration 56) from `from` on: every pass's runs, oldest first. */
+export async function loadPassRuns(supabase: SupabaseClient, from: string): Promise<PassRunsData> {
+  try {
+    const rows = await paged<Record<string, unknown>>(() =>
+      supabase.from("bookkeeping_pass_runs").select(PASS_RUN_COLUMNS).gte("run_date", from).order("run_date").order("id"),
+    );
+    return { status: "ok", runs: rows.map(parsePassRun).filter((r): r is PassRun => r != null) };
+  } catch (e) {
+    const error = e as { message?: string; code?: string };
+    if (isMissingTable(error)) return { status: "not_enabled" };
+    return { status: "unreadable", message: error?.message ?? String(e) };
   }
 }
 
@@ -367,6 +385,7 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
       : null,
     laborPlanning: inputs.laborPlanning ? laborHoursPlanning(planningInputsFrom(inputs.laborPlanning)) : null,
     feed: buildFeed(inputs.feed),
+    passRuns: inputs.passRuns,
     problems: inputs.problems,
   };
 }

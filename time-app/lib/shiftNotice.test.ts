@@ -322,9 +322,7 @@ test("8pm is New York's 8pm on both sides of a clock change", () => {
   // Summer (EDT, UTC-4): 20:00 is 00:00 UTC the next day.
   assert.equal(digestDayAt(Date.parse("2026-10-08T23:59:00Z")), null);
   assert.equal(digestDayAt(Date.parse("2026-10-09T00:00:00Z")), "2026-10-08");
-  assert.equal(digestDayAt(Date.parse("2026-10-09T03:59:00Z")), "2026-10-08");
-  // Midnight in New York starts a new day that is not yet due.
-  assert.equal(digestDayAt(Date.parse("2026-10-09T04:00:00Z")), null);
+  assert.equal(digestDayAt(Date.parse("2026-10-09T00:14:00Z")), "2026-10-08");
   // Clocks go back 2026-11-01 (EST, UTC-5): 20:00 is 01:00 UTC the next day.
   assert.equal(digestDayAt(Date.parse("2026-11-01T00:00:00Z")), "2026-10-31");
   assert.equal(digestDayAt(Date.parse("2026-11-02T00:30:00Z")), null);
@@ -334,6 +332,29 @@ test("8pm is New York's 8pm on both sides of a clock change", () => {
   assert.equal(digestDayAt(Date.parse("2026-03-08T01:00:00Z")), "2026-03-07");
   assert.equal(digestDayAt(Date.parse("2026-03-08T23:59:00Z")), null);
   assert.equal(digestDayAt(Date.parse("2026-03-09T00:00:00Z")), "2026-03-08");
+});
+
+// 2026-11-12: a schedule copied by mistake at 11:21pm reached five people at
+// 11:25pm, because the window ran until midnight. It is 8:00 to 8:14pm now.
+test("the summary goes out only from 8:00 to 8:14pm", () => {
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "20:00"))), "2026-11-12");
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "20:14"))), "2026-11-12");
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "20:15"))), null);
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "21:00"))), null);
+  assert.equal(digestDayAt(Date.parse(est("2026-11-12", "23:25"))), null);
+});
+
+test("a late-evening save waits for tomorrow's 8pm, even for someone with nothing in tonight's", async () => {
+  at(est("2026-11-12", "23:21"));
+  await create(SAM, "2026-11-17", "12:30", "16:00");
+  await tick(est("2026-11-12", "23:25"));
+  await tick(est("2026-11-12", "23:55"));
+  await tick(est("2026-11-13", "19:55"));
+  assert.deepEqual(sent, []);
+
+  await tick(est("2026-11-13", "20:00"));
+  assert.equal(to("sam@example.test").length, 1);
+  assert.deepEqual(db.rows("shift_digests").map((d) => d.digest_day), ["2026-11-13"]);
 });
 
 test("the night the clocks go back, the summary waits for 8pm EST, not 8pm EDT", async () => {
@@ -604,4 +625,81 @@ test("a shift reminder is not emailed to someone who switched email off", async 
 
   assert.deepEqual(to("sam@example.test"), []);
   assert.deepEqual(notified(), [[SAM, "shift_reminder"]]);
+});
+
+// ---- Undo on the schedule (lib/undo.ts, components/ScheduleBoard.tsx) ----
+
+async function del(shiftId: number) {
+  const res = await shiftById.DELETE(req("DELETE"), id(shiftId));
+  assert.equal(res.status, 200);
+  return (await res.json()) as { ok: true; shift: Record<string, unknown> | null };
+}
+async function restore(shift: Record<string, unknown>) {
+  const { id: formerId, ...fields } = shift;
+  const res = await shifts.POST(req("POST", { ...fields, confirmLong: true, confirmAvailability: true, restores: formerId }), noParams);
+  assert.equal(res.status, 200);
+  return ((await res.json()) as { shift: { id: number } }).shift.id;
+}
+
+test("deleting a shift hands back the shift as it was, for Undo", async () => {
+  const shiftId = await create(SAM, "2026-10-13", "12:00", "17:00", "PENN Opener");
+  const { shift } = await del(shiftId);
+  assert.deepEqual(
+    // The stand-in leaves out a column no row has set; Postgres sends deal_id null.
+    { deal_id: null, ...shift, starts_at: undefined, ends_at: undefined },
+    { id: shiftId, employee_id: SAM, location_id: null, starts_at: undefined, ends_at: undefined, position: "PENN Opener", notes: null, deal_id: null },
+  );
+});
+
+test("a delete and its undo between two summaries add up to nothing in the summary", async () => {
+  const shiftId = await create(SAM, "2026-10-13", "12:00", "17:00");
+  await tick(edt("2026-10-08", "20:00"));
+  assert.equal(to("sam@example.test").length, 1);
+
+  at(edt("2026-10-09", "10:00"));
+  const { shift } = await del(shiftId);
+  await restore(shift!);
+  assert.deepEqual(db.rows("shift_notices"), [], "the queued Removed line is taken back");
+  assert.equal(db.rows("shifts").length, 1);
+
+  await tick(edt("2026-10-09", "20:00"));
+  assert.equal(to("sam@example.test").length, 1, "nothing new to tell Sam");
+  // The bell heard both, as it hears every save.
+  assert.deepEqual(notified().slice(-2), [[SAM, "schedule_change"], [SAM, "shift_published"]]);
+});
+
+test("a shift put back after its removal was already summarised is new to them again", async () => {
+  const shiftId = await create(SAM, "2026-10-13", "12:00", "17:00");
+  await tick(edt("2026-10-08", "20:00"));
+  at(edt("2026-10-09", "10:00"));
+  const { shift } = await del(shiftId);
+  await tick(edt("2026-10-09", "20:00"));
+  assert.equal(to("sam@example.test")[1].text, "Your shift updates\n\nTue, Oct 13 · Removed · 12:00 PM–5:00 PM");
+
+  at(edt("2026-10-10", "10:00"));
+  await restore(shift!);
+  await tick(edt("2026-10-10", "20:00"));
+  assert.equal(to("sam@example.test")[2].text, "Your shift updates\n\nTue, Oct 13 · New · 12:00 PM–5:00 PM");
+});
+
+test("copy last week hands back the copies' ids; undoing it before 8pm tells nobody by email", async () => {
+  db.tables.shifts.push(
+    { id: 1, employee_id: SAM, location_id: null, starts_at: edt("2026-09-29", "12:00"), ends_at: edt("2026-09-29", "17:00"), position: null, notes: null, published: true },
+    { id: 2, employee_id: JO, location_id: null, starts_at: edt("2026-10-01", "12:00"), ends_at: edt("2026-10-01", "17:00"), position: null, notes: null, published: true },
+  );
+  const res = await copyWeek.POST(req("POST", { weekStart: "2026-10-04" }), noParams);
+  const j = (await res.json()) as { copied: number; ids: number[] };
+  assert.equal(j.copied, 2);
+  assert.equal(j.ids.length, 2);
+  assert.deepEqual(new Set(db.rows("shifts").slice(2).map((s) => s.id)), new Set(j.ids));
+
+  for (const shiftId of j.ids) await del(shiftId);
+  assert.equal(db.rows("shifts").length, 2);
+  await tick(edt("2026-10-08", "20:00"));
+  assert.deepEqual(sent, []);
+});
+
+test("copy last week with nothing to copy hands back no ids", async () => {
+  const res = await copyWeek.POST(req("POST", { weekStart: "2026-10-04" }), noParams);
+  assert.deepEqual(await res.json(), { ok: true, copied: 0, ids: [] });
 });

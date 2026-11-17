@@ -151,7 +151,7 @@ The finance pages (managers and owners only) are served by the same app on their
 
 How the two hosts split (the rules are in `lib/hosts.ts`, enforced by `middleware.ts`):
 
-- On `finance.`: only `/payroll`, `/metrics`, sign-in (`/login`, `/auth/*`) and the APIs those use (`/api/payroll/*`, `/api/metrics/*`, `/api/auth/*`, `/api/logout`). A staff page such as `/schedule` redirects to the same path on `time.`; a staff API answers 404.
+- On `finance.`: only `/payroll`, `/metrics`, sign-in (`/login`, `/auth/*`) and the APIs those use (`/api/payroll/*`, `/api/metrics/*`, `/api/time-entries/*` for the payroll page's punch forms, `/api/auth/*`, `/api/logout`). A staff page such as `/schedule` redirects to the same path on `time.`; a staff API answers 404.
 - On `time.`: `/finance` is a permanent redirect to `https://finance.withers-ventures.com/payroll` (`/finance?tab=metrics` goes to `/metrics`). The time app has no menu entry for it; open the finance site by its address.
 - Sign-in is per host. The session cookie belongs to the host that set it, so signing in on `time.` does not sign you in on `finance.`, and a staff session is never sent to the finance host. Only managers and owners see any finance page or API (`active` is not checked: `lib/financeAccess.ts`); anyone else signed in gets a "managers only" page or a 403.
 
@@ -330,6 +330,62 @@ one. After that date the weekly block stops counting everywhere: the schedule's
 availability warnings and cells, auto-fill, the Team availability view and the
 person's own calendar. Weekly blocks saved before `migration_48.sql` have no end
 date and keep repeating until the person saves them again.
+
+### Cash count reminders in Slack #cash-count
+
+A job on bj-box (the always-on server) reminds staff in the public Slack
+channel #cash-count to post the cash counts: the opener once they clock in,
+one closer just after closing, and that same person once more 30 minutes later
+if nobody has posted. Each reminder is written by Claude from the "Cash count
+steps" message posted in the channel, on your Claude subscription, so it
+follows any change to the steps; if that fails, a plain message goes out
+instead. Nothing is set in Vercel.
+
+What you do, once:
+
+1. Create the "Cash Count" Slack app (scopes `chat:write`, `channels:history`,
+   `users:read`, `users:read.email`) and save its bot token to Supabase Vault
+   as `slack_cash_count_bot_token`. Done 2026-10-29.
+2. In Slack, open #cash-count and send `/invite @Cash Count`.
+
+The job reads the Slack token and your Claude subscription token
+(`claude_usage_token`, already in Vault) from Vault each time it runs. Staff
+are matched to Slack by the email they sign in with, else by their name on the
+Team page. To stop it, ask for the `bj-cash-count-reminders.timer` kill switch
+on bj-box.
+
+### Cake order packing reminders in Slack #cake-orders-and-ideas
+
+A job on bj-box reads the copy of each Olo order that Olo emails to the order
+address, and for each custom cake order @mentions everyone clocked in on a store shift
+in #cake-orders-and-ideas, asking them to pack it and react or reply when done.
+Under that line the post shows only the customer's name, as you ruled on
+2026-11-04: the cake itself is on the tablet and the wall. If nobody is clocked in
+(an overnight order), it waits until 30 minutes after the first person clocks
+in. If nobody marks it packed within an hour (a 📦 ✅ 👍 reaction, a reply in
+the thread, or their next message in the channel), it replies once in the
+thread. Cake ideas from people it did not mention do not count. The words are
+written by Claude on your subscription, with a plain message if that fails.
+
+Only custom cake orders are posted ("Custom Order Cake" on the Olo menu), as
+you ruled on 2026-11-03: custom cakes are the ones that need to be made and
+tracked. Named cakes (Celebration Cake, the ready-made cakes, the seasonal
+ones) are refilled from stock, so they are skipped, and so are shakes, pints
+and any other order without a cake on it, whichever app it came through.
+
+It is not switched on yet: you decide when, and then ask for the
+`bj-cake-order-reminders.timer` to be turned on in bj-box.
+
+What you do, once:
+
+1. Create the "Cake Orders" Slack app (scopes `chat:write`, `channels:history`,
+   `reactions:read`, `users:read`, `users:read.email`) and save its bot token
+   to Supabase Vault as `slack_cake_orders_bot_token`.
+2. In Slack, open #cake-orders-and-ideas and send `/invite @Cake Orders`.
+
+The job reads the mailbox with the Gmail login already in Vault and changes
+nothing in it. To stop it, ask for the `bj-cake-order-reminders.timer` kill
+switch on bj-box.
 
 ---
 

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
+import { useUndo } from "./UndoProvider";
+import { send } from "@/lib/undo";
 import type { Availability } from "@/lib/types";
 import { defaultRepeatUntil, parseRepeatUntil, shortDate, weeklyRowApplies } from "@/lib/repeatUntil";
 
@@ -64,6 +66,7 @@ export default function AvailabilityCalendar({
   navView?: string;
 }) {
   const router = useRouter();
+  const { record } = useUndo();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [viewing, setViewing] = useState<Availability | null>(null);
   const [busy, setBusy] = useState(false);
@@ -128,8 +131,28 @@ export default function AvailabilityCalendar({
     router.refresh();
   }
 
-  async function del(id: number) {
-    await fetch(`/api/availability/${id}`, { method: "DELETE" });
+  // Remove, as an undo step: Undo adds the same entry back (a new id), Redo
+  // removes that one. The schedulers hear each change as they do any other.
+  async function del(row: Availability) {
+    const res = await fetch(`/api/availability/${row.id}`, { method: "DELETE" });
+    if (res.ok) {
+      const fields: Record<string, unknown> = {
+        is_available: row.is_available,
+        preference: row.preference,
+        start_time: row.start_time,
+        end_time: row.end_time,
+        note: row.note,
+        status: row.status,
+        ...(row.specific_date ? { specific_date: row.specific_date } : { weekday: row.weekday, repeat_until: row.repeat_until ?? null }),
+      };
+      const when = row.specific_date ? shortDate(row.specific_date) : `every ${DOW[row.weekday ?? 0]}`;
+      let id = row.id;
+      record({
+        label: `Removed availability, ${when}`,
+        undo: async () => { id = (await send<{ availability: Availability }>("/api/availability", "POST", fields)).availability.id; },
+        redo: async () => { await send(`/api/availability/${id}`, "DELETE"); },
+      });
+    }
     router.refresh();
   }
 
@@ -276,7 +299,7 @@ export default function AvailabilityCalendar({
           </div>
           {viewing.note && <div className="text-sm text-slate-500">{viewing.note}</div>}
           <div className="flex justify-between pt-2">
-            <button onClick={() => { del(viewing.id); setViewing(null); }} className="text-sm text-rose-500 hover:text-rose-400">Remove</button>
+            <button onClick={() => { del(viewing); setViewing(null); }} className="text-sm text-rose-500 hover:text-rose-400">Remove</button>
             <button onClick={() => setViewing(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
           </div>
         </Modal>

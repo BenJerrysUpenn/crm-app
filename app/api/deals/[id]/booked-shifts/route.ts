@@ -6,10 +6,10 @@ import { createCateringShiftsForDeal, DEAL_SHIFT_COLUMNS } from "@/lib/cateringS
 // POST /api/deals/:id/booked-shifts
 //
 // Called by the CRM UI right after a deal is moved into "Booked Unpaid".
-// Creates one open shift per crew member in the time-app, live on the
-// schedule (the time-app has no drafts). Idempotent: safe to call repeatedly;
-// it never double-creates and never edits shifts once made ("create once,
-// never touch").
+// Creates one open shift per crew member nobody has placed by hand in the
+// time-app, live on the schedule (the time-app has no drafts). Idempotent: safe
+// to call repeatedly; it never double-creates and never edits shifts once made
+// ("create once, never touch"). A failed read answers 500, as a failed insert does.
 export async function POST(
   _request: Request,
   { params }: { params: { id: string } },

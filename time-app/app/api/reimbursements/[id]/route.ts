@@ -3,9 +3,8 @@ import { getProfile } from "@/lib/auth";
 import { dayKey } from "@/lib/format";
 import { isMissingTable } from "@/lib/storeHours";
 import { parseReimbursement } from "@/lib/reimbursements/submission";
-import { reimbursementCents } from "@/lib/reimbursements/money";
 import { staffMayChange } from "@/lib/reimbursements/lifecycle";
-import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission, type ReimbursementRow } from "@/lib/reimbursements/server";
+import { NEEDS_MIGRATION, loadRates, notifyApprovers, resolveSubmission, afterSubmit, type ReimbursementRow } from "@/lib/reimbursements/server";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -33,8 +32,11 @@ async function own(params: Params["params"]) {
 // PATCH /api/reimbursements/:id   Body: as POST /api/reimbursements.
 // The staff member edits their own while Submitted, or fixes a Rejected one,
 // which resubmits it (bj-finance #210, ruling 20). Changing the miles drops an
-// Adjustment's mileage amount: the new miles need deciding again. A
-// resubmission tells the Approvers, as a new submission does.
+// Adjustment's mileage amount: the new miles need deciding again. A Catering
+// Event's miles are the deal's (the owner, 2026-11-16), whatever is sent. A
+// resubmission tells the Approvers, as a new submission does. Either queues a
+// Miles recalculation for a Catering Event whose deal has no round-trip miles, as
+// POST does.
 export async function PATCH(request: Request, { params }: Params) {
   const found = await own(params);
   if (found.res) return found.res;
@@ -51,7 +53,13 @@ export async function PATCH(request: Request, { params }: Params) {
   const resolved = await resolveSubmission(parsed.value, today, rates.rates);
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
 
-  const milesChanged = Number(resolved.cols.miles) !== Number(row.miles);
+  // A 'deal' trip's miles follow the deal, not the staff member: an edit that
+  // keeps it on the deal keeps an Approver's Mileage Adjustment. Moving it
+  // onto the deal's miles from typed miles is a change of miles.
+  const milesChanged =
+    resolved.cols.mileage_mode === "deal"
+      ? row.mileage_mode !== "deal"
+      : Number(resolved.cols.miles) !== Number(row.miles) || row.mileage_mode === "deal";
   const { data, error } = await supabase
     .from("travel_reimbursements")
     .update({
@@ -66,7 +74,9 @@ export async function PATCH(request: Request, { params }: Params) {
   if (error) return NextResponse.json({ error: error.message }, { status: 409 });
   if (!data) return NextResponse.json({ error: LOCKED }, { status: 409 });
 
-  if (row.status === "rejected") await notifyApprovers(me, data, reimbursementCents(data, rates.rates).total_cents);
+  // Its total for the notice; a deal with no round-trip miles gets a miles recalculation queued (afterSubmit).
+  const total = await afterSubmit(supabase, data as ReimbursementRow, rates.rates);
+  if (row.status === "rejected") await notifyApprovers(me, data, total);
   return NextResponse.json({ reimbursement: data });
 }
 

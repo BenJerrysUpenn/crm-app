@@ -15,8 +15,9 @@ export const fetchCache = "force-no-store";
 //
 // Reconciles catering shifts: any booked deal (unpaid or paid) whose
 // picklist has been generated (departure_time is set) but has no shifts yet
-// gets its open shifts created. This is the path that catches deals whose
-// picklist is generated AFTER booking, when the stage-change trigger can't.
+// gets its open shifts created, less any crew a manager placed by hand. This is
+// the path that catches deals whose picklist is generated AFTER booking, when
+// the stage-change trigger can't.
 //
 // Meant to be hit on a schedule. It is the one CRM route a scheduler reaches
 // without a login (middleware.ts exempts exactly this path), so CRON_SECRET is

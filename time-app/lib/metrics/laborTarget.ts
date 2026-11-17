@@ -6,21 +6,36 @@
 //   Actual sales          in-store sales, public.sales_daily_in_store
 //                         (migration 41), all seven days. Catering sales are
 //                         never in it.
-//   Catering offset       each day's booked catering deals: the crew hours the
-//                         client paid for (labor_hours x staff_count) at crew
-//                         cost + premium, exactly as the Schedule page's labor
-//                         line prices them (cateringOffset in
-//                         controlBoard/schedule.ts, reused, not re-derived).
-//                         "We are simply taking out all catering labor by
-//                         canceling it out with what the client paid for."
-//   Actual hourly labor $ ALL-IN: wages + catering premium + solo close, as
-//                         QBO paid them (public.labor_daily_actuals,
-//                         migration 46: hourly, non-overhead staff, a pay
-//                         period's dollars spread over its days by hours),
-//                         less that day's catering offset, plus employer taxes
-//                         and workers' comp on what is left at the control
-//                         board's hourly rate in force on the day (FICA + FUTA
-//                         + PA UC + WC, no caps: the board's hourlyLoad).
+//   Catering work         never in it (Alina, 2026-11-16: "catering shouldn't
+//                         be affecting the labor percent because catering
+//                         revenue covers that as a separate bill"). What comes
+//                         off is the catering work the clocks recorded, as
+//                         paid: each day's catering_hours and catering_wages
+//                         (migration 59; bj-finance modules/labor_days.py:
+//                         When I Work lines whose Position is Catering before
+//                         the time app, punches on Catering shifts after, each
+//                         person at their own paid rate) and the whole
+//                         catering premium. Booked deals and the hours a quote
+//                         billed are not read: a deal with no crew, a pickup
+//                         or a drop-off, cannot change a week.
+//   Marketing work        never in it either (Alina, 2026-11-16: marketing
+//                         work is a separate marketing budget, taken out like
+//                         catering, at the hours actually worked): each day's
+//                         marketing_hours and marketing_wages (migration 60;
+//                         modules/labor_days.py: punches on a Marketing shift
+//                         or on any shift of a marketing deal, When I Work's
+//                         Marketing position before the time app, each person
+//                         at their own paid rate). Never the same hours as
+//                         catering.
+//   Actual hourly labor $ ALL-IN: wages + solo close as QBO paid them
+//                         (public.labor_daily_actuals, migration 46: hourly,
+//                         non-overhead staff, a pay period's dollars spread
+//                         over its days by hours) less the day's catering
+//                         and marketing wages, plus employer taxes and
+//                         workers' comp on that
+//                         at the control board's hourly rate in force on the
+//                         day (FICA + FUTA + PA UC + WC, no caps: the board's
+//                         hourlyLoad).
 //   Actual %              actual hourly labor $ / actual sales.
 //   Target %              ALL-IN: the board's all-in hourly goal in force on
 //                         each day (hourlyAllInPct: hourly wages plus their
@@ -35,18 +50,16 @@
 //                         Above zero is over target.
 //   Variance hours        variance $ at the week's own in-store cost per hour
 //                         (actual hourly labor $ / (hours paid - catering
-//                         crew hours billed)).
+//                         and marketing hours worked)).
 //
 // Every board value is the one in force on the day, so a past week is judged
-// by the board as it stood then: a pay rule before its first row paid nothing
-// (ruleOn), and fixed payroll counts only the people salaried that day
-// (inFixedPayroll). A deal billed zero crew hours (a pickup) offsets nothing.
+// by the board as it stood then: fixed payroll counts only the people salaried
+// that day (inFixedPayroll).
 //
 // A week counts only when it is over and all seven of its days have a
-// labor_daily_actuals row; otherwise its labor is not available, never zero.
-// The same for sales: a missing day makes the week's sales not available, and
-// a catering offset that cannot be priced makes the week's labor not
-// available. Nothing is estimated from punches or the schedule.
+// labor_daily_actuals row with its catering and marketing split; otherwise its labor is not
+// available, never zero. The same for sales: a missing day makes the week's
+// sales not available. Nothing is estimated from punches or the schedule.
 //
 // Pure, so `node --test` runs it.
 
@@ -54,12 +67,25 @@ import { boardOn } from "../controlBoard/board.ts";
 import type { Derived } from "../controlBoard/math.ts";
 import type { SalaryRow, SettingRow } from "../controlBoard/settings.ts";
 import type { SalariedProfile } from "../controlBoard/load.ts";
-import { cateringOffset, type CateringBooking, type CateringOffsetInput, type LaborPerson, type LaborShift } from "../controlBoard/schedule.ts";
 import { addDays, eachDay } from "./dates.ts";
 import { laborWeekStarts } from "./weekRange.ts";
 
-/** A row of public.labor_daily_actuals, as the card reads it. */
-export type LaborDayRow = { day: string; hours: number; wages: number; catering_premium: number; solo_close: number };
+/**
+ * A row of public.labor_daily_actuals, as the card reads it. The catering
+ * split (migration 59) and the marketing split (migration 60) are null on a
+ * day bj-finance has not split yet.
+ */
+export type LaborDayRow = {
+  day: string;
+  hours: number;
+  wages: number;
+  catering_premium: number;
+  solo_close: number;
+  catering_hours: number | null;
+  catering_wages: number | null;
+  marketing_hours: number | null;
+  marketing_wages: number | null;
+};
 /** A row of public.sales_daily_in_store, as the card reads it. */
 export type SalesDayRow = { day: string; in_store: number };
 
@@ -71,12 +97,6 @@ export type LaborTargetInputs = {
   settings: SettingRow[];
   salaries: SalaryRow[];
   salaried: SalariedProfile[];
-  /**
-   * For the catering offset, as the Schedule page reads it: the booked deals
-   * with their billed crew hours (null when they could not be read), the
-   * Catering shifts that crew them, and everyone on the Team page.
-   */
-  catering: { bookings: CateringBooking[] | null; shifts: LaborShift[]; people: LaborPerson[] };
 };
 
 export type LaborTargetWeek = {
@@ -89,16 +109,22 @@ export type LaborTargetWeek = {
   /** Why something in the row is not available, in words. */
   why: string[];
   sales: number | null;
-  /** Hours paid, catering crew included. */
+  /** Hours paid, catering work included. */
   hours: number | null;
+  /** Wages paid, catering work included. */
   wages: number | null;
+  /** The catering premium paid: all catering, so none of it is in the actual. */
   premium: number | null;
   solo: number | null;
-  /** Crew hours billed on the week's booked catering deals. */
+  /** Hours worked on catering, as the clocks recorded them. */
   cateringHours: number | null;
-  /** What those billed hours cost all-in (crew cost + premium + taxes and comp); taken off the actual. */
+  /** What that catering work cost all-in (wages + premium + taxes and comp); not in the actual. */
   cateringOffset: number | null;
-  /** Employer taxes and comp on the in-store hourly pay (after the catering offset). */
+  /** Hours worked on marketing, as the clocks recorded them. */
+  marketingHours: number | null;
+  /** What that marketing work cost all-in (wages + taxes and comp); not in the actual. */
+  marketingOffset: number | null;
+  /** Employer taxes and comp on the in-store hourly pay. */
   taxesWc: number | null;
   /** All-in in-store hourly labor $. */
   actual: number | null;
@@ -126,10 +152,11 @@ export const WHY = {
   notOver: "the week is not over yet",
   rates: "payroll tax and workers' comp rates not set on the control board",
   labor: (n: number) => `hourly payroll on file for ${n} of 7 days`,
+  split: (unsplit: number) => `catering and marketing work not yet split out of the payroll for ${unsplit} of 7 days`,
   sales: (n: number) => `in-store sales on file for ${n} of 7 days`,
   varying: "the week's sales (the target changed during the week)",
-  noInStoreHours: "no in-store hours left once the catering crew's billed hours are taken off",
-  noInStoreLabor: "hourly labor is zero or less once the catering crew's billed hours are taken off",
+  noInStoreHours: "no in-store hours left once the catering and marketing work is taken off",
+  noInStoreLabor: "hourly labor is zero or less once the catering and marketing work is taken off",
 } as const;
 
 function week(
@@ -137,7 +164,6 @@ function week(
   i: LaborTargetInputs,
   labor: Map<string, LaborDayRow>,
   sales: Map<string, number>,
-  offsetInput: CateringOffsetInput,
 ): LaborTargetWeek {
   const days = eachDay(start, addDays(start, 6));
   const end = days[6];
@@ -150,10 +176,6 @@ function week(
   const goals = boards.map((b) => b.hourlyAllInPct);
   const loads = boards.map((b) => b.hourlyLoad);
 
-  // Each day's catering offset, priced as the schedule prices it.
-  const offsets = days.map((d) => cateringOffset(offsetInput, d));
-  const offsetNeeds = [...new Set(offsets.flatMap((o) => [...o.hours.needs, ...o.dollars.needs]))];
-
   // Actual labor: all seven days paid and on file, and the week over.
   const laborRows = days.map((d) => labor.get(d));
   const laborDays = laborRows.filter(Boolean).length;
@@ -164,28 +186,38 @@ function week(
   let solo: number | null = null;
   let taxesWc: number | null = null;
   let cateringHours: number | null = null;
-  let cateringDollars: number | null = null;
+  let cateringWages: number | null = null;
   let cateringAllIn: number | null = null;
-  if (over) why.push(...offsetNeeds);
+  let marketingHours: number | null = null;
+  let marketingWages: number | null = null;
+  let marketingAllIn: number | null = null;
   if (over && laborDays === 7) {
     const rows = laborRows as LaborDayRow[];
     hours = rows.reduce((a, r) => a + r.hours, 0);
     wages = rows.reduce((a, r) => a + r.wages, 0);
     premium = rows.reduce((a, r) => a + r.catering_premium, 0);
     solo = rows.reduce((a, r) => a + r.solo_close, 0);
+    const split = rows.filter(
+      (r) => r.catering_hours != null && r.catering_wages != null && r.marketing_hours != null && r.marketing_wages != null,
+    ).length;
+    if (split < 7) why.push(WHY.split(7 - split));
     const ratesSet = loads.every((l) => l.value != null);
     if (!ratesSet) why.push(WHY.rates);
-    if (ratesSet && !offsetNeeds.length) {
-      const off = offsets.map((o) => o.dollars.value!);
-      cateringHours = offsets.reduce((a, o) => a + o.hours.value!, 0);
-      cateringDollars = off.reduce((a, v) => a + v, 0);
-      cateringAllIn = off.reduce((a, v, k) => a + v * (1 + loads[k].value!), 0);
-      taxesWc = rows.reduce((a, r, k) => a + (r.wages + r.catering_premium + r.solo_close - off[k]) * loads[k].value!, 0);
+    if (split === 7) {
+      cateringHours = rows.reduce((a, r) => a + r.catering_hours!, 0);
+      marketingHours = rows.reduce((a, r) => a + r.marketing_hours!, 0);
+    }
+    if (ratesSet && split === 7) {
+      cateringWages = rows.reduce((a, r) => a + r.catering_wages!, 0);
+      marketingWages = rows.reduce((a, r) => a + r.marketing_wages!, 0);
+      cateringAllIn = rows.reduce((a, r, k) => a + (r.catering_wages! + r.catering_premium) * (1 + loads[k].value!), 0);
+      marketingAllIn = rows.reduce((a, r, k) => a + r.marketing_wages! * (1 + loads[k].value!), 0);
+      taxesWc = rows.reduce((a, r, k) => a + (r.wages - r.catering_wages! - r.marketing_wages! + r.solo_close) * loads[k].value!, 0);
     }
   }
   const actual =
-    wages != null && premium != null && solo != null && cateringDollars != null && taxesWc != null
-      ? wages + premium + solo - cateringDollars + taxesWc
+    wages != null && solo != null && cateringWages != null && marketingWages != null && taxesWc != null
+      ? wages - cateringWages - marketingWages + solo + taxesWc
       : null;
 
   // Sales: all seven days on file, and the week over.
@@ -211,7 +243,7 @@ function week(
 
   const actualPct = actual != null && weekSales != null && weekSales > 0 ? actual / weekSales : null;
   const varianceDollars = actual != null && targetDollars != null ? actual - targetDollars : null;
-  const inStoreHours = hours != null && cateringHours != null ? hours - cateringHours : null;
+  const inStoreHours = hours != null && cateringHours != null && marketingHours != null ? hours - cateringHours - marketingHours : null;
   if (actual != null && inStoreHours != null && !(inStoreHours > 0)) why.push(WHY.noInStoreHours);
   else if (actual != null && inStoreHours != null && !(actual > 0)) why.push(WHY.noInStoreLabor);
   const varianceHours =
@@ -229,6 +261,8 @@ function week(
     solo,
     cateringHours,
     cateringOffset: cateringAllIn,
+    marketingHours,
+    marketingOffset: marketingAllIn,
     taxesWc,
     actual,
     actualPct,
@@ -244,12 +278,5 @@ function week(
 export function laborVsTarget(starts: string[], i: LaborTargetInputs): LaborTargetWeek[] {
   const labor = new Map(i.labor.map((r) => [r.day, r]));
   const sales = new Map(i.sales.map((r) => [r.day, r.in_store]));
-  const people = new Map(i.catering.people.map((p) => [p.id, p]));
-  const offsetInput: CateringOffsetInput = {
-    catering: i.catering.bookings,
-    shifts: i.catering.shifts,
-    people,
-    settings: i.settings,
-  };
-  return starts.map((start) => week(start, i, labor, sales, offsetInput));
+  return starts.map((start) => week(start, i, labor, sales));
 }

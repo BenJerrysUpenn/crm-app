@@ -154,8 +154,7 @@ export default function CalendarView() {
     if (!(STAGES as readonly string[]).includes(newStage)) return;
     const prevStage = deal.stage;
     const prevActive = deal.is_active;
-    const prevPayment = deal.payment_status;
-    const patch = buildStagePatch(newStage, deal.payment_status);
+    const patch = buildStagePatch(newStage);
     setDeals((prev) =>
       prev.map((d) =>
         d.id === deal.id
@@ -164,12 +163,15 @@ export default function CalendarView() {
               stage: patch.stage,
               is_active: patch.is_active,
               updated_at: patch.updated_at,
-              payment_status: patch.payment_status ?? d.payment_status,
             }
           : d,
       ),
     );
-    const { error } = await writeStageChange(supabase, deal.id, patch);
+    const { error, historyError } = await writeStageChange(
+      supabase,
+      deal.id,
+      patch,
+    );
     if (error) {
       setDeals((prev) =>
         prev.map((d) =>
@@ -178,7 +180,6 @@ export default function CalendarView() {
                 ...d,
                 stage: prevStage,
                 is_active: prevActive,
-                payment_status: prevPayment,
               }
             : d,
         ),
@@ -189,6 +190,9 @@ export default function CalendarView() {
       // the time-app. Idempotent server-side, so an unpaid→paid move that
       // already made shifts is a harmless no-op.
       requestBookedShifts(deal.id);
+    }
+    if (historyError) {
+      setError(`Deal moved, but its history was not saved: ${historyError}`);
     }
   }
 

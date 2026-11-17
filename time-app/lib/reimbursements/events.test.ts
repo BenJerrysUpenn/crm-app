@@ -65,6 +65,20 @@ test("cateringEventsFromDeals: several events on one day sort by start time, lat
   assert.deepEqual(events.map((e) => e.id), [2, 1, 3]);
 });
 
+test("cateringEventsFromDeals: each event carries its deal's stored round-trip miles as a number, or null when the deal has none", () => {
+  const events = cateringEventsFromDeals(
+    [
+      deal(1, "2026-10-04", { round_trip_miles: "6.43" }), // numeric columns arrive as text
+      deal(2, "2026-10-03", { round_trip_miles: 12 }),
+      deal(3, "2026-10-02", { round_trip_miles: null }),
+      deal(4, "2026-10-01", { round_trip_miles: "" }),
+      deal(5, "2026-09-30"), // a read without the column
+    ],
+    TODAY,
+  );
+  assert.deepEqual(events.map((e) => [e.id, e.round_trip_miles]), [[1, 6.43], [2, 12], [3, null], [4, null], [5, null]]);
+});
+
 test("eventLabel: date, start time, venue/company and address; never the deal id", () => {
   const [e] = cateringEventsFromDeals([deal(4321, "2026-10-03", { company: "Acme", venue_name: "Houston Hall", venue_address: "3417 Spruce St" })], TODAY);
   const label = eventLabel(e);

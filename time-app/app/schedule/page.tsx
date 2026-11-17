@@ -9,8 +9,14 @@ import type { AvailabilityRow } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { loadScheduleLabor, type ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
 import { nyToday } from "@/lib/metrics/dates";
+import { loadEventNames, loadLinkedEvents, loadScheduleEvents } from "@/lib/shiftEventLink";
+import type { ScheduleEvent } from "@/lib/scheduleEvents";
 
 export const dynamic = "force-dynamic";
+// force-dynamic alone does not stop Next caching the fetches a page makes (see
+// lib/supabase/admin.ts). The event badges are worked out from these reads, so
+// a badge must not outlive the link that answered it.
+export const fetchCache = "force-no-store";
 
 const TZ = "America/New_York";
 
@@ -112,6 +118,25 @@ export default async function SchedulePage({
     availability = load.ok ? load.rows : [];
   }
 
+  // Everyone: the event names on linked shifts' chips, for the shifts this person
+  // was just allowed to read. Only the names reach the browser.
+  const linkedIds = Array.from(
+    new Set(((shifts as ShiftWithEmployee[]) ?? []).map((s) => s.deal_id).filter((id): id is number => id != null)),
+  );
+  const eventNames = await loadEventNames(linkedIds);
+
+  // Manager only: the week's events, for the popup's event dropdown and the
+  // badges (lib/scheduleEvents.ts). Staff never get these. A failed read
+  // is null, which shows no badge and leaves every link alone.
+  let weekEvents: ScheduleEvent[] | null = [];
+  let linkedEvents: ScheduleEvent[] | null = [];
+  if (isManager) {
+    [weekEvents, linkedEvents] = await Promise.all([
+      loadScheduleEvents(supabase, weekStart, addDays(weekStart, 6)),
+      loadLinkedEvents(supabase, linkedIds),
+    ]);
+  }
+
   // Manager only: the week against the labor target (bj-finance #695).
   let labor: ScheduleLaborLoad | null = null;
   if (isManager) {
@@ -147,6 +172,10 @@ export default async function SchedulePage({
             availability={availability}
             annotations={annotations}
             labor={labor}
+            weekEvents={weekEvents}
+            linkedEvents={linkedEvents}
+            today={nyToday()}
+            eventNames={eventNames}
           />
         </div>
       </main>

@@ -46,7 +46,7 @@ after(async () => {
 function pending(start: string, end: string): LaborTargetWeek {
   return {
     start, end, available: false, why: ["the week is not over yet"], sales: null, hours: null, wages: null, premium: null, solo: null,
-    cateringHours: null, cateringOffset: null, taxesWc: null, actual: null, actualPct: null,
+    cateringHours: null, cateringOffset: null, marketingHours: null, marketingOffset: null, taxesWc: null, actual: null, actualPct: null,
     allInGoalPct: { value: 0.25, needs: [] }, targetPct: { value: 0.25, needs: [] }, targetDollars: null, varianceDollars: null, varianceHours: null,
   };
 }
@@ -60,7 +60,7 @@ const WEEKS = ["2030-09-01", "2030-09-08", "2030-09-15", "2030-09-22", "2030-09-
 
 const DATA = {
   today: "2030-11-02", targets: [], catering: null, ar: null, labour: null, forward: null, leads: null, outreach: null, quotes: null,
-  laborTarget: { weeks: WEEKS, defaultRange: { from: "2030-10-06", to: "2030-10-27" } }, laborPlanning: null, feed: { status: "not_enabled" }, problems: [],
+  laborTarget: { weeks: WEEKS, defaultRange: { from: "2030-10-06", to: "2030-10-27" } }, laborPlanning: null, feed: { status: "not_enabled" }, passRuns: { status: "not_enabled" }, problems: [],
 } as unknown as MetricsData;
 
 async function mount() {

@@ -1,55 +1,57 @@
-// The Schedule page's labor line (bj-finance #695, spec by Alina 2026-10-13;
-// catering rule corrected 2026-10-16). Manager view only. The week reads as
-// an aligned block (components/ScheduleLaborLine.tsx), the day headers as the
-// date only:
+// The Schedule page's labor line (bj-finance #695, spec by Alina 2026-10-13).
+// Manager view only. The week reads as an aligned block
+// (components/ScheduleLaborLine.tsx), the day headers as the date only:
 //
 //   Target Hourly Labor       target hours         target $
 //   Scheduled Hourly Labor    hourly-paid hours    projected $
 //   Remaining Hourly Labor    target - scheduled, hours and $
 //
-//   Projected hourly labor $ = hourly-paid scheduled hours x rate
-//                            + catering premium on Catering shifts
+//   Projected hourly labor $ = in-store hourly-paid scheduled hours x rate
 //                            + solo-close bonus per qualifying night
-//                            + open shifts at the average active hourly rate.
+//                            + open in-store shifts at the average active
+//                              hourly rate.
 //                            Salaried and overhead staff are left out.
 //   Day projected sales      = last year's in-store sales on the same weekday
 //                              52 weeks earlier x trend factor. IN-STORE ONLY:
 //                              catering bookings never feed projected sales.
-//   In-store target $        = projected sales x the hourly goal in force that day.
-//   In-store target hours    = in-store target $ / average rate of ACTIVE
-//                              hourly staff who are not overhead.
-//   Catering offset          = for each booked catering deal that day, the crew
-//                              hours billed on it in the CRM (deals.labor_hours,
-//                              per crew member, x deals.staff_count), priced at
-//                              crew cost + the catering premium: the rate of
-//                              whoever is on that deal's Catering shifts (hours-
-//                              weighted, open shifts at the average rate), else
-//                              the average active hourly rate, plus the board's
-//                              rule.catering_premium in force, capped at its
-//                              cap_rate per person, exactly as the scheduled
-//                              side applies it.
-//   Target $ / hours         = in-store target + catering offset.
+//   Target $                 = projected sales x the hourly goal in force that day.
+//   Target hours             = target $ / average rate of ACTIVE hourly staff
+//                              who are not overhead.
+//   Closed day               = the store is closed that date (a closed day
+//                              from the Targets tab, a "Business closed"
+//                              note, a weekday the season closes; resolved
+//                              by lib/coverage.ts resolveOpenWindow, as the
+//                              Labor Hours Planning card does): no projected
+//                              in-store sales, so no target, even if the
+//                              store was open the year before or has no
+//                              sales on file.
 //
-// "We are simply taking out all catering labor by canceling it out with what
-// the client paid for" (Alina, 2026-10-16). Scheduled Catering shifts stay on
-// the scheduled side, so an event staffed exactly as billed nets to zero and
-// over-staffing shows as over target. A booked deal with no billed crew hours
-// makes the day's target missing, naming the deal, never zero; a deal billed
-// zero crew hours (labor_hours 0: a pickup the client collects) offsets
-// nothing.
+// Catering work and marketing work never count in the labor line (Alina,
+// 2026-11-16: "since we're taking it out of the analytics, we should also be
+// taking it out of the labor percent on the scheduler in the same way"). The
+// shifts the Labor vs target card's punches come from (bj-finance
+// modules/labor_days.py) are left out of the scheduled side, hours and $,
+// catering premium and all: a Catering shift, a Marketing shift, and any
+// shift on a marketing deal (event type starting "Marketing", or stage
+// Closed Marketing Event; never also catering). They do not close for the
+// solo-close bonus either. The target is in-store only: nothing is added for
+// a booked deal, so a deal's quote (labor_hours, staff_count) is never read
+// and a deal with no shifts, a pickup or a deal missing its quote fields
+// cannot move the line or make it missing. The page shows scheduled hours
+// on past days too, never punches.
 //
 // Overhead staff (profiles.is_overhead, migration 45; bj-finance #692, ruled
 // 2026-10-15) are not part of the payroll target: out of hourly labor hours
-// and $, the average rate, the crew cost and the solo-close bonus. Their
-// shifts still count in total hours and the day's scheduled hours.
+// and $, the average rate and the solo-close bonus. Their shifts still count
+// in total hours and the day's scheduled hours.
 //
 // Every rate comes from the control board in force on the shift's date
-// (computeBoard / boardOn), never a constant here. A pay rule (catering
-// premium, solo-close bonus) before its first row did not exist yet and pays
-// nothing; one never set is missing (ruleOn in settings.ts). Fixed payroll on
-// a date counts the people salaried that date (inFixedPayroll in board.ts). Pay type is read strictly:
-// only `pay_type = 'hourly'` is hourly. A missing input is missing, with a
-// short reason, never zero.
+// (computeBoard / boardOn), never a constant here. A pay rule (solo-close
+// bonus) before its first row did not exist yet and pays nothing; one never
+// set is missing (ruleOn in settings.ts). Fixed payroll on a date counts the
+// people salaried that date (inFixedPayroll in board.ts). Pay type is read
+// strictly: only `pay_type = 'hourly'` is hourly. A missing input is missing,
+// with a short reason, never zero.
 //
 // Pure, so `node --test` runs it.
 
@@ -63,8 +65,34 @@ const TZ = "America/New_York";
 /** The shift position the CRM and the payroll page give a catering event's crew (lib/payroll/eventShift.ts). */
 export const CATERING_POSITION = "Catering";
 
-/** A shift crewing a catering event: its position is CATERING_POSITION. */
-const isCatering = (s: LaborShift) => (s.position ?? "").trim() === CATERING_POSITION;
+/** The shift position of marketing work (lib/scheduleEvents.ts MARKETING_POSITION, which Node's test runner cannot import from here). */
+const MARKETING_POSITION = "Marketing";
+
+/** The stage a marketing event closes at. */
+const MARKETING_STAGE = "Closed Marketing Event";
+
+/**
+ * A marketing deal, as bj-finance modules/labor_days.py reads one for the
+ * Labor vs target card: its event type starts "Marketing" (any case) or its
+ * stage is Closed Marketing Event. Any shift on it is marketing work.
+ */
+export function isMarketingDeal(d: { event_type: string | null; stage: string | null }): boolean {
+  return /^\s*marketing/i.test(d.event_type ?? "") || d.stage === MARKETING_STAGE;
+}
+
+const positionIs = (s: LaborShift, position: string) => (s.position ?? "").trim().toLowerCase() === position.toLowerCase();
+
+/**
+ * Which work a shift is, as the Labor vs target card splits its punches:
+ * marketing (a Marketing position, or any shift on a marketing deal),
+ * catering (a Catering position on any other deal or none), else null:
+ * in-store.
+ */
+export function workKind(s: LaborShift, marketingDeals: ReadonlySet<number>): "catering" | "marketing" | null {
+  if (positionIs(s, MARKETING_POSITION) || (s.deal_id != null && marketingDeals.has(s.deal_id))) return "marketing";
+  if (positionIs(s, CATERING_POSITION)) return "catering";
+  return null;
+}
 
 export type LaborShift = {
   id: number;
@@ -72,11 +100,11 @@ export type LaborShift = {
   starts_at: string;
   ends_at: string;
   position: string | null;
-  /** The catering deal a Catering shift crews (the CRM's shift writer sets it). */
+  /** The deal the shift crews (the CRM's shift writer sets it; a manager links it in the shift's popup). */
   deal_id?: number | null;
 };
 
-/** A booked catering deal on one of the week's days, with the crew hours billed on it. */
+/** A booked catering deal with the crew hours billed on it: the Labor Hours Planning card's booked band (the labor line does not read deals' quotes). */
 export type CateringBooking = {
   id: number;
   /** The event day, New York. */
@@ -112,23 +140,24 @@ export type ScheduleLaborInput = {
   trend: Trend;
   /** In-store sales by day for the days on file (last year's days are looked up here). */
   inStoreByDay: Map<string, number>;
-  /** This week's booked catering deals, or null when the bookings could not be read. */
-  catering: CateringBooking[] | null;
+  /** The ids of the marketing deals (isMarketingDeal) among the week's shifts' deals. */
+  marketingDeals: ReadonlySet<number>;
+  /** The week's dates the store is closed. None given: every day is open. */
+  closedDays?: Set<string>;
 };
 
 export type DayLabor = {
   date: string;
   /** The same weekday 52 weeks earlier. */
   lastYearDay: string;
+  /** The store is closed: no in-store target that day. */
+  closed: boolean;
   scheduledHours: number;
   lastYearInStore: Derived;
   trendedInStore: Derived;
-  /** In-store only: catering bookings never feed it. */
+  /** In-store only: catering bookings never feed it. Zero on a closed day. */
   projectedSales: Derived;
   hourlyGoal: Derived;
-  /** The day's catering offset: crew hours billed on its booked deals, and their $ at crew cost + premium. */
-  cateringHours: Derived;
-  cateringDollars: Derived;
   targetDollars: Derived;
   targetHours: Derived;
   /** One or two words for the header when the target is missing. */
@@ -141,7 +170,6 @@ export type ScheduleLabor = {
   hourlyHours: number;
   labor: {
     wages: number;
-    premium: number;
     solo: number;
     open: number;
     total: number;
@@ -211,23 +239,17 @@ function both(a: Derived, b: Derived, fn: (x: number, y: number) => number | nul
 export const MISSING = {
   board: "Nothing is set on the control board yet",
   avgRate: "no active hourly staff with a rate on the Team page",
-  catering: "catering bookings could not be read",
-  premium: "catering premium not set on the control board",
   solo: "solo-close bonus not set on the control board",
 } as const;
-
-const billedNeed = (id: number) => `no billed crew hours on catering deal #${id}`;
 
 const lastYearNeed = (day: string) => `no in-store sales on file for ${longDay(day)}`;
 
 /** One or two words for a day header, from the first thing its target needs. */
-function shortReason(d: Pick<DayLabor, "hourlyGoal" | "lastYearInStore" | "trendedInStore" | "cateringHours" | "targetHours">): string | null {
+function shortReason(d: Pick<DayLabor, "hourlyGoal" | "lastYearInStore" | "trendedInStore" | "targetHours">): string | null {
   if (d.targetHours.value != null) return null;
   if (d.hourlyGoal.needs.length) return "board not set";
   if (d.lastYearInStore.needs.length) return "no last-year sales";
   if (d.trendedInStore.needs.length) return "no trend";
-  if (d.cateringHours.needs.includes(MISSING.catering)) return "catering unread";
-  if (d.cateringHours.needs.length) return "no billed crew hours";
   return "no average rate";
 }
 
@@ -258,88 +280,14 @@ export function averageHourlyRate(people: Iterable<LaborPerson>): { avgRate: Der
   return { avgRate, over: rated.length, unrated };
 }
 
-/**
- * The catering premium per hour on `rate` on `date`: the board's rule in
- * force, capped at its cap_rate per person. Zero before the rule's first row
- * (there was no premium then); null when the rule has never been set.
- */
-function cateringPremium(settings: SettingRow[], rate: number, date: string): number | null {
-  const on = ruleOn(settings, "rule.catering_premium", date);
-  if (on.state === "unset") return null;
-  if (on.state === "not_yet") return 0;
-  const rule = on.row;
-  const cap = detailNum(rule, "cap_rate");
-  const withPremium = rate + rule.value;
-  return Math.max(0, (cap == null ? withPremium : Math.min(withPremium, cap)) - rate);
-}
-
-export type CateringOffsetInput = {
-  /** The booked catering deals, or null when the bookings could not be read. */
-  catering: CateringBooking[] | null;
-  /** Shifts that may crew those deals: a deal's Catering shifts (deal_id) set its crew rate. */
-  shifts: LaborShift[];
-  /** Everyone who may be on those shifts; open shifts and unstaffed deals are priced at their averageHourlyRate. */
-  people: Map<string, LaborPerson>;
-  /** Every control_settings row (all dates). */
-  settings: SettingRow[];
-};
-
-/**
- * One day's catering offset (bj-finance #695, ruled 2026-10-16): the crew
- * hours billed on that day's booked deals (labor_hours x staff_count), priced
- * at crew cost + the catering premium exactly as the scheduled side prices a
- * deal's Catering shifts (rate + capped premium, open shifts at the average
- * rate), so a deal staffed as billed nets to zero. Shifts the scheduled side
- * leaves out (salaried, overhead, no pay type, no rate) are left out of the
- * crew cost too, and the deal falls back to the average rate; their billed
- * hours stay in the offset. No cart term: cart deals are billed the extra
- * hour. The Schedule page's labor line and the Labor vs target metric (#696)
- * both take it from here.
- */
-export function cateringOffset(input: CateringOffsetInput, date: string): { hours: Derived; dollars: Derived } {
-  const { people, settings } = input;
-  const { avgRate } = averageHourlyRate(people.values());
-  if (input.catering == null) return { hours: missing(MISSING.catering), dollars: missing(MISSING.catering) };
-  const crewCostPerHour = (dealId: number): Derived => {
-    let hours = 0;
-    let dollars = 0;
-    for (const s of input.shifts) {
-      if (s.deal_id !== dealId || !isCatering(s)) continue;
-      let rate: number | null = null;
-      if (!s.employee_id) rate = avgRate.value;
-      else {
-        const p = people.get(s.employee_id);
-        if (p?.pay_type === "hourly" && !p.overhead && p.hourly_rate != null && Number(p.hourly_rate) > 0) rate = Number(p.hourly_rate);
-      }
-      if (rate == null) continue;
-      const prem = cateringPremium(settings, rate, nyDate(s.starts_at));
-      if (prem == null) return missing(MISSING.premium);
-      const h = hoursOf(s);
-      hours += h;
-      dollars += h * (rate + prem);
-    }
-    if (hours > 0) return known(dollars / hours);
-    if (avgRate.value == null) return missing(MISSING.avgRate);
-    const prem = cateringPremium(settings, avgRate.value, date);
-    return prem == null ? missing(MISSING.premium) : known(avgRate.value + prem);
-  };
-  let hours: Derived = known(0);
-  let dollars: Derived = known(0);
-  for (const deal of input.catering.filter((d) => d.day === date)) {
-    // Billed zero crew hours (a pickup the client collects): nothing to take off, and nothing to price.
-    if (deal.billedHours === 0) continue;
-    const billed = deal.billedHours != null && deal.billedHours > 0 ? known(deal.billedHours) : missing(billedNeed(deal.id));
-    hours = both(hours, billed, (a, b) => a + b);
-    dollars = both(dollars, both(billed, crewCostPerHour(deal.id), (h, r) => h * r), (a, b) => a + b);
-  }
-  return { hours, dollars };
-}
-
 export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   const { dates, people, settings } = input;
   const dateSet = new Set(dates);
   const shifts = input.shifts.filter((s) => dateSet.has(nyDate(s.starts_at)));
+  const kind = (s: LaborShift) => workKind(s, input.marketingDeals);
+  // Catering and marketing work never put someone behind the counter.
   const isInStore = (s: LaborShift) => {
+    if (kind(s)) return false;
     const key = s.position?.trim();
     return key ? input.inStoreByName.get(key) ?? true : true;
   };
@@ -350,31 +298,24 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
 
   // ---- Projected hourly labor $ ----
   let wages = 0;
-  let premium = 0;
   let open = 0;
   let hourlyHours = 0;
   let priced = 0;
   const noRate = new Map<string, number>();
   const noPayType = new Map<string, number>();
   let openUnpriced = 0;
-  let premiumUnset = false;
 
   for (const s of shifts) {
+    // Catering and marketing work are out of the line, whoever works it.
+    if (kind(s)) continue;
     const h = hoursOf(s);
-    const date = nyDate(s.starts_at);
     if (!s.employee_id) {
       hourlyHours += h;
       if (avgRate.value == null) {
         openUnpriced += h;
         continue;
       }
-      let prem = 0;
-      if (isCatering(s)) {
-        const p = cateringPremium(settings, avgRate.value, date);
-        if (p == null) premiumUnset = true;
-        else prem = p;
-      }
-      open += h * (avgRate.value + prem);
+      open += h * avgRate.value;
       priced++;
       continue;
     }
@@ -393,11 +334,6 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     }
     wages += h * rate;
     priced++;
-    if (isCatering(s)) {
-      const p = cateringPremium(settings, rate, date);
-      if (p == null) premiumUnset = true;
-      else premium += h * p;
-    }
   }
 
   // Solo close, per night: the in-store shift that ends last; its closer is
@@ -436,7 +372,6 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   const notCounted: string[] = [];
   for (const [who, h] of noRate) notCounted.push(`${who}: no hourly rate (${hrs(h)})`);
   if (openUnpriced) notCounted.push(`open shifts (${hrs(openUnpriced)}): ${MISSING.avgRate}`);
-  if (premiumUnset) notCounted.push(MISSING.premium);
   if (soloUnset) notCounted.push(MISSING.solo);
   for (const [who, h] of noPayType) notCounted.push(`${who}: pay type not set on the Team page (${hrs(h)}, not in hourly labor)`);
   const somethingToPrice = priced > 0 || noRate.size > 0 || openUnpriced > 0;
@@ -445,20 +380,18 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
   const days: DayLabor[] = dates.map((date) => {
     const scheduledHours = input.shifts.filter((s) => nyDate(s.starts_at) === date).reduce((a, s) => a + hoursOf(s), 0);
     const lastYearDay = addDays(date, -364);
+    const closed = input.closedDays?.has(date) ?? false;
     const ly = input.inStoreByDay.get(lastYearDay);
     const lastYearInStore = ly == null ? missing(lastYearNeed(lastYearDay)) : known(ly);
     const trendedInStore = both(lastYearInStore, input.trend.factor, (a, t) => a * t);
-    const projectedSales = trendedInStore;
+    const projectedSales = closed ? known(0) : trendedInStore;
     const board = boardOn(date, settings, input.salaries, input.salaried);
     const hourlyGoal: Derived = board.hourlyGoalPct.value == null
       ? missing(...board.hourlyGoalPct.needs.map((n) => (n === "sales above zero" ? "a sales estimate above zero" : n)))
       : board.hourlyGoalPct;
-    const inStoreDollars = both(projectedSales, hourlyGoal, (s, g) => s * g);
-    const inStoreHours = both(inStoreDollars, avgRate, (d, r) => (r > 0 ? d / r : null));
-    const { hours: cateringHours, dollars: cateringDollars } = cateringOffset({ catering: input.catering, shifts: input.shifts, people, settings }, date);
-    const targetDollars = both(inStoreDollars, cateringDollars, (a, c) => a + c);
-    const targetHours = both(inStoreHours, cateringHours, (a, c) => a + c);
-    const day = { date, lastYearDay, scheduledHours, lastYearInStore, trendedInStore, projectedSales, hourlyGoal, cateringHours, cateringDollars, targetDollars, targetHours, short: null as string | null };
+    const targetDollars = both(projectedSales, hourlyGoal, (s, g) => s * g);
+    const targetHours = both(targetDollars, avgRate, (d, r) => (r > 0 ? d / r : null));
+    const day = { date, lastYearDay, closed, scheduledHours, lastYearInStore, trendedInStore, projectedSales, hourlyGoal, targetDollars, targetHours, short: null as string | null };
     day.short = shortReason(day);
     return day;
   });
@@ -473,10 +406,9 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     hourlyHours,
     labor: {
       wages,
-      premium,
       solo,
       open,
-      total: wages + premium + solo + open,
+      total: wages + solo + open,
       none: priced === 0 && somethingToPrice,
       notCounted,
     },

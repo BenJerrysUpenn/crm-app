@@ -84,6 +84,12 @@ test("the default views are a finance page and a catering page, already clean", 
   for (const v of DEFAULT_VIEWS) assert.deepEqual(cleanWidgets(v.widgets), v.widgets);
 });
 
+test("the default Finance page carries the Bookkeeping passes card, over 30 days (bj-finance #937)", () => {
+  const finance = DEFAULT_VIEWS.find((v) => v.name === "Finance");
+  const card = finance?.widgets.find((w) => w.metric === "pass_history");
+  assert.deepEqual(card?.settings, { period: "30d" });
+});
+
 test("the editor adds, removes, moves and re-sets widgets", () => {
   let v = view();
   v = addWidget(v, "leads");

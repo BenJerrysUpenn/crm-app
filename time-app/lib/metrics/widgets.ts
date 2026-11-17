@@ -4,7 +4,8 @@
 // month. `source` says where the numbers come from:
 //   crm   the CRM and time-clock tables in Supabase: live today
 //   feed  the bj-finance finance feed (migration 40): waiting until it runs
-//   mixed some parts live, the rest waiting on the feed
+//   mixed some parts live, the rest waiting on the feed; also the bookkeeping
+//         pass history (migration 56), which the passes write themselves
 
 import type { StreamFilter } from "./targets.ts";
 
@@ -36,6 +37,7 @@ export const METRIC_IDS = [
   "leads",
   "outreach",
   "quote_to_booking",
+  "pass_history",
 ] as const;
 export type MetricId = (typeof METRIC_IDS)[number];
 
@@ -124,7 +126,7 @@ export const METRICS: Record<MetricId, MetricDef> = {
     id: "labor_vs_target",
     code: "W6",
     title: "Labor vs target",
-    blurb: "Each week of the chosen range, Sunday to Saturday: in-store sales, hourly labor all-in (less the catering crew clients paid for), and how far it sits from the all-in target.",
+    blurb: "Each week of the chosen range, Sunday to Saturday: in-store sales, hourly labor all-in (catering work left out: it is billed separately), and how far it sits from the all-in target.",
     periods: ["mtd"],
     defaultPeriod: "mtd",
     streams: false,
@@ -181,6 +183,16 @@ export const METRICS: Record<MetricId, MetricDef> = {
     defaultPeriod: "6m",
     streams: false,
     source: "crm",
+  },
+  pass_history: {
+    id: "pass_history",
+    code: "D2",
+    title: "Bookkeeping passes",
+    blurb: "What each morning's bookkeeping pass booked in QBO, and how many bank lines it left waiting for review. Every run of every pass under Show numbers.",
+    periods: ["30d", "90d"],
+    defaultPeriod: "30d",
+    streams: false,
+    source: "mixed",
   },
 };
 

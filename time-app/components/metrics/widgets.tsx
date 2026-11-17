@@ -511,10 +511,10 @@ const NA = <span className="text-slate-400 dark:text-slate-500">n/a</span>;
 /** The week column stays in view while a phone scrolls the table sideways. */
 const STICKY = "sticky left-0 bg-white dark:bg-slate-900";
 
-/** The catering crew billed to clients and taken off a week's labor: "10 h, $313 all-in"; blank when none. */
-function cateringTakenOff(w: LaborTargetWeek): string {
-  if (w.cateringHours == null || w.cateringHours <= 0 || w.cateringOffset == null) return "";
-  return `${formatValue(w.cateringHours, "hours")}, ${money(w.cateringOffset)} all-in`;
+/** Work recorded and taken off a week's labor, as paid: "10 h, $313 all-in"; blank when none. */
+function takenOff(hours: number | null, offset: number | null): string {
+  if (hours == null || hours <= 0 || offset == null) return "";
+  return `${formatValue(hours, "hours")}, ${money(offset)} all-in`;
 }
 
 /** The card's numbers, one row per week: behind "Show numbers" under the chart. */
@@ -533,7 +533,8 @@ export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; r
             <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Target %, all-in</th>
             <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance $</th>
             <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance hours</th>
-            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Catering crew taken off</th>
+            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Catering work taken off</th>
+            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Marketing work taken off</th>
           </tr>
         </thead>
         <tbody>
@@ -551,7 +552,8 @@ export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; r
                 <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.targetPct.value == null ? NA : formatValue(w.targetPct.value, "pct")}</td>
                 <td className={`${cell} ${tone}`}>{w.varianceDollars == null ? NA : signed(w.varianceDollars, "money")}</td>
                 <td className={`${cell} ${tone}`}>{w.varianceHours == null ? NA : signed(w.varianceHours, "hours")}</td>
-                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{cateringTakenOff(w)}</td>
+                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{takenOff(w.cateringHours, w.cateringOffset)}</td>
+                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{takenOff(w.marketingHours, w.marketingOffset)}</td>
               </tr>
             );
           })}
@@ -624,16 +626,24 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
         </p>
         <p>
           Hourly labor, all-in = wages, catering premium and solo-close bonuses as QBO Payroll paid them to hourly staff (salaried and
-          overhead staff are left out), each pay period spread over its days by hours worked, less the catering crew the client paid
-          for, plus employer taxes and workers&rsquo; comp on the rest at the Targets tab&rsquo;s rates in force on each day (FICA, FUTA,
-          PA UC and workers&rsquo; comp, full rates, no wage caps).
+          overhead staff are left out), each pay period spread over its days by hours worked, less all catering and marketing work, plus employer
+          taxes and workers&rsquo; comp on the rest at the Targets tab&rsquo;s rates in force on each day (FICA, FUTA, PA UC and
+          workers&rsquo; comp, full rates, no wage caps).
         </p>
         <p>
-          Catering crew the client paid for = each booked deal&rsquo;s billed crew hours (labor hours x staff count) at crew cost plus
-          the catering premium, worked out exactly as the Schedule page&rsquo;s labor line does, so the two agree. Sales are in-store
-          only, so catering comes out of both sides. A deal billed zero crew hours (a pickup) takes nothing off; a booked deal with
-          no billed crew hours on file makes its week not available. Before the catering premium was first set it was zero.
-          &ldquo;Show numbers&rdquo; lists each week&rsquo;s catering crew taken off, hours and all-in $.
+          Catering work = the hours the clock says were worked on catering (When I Work&rsquo;s Catering position before the time app,
+          punches on Catering shifts after), each person&rsquo;s at their own paid rate, plus the whole catering premium. Catering is
+          billed to the client separately, so it never counts in the labor %; sales are in-store only, so it is out of both sides. The
+          hours a quote billed are not used, so a pickup, a drop-off or a deal with no crew on file changes nothing. A day whose
+          catering is not yet split out of the payroll makes its week not available. &ldquo;Show numbers&rdquo; lists each
+          week&rsquo;s catering work taken off, hours and all-in $.
+        </p>
+        <p>
+          Marketing work = the hours the clock says were worked on marketing (punches on Marketing shifts and on any shift of a
+          marketing deal, When I Work&rsquo;s Marketing position before the time app), each person&rsquo;s at their own paid rate.
+          Marketing has its own budget, so it never counts in the labor % either, and its hours are never also counted as catering.
+          A day whose marketing is not yet split out of the payroll makes its week not available. &ldquo;Show numbers&rdquo; lists
+          each week&rsquo;s marketing work taken off, hours and all-in $.
         </p>
         <p>
           Target %, all-in = the Targets tab&rsquo;s all-in hourly goal in force on each day (the payroll target less fixed payroll,
@@ -642,7 +652,7 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
         </p>
         <p>
           Variance $ = hourly labor less target % x sales; above zero (red) is over target. Variance hours = variance $ at the
-          week&rsquo;s own in-store cost per hour (hourly labor / hours paid less the catering crew&rsquo;s billed hours).
+          week&rsquo;s own in-store cost per hour (hourly labor / hours paid less the catering and marketing hours worked).
         </p>
         <p>
           On the chart each bar is a week&rsquo;s actual % (hourly labor, all-in / sales), red when the week is over target, and the

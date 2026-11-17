@@ -20,6 +20,8 @@ import {
   isArchived,
   splitArchived,
 } from "@/lib/teamArchive";
+import { useUndo } from "./UndoProvider";
+import { send } from "@/lib/undo";
 
 const ROLE_LABELS: Record<Role, string> = {
   employee: "Employee",
@@ -318,6 +320,7 @@ export default function TeamAdmin({
 
 function ShiftTypesSection({ shiftTypes }: { shiftTypes: ShiftType[] }) {
   const router = useRouter();
+  const { record } = useUndo();
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState("#10b981");
   const [busy, setBusy] = useState(false);
@@ -369,8 +372,15 @@ function ShiftTypesSection({ shiftTypes }: { shiftTypes: ShiftType[] }) {
   async function save(id: number, patch: Partial<ShiftType>) {
     await run(`/api/shift-types/${id}`, asJson("PATCH", patch));
   }
+  // Remove hides the type (active = false); Undo shows it again.
   async function remove(id: number) {
-    await run(`/api/shift-types/${id}`, { method: "DELETE" });
+    if (!(await run(`/api/shift-types/${id}`, { method: "DELETE" }))) return;
+    const name = shiftTypes.find((t) => t.id === id)?.name ?? "shift type";
+    record({
+      label: `Removed shift type "${name}"`,
+      undo: async () => { await send(`/api/shift-types/${id}`, "PATCH", { active: true }); },
+      redo: async () => { await send(`/api/shift-types/${id}`, "DELETE"); },
+    });
   }
 
   // shift_types.in_store arrives with migration 24. If the column isn't there,
@@ -526,6 +536,7 @@ function EmployeeRow({
   onSave: (id: string, patch: ProfilePatch) => Promise<string | null>;
   onResend: (id: string) => Promise<string>;
 }) {
+  const { record } = useUndo();
   const [name, setName] = useState(e.full_name ?? "");
   const [phone, setPhone] = useState(e.phone ?? "");
   const [role, setRole] = useState(e.role);
@@ -569,7 +580,18 @@ function EmployeeRow({
       return;
     }
     if (archive && !window.confirm(archiveConfirmMessage(archiveName(e, email)))) return;
-    setArchiveErr(await onSave(e.id, archivePatch(archive)));
+    const err = await onSave(e.id, archivePatch(archive));
+    setArchiveErr(err);
+    if (err) return;
+    // Archiving also takes them off the schedule; Undo puts On schedule back as it was.
+    const wasActive = e.active;
+    const who = archiveName(e, email);
+    const back = async (patch: object) => { await send(`/api/profiles/${e.id}`, "PATCH", patch); };
+    record(
+      archive
+        ? { label: `Archived ${who}`, undo: () => back({ archived_at: null, active: wasActive }), redo: () => back(archivePatch(true)) }
+        : { label: `Unarchived ${who}`, undo: () => back(archivePatch(true)), redo: () => back(archivePatch(false)) },
+    );
   }
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMsg, setInviteMsg] = useState<string | null>(null);

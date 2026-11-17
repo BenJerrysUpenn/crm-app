@@ -57,6 +57,8 @@ Every finding is one of:
   it only when the case needs it, and the change is recorded with who and when
   in `payroll_rulings`. From the pay period starting **2026-10-05** none of
   the three is a choice any more: 1.9 is not asked, and 3.5 and 3.7 are fixes.
+  From the pay period starting **2026-10-19** the 3.7 fix is about whether
+  baking happened, not who gets the Olo tips.
 - **Needs a fix** — the data is wrong and no choice can make it right. Fix it in
   the app and press Verify again. This includes **1.4** (a runaway punch with no
   scheduled shift, or an open punch with no scheduled shift, ruled 2026-09-27)
@@ -67,7 +69,8 @@ Every finding is one of:
   **2026-10-05** this also includes a catering event whose crew did not
   punch: one **"Catering crew didn't punch"** card per event (1.12 and 3.5
   merged, ruled 2026-10-05), with no default payee, and a period with **no
-  bake shift worked** (3.7, ruled 2026-10-05), with no default payee either.
+  bake shift worked** (3.7, ruled 2026-10-05, kept 2026-11-02), with no default
+  payee either.
 
 **The button is green when there is nothing to fix and every case is answered
 by a recorded choice or its default.**
@@ -113,9 +116,10 @@ The payroll sheet (bj-finance `modules/payroll_sheet.py`) will not produce a
 keyable sheet until the run is submitted.
 
 **Submittal is final** (ruled 2026-09-22, reworded 2026-09-27). It sends
-money, and it cannot be cancelled or undone. The QBO staging script (§6) is
-not built, so what submitting does today is submit and lock the run; the pay
-run is then keyed in QBO by hand:
+money, and it cannot be cancelled or undone. It submits and locks the run;
+bj-finance's submit chain (below, "The seam to §6") then takes the run to QBO
+on the Mac, or, while that chain is switched off, the run is keyed in QBO by
+hand:
 
 - **Only after the period ends.** Before the Monday after the period's last
   Sunday the button is disabled and says when it can be submitted. The submit
@@ -134,10 +138,21 @@ run is then keyed in QBO by hand:
   be submitted.
 
 **The seam to §6.** The submittal row is written with
-`status = 'submitted_pending_stage'`. That row is what the QBO staging script
-(spec §6) will consume. It is not built: nothing in this app starts it or
-touches QBO (`TODO(bj-finance #519, spec §6)` in the submit route and
-migration 27).
+`status = 'submitted_pending_stage'`. bj-finance `modules/qbo_payroll_submit.py`
+(#213) reads it on the Mac, once a minute from the runner daemon: it stages the
+run in QBO's Run Payroll grid, opens Preview and compares it with the pay table,
+presses QBO's Submit only while its switch (`SUBMIT_CONFIRMED_ON`) is set and
+QBO lists no paycheck for the run, then saves the paystub PDF to the Drive and
+emails it to the store's printer. Nothing in this app starts it or touches QBO;
+the app only writes the row. Migration 53 lets the chain write what it did back
+onto the row: `status` 'qbo_previewed' (waiting on a person at Preview),
+'qbo_submitted', 'qbo_outcome_unknown' (Submit was pressed and QBO did not
+confirm it: check QBO), 'qbo_stopped' (stopped before Submit, nothing sent) or
+'qbo_paystubs_sent', with `qbo_outcome` in words and `qbo_outcome_at`. Once a
+row reads 'qbo_submitted' it only moves on to 'qbo_paystubs_sent', which never
+moves, and no qbo_ status goes back to pending. Until migration 53 is applied the chain writes
+nothing here and its record on the Mac is the only trace. The page does not show
+these statuses yet.
 
 **Flags** never block; they are shown to the submitter and on the sheet:
 
@@ -163,19 +178,44 @@ built on the Mac, published to `payroll_sheets` (migration 36) by
 (`components/finance/PayTable.tsx`, `lib/payroll/paySheet.ts`):
 
 - one row per person, columns in QBO's Run Payroll order (Regular hours,
-  Overtime hours, Paycheck tips, Solo close, Catering premium, Catering
-  premium OT, Travel reimbursement). Three info columns sit among them,
-  never keyed into QBO and never in a pay total (2026-10-12): Catering
-  hours (everyone's catering hours, salaried and $20+/h included; the total
-  is the sheet's own `totals.catering_hours`) just before Catering premium,
-  and Marketing hours and Marketing cost (marketing labour booked toward the
-  2% marketing obligation) after Catering premium OT. Then the rate and the wages
+  Overtime hours, Paycheck tips, Solo close, Catering premium, Travel
+  reimbursement). Two info columns sit among them, never keyed into QBO and
+  never in a pay total (2026-10-12): Marketing hours and Marketing cost
+  (marketing labour booked toward the 2% marketing obligation), after Catering
+  premium. Then the rate and the wages
   (rate × regular + 1.5 × rate × OT, from the sheet; "salary"; or "no rate");
   a totals row;
 - each row opens onto its punches (date, in, out, paid-to when cut back,
   hours, the shift it is measured against), week 1 / week 2 hours, tips by
-  source (pool, each catering event, Olo) and the solo-close nights it earned;
+  source (pool, each catering event, Olo), the solo-close nights it earned, and
+  how a Catering premium was worked out (`premiumDetailText`);
 - the run's solo-close night table, open items and flags.
+
+**The owner's pay table rulings of 2026-11-02:**
+
+- **No Catering hours column.** "I only need Catering premium not catering
+  hours." The column and its total are gone. The sheet still computes catering
+  hours, because the premium needs them, and the expanded row still shows them.
+- **No Catering premium OT column.** "Catering premium OT isn't a thing." QBO has
+  no such pay type. A premium for hours worked is part of the overtime rate, so
+  overtime weeks still owe extra on it. From the period starting 2026-10-19,
+  bj-finance adds that amount into the row's Catering premium, one line, and the
+  expanded row says how much (`evidence.premium_base_cents`,
+  `evidence.premium_overtime`). That default is the owner's to veto: the
+  alternative is to stop paying it. A pay table for an earlier period keeps its
+  separate line in `premium_ot`; the expanded row shows it, and a note under the
+  table says so when there is one (`separatePremiumOtNote`).
+- **Salaried staff have no marketing cost.** This reverses 2026-10-12's salary /
+  2,080. From the period starting 2026-10-19 the sheet publishes a salaried row's
+  Marketing hours with no dollars, in the row or its total, and raises no finding
+  for being salaried. Hourly staff are unchanged. This page computes nothing: a
+  pay table built before bj-finance's change keeps showing the old figure until
+  it is rebuilt.
+
+Rule and evidence: bj-finance `docs/specs/payroll-pipeline.md` §2.9, §2.10, §5.1.
+These land with bj-finance's change, in either order: the sheet keeps `premium_ot`
+and `premium_ot_cents` empty and zero so a page that still reads them keeps
+working, and this page reads a sheet with or without them.
 
 **Rebuild pay table** (`POST /api/payroll/sheet`) inserts a `queued` row with
 the service-role key; the bj-finance runner daemon on the Mac builds it within
@@ -211,10 +251,11 @@ does migration 36's submittal guard.
 | 1.12 | Each person scheduled on an event who did not punch for it, by name | periods before 2026-10-05: rule, warning. From 2026-10-05: on the 3.5 card |
 | 1.15 | A punch or shift in a submitted run changed after its submittal | rule, warning (never blocks) |
 | 3.4 | Invoice tip with no deal, any date | rule, **flag** (never blocks) |
-| 3.5 | Periods starting **2026-10-05** on, **"Catering crew didn't punch"**: one card per event (a booked event dated in the window, or a deal the window's shifts point at) where somebody scheduled did not punch, or a booked event with no Catering shift at all | **fix**, no default: add each missing punch on the card (or the shift and punch together). Once the punch exists the tip splits by punches. A crew smaller than `staff_count` with nobody unpunched is not a card |
+| 3.5 | Periods starting **2026-10-05** on, **"Catering crew didn't punch"**: one card per event (a booked event dated in the window, or a deal the window's shifts point at) where somebody scheduled did not punch, or a booked event with no Catering shift at all. From **2026-10-19** a marketing event is exempt (`isMarketingEvent`) | **fix**, no default: add each missing punch on the card (or the shift and punch together). Once the punch exists the tip splits by punches. A crew smaller than `staff_count` with nobody unpunched is not a card |
 | 3.5 | Periods before 2026-10-05: booked event in the window that nobody punched for | **choice**: who is paid its tip (**default: the designated tip payee, `DEFAULT_TIP_PAYEE_NAME`**) |
 | 3.7 | Periods before 2026-10-05: no Pastry Opener shift worked in an open period | **choice**: who is paid stranded Olo tips (**default: the designated tip payee**); a schedule anomaly (norm ≥ 4 a period) |
-| 3.7 | Periods starting **2026-10-05** on, **"No bake shift worked"**: no Pastry Opener shift worked (scheduled AND punched) in an open period | **fix**, no default and no picker: add the Pastry Opener punch (on the card or the Timesheets page). Once it exists the Olo tips split by bake shifts |
+| 3.7 | Periods starting **2026-10-19** on, **"No bake shift worked"**: no Pastry Opener shift worked (scheduled AND punched) in an open period | **fix**, no default and no picker: put the bake shift that was worked on the schedule, with the person's punch. About whether baking happened, not the tips: the Olo tips go to the staff member who does the cakes either way (ruled 2026-11-02) |
+| 3.7 | The period starting **2026-10-05** only, **"No bake shift worked"**: no Pastry Opener shift worked (scheduled AND punched) in an open period | **fix**, no default and no picker: add the Pastry Opener punch (on the card or the Timesheets page). Once it exists the Olo tips split by bake shifts |
 
 **Not reported** (Alina, 2026-10-05: "useless, kill these"): 0.1 pay window,
 1.10 cover punches, 1.13 deleted rows and 1.14 name hygiene. They are not
@@ -245,8 +286,10 @@ test). Moving the cutover is a one-line change to that constant.
   computed from punches only by the payroll sheet. No dropdown and no manager
   pick: the solo-close card on the payroll page stays empty and the rulings
   route refuses a 1.9 choice for these periods. 1.8 is unchanged.
-- **No stranded-Olo payee.** "This should not happen and is an upstream time
-  clock problem" (Alina, 2026-10-05). A period with no Pastry Opener shift
+- **No stranded-Olo payee** (these words hold for the period starting
+  2026-10-05; from 2026-10-19 nothing is stranded, see the 2026-11-02 cutover
+  below). "This should not happen and is an upstream time clock problem"
+  (Alina, 2026-10-05). A period with no Pastry Opener shift
   worked is a fix with no default and no picker: the card says no bake shift
   was worked, so any Olo tips for the period have nobody to go to, and asks
   for the Pastry Opener punch. Once the punch exists the Olo tips split by
@@ -257,9 +300,45 @@ test). Moving the cutover is a one-line change to that constant.
 - **Pickup events are exempt.** A catering event whose `deals.event_type` is
   a pickup (`isPickupEvent`: "Pickup", "Pick up" or "Pick-up", any case) has
   no Catering shift by design and gets no "Catering crew didn't punch" card.
-  Nothing else is exempt: "Drop Off" and delivery events still need their
-  crew's punches. A pickup's tip, if any, goes to that day's in-store pool
-  on the payroll sheet (ruled 2026-10-05); this app does not see tips.
+  "Drop Off" and delivery events still need their crew's punches. A pickup's
+  tip, if any, goes to that day's in-store pool on the payroll sheet (ruled
+  2026-10-05); this app does not see tips.
+
+**The 2026-11-02 cutover** (the owner's rulings of 2026-11-02). For a pay period
+that **starts on or after `OLO_AND_MARKETING_RULES_FROM`**
+(`time-app/lib/payroll/verify.ts`, 2026-10-19; bj-finance `modules/tips.py` uses
+the same date). Periods before it keep their rules and their words exactly
+(pinned by tests).
+
+- **Olo tips have one payee, and 3.7 stays.** They go to the staff member who
+  now does the cakes, whether or not a Pastry Opener shift was worked. bj-finance
+  decides who and pays it on the sheet (rule recorded in its
+  `docs/specs/payroll-pipeline.md`). The pay table's Olo line shows the sheet's
+  own reason (`evidence.olo_evidence`) in place of a bake-shift count. The owner
+  kept the check: a period with no bake shift worked is still a **fix with no
+  default and no picker, holding Submit** (`bakeShiftFix`), and now it is about
+  whether baking happened. The card tells the reader to put the bake shift that
+  was worked on the schedule. What counts as worked has not changed: a Pastry
+  Opener shift with the person's punch. Counting a punch with no such shift has
+  not been ruled on. `POST /api/payroll/rulings` still refuses a 3.7 choice.
+- **Marketing events are exempt from the crew card.** Marketing events have
+  marketing hours and no tips. `isMarketingEvent` reads the shift link, not
+  `event_type` alone, because a marketing deal can be typed as anything: a deal
+  with a `Marketing` shift linked by `shifts.deal_id` is exempt, and so is
+  `event_type` "Marketing Event" (letters only, any case), for an expo not yet
+  staffed. A linked Catering shift with somebody on it always keeps the card:
+  they are crew or they owe a punch, whatever else is on the deal. An unassigned
+  Catering slot does not, since nobody on it owes a punch. Another event's
+  Catering shift on the same date does not count either: only this deal's links
+  do. Any tip that did land on an exempt deal still surfaces on the payroll
+  sheet, which holds a tip with no crew as an open item.
+
+**The two sides move together.** The 3.7 card says the Olo tips go to the staff
+member who does the cakes on the assumption that the sheet pays them by the same
+rule. Merge and deploy this with bj-finance's change, and move the two dates
+together: with only this side live, the sheet still names the old payee for a
+period with no bake shift; with only the bj-finance side live, the card still
+says the Olo tips have nobody to go to, and a marketing deal still gets a card.
 
 The database submittal trigger (migration 27) does not enforce the catering
 rule or 3.7; the Submit button and route do.
@@ -321,18 +400,24 @@ Notes on the ones that surprise people:
 | `time-app/supabase/migration_42.sql` | the `owner` role: `is_manager()` is now true for owners, so every manager policy here (rulings, submittals, sheets) admits them, and migration 37's travel-reimbursement guard and payroll views read the owner role; `is_owner()` and a profile guard keep the owner role and owners' rows to owners |
 | `time-app/supabase/migration_46.sql` | `labor_paycheck_actuals`: one row per hourly paycheck as QBO Payroll paid it, written from the saved paystub PDFs by bj-finance (`modules.labor_actuals`), and `labor_daily_actuals`: a tied pay period's labor placed on its days (When I Work timesheets before the time app, punches after). Both read by managers only. Nothing in the verify reads them; see README, "Hourly payroll actuals" |
 | `time-app/supabase/migration_47.sql` | `store_hours_seasons`: opening hours from a first day until the next season's, which 1.8 and 1.9 now read beside `store_hours`; also `concession_events` and `catering_hours_history`, which the verify does not read. See README, "Labor Hours Planning" |
+| `time-app/supabase/migration_49.sql` | redefines `travel_reimbursements_payable`, the view payroll pays travel reimbursements from: a Catering Event trip is paid at the lower of the IRS rate and `deal_mileage_cap()`, what its deal's quote charged a mile; every other trip at the IRS rate. Nothing in the verify reads it; see README, "Travel Reimbursements" |
+| `time-app/supabase/migration_50.sql` | redefines `deal_mileage_cap()`, which the payable view reads: a quote that charged no mileage, or charged it on a deal with no round-trip miles, caps a Catering Event trip at 0c; the May 2026 quote keys for the Uber flat fee and a stored rate are read. Nothing in the verify reads it; see README, "Travel Reimbursements" |
+| `time-app/supabase/migration_52.sql` | redefines `deal_mileage_cap()` again: a quote whose transportation subtotal is $0 caps at 0c before any stored per-mile rate is read, since every quote now stores one. Nothing in the verify reads it; see README, "Travel Reimbursements" |
+| `time-app/supabase/migration_58.sql` | a Catering Event trip in the staff member's own car is paid on the deal's stored round-trip miles (`mileage_mode` `'deal'`): a trigger writes `deals.round_trip_miles` to the row on every write before it is Approved and at the Approve, so `travel_reimbursements_payable` (not redefined) pays the deal's miles as approved, at the same cap. Nothing in the verify reads it; see README, "Travel Reimbursements" |
+| `time-app/supabase/migration_53.sql` | `payroll_run_submittals`: the bj-finance submit chain's statuses (`qbo_previewed`, `qbo_submitted`, `qbo_outcome_unknown`, `qbo_stopped`, `qbo_paystubs_sent`), `qbo_outcome` and `qbo_outcome_at`, and a trigger that keeps a submitted run from moving back. See "The seam to §6" |
 
 All of these are applied by hand in the Supabase SQL editor, in order, and all are
 safe to re-run. Each has a `migration_N_verify.sql` to run afterwards (in a
 transaction that rolls back) and a `migration_N_down.sql` that reverses it;
 the header of each down script says what data it loses. Roll back in reverse
-order: 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
+order: 53, 52, 50, 49, 42, 36, 35, 28, 27, 26, then 25. Migration 43 (the control board,
 not payroll; see README) rolls back before 42, whose `is_owner()` its policies call. Until 27
 is applied, choices cannot be recorded and the run cannot be submitted.
 
 ## Not built yet
 
-Build items 9.5–9.6 of the spec: the QBO staging automation behind a
-Preview-only boundary (§6), and the run emails, paystub PDF and HP ePrint
-receipt (§7). Item 9.4, the staged sheet, is bj-finance `modules/payroll_sheet.py`
+Of build items 9.5–9.6 of the spec, the QBO stage and submit and the paystub
+PDF to the Drive and the printer are bj-finance `modules/qbo_payroll_stage.py`
+and `modules/qbo_payroll_submit.py` (#213); the run summary email and the HP
+ePrint receipt (§7.2, §7.4) are not built. Item 9.4, the staged sheet, is bj-finance `modules/payroll_sheet.py`
 (bj-finance PR #541), which reads the choices and the submittal recorded here.

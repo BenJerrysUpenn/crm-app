@@ -12,6 +12,8 @@ import {
   weekdaysWithoutHours,
 } from "@/lib/storeHours";
 import { storeHoursFor } from "@/lib/coverage";
+import { useUndo } from "./UndoProvider";
+import { send } from "@/lib/undo";
 
 // A calendar date rendered in the store's timezone. Noon UTC keeps the date
 // from sliding backwards in Eastern time, and the explicit timeZone keeps the
@@ -47,6 +49,7 @@ export default function StoreHoursAdmin({
   ready: boolean;
 }) {
   const router = useRouter();
+  const { record } = useUndo();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -88,8 +91,35 @@ export default function StoreHoursAdmin({
     body: JSON.stringify(payload),
   });
 
+  // A date's override as an undo step: put it back as the page loaded it
+  // (or back to normal hours if it had none), and Redo sets it again.
+  type DateSetting = { label: string | null; is_closed: boolean; opens: string | null; closes: string | null } | null;
+  async function setDate(date: string, to: DateSetting) {
+    if (to === null) await send(`/api/store-hours/exceptions/${date}`, "DELETE");
+    else await send("/api/store-hours/exceptions", "POST", { date, ...to });
+  }
+  function recordDate(label: string, date: string, after: DateSetting) {
+    const was = byDate.get(date);
+    const before: DateSetting = was
+      ? { label: was.label ?? null, is_closed: was.is_closed, opens: was.opens ? toTimeInput(was.opens) : null, closes: was.closes ? toTimeInput(was.closes) : null }
+      : null;
+    record({ label: `${label} ${dateLabel(date)}`, undo: () => setDate(date, before), redo: () => setDate(date, after) });
+  }
+
   async function saveWeek(days: DayDraft[]) {
-    await call(
+    const before = hours.map((h) => ({
+      weekday: h.weekday,
+      is_closed: h.is_closed,
+      opens: h.is_closed || !h.opens ? null : toTimeInput(h.opens),
+      closes: h.is_closed || !h.closes ? null : toTimeInput(h.closes),
+    }));
+    const after = days.map((d) => ({
+      weekday: d.weekday,
+      is_closed: d.is_closed,
+      opens: d.is_closed ? null : d.opens,
+      closes: d.is_closed ? null : d.closes,
+    }));
+    const ok = await call(
       "/api/store-hours",
       {
         ...json({
@@ -104,30 +134,40 @@ export default function StoreHoursAdmin({
       },
       "Store hours saved.",
     );
+    if (ok && before.length > 0) {
+      record({
+        label: "Changed the weekly store hours",
+        undo: async () => { await send("/api/store-hours", "PUT", { days: before }); },
+        redo: async () => { await send("/api/store-hours", "PUT", { days: after }); },
+      });
+    }
   }
 
   async function closeDate(date: string, label: string | null) {
-    await call(
+    const ok = await call(
       "/api/store-hours/exceptions",
       json({ date, label, is_closed: true }),
       `Closed on ${dateLabel(date)}. Nothing else changed.`,
     );
+    if (ok) recordDate("Closed", date, { label, is_closed: true, opens: null, closes: null });
   }
 
   async function specialHours(date: string, label: string | null, opens: string, closes: string) {
-    await call(
+    const ok = await call(
       "/api/store-hours/exceptions",
       json({ date, label, is_closed: false, opens, closes }),
       `Short hours set for ${dateLabel(date)}. Nothing else changed.`,
     );
+    if (ok) recordDate("Set short hours for", date, { label, is_closed: false, opens, closes });
   }
 
   async function clearDate(date: string) {
-    await call(
+    const ok = await call(
       `/api/store-hours/exceptions/${date}`,
       { method: "DELETE" },
       `${dateLabel(date)} is back to its normal hours.`,
     );
+    if (ok) recordDate("Back to normal hours:", date, null);
   }
 
   return (

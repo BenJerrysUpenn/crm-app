@@ -6,10 +6,15 @@
 //               Catering Event picked from the last 365 days (date, start time,
 //               venue/company, address; searchable).
 //   Trip date   defaults to the Catering Event's date.
-//   How         Personal car: Mileage (typed, or destinations with "Start
-//               at the store" and "End at the store" each on by default),
-//               optional tolls and parking, and Receipts. Lyft: Lyft ride
-//               report screenshots only; Filed at once and nothing is paid back.
+//   How         Personal car: Mileage, optional tolls and parking, and
+//               Receipts. Lyft: Lyft ride report screenshots only; Filed at
+//               once and nothing is paid back.
+//   Mileage     Groceries / errands: typed, or destinations with "Start at
+//               the store" and "End at the store" each on by default. A
+//               Catering Event: nothing to type (the owner, 2026-11-16). The
+//               form shows the deal's stored round-trip miles and what they
+//               pay, read only ("Mileage for this event: 6.4 miles round
+//               trip, $4.64"), or that the miles are not in yet.
 //   Files       each upload shows a preview (thumbnail, or PDF badge, with
 //               name and size) before submitting (ruling 44).
 //
@@ -17,14 +22,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { money } from "@/lib/payroll/paySheet";
-import { centsFromDollars, milesFromInput, reimbursementCents, type MileageRate } from "@/lib/reimbursements/money";
+import {
+  centsFromDollars,
+  dealMiles,
+  eventMileageText,
+  mileageRateText,
+  milesFromInput,
+  milesPending,
+  reimbursementCents,
+  type MileageCap,
+  type MileageRate,
+} from "@/lib/reimbursements/money";
 import { placeLabel, routeEnds } from "@/lib/reimbursements/routeMiles";
 import type { ReasonKind } from "@/lib/reimbursements/events";
 import type { WithAmounts } from "@/lib/reimbursements/server";
 import { contentTypeOf } from "@/lib/reimbursements/submission";
 import { BUTTON, FilePreviews, INPUT, PRIMARY, staffFileHref, uploadFile, type PickedFile } from "./shared";
 
-type PickedEvent = { id: number; date: string; label: string; address: string | null };
+type PickedEvent = { id: number; date: string; label: string; mileage_cap?: MileageCap | null };
 
 const CONFIRM_NO_RECEIPT = "Are you sure there is no receipt?";
 
@@ -54,7 +69,7 @@ export default function ReimbursementForm({
   const [reasonKind, setReasonKind] = useState<"" | ReasonKind>(editing?.reason_kind ?? "");
   const [event, setEvent] = useState<PickedEvent | null>(
     editing?.deal_id && editing.event_label
-      ? { id: editing.deal_id, date: editing.event_date ?? editing.trip_date, label: editing.event_label, address: null }
+      ? { id: editing.deal_id, date: editing.event_date ?? editing.trip_date, label: editing.event_label, mileage_cap: editing.mileage_cap }
       : null,
   );
   const [query, setQuery] = useState("");
@@ -62,7 +77,7 @@ export default function ReimbursementForm({
   const [note, setNote] = useState(editing?.reason_note ?? "");
   const [tripDate, setTripDate] = useState(editing?.trip_date ?? today);
   const [how, setHow] = useState<"car" | "lyft">("car");
-  const [mileageMode, setMileageMode] = useState<"typed" | "destinations">(editing?.mileage_mode ?? "typed");
+  const [mileageMode, setMileageMode] = useState<"typed" | "destinations">(editing?.mileage_mode === "destinations" ? "destinations" : "typed");
   const [miles, setMiles] = useState(editing && editing.mileage_mode === "typed" ? String(Number(editing.miles)) : "");
   const [stops, setStops] = useState<string[]>(editing?.stops?.length ? editing.stops : [""]);
   const [startAtStore, setStartAtStore] = useState(routeEnds(editing).start_at_store);
@@ -89,12 +104,6 @@ export default function ReimbursementForm({
       if (stale) return;
       const list: PickedEvent[] = res.ok ? payload.events : [];
       setResults(list);
-      // Editing keeps only the Catering Event's id and label: take its venue
-      // address from the list, so destinations mode can pre-fill it (ruling 46).
-      setEvent((prev) => {
-        const address = prev && prev.address == null ? list.find((e) => e.id === prev.id)?.address : null;
-        return prev && address ? { ...prev, address } : prev;
-      });
     }, 250);
     return () => {
       stale = true;
@@ -105,18 +114,22 @@ export default function ReimbursementForm({
   function pick(e: PickedEvent) {
     setEvent(e);
     setTripDate(e.date);
-    // Destinations mode pre-fills the Catering Event's venue as a stop.
-    if (e.address && stops.every((s) => !s.trim())) setStops([e.address]);
-    setRoute(null);
   }
 
+  // A Catering Event pays its deal's round-trip miles (the owner, 2026-11-16), no more a mile
+  // than its quote charged (migrations 49, 50, 52): 0c when it charged none.
+  const isEvent = reasonKind === "catering_event";
+  const eventCap = isEvent ? event?.mileage_cap ?? null : null;
+  const eventMiles = dealMiles(eventCap?.round_trip_miles);
+  const eventMilesPending = isEvent && milesPending({ mileage_mode: "deal", miles: eventMiles, mileage_cap: eventCap });
+
   const estimate = useMemo(() => {
-    const m = mileageMode === "typed" ? milesFromInput(miles || "0") : route?.miles ?? null;
+    const m = isEvent ? eventMiles : mileageMode === "typed" ? milesFromInput(miles || "0") : route?.miles ?? null;
     const t = centsFromDollars(tolls);
     const p = centsFromDollars(parking);
     if (m == null || t == null || p == null) return null;
-    return reimbursementCents({ trip_date: tripDate, miles: m, tolls_cents: t, parking_cents: p, mileage_cents_override: null }, rates);
-  }, [mileageMode, miles, route, tolls, parking, tripDate, rates]);
+    return reimbursementCents({ trip_date: tripDate, miles: m, tolls_cents: t, parking_cents: p, mileage_cents_override: null, cap_cents_per_mile: eventCap?.cap_cents_per_mile ?? null }, rates);
+  }, [isEvent, eventMiles, mileageMode, miles, route, tolls, parking, tripDate, rates, eventCap]);
 
   function reasonBody() {
     return reasonKind === "errands" ? { kind: "errands", note } : { kind: "catering_event", event_id: event?.id, note };
@@ -183,7 +196,12 @@ export default function ReimbursementForm({
     const body = {
       reason: reasonBody(),
       trip_date: tripDate,
-      mileage: mileageMode === "typed" ? { mode: "typed", miles } : { mode: "destinations", stops, start_at_store: startAtStore, end_at_store: endAtStore },
+      // A Catering Event's miles are the deal's: the server reads them, whatever is sent.
+      mileage: isEvent
+        ? { mode: "deal" }
+        : mileageMode === "typed"
+          ? { mode: "typed", miles }
+          : { mode: "destinations", stops, start_at_store: startAtStore, end_at_store: endAtStore },
       tolls,
       parking,
       receipt_paths: receipts,
@@ -291,78 +309,77 @@ export default function ReimbursementForm({
         </div>
       ) : (
         <>
-          <fieldset className="space-y-2">
-            <legend className="text-sm text-slate-700 dark:text-slate-300">Mileage</legend>
-            <div className="flex gap-4 text-sm text-slate-800 dark:text-slate-200">
-              <label className="flex items-center gap-2">
-                <input type="radio" checked={mileageMode === "typed"} onChange={() => setMileageMode("typed")} /> Type the miles
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  checked={mileageMode === "destinations"}
-                  onChange={() => {
-                    setMileageMode("destinations");
-                    if (event?.address && stops.every((s) => !s.trim())) setStops([event.address]);
-                  }}
-                />{" "}
-                Enter destinations
-              </label>
+          {isEvent ? (
+            <div className="text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 px-3 py-2 text-slate-800 dark:text-slate-200">
+              {event ? eventMileageText(eventCap, tripDate, rates) : "Pick the Catering Event to see its mileage."}
             </div>
-            {mileageMode === "typed" ? (
-              <input inputMode="decimal" value={miles} onChange={(e) => setMiles(e.target.value)} placeholder="Miles, e.g. 12.3" className={INPUT} />
-            ) : (
-              <div className="space-y-2 text-sm">
-                <label className="flex items-center gap-2 text-slate-800 dark:text-slate-200">
-                  <input type="checkbox" checked={startAtStore} onChange={(e) => { setStartAtStore(e.target.checked); setRoute(null); }} /> Start at the store
+          ) : (
+            <fieldset className="space-y-2">
+              <legend className="text-sm text-slate-700 dark:text-slate-300">Mileage</legend>
+              <div className="flex gap-4 text-sm text-slate-800 dark:text-slate-200">
+                <label className="flex items-center gap-2">
+                  <input type="radio" checked={mileageMode === "typed"} onChange={() => setMileageMode("typed")} /> Type the miles
                 </label>
-                {!startAtStore && (
-                  <div className="text-xs text-slate-600 dark:text-slate-400">
-                    The trip starts at the first stop. E.g. home → Restaurant Depot → store: enter Restaurant Depot first, and only Restaurant Depot → store is paid.
-                  </div>
-                )}
-                {stops.map((s, i) => (
-                  <div key={i} className="flex gap-2">
-                    <input
-                      value={s}
-                      onChange={(e) => {
-                        setStops(stops.map((x, j) => (j === i ? e.target.value : x)));
-                        setRoute(null);
-                      }}
-                      placeholder={i === 0 && !startAtStore ? "Stop 1 address (the trip starts here)" : `Stop ${i + 1} address`}
-                      className={INPUT}
-                    />
-                    {stops.length > 1 && (
-                      <button type="button" className={BUTTON} onClick={() => { setStops(stops.filter((_, j) => j !== i)); setRoute(null); }}>
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <div className="flex flex-wrap items-center gap-3">
-                  <button type="button" className={BUTTON} onClick={() => { setStops([...stops, ""]); setRoute(null); }}>
-                    Add stop
-                  </button>
-                  <label className="flex items-center gap-2 text-slate-800 dark:text-slate-200">
-                    <input type="checkbox" checked={endAtStore} onChange={(e) => { setEndAtStore(e.target.checked); setRoute(null); }} /> End at the store
-                  </label>
-                  <button type="button" className={BUTTON} onClick={computeMiles} disabled={!!busy}>
-                    Compute miles
-                  </button>
-                </div>
-                {route && (
-                  <div className="text-slate-700 dark:text-slate-300">
-                    {route.legs.map((l, i) => (
-                      <div key={i} className="text-xs">
-                        {placeLabel(l.from)} → {placeLabel(l.to)}: {l.miles.toFixed(1)} mi
-                      </div>
-                    ))}
-                    <div className="font-medium">{route.miles.toFixed(1)} mi</div>
-                  </div>
-                )}
+                <label className="flex items-center gap-2">
+                  <input type="radio" checked={mileageMode === "destinations"} onChange={() => setMileageMode("destinations")} />{" "}
+                  Enter destinations
+                </label>
               </div>
-            )}
-          </fieldset>
+              {mileageMode === "typed" ? (
+                <input inputMode="decimal" value={miles} onChange={(e) => setMiles(e.target.value)} placeholder="Miles, e.g. 12.3" className={INPUT} />
+              ) : (
+                <div className="space-y-2 text-sm">
+                  <label className="flex items-center gap-2 text-slate-800 dark:text-slate-200">
+                    <input type="checkbox" checked={startAtStore} onChange={(e) => { setStartAtStore(e.target.checked); setRoute(null); }} /> Start at the store
+                  </label>
+                  {!startAtStore && (
+                    <div className="text-xs text-slate-600 dark:text-slate-400">
+                      The trip starts at the first stop. E.g. home → Restaurant Depot → store: enter Restaurant Depot first, and only Restaurant Depot → store is paid.
+                    </div>
+                  )}
+                  {stops.map((s, i) => (
+                    <div key={i} className="flex gap-2">
+                      <input
+                        value={s}
+                        onChange={(e) => {
+                          setStops(stops.map((x, j) => (j === i ? e.target.value : x)));
+                          setRoute(null);
+                        }}
+                        placeholder={i === 0 && !startAtStore ? "Stop 1 address (the trip starts here)" : `Stop ${i + 1} address`}
+                        className={INPUT}
+                      />
+                      {stops.length > 1 && (
+                        <button type="button" className={BUTTON} onClick={() => { setStops(stops.filter((_, j) => j !== i)); setRoute(null); }}>
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button type="button" className={BUTTON} onClick={() => { setStops([...stops, ""]); setRoute(null); }}>
+                      Add stop
+                    </button>
+                    <label className="flex items-center gap-2 text-slate-800 dark:text-slate-200">
+                      <input type="checkbox" checked={endAtStore} onChange={(e) => { setEndAtStore(e.target.checked); setRoute(null); }} /> End at the store
+                    </label>
+                    <button type="button" className={BUTTON} onClick={computeMiles} disabled={!!busy}>
+                      Compute miles
+                    </button>
+                  </div>
+                  {route && (
+                    <div className="text-slate-700 dark:text-slate-300">
+                      {route.legs.map((l, i) => (
+                        <div key={i} className="text-xs">
+                          {placeLabel(l.from)} → {placeLabel(l.to)}: {l.miles.toFixed(1)} mi
+                        </div>
+                      ))}
+                      <div className="font-medium">{route.miles.toFixed(1)} mi</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </fieldset>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <label className={label}>
@@ -384,9 +401,17 @@ export default function ReimbursementForm({
           <div className="text-sm text-slate-700 dark:text-slate-300">
             {estimate == null
               ? "Amount: fill in the miles and amounts."
-              : estimate.total_cents == null
-                ? `There is no Mileage rate for ${tripDate}.`
-                : `Amount: ${money(estimate.total_cents)}${estimate.rate != null && estimate.mileage_cents ? ` (Mileage at ${estimate.rate}¢/mi, the IRS rate for the trip date)` : ""}`}
+              : isEvent
+                ? !event
+                  ? null
+                  : eventMilesPending
+                    ? `Amount so far: ${money(estimate.tolls_cents + estimate.parking_cents)}. Mileage is added once the miles are in.`
+                    : estimate.total_cents == null
+                      ? null
+                      : `Amount: ${money(estimate.total_cents)}`
+                : estimate.total_cents == null
+                  ? `There is no Mileage rate for ${tripDate}.`
+                  : `Amount: ${money(estimate.total_cents)}${estimate.rate != null && (estimate.mileage_cents || estimate.rate === 0) ? ` (Mileage at ${mileageRateText(estimate, eventCap)})` : ""}`}
           </div>
         </>
       )}

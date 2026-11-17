@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
 import CheckWeekButton from "./CheckWeekButton";
@@ -15,9 +15,28 @@ import {
 } from "@/lib/availabilityCheck";
 import { availabilityCell, type CellAvailability, type CellLine } from "@/lib/availabilityCell";
 import { managerAssignsOnly } from "@/lib/managerAssigns";
-import type { Profile, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
+import type { Profile, Shift, ShiftWithEmployee, Location, ShiftRequest, ShiftType, Annotation } from "@/lib/types";
 import type { ScheduleLaborLoad } from "@/lib/controlBoard/scheduleLoad";
 import ScheduleLaborLine from "./ScheduleLaborLine";
+import { useUndo } from "./UndoProvider";
+import { each, send } from "@/lib/undo";
+import {
+  eventBadgeText,
+  eventBadges,
+  eventDropdown,
+  eventFieldLabel,
+  eventKindOf,
+  eventOptionLabel,
+  eventSaveFields,
+  eventsForPosition,
+  eventsOnDate,
+  fittingEvents,
+  movedOffSavedEvent,
+  shiftDate,
+  type EventBadge,
+  type EventPick,
+  type ScheduleEvent,
+} from "@/lib/scheduleEvents";
 
 const TZ = "America/New_York";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -45,6 +64,14 @@ function toLocalInput(iso: string) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// The popup's start and end are browser-local datetime-local values; the event
+// rule reads instants. An unfinished value is passed through as it is, and the
+// rule reads it as no date.
+function localInputInstant(value: string): string {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? value : at.toISOString();
+}
+
 type Draft = {
   id?: number;
   employee_id: string;
@@ -53,7 +80,36 @@ type Draft = {
   ends_at: string;
   position: string;
   notes: string;
+  /** The event the shift is linked to as stored. Null on a new shift. */
+  deal_id: number | null;
+  /** The New York date the shift is saved on. Null on a new shift. */
+  saved_date: string | null;
+  /** May the event dropdown choose the one event that fits (lib/scheduleEvents.ts)? Set by how the popup was opened. */
+  preselect_event: boolean;
 };
+
+// What Undo and Redo send to put a shift back as it was. The person was
+// already asked about a long shift or a gap in availability when it was first
+// saved, so the steps do not ask again.
+type ShiftFields = Pick<Shift, "employee_id" | "location_id" | "starts_at" | "ends_at" | "position" | "notes"> & { deal_id: number | null };
+const ALREADY_CONFIRMED = { confirmLong: true, confirmAvailability: true };
+function fieldsOf(s: Pick<Shift, keyof Omit<ShiftFields, "deal_id">> & { deal_id?: number | null }): ShiftFields {
+  return {
+    employee_id: s.employee_id ?? null,
+    location_id: s.location_id ?? null,
+    starts_at: s.starts_at,
+    ends_at: s.ends_at,
+    position: s.position ?? null,
+    notes: s.notes ?? null,
+    deal_id: s.deal_id ?? null,
+  };
+}
+// A PATCH back to `to` from `from`: the event is sent only when it differs,
+// as the popup does (lib/scheduleEvents.ts eventSaveFields).
+function patchTo(to: ShiftFields, from: ShiftFields) {
+  const { deal_id, ...rest } = to;
+  return { ...rest, ...ALREADY_CONFIRMED, ...(deal_id !== from.deal_id ? { deal_id } : {}) };
+}
 
 type DropReq = ShiftRequest & { profiles?: Pick<Profile, "id" | "full_name"> };
 
@@ -68,6 +124,10 @@ export default function ScheduleBoard({
   availability = [],
   annotations = [],
   labor = null,
+  weekEvents = [],
+  linkedEvents = [],
+  today,
+  eventNames = {},
 }: {
   isManager: boolean;
   weekStart: string; // YYYY-MM-DD (Sunday)
@@ -81,6 +141,14 @@ export default function ScheduleBoard({
   annotations?: Annotation[];
   /** Manager view: the week against the labor target (bj-finance #695). */
   labor?: ScheduleLaborLoad | null;
+  /** Manager view: the events this week, finished ones included. Null when they could not be read. */
+  weekEvents?: ScheduleEvent[] | null;
+  /** Manager view: the deals this week's shifts are linked to, at any stage. */
+  linkedEvents?: ScheduleEvent[] | null;
+  /** Everyone: the name of each linked shift's event, by deal id. */
+  eventNames?: Record<number, string>;
+  /** New York's date as the server saw it: how far back a finished event still badges a shift. */
+  today: string;
 }) {
   const colorByType = new Map(shiftTypes.map((t) => [t.name, t.color]));
 
@@ -93,6 +161,7 @@ export default function ScheduleBoard({
     return m === "00" ? `${h12}${ap}` : `${h12}:${m}${ap}`;
   }
   const router = useRouter();
+  const { record } = useUndo();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -114,6 +183,12 @@ export default function ScheduleBoard({
     | { key: string; kind: "mismatch"; mismatch: AvailabilityMismatch }
     | { key: string; kind: "unavailable" }
   >(null);
+  // The event dropdown. eventPick is the manager's own choice, null
+  // until they touch it (lib/scheduleEvents.ts selectedEventId works out what
+  // it shows until then). A date outside the week on screen is fetched.
+  const [eventPick, setEventPick] = useState<EventPick>(null);
+  const [otherDayEvents, setOtherDayEvents] = useState<Record<string, ScheduleEvent[] | "loading" | "failed">>({});
+  const [eventListOpen, setEventListOpen] = useState(false);
   const draftKey = (d: Draft | null) => (d ? `${d.employee_id}|${d.starts_at}|${d.ends_at}` : "");
   const availConfirmed = availSave !== null && availSave.key === draftKey(draft);
 
@@ -127,13 +202,42 @@ export default function ScheduleBoard({
     });
     setBusy(false);
     if (res.ok) {
+      const made = ((await res.json().catch(() => ({}))) as { annotation?: Annotation }).annotation;
+      if (made?.id) {
+        const fields = { ...annDraft };
+        let id = made.id;
+        record({
+          label: `Added note "${fields.title}"`,
+          undo: async () => { await send(`/api/annotations/${id}`, "DELETE"); },
+          redo: async () => { id = (await send<{ annotation: Annotation }>("/api/annotations", "POST", fields)).annotation.id; },
+        });
+      }
       setAnnDraft(null);
       router.refresh();
     }
   }
-  async function deleteAnnotation(id: number) {
-    await fetch(`/api/annotations/${id}`, { method: "DELETE" });
+  async function deleteAnnotation(a: Annotation) {
+    const res = await fetch(`/api/annotations/${a.id}`, { method: "DELETE" });
+    if (res.ok) {
+      const fields = {
+        title: a.title, message: a.message ?? "", start_date: a.start_date, end_date: a.end_date, color: a.color,
+        business_closed: a.business_closed, no_time_off: a.no_time_off, announcement: a.announcement,
+      };
+      let id = a.id;
+      record({
+        label: `Removed note "${a.title}"`,
+        undo: async () => { id = (await send<{ annotation: Annotation }>("/api/annotations", "POST", fields)).annotation.id; },
+        redo: async () => { await send(`/api/annotations/${id}`, "DELETE"); },
+      });
+    }
     router.refresh();
+  }
+
+  // "Donte's shift, Tue Nov 17" / "open shift, Tue Nov 17": how the undo bar names a shift.
+  function shiftLabel(employeeId: string | null | undefined, startsAt: string) {
+    const who = employeeId ? `${(nameById.get(employeeId) ?? "someone").split(" ")[0]}'s shift` : "open shift";
+    const day = new Date(startsAt).toLocaleDateString("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" });
+    return `${who}, ${day}`;
   }
 
   const OT_THRESHOLD = 40; // hours per week before overtime
@@ -148,6 +252,52 @@ export default function ScheduleBoard({
   const pickupOnly = dropRequests.filter((r) => r.type === "pickup");
   const myPendingDrops = new Set(dropOnly.map((r) => r.shift_id));
   const myPendingPickups = new Set(pickupOnly.map((r) => r.shift_id));
+
+  // The shift in the popup against that day's events for its position. Null when
+  // its position takes no event or its start is not a real time yet.
+  const draftDate = draft && eventKindOf(draft.position) !== null ? shiftDate(localInputInstant(draft.starts_at)) : null;
+  const draftDayEvents: ScheduleEvent[] | "loading" | "failed" | null =
+    draftDate === null
+      ? null
+      : dates.includes(draftDate)
+        ? (weekEvents === null ? "failed" : eventsOnDate(weekEvents, draftDate))
+        : (otherDayEvents[draftDate] ?? "loading");
+  const draftEvents = draft && Array.isArray(draftDayEvents) ? eventsForPosition(draft.position, draftDayEvents) : draftDayEvents;
+  const outsideWeekDate = draftDate !== null && !dates.includes(draftDate) ? draftDate : null;
+  useEffect(() => {
+    if (outsideWeekDate === null) return;
+    let stale = false;
+    setOtherDayEvents((known) => (known[outsideWeekDate] ? known : { ...known, [outsideWeekDate]: "loading" }));
+    fetch(`/api/schedule/events?date=${outsideWeekDate}`, { cache: "no-store" })
+      .then(async (res) => {
+        const j = await res.json().catch(() => ({}));
+        if (stale) return;
+        setOtherDayEvents((known) => ({ ...known, [outsideWeekDate]: res.ok ? eventsOnDate(j.events ?? [], outsideWeekDate) : "failed" }));
+      })
+      .catch(() => {
+        if (!stale) setOtherDayEvents((known) => ({ ...known, [outsideWeekDate]: "failed" }));
+      });
+    return () => {
+      stale = true;
+    };
+  }, [outsideWeekDate]);
+  const draftCurrentEvent = draft?.deal_id != null ? linkedEvents?.find((e) => e.id === draft.deal_id) ?? null : null;
+  const draftFitting =
+    draft && Array.isArray(draftEvents) ? fittingEvents({ starts_at: localInputInstant(draft.starts_at), ends_at: localInputInstant(draft.ends_at) }, draftEvents) : [];
+  const draftDropdown =
+    draft && draftDate !== null && Array.isArray(draftEvents) && linkedEvents !== null
+      ? eventDropdown({
+          pick: eventPick,
+          currentDealId: draft.deal_id,
+          currentEvent: draftCurrentEvent,
+          savedDate: draft.saved_date,
+          date: draftDate,
+          onDate: draftEvents,
+          fitting: draftFitting,
+          preselect: draft.preselect_event,
+        })
+      : null;
+  const draftEventId = draftDropdown?.selected;
 
   async function ack(id: number) {
     setAckingId(id);
@@ -172,6 +322,9 @@ export default function ScheduleBoard({
   // pick up). Managers: count all assigned coverage.
   const countedShifts = isManager ? weekShifts : weekShifts.filter((s) => s.employee_id);
   const weekHours = countedShifts.reduce((sum, s) => sum + shiftHours(s), 0);
+  // Manager only: shifts that look like they are for an event and have none. Worked out fresh from what this page loaded; nothing is written.
+  const badges = isManager && weekEvents ? eventBadges(weekShifts, weekEvents, today) : new Map<number, EventBadge>();
+  const badgedShifts = weekShifts.filter((s) => badges.has(s.id));
   const weekCost = isManager
     ? weekShifts.reduce((sum, s) => sum + shiftHours(s) * (s.employee_id ? rateById.get(s.employee_id) ?? 0 : 0), 0)
     : 0;
@@ -254,6 +407,14 @@ export default function ScheduleBoard({
       setCopyMsg(j.error ?? "Auto-fill failed.");
       return;
     }
+    const picked = (j.picked ?? []) as { id: number; employee_id: string }[];
+    if (picked.length) {
+      record({
+        label: `Auto-filled ${picked.length} open shift${picked.length === 1 ? "" : "s"}`,
+        undo: () => each(picked, (p) => send(`/api/shifts/${p.id}`, "PATCH", { employee_id: null })),
+        redo: () => each(picked, (p) => send(`/api/shifts/${p.id}`, "PATCH", { employee_id: p.employee_id, confirmAvailability: true, confirmLong: true })),
+      });
+    }
     setCopyMsg(
       j.assigned
         ? `Auto-assigned ${j.assigned} open shift${j.assigned === 1 ? "" : "s"}${j.left ? `, ${j.left} left open (no one available).` : "."}`
@@ -276,7 +437,16 @@ export default function ScheduleBoard({
       setCopyMsg(j.error ?? "Copy failed.");
       return;
     }
-    setCopyMsg(j.copied ? `Copied ${j.copied} shifts from last week.` : "No shifts found last week.");
+    let ids = (j.ids ?? []) as number[];
+    if (ids.length) {
+      const target = weekStart;
+      record({
+        label: `Copied ${ids.length} shift${ids.length === 1 ? "" : "s"} from last week`,
+        undo: () => each(ids, (id) => send(`/api/shifts/${id}`, "DELETE")),
+        redo: async () => { ids = (await send<{ ids: number[] }>("/api/shifts/copy-week", "POST", { weekStart: target })).ids ?? []; },
+      });
+    }
+    setCopyMsg(j.copied ? `Copied ${j.copied} shifts from last week. Undo is at the bottom of the screen.` : "No shifts found last week.");
     router.refresh();
   }
 
@@ -293,6 +463,8 @@ export default function ScheduleBoard({
     setLongSave(null);
     setAvailSave(null);
     setHowMany(1);
+    setEventPick(null);
+    setOtherDayEvents({});
     setDraft({
       employee_id: employeeId ?? employees[0]?.id ?? "",
       location_id: String(locations.find((l) => l.is_default)?.id ?? locations[0]?.id ?? ""),
@@ -300,13 +472,20 @@ export default function ScheduleBoard({
       ends_at: `${dateStr}T17:00`,
       position: "",
       notes: "",
+      deal_id: null,
+      saved_date: null,
+      preselect_event: true,
     });
   }
 
-  function editShift(s: ShiftWithEmployee) {
+  // fromBadge: opened from a shift's badge or the "Events to choose" list, to choose its event.
+  function editShift(s: ShiftWithEmployee, fromBadge = false) {
     setErr(null);
     setLongSave(null);
     setAvailSave(null);
+    setEventPick(null);
+    setOtherDayEvents({});
+    setEventListOpen(false);
     setDraft({
       id: s.id,
       employee_id: s.employee_id ?? "",
@@ -315,6 +494,9 @@ export default function ScheduleBoard({
       ends_at: toLocalInput(s.ends_at),
       position: s.position ?? "",
       notes: s.notes ?? "",
+      deal_id: s.deal_id ?? null,
+      saved_date: shiftDate(s.starts_at),
+      preselect_event: fromBadge,
     });
   }
 
@@ -347,10 +529,12 @@ export default function ScheduleBoard({
         notes: draft.notes || null,
         confirmLong,
         confirmAvailability,
+        ...eventSaveFields(draftEventId, draft.deal_id),
       };
       // Open shifts can be created in bulk (How Many).
       const count = !draft.id && !draft.employee_id ? Math.max(1, Math.min(20, howMany)) : 1;
       const url = draft.id ? `/api/shifts/${draft.id}` : "/api/shifts";
+      const saved: Shift[] = [];
       for (let i = 0; i < count; i++) {
         const res = await fetch(url, {
           method: draft.id ? "PATCH" : "POST",
@@ -374,7 +558,10 @@ export default function ScheduleBoard({
           setErr(j.error ?? `Save failed (${res.status}).`);
           return;
         }
+        const j = await res.json().catch(() => ({}));
+        if (j.shift) saved.push(j.shift as Shift);
       }
+      recordSave(draft.id ?? null, saved, count);
       setDraft(null);
       setLongSave(null);
       setAvailSave(null);
@@ -386,11 +573,62 @@ export default function ScheduleBoard({
     }
   }
 
+  // The popup's save, as an undo step. An edit goes back to the shift as the
+  // page loaded it; new shifts are deleted again.
+  function recordSave(editedId: number | null, saved: Shift[], count: number) {
+    if (saved.length === 0) return;
+    if (editedId !== null) {
+      const loaded = shifts.find((x) => x.id === editedId);
+      if (!loaded) return;
+      const before = fieldsOf(loaded);
+      const after = fieldsOf(saved[0]);
+      record({
+        label: `Changed ${shiftLabel(before.employee_id, before.starts_at)}`,
+        undo: async () => { await send(`/api/shifts/${editedId}`, "PATCH", patchTo(before, after)); },
+        redo: async () => { await send(`/api/shifts/${editedId}`, "PATCH", patchTo(after, before)); },
+      });
+      return;
+    }
+    const made = fieldsOf(saved[0]);
+    let ids = saved.map((x) => x.id);
+    record({
+      label: count > 1 ? `Added ${count} open shifts, ${shiftLabel(null, made.starts_at).replace("open shift, ", "")}` : `Added ${shiftLabel(made.employee_id, made.starts_at)}`,
+      undo: async () => {
+        await each([...ids], async (id) => {
+          await send(`/api/shifts/${id}`, "DELETE");
+          ids = ids.filter((x) => x !== id);
+        });
+      },
+      // Picks up where a failed redo stopped, so a retry never makes extras.
+      redo: async () => {
+        while (ids.length < count) ids.push((await send<{ shift: Shift }>("/api/shifts", "POST", { ...made, ...ALREADY_CONFIRMED })).shift.id);
+      },
+    });
+  }
+
   async function remove() {
     if (!draft?.id) return;
     setBusy(true);
-    await fetch(`/api/shifts/${draft.id}`, { method: "DELETE" });
+    setErr(null);
+    const res = await fetch(`/api/shifts/${draft.id}`, { method: "DELETE" });
     setBusy(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setErr(j.error ?? `Delete failed (${res.status}).`);
+      return;
+    }
+    if (j.shift) {
+      const gone = fieldsOf(j.shift as Shift);
+      // Undo puts it back with a new id; Redo deletes that one.
+      let id: number = j.shift.id;
+      record({
+        label: `Deleted ${shiftLabel(gone.employee_id, gone.starts_at)}`,
+        undo: async () => {
+          id = (await send<{ shift: Shift }>("/api/shifts", "POST", { ...gone, ...ALREADY_CONFIRMED, restores: id })).shift.id;
+        },
+        redo: async () => { await send(`/api/shifts/${id}`, "DELETE"); },
+      });
+    }
     setDraft(null);
     router.refresh();
   }
@@ -401,6 +639,11 @@ export default function ScheduleBoard({
         <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Schedule</h1>
         <div className="flex flex-wrap items-center gap-2">
           <CheckWeekButton isManager={isManager} weekStart={weekStart} />
+          {badgedShifts.length > 0 && (
+            <button onClick={() => setEventListOpen(true)} className="px-2.5 py-1 text-sm rounded-md border border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/60">
+              Events to choose ({badgedShifts.length})
+            </button>
+          )}
           {isManager && (
             <>
               <button onClick={autoFill} disabled={copying} className="px-2.5 py-1 text-sm rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50">
@@ -436,7 +679,7 @@ export default function ScheduleBoard({
                 {a.message && <div className="text-xs text-slate-500 mt-0.5">{a.message}</div>}
                 <div className="text-[11px] text-slate-400 mt-0.5">{dayLabel(a.start_date)}{a.end_date !== a.start_date ? ` – ${dayLabel(a.end_date)}` : ""}</div>
               </div>
-              {isManager && <button onClick={() => deleteAnnotation(a.id)} className="text-xs text-slate-500 hover:text-rose-400 shrink-0">Remove</button>}
+              {isManager && <button onClick={() => deleteAnnotation(a)} className="text-xs text-slate-500 hover:text-rose-400 shrink-0">Remove</button>}
             </div>
           ))}
         </div>
@@ -556,6 +799,8 @@ export default function ScheduleBoard({
           dayLabel={dayLabel}
           DAYS={DAYS}
           availability={availability}
+          badges={badges}
+          eventNames={eventNames}
         />
       )}
 
@@ -599,6 +844,7 @@ export default function ScheduleBoard({
                       {s.position}
                     </div>
                   )}
+                  <EventName shift={s} names={eventNames} />
                   {s.notes && <div className="text-slate-600 dark:text-slate-400 italic mt-0.5">{s.notes}</div>}
                   {isManager && s.employee_id && (
                     <div className={s.acknowledged_at ? "text-emerald-400 mt-0.5" : "text-slate-500 mt-0.5"}>
@@ -685,6 +931,30 @@ export default function ScheduleBoard({
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={() => setAnnDraft(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
             <button onClick={saveAnnotation} disabled={busy || !annDraft.title} className="px-3 py-1.5 text-sm rounded-md bg-emerald-500 text-slate-950 font-medium hover:bg-emerald-400 disabled:opacity-50">Save</button>
+          </div>
+        </Modal>
+      )}
+
+      {eventListOpen && (
+        <Modal onClose={() => setEventListOpen(false)} className="max-w-md space-y-3">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">Events to choose</h2>
+          <p className="text-xs text-slate-500">These shifts don&apos;t say which event they are for yet. Open one, check the event, and save it.</p>
+          <div className="space-y-2">
+            {badgedShifts.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => editShift(s, true)}
+                className="w-full text-left rounded-md border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <div className="text-slate-800 dark:text-slate-200">
+                  {dayLabel(nyDate(s.starts_at))} {fmtTime(s.starts_at)}–{fmtTime(s.ends_at)} · {nameById.get(s.employee_id ?? "") ?? s.profiles?.full_name ?? "—"}
+                </div>
+                <div className="text-xs text-amber-700 dark:text-amber-300">{eventBadgeText(badges.get(s.id)!)}</div>
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-end pt-1">
+            <button onClick={() => setEventListOpen(false)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
           </div>
         </Modal>
       )}
@@ -776,6 +1046,40 @@ export default function ScheduleBoard({
               </select>
             </label>
           </div>
+          {draftEvents !== null && (
+            <div>
+              {!draftDropdown ? (
+                <div className="text-xs text-slate-500">
+                  {draftEvents === "loading" ? "Looking up that day's events…" : "Couldn't load this shift's events. Saving won't change its event."}
+                </div>
+              ) : (
+                <>
+                  <label className="block text-xs text-slate-600 dark:text-slate-400">{eventFieldLabel(draft.position)}
+                    <select
+                      value={draftEventId ?? "none"}
+                      onChange={(e) => setEventPick(e.target.value === "none" ? "none" : Number(e.target.value))}
+                      className="mt-1 w-full min-w-0 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100"
+                    >
+                      <option value="none">None</option>
+                      {draftDropdown.options.map((ev) => <option key={ev.id} value={ev.id}>{eventOptionLabel(ev)}</option>)}
+                    </select>
+                  </label>
+                  {draftCurrentEvent && draftDate !== null && movedOffSavedEvent({ currentEvent: draftCurrentEvent, savedDate: draft.saved_date, date: draftDate }) && (
+                    <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">This shift was on {draftCurrentEvent.name}, which is on another day. Saving takes it off that event.</div>
+                  )}
+                  {eventPick === null && draft.deal_id === null && draftEventId !== null && (
+                    <div className="text-xs text-slate-500 mt-1">Picked because this shift covers the whole event. Nothing changes until you save.</div>
+                  )}
+                  {draftDropdown.suggested && (
+                    <div className="text-xs text-slate-500 mt-1">Suggested: {draftDropdown.suggested.name}</div>
+                  )}
+                  {draftEventId === null && draftFitting.length > 1 && (
+                    <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">More than one event fits this shift. Choose the right one, or None if it is for neither.</div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <label className="block text-xs text-slate-600 dark:text-slate-400">Notes
             <input value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-2 text-slate-900 dark:text-slate-100" />
           </label>
@@ -843,18 +1147,22 @@ function ManagerMatrix({
   dayLabel,
   DAYS,
   availability,
+  badges,
+  eventNames,
 }: {
   dates: string[];
   employees: Profile[];
   shiftsForDay: (d: string) => ShiftWithEmployee[];
   shiftHours: (s: ShiftWithEmployee) => number;
   colorByType: Map<string, string>;
-  editShift: (s: ShiftWithEmployee) => void;
+  editShift: (s: ShiftWithEmployee, fromBadge?: boolean) => void;
   newShift: (d: string, employeeId?: string) => void;
   fmtTime: (iso: string | null) => string;
   dayLabel: (d: string) => string;
   DAYS: string[];
   availability: AvailabilityRow[];
+  badges: Map<number, EventBadge>;
+  eventNames: Record<number, string>;
 }) {
   function cellShifts(date: string, employeeId: string | null) {
     return shiftsForDay(date).filter((s) =>
@@ -875,20 +1183,34 @@ function ManagerMatrix({
 
   function Chip({ s }: { s: ShiftWithEmployee }) {
     const color = s.position ? colorByType.get(s.position) : undefined;
+    const badge = badges.get(s.id);
     return (
-      <button
-        onClick={() => editShift(s)}
+      <div
         style={color ? { borderLeft: `4px solid ${color}` } : undefined}
-        className="w-full text-left rounded-md px-2 py-1 text-[11px] mb-1 border bg-slate-100 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+        className="rounded-md text-[11px] mb-1 border bg-slate-100 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200"
       >
-        <div className="font-medium whitespace-nowrap truncate">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
-        {s.position && <div className="text-slate-500 truncate">{s.position}</div>}
-        {s.employee_id && (
-          <div className={`truncate ${s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}`}>
-            {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
+        <button onClick={() => editShift(s)} className="w-full text-left px-2 py-1">
+          <div className="font-medium whitespace-nowrap truncate">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
+          {s.position && <div className="text-slate-500 truncate">{s.position}</div>}
+          <EventName shift={s} names={eventNames} />
+          {s.employee_id && (
+            <div className={`truncate ${s.acknowledged_at ? "text-emerald-500" : "text-slate-500"}`}>
+              {s.acknowledged_at ? "✓ confirmed" : "awaiting confirm"}
+            </div>
+          )}
+        </button>
+        {badge && (
+          <div className="px-2 pb-1">
+            <button
+              onClick={() => editShift(s, true)}
+              title={eventBadgeText(badge)}
+              className="block w-full text-left truncate rounded bg-amber-100 dark:bg-amber-900/40 px-1 text-[10px] text-amber-800 dark:text-amber-200"
+            >
+              {eventBadgeText(badge)}
+            </button>
           </div>
         )}
-      </button>
+      </div>
     );
   }
 
@@ -965,6 +1287,13 @@ const LINE_TEXT: Record<CellLine["kind"], string> = {
   preferred: "text-sky-700/90 dark:text-sky-300/80",
   available: "text-emerald-700/90 dark:text-emerald-400/80",
 };
+
+// A linked shift's event, on its chip. No name, no line.
+function EventName({ shift, names }: { shift: ShiftWithEmployee; names: Record<number, string> }) {
+  const name = shift.deal_id != null ? names[shift.deal_id] : undefined;
+  if (!name) return null;
+  return <div title={name} className="truncate text-slate-700 dark:text-slate-300">{name}</div>;
+}
 
 function AvailabilityNote({ a }: { a: CellAvailability }) {
   if (a.state === "hours") {

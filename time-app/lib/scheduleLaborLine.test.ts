@@ -90,7 +90,7 @@ function labor(over: Partial<ScheduleLaborInput> = {}): ScheduleLaborLoad {
       { month: "2029-09-01", source: "seller", in_store: 10_000 },
     ], []),
     inStoreByDay: new Map(DATES.map((d) => [addDays(d, -364), 1_000])),
-    catering: [],
+    marketingDeals: new Set(),
     ...over,
   });
   return { ready: true, labor: l, problems: [] };
@@ -111,6 +111,7 @@ function renderBoard(load: ScheduleLaborLoad) {
         dropRequests: [],
         shiftTypes: [{ id: 1, name: "Scooper", color: "#10b981", in_store: true }],
         labor: load,
+        today: WEEK,
       }),
     ),
   );
@@ -234,13 +235,13 @@ test("exactly on target, Remaining Hourly Labor is zero in normal text; a sliver
     remainingHourlyLabor({
       target: { hours: { value: targetHours, needs: [] }, dollars: { value: targetDollars, needs: [] } },
       hourlyHours: hours,
-      labor: { wages: dollars, premium: 0, solo: 0, open: 0, total: dollars, none: false, notCounted: [] },
+      labor: { wages: dollars, solo: 0, open: 0, total: dollars, none: false, notCounted: [] },
     });
   assert.deepEqual(at(10, 200, 10, 200), { hours: "0.0h", dollars: "$0", negative: false });
   assert.deepEqual(at(10, 200, 10.01, 200.2), { hours: "0.0h", dollars: "$0", negative: false });
   assert.deepEqual(at(10, 200, 10, 201), { hours: "0.0h", dollars: "\u2212$1", negative: true }, "either value negative turns it red");
   assert.equal(
-    remainingHourlyLabor({ target: { hours: { value: 10, needs: [] }, dollars: { value: 200, needs: [] } }, hourlyHours: 8, labor: { wages: 0, premium: 0, solo: 0, open: 0, total: 0, none: true, notCounted: ["x"] } }),
+    remainingHourlyLabor({ target: { hours: { value: 10, needs: [] }, dollars: { value: 200, needs: [] } }, hourlyHours: 8, labor: { wages: 0, solo: 0, open: 0, total: 0, none: true, notCounted: ["x"] } }),
     null,
     "no scheduled $ to subtract: missing",
   );

@@ -234,6 +234,7 @@ export async function loadPreviewData(now: Date = new Date()): Promise<PreviewDa
     laborTarget: null,
     laborPlanning: laborHoursPlanning(planningInputsFrom(rows)),
     feed: { status: "not_enabled" },
+    passRuns: { status: "not_enabled" },
     problems,
   };
   return {

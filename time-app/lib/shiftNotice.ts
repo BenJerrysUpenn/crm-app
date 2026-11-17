@@ -53,6 +53,8 @@ export const DIGEST_TITLE = "Your shift updates";
 
 const TZ = "America/New_York";
 const DIGEST_HOUR = 20;
+/** Minutes after 8pm that the summary may still go out. */
+const DIGEST_WINDOW_MINUTES = 15;
 
 type ShiftRow = { id: number; employee_id: string | null; starts_at: string; ends_at: string; position: string | null };
 type ShiftTimes = Pick<ShiftRow, "starts_at" | "ends_at" | "position">;
@@ -134,9 +136,47 @@ export async function tellEmployeeShiftRemoved(
   }).catch(() => {});
 }
 
+// A deleted shift put back by Undo (POST /api/shifts with restores). It comes
+// back with a new id. If the person's "Removed" line for the old one is still
+// waiting for the 8pm summary, they were never emailed that it went: take the
+// line back and say nothing more in the summary, so a delete and its undo
+// between two summaries add up to nothing. Otherwise they were told it was
+// removed, and it is a new shift to them again. The bell hears it either way.
+export async function tellEmployeeShiftRestored(
+  formerShiftId: number,
+  shift: { id: number; employee_id: string; starts_at: string; ends_at: string; position: string | null },
+): Promise<void> {
+  const { data, error } = await createAdminClient()
+    .from("shift_notices")
+    .delete()
+    .eq("former_shift_id", formerShiftId)
+    .eq("employee_id", shift.employee_id)
+    .eq("notice", "removed")
+    .select("id");
+  if (error || (data ?? []).length === 0) {
+    await tellEmployeeAboutShift("posted", shift);
+    return;
+  }
+  await notify({
+    userId: shift.employee_id,
+    ...MESSAGE.posted,
+    body: summary(shift),
+    inAppOnly: true,
+  }).catch(() => {});
+}
+
 // The New York day whose 8pm summary is due at this instant: that day from
-// 20:00 until midnight, otherwise null. Intl applies the clock changes, so 8pm
-// is 00:00 UTC in summer and 01:00 UTC in winter.
+// 20:00 to 20:14, otherwise null. Intl applies the clock changes, so 8pm is
+// 00:00 UTC in summer and 01:00 UTC in winter.
+//
+// ONLY AT 8PM (2026-11-12). The window used to run until midnight, so a
+// person with nothing queued at 8pm was sent a summary by the first cron tick
+// after a later save: Alina copied last week's schedule by mistake at 11:21pm
+// and five people were emailed and texted the copies at 11:25pm, before it
+// could be undone. Now a save after the window waits, queued, for the next
+// day's 8pm summary. The cron ticks every 5 minutes (ALEX-CRON-SETUP.md), so
+// the window holds three ticks; if the Mac misses all three, the summaries go
+// out the next evening and nothing is lost.
 export function digestDayAt(nowMs: number): string | null {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-CA", {
@@ -145,12 +185,13 @@ export function digestDayAt(nowMs: number): string | null {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
+      minute: "2-digit",
       hourCycle: "h23",
     })
       .formatToParts(new Date(nowMs))
       .map((p) => [p.type, p.value]),
   );
-  if (Number(parts.hour) < DIGEST_HOUR) return null;
+  if (Number(parts.hour) !== DIGEST_HOUR || Number(parts.minute) >= DIGEST_WINDOW_MINUTES) return null;
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
@@ -201,7 +242,7 @@ function digestLines(employeeId: string, notices: Claimed[], shifts: Map<number,
   return lines.sort((a, b) => a.at - b.at).map((l) => l.text);
 }
 
-// Sends the day's summaries if it is 8pm or later in New York. Safe on every
+// Sends the day's summaries from 8:00 to 8:14pm New York time. Safe on every
 // cron tick: claim_shift_digests (migration 38) hands each person's queued
 // notices to exactly one caller once per day, so repeated or overlapping
 // ticks send each summary once. Returns who was sent one.

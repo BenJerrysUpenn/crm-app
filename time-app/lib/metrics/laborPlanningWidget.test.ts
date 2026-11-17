@@ -59,7 +59,7 @@ const PLANNING: LaborPlanning = {
 function render(settings: Partial<WidgetSettings>, laborPlanning: LaborPlanning | null = PLANNING): string {
   const data = {
     today: "2030-10-16", targets: [], catering: null, ar: null, labour: null, forward: null, leads: null, outreach: null, quotes: null,
-    laborTarget: null, laborPlanning, feed: { status: "not_enabled" }, problems: [],
+    laborTarget: null, laborPlanning, feed: { status: "not_enabled" }, passRuns: { status: "not_enabled" }, problems: [],
   } as MetricsData;
   const view = { id: "v1", name: "Plan", position: 0, widgets: cleanWidgets([{ id: "w1", metric: "labor_hours_planning", settings: { period: "mtd", ...settings } }]) };
   return renderToStaticMarkup(React.createElement(MetricsBoard, { data, initial: { mode: "server", views: [view], activeId: "v1" }, userId: "u1" }));

@@ -19,7 +19,7 @@ export const CATERING_EVENT_STAGES = ["Booked Unpaid", "Booked Paid", "Event Com
 export const EVENT_LOOKBACK_DAYS = 365;
 
 /** The deal columns the picker reads, and nothing else. */
-export const EVENT_DEAL_COLUMNS = "id, stage, event_date, event_start_time, company, venue_name, venue_address";
+export const EVENT_DEAL_COLUMNS = "id, stage, event_date, event_start_time, company, venue_name, venue_address, round_trip_miles";
 
 export type EventDeal = {
   id: number;
@@ -29,6 +29,8 @@ export type EventDeal = {
   company: string | null;
   venue_name: string | null;
   venue_address: string | null;
+  /** Catering-Manager's stored round trip from the store, in miles; null when none. */
+  round_trip_miles?: number | string | null;
 };
 
 export type CateringEvent = {
@@ -39,6 +41,11 @@ export type CateringEvent = {
   company: string | null;
   venue: string | null;
   address: string | null;
+  /**
+   * The deal's stored round-trip miles, what a trip to it in the staff
+   * member's own car is paid on (the owner, 2026-11-16); null when none yet.
+   */
+  round_trip_miles: number | null;
 };
 
 /** The picker's dates: from 365 days before today up to today, inclusive. */
@@ -71,6 +78,7 @@ export function cateringEventsFromDeals(deals: EventDeal[], today: string): Cate
       company: clean(d.company),
       venue: clean(d.venue_name),
       address: clean(d.venue_address),
+      round_trip_miles: d.round_trip_miles == null || d.round_trip_miles === "" ? null : Number(d.round_trip_miles),
     }))
     .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : (b.start_time ?? "").localeCompare(a.start_time ?? "")));
 }
@@ -105,7 +113,7 @@ export function eventLabel(e: CateringEvent): string {
 }
 
 /** Events whose venue, company or address contains `query` (any case). */
-export function searchEvents(events: CateringEvent[], query: string): CateringEvent[] {
+export function searchEvents<T extends CateringEvent>(events: T[], query: string): T[] {
   const q = query.trim().toLowerCase();
   if (!q) return events;
   return events.filter((e) => [e.venue, e.company, e.address].some((f) => (f ?? "").toLowerCase().includes(q)));

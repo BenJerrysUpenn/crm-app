@@ -50,7 +50,7 @@ export default function StaffReimbursements({
         </button>
       </div>
       <p className="text-sm text-slate-600 dark:text-slate-400">
-        One Travel Reimbursement per Reason: Groceries / errands, or one Catering Event. Mileage in your own car is paid at the IRS rate for the trip date, plus any tolls and parking, on your next paycheck once approved. A Lyft ride on the company card: upload the Lyft ride report instead.
+        One Travel Reimbursement per Reason: Groceries / errands, or one Catering Event. Mileage in your own car is paid at the IRS rate for the trip date, but for a Catering Event never more a mile than the event&apos;s quote charged the customer, plus any tolls and parking, on your next paycheck once approved. A Lyft ride on the company card: upload the Lyft ride report instead.
       </p>
       {flash && <div className="text-sm text-emerald-700 dark:text-emerald-400">{flash}</div>}
       {err && <div className="text-sm text-rose-600 dark:text-rose-400">{err}</div>}

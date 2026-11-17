@@ -11,6 +11,7 @@ import {
 } from "@/lib/dateFormat";
 import { calledAtFormValue, callEditBody } from "@/lib/callLog";
 import { createClient } from "@/lib/supabase/client";
+import { lastPicklistFailure } from "@/lib/picklistJob";
 import {
   FLAVOR_NAMES,
   EXTRA_LABELS,
@@ -38,8 +39,19 @@ import {
   Checkbox,
 } from "./EditableField";
 import MultiSelect from "./MultiSelect";
+import {
+  NAMED_DISCOUNTS,
+  NAMED_DISCOUNT_AMOUNT,
+  addNamedDiscount,
+  discountLineLabel,
+  namedDiscountLines,
+  removeNamedDiscount,
+} from "@/lib/namedDiscounts";
 import MessageTimeline from "./MessageTimeline";
 import CoiPanel from "./CoiPanel";
+import ReferralPanel from "./ReferralPanel";
+import EventChangeDialog, { type EventChangeMode } from "./EventChangeDialog";
+import { canChangeEvent, eventChangedMessage, type EventChangeOutcome } from "@/lib/eventChange";
 import { missingRequiredFields } from "@/lib/required";
 import { positiveOrNull, winterMenuWarnings } from "@/lib/winterMenu";
 
@@ -111,6 +123,10 @@ export default function DealDetailDrawer({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quoteJob, setQuoteJob] = useState<QuoteJob | null>(null);
+  // The deal's latest picklist job, loaded on open and kept current while a
+  // new one runs, so a failed picklist's reason and time survive closing the
+  // drawer.
+  const [lastPicklist, setLastPicklist] = useState<QuoteJob | null>(null);
   const [quoteRequesting, setQuoteRequesting] = useState(false);
   // Log-a-call state. callAt is an HTML datetime-local string
   // ("YYYY-MM-DDTHH:MM") in Eastern time; the server stores it as naive UTC.
@@ -134,14 +150,21 @@ export default function DealDetailDrawer({
   // The edit form's time when it opened: an unchanged time is not sent.
   const [editCallAtOpened, setEditCallAtOpened] = useState<string>("");
   const [editCallNotes, setEditCallNotes] = useState<string>("");
+  // Reschedule event / Cancel event (lib/eventChange.ts): which dialog is open,
+  // and the note line the last change appended.
+  const [eventDialog, setEventDialog] = useState<EventChangeMode | null>(null);
+  const [eventMessage, setEventMessage] = useState<string | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Escape closes the reschedule / cancel dialog first, not the drawer.
+      if (eventDialog) setEventDialog(null);
+      else onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, eventDialog]);
 
   // Reset local edits when the deal switches.
   useEffect(() => {
@@ -149,6 +172,31 @@ export default function DealDetailDrawer({
     setError(null);
     setQuoteJob(null);
   }, [deal.id]);
+
+  // Load the deal's latest picklist job.
+  useEffect(() => {
+    let cancelled = false;
+    setLastPicklist(null);
+    (async () => {
+      const { data } = await supabase
+        .from("quote_jobs")
+        .select("*")
+        .eq("deal_id", deal.id)
+        .eq("kind", "picklist")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled && data) setLastPicklist(data as QuoteJob);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, deal.id]);
+
+  // A picklist job asked for here becomes the latest one.
+  useEffect(() => {
+    if (quoteJob?.kind === "picklist") setLastPicklist(quoteJob);
+  }, [quoteJob]);
 
   // Poll the quote job while it's in flight.
   useEffect(() => {
@@ -206,6 +254,24 @@ export default function DealDetailDrawer({
     .filter(Boolean)
     .join(" ");
   const colour = STAGE_COLOURS[current.stage as Stage];
+
+  // A Referral Credit used or undone in the Referrals panel rewrites
+  // named_discounts in the database. Take the stored lines and drop any
+  // unsaved edit of them, so a later save can't put the old lines back.
+  async function reloadNamedDiscounts() {
+    const { data } = await supabase
+      .from("deals")
+      .select("named_discounts")
+      .eq("id", deal.id)
+      .single();
+    if (!data) return;
+    setEdits((prev) => {
+      const next = { ...prev };
+      delete next.named_discounts;
+      return next;
+    });
+    onDealUpdate?.({ ...deal, named_discounts: data.named_discounts } as Deal);
+  }
 
   function setField<K extends keyof Deal>(key: K, value: Deal[K]) {
     setEdits((prev) => ({ ...prev, [key]: value }));
@@ -349,6 +415,35 @@ export default function DealDetailDrawer({
       const body = await res.json().catch(() => ({}));
       alert(`Delete failed: ${body.error || res.status}`);
     }
+  }
+
+  function openEventDialog(mode: EventChangeMode) {
+    if (hasChanges) {
+      setError("Save or discard your changes before rescheduling or cancelling the event.");
+      return;
+    }
+    setError(null);
+    setEventMessage(null);
+    setEventDialog(mode);
+  }
+
+  // The change wrote the deal on the server: re-read it so the drawer and the
+  // board show the new date, stage and note. A failed re-read is surfaced, not
+  // hidden behind the success note (the view is then stale).
+  async function eventChanged(outcome: EventChangeOutcome) {
+    setEventDialog(null);
+    const { data, error } = await supabase
+      .from("deals")
+      .select("*")
+      .eq("id", deal.id)
+      .single();
+    if (data) {
+      setEdits({});
+      onDealUpdate?.(data as Deal);
+    }
+    const shown = eventChangedMessage(outcome, Boolean(data), error?.message);
+    if ("error" in shown) setError(shown.error);
+    else setEventMessage(shown.message);
   }
 
   // Strip common formatting from a phone number for the tel: URL. Keeps
@@ -533,6 +628,26 @@ export default function DealDetailDrawer({
                 ? "Recalculated ✓"
                 : "Recalculate"}
             </button>
+            {canChangeEvent(current.stage) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => openEventDialog("reschedule")}
+                  className="text-xs sm:text-sm bg-sky-500/20 text-sky-200 border border-sky-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-sky-500/30"
+                  title="Move the event to a new date (or to no date yet); its crew shifts and calendar event follow"
+                >
+                  Reschedule event
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openEventDialog("cancel")}
+                  className="text-xs sm:text-sm bg-rose-500/20 text-rose-200 border border-rose-500/40 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 hover:bg-rose-500/30"
+                  title="Move the deal to Closed Lost, delete its calendar event and remove its crew shifts"
+                >
+                  Cancel event
+                </button>
+              </>
+            )}
             {current.stage === "Open" && (
               <>
                 <button
@@ -607,10 +722,36 @@ export default function DealDetailDrawer({
             </div>
           );
         })()}
-        {(error || quoteJob?.error_message) && (
-          <div className="px-5 py-2 bg-rose-950 border-b border-rose-900 text-sm text-rose-200">
-            {error || quoteJob?.error_message}
+        {(() => {
+          // A picklist failure shows below with its time, not here.
+          const jobError =
+            quoteJob?.kind === "picklist" ? null : quoteJob?.error_message;
+          return (error || jobError) ? (
+            <div className="px-5 py-2 bg-rose-950 border-b border-rose-900 text-sm text-rose-200">
+              {error || jobError}
+            </div>
+          ) : null;
+        })()}
+        {(() => {
+          const failure = lastPicklistFailure(lastPicklist);
+          return failure ? (
+            <div className="px-5 py-2 bg-rose-950 border-b border-rose-900 text-sm text-rose-200">
+              Last picklist failed {failure.at}: {failure.reason}
+            </div>
+          ) : null;
+        })()}
+        {eventMessage && (
+          <div className="px-5 py-2 bg-emerald-950 border-b border-emerald-900 text-sm text-emerald-200">
+            {eventMessage}
           </div>
+        )}
+        {eventDialog && (
+          <EventChangeDialog
+            dealId={deal.id}
+            mode={eventDialog}
+            onClose={() => setEventDialog(null)}
+            onDone={eventChanged}
+          />
         )}
         {quoteJob?.status === "done" && (
           <div className="px-5 py-2 bg-emerald-950 border-b border-emerald-900 text-sm text-emerald-200">
@@ -1077,7 +1218,57 @@ export default function DealDetailDrawer({
                     placeholder="0.00"
                   />
                 </FieldRow>
+                <FieldRow label="Named discounts">
+                  {(() => {
+                    // Holiday Gift and Referral Credit (bj-finance #900):
+                    // $100 each, off the ice cream, named on the quote.
+                    const lines = namedDiscountLines(current.named_discounts);
+                    return (
+                      <div className="space-y-1.5">
+                        {lines.map((line, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-slate-200">
+                              {line.name} −${line.amount.toFixed(2)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setField("named_discounts", removeNamedDiscount(lines, i))
+                              }
+                              className="text-xs text-slate-400 hover:text-slate-200 px-2 py-0.5"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex flex-wrap gap-1.5">
+                          {NAMED_DISCOUNTS.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() =>
+                                setField("named_discounts", addNamedDiscount(lines, name))
+                              }
+                              className="text-xs border border-slate-700 rounded-md px-2 py-1 text-slate-300 hover:bg-slate-800"
+                            >
+                              + {name} (−${NAMED_DISCOUNT_AMOUNT})
+                            </button>
+                          ))}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Quote line:{" "}
+                          {discountLineLabel(lines, Number(current.short_notice_surcharge || 0) !== 0)}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </FieldRow>
               </section>
+
+              {/* Referrals (bj-finance #901): who referred this customer, and
+                  their own Referral Credits. Reads and writes the database
+                  only, through migration 029's functions. */}
+              <ReferralPanel deal={deal} onNamedDiscountsChanged={reloadNamedDiscounts} />
 
               <section>
                 <div className="flex items-center justify-between mb-2">
