@@ -35,7 +35,7 @@ import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCam
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
 import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
-import { NAV_KEYS, navFromParams, navQuery, type Nav } from "@/lib/emailCampaignsPrototype/console/nav";
+import { NAV_KEYS, navFromParams, navQuery, nextState, popAction, type Nav } from "@/lib/emailCampaignsPrototype/console/nav";
 import { reloadUrl, saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import {
   ApproachBody,
@@ -96,9 +96,6 @@ function parentOf(n: Nav): Nav {
   return { dim: n.dim };
 }
 
-/** How many console levels deep the current history entry is (0 when the entry has none). */
-const consoleDepth = () => Number((window.history.state as { consoleDepth?: number } | null)?.consoleDepth ?? 0);
-
 function useNav() {
   const sp = useSearchParams();
   const pathname = usePathname();
@@ -119,16 +116,14 @@ function useNav() {
       // How many console levels deep this entry is rides in history.state, so
       // the browser's own Back and Forward keep it right and Esc never leaves
       // the console.
-      const depth = consoleDepth();
-      if (mode === "push") window.history.pushState({ consoleDepth: depth + 1 }, "", href(n));
-      else window.history.replaceState({ consoleDepth: depth }, "", href(n));
+      if (mode === "push") window.history.pushState(nextState(window.history.state, "push"), "", href(n));
+      else window.history.replaceState(nextState(window.history.state, "replace"), "", href(n));
     },
     [href, dimNow],
   );
   const pop = useCallback(() => {
-    const depth = consoleDepth();
-    if (depth > 0) window.history.back();
-    else window.history.replaceState({ consoleDepth: 0 }, "", href(parentOf(nav)));
+    if (popAction(window.history.state) === "back") window.history.back();
+    else window.history.replaceState(nextState(null, "replace"), "", href(parentOf(nav)));
   }, [href, nav]);
   return { nav, go, pop, href };
 }

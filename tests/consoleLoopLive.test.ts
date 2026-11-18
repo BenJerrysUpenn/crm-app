@@ -543,3 +543,43 @@ describe("approach panel", () => {
     expect(body(L, "cold_pilot_a")).toContain("Approved Nov 14 by owner@example.test.");
   });
 });
+
+import { depthOf, nextState, popAction } from "@/lib/emailCampaignsPrototype/console/nav";
+
+describe("console history depth", () => {
+  // Simulates the browser's history stack: each entry keeps the state the
+  // console stored with it, and Back moves the cursor without telling us.
+  function browser(start: unknown) {
+    const stack: unknown[] = [start];
+    let at = 0;
+    return {
+      push: () => { stack.splice(at + 1); stack.push(nextState(stack[at], "push")); at++; },
+      replace: () => { stack[at] = nextState(stack[at], "replace"); },
+      back: () => { at = Math.max(0, at - 1); },
+      esc: () => (popAction(stack[at]) === "back" ? ((at = at - 1), "back") : "replace"),
+      at: () => at,
+      state: () => stack[at],
+    };
+  }
+  it("push, push, Back, Esc lands on the first level, never off the console", () => {
+    const b = browser(null); // a deep link: the page's own entry carries no depth
+    b.push(); // open a type
+    b.push(); // open another
+    b.back(); // the browser's own Back
+    expect(b.esc()).toBe("back"); // up to the page's entry
+    expect(b.at()).toBe(0);
+    expect(b.esc()).toBe("replace"); // closes the deep-linked panel in place, does not leave
+  });
+  it("stepping with replace keeps the depth, so Esc goes up to the list", () => {
+    const b = browser(null);
+    b.push(); // open an email from the list
+    b.replace(); // next email
+    b.replace(); // next email
+    expect(depthOf(b.state())).toBe(1);
+    expect(b.esc()).toBe("back");
+    expect(b.at()).toBe(0);
+  });
+  it("reads a missing or odd state as depth 0", () => {
+    for (const s of [null, undefined, {}, { consoleDepth: "2" }, { consoleDepth: -1 }]) expect(depthOf(s)).toBe(0);
+  });
+});

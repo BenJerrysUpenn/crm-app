@@ -26,3 +26,19 @@ export function navQuery(base: URLSearchParams, n: Nav): URLSearchParams {
 
 /** The same place with the dialog and any form closed. */
 export const withFormsClosed = (n: Nav): Nav => ({ ...n, modal: undefined, layer: undefined, add: undefined });
+
+/** How many console levels deep a history entry is. It rides in
+ * history.state, so the browser's own Back and Forward keep it right (a
+ * counter in the component drifted on Back, and Esc then left the console). */
+export const depthOf = (state: unknown): number => {
+  const d = (state as { consoleDepth?: unknown } | null)?.consoleDepth;
+  return typeof d === "number" && d > 0 ? d : 0;
+};
+
+/** The state to store when drilling ("push") or switching in place ("replace"). */
+export const nextState = (state: unknown, mode: "push" | "replace") => ({ consoleDepth: depthOf(state) + (mode === "push" ? 1 : 0) });
+
+/** Going up one level: step Back while this entry is a console level we
+ * pushed, else replace the entry with the parent (a deep link's first
+ * level, or after Back has used up our levels). */
+export const popAction = (state: unknown): "back" | "replace" => (depthOf(state) > 0 ? "back" : "replace");
