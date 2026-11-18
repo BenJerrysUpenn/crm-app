@@ -42,6 +42,9 @@ async function all<T>(
   return rows;
 }
 
+/** No outreach data: what a screen renders when the load fails. */
+export const emptyRawData = (): RawData => ({ prospects: [], deals: [], sent: [], suppressedEmails: [], blockedDomains: [], mailboxes: [] });
+
 export async function loadRawData(supabase: SupabaseClient): Promise<RawData> {
   const [prospects, cakeNotes, deals, sent, opened, clicked, suppression, blocked, mailboxes] = await Promise.all([
     all<ProspectRow>(

@@ -34,7 +34,7 @@ import { resolveSequence, type SharedState } from "../sharedSequences";
 import { parseNaiveUtc } from "@/lib/dateFormat";
 import type { ConsoleExtras } from "./load";
 import type { SalesLanesData } from "./salesLanes";
-import { etDay, etParts, isWeekday } from "./time";
+import { DAY_MS, etDay, etParts, isWeekday } from "./time";
 
 export type LaneKey = "warm" | "offer" | "wedding" | "cold";
 export const LANE_KEYS: LaneKey[] = ["warm", "offer", "wedding", "cold"];
@@ -169,8 +169,7 @@ export type Facts = {
 };
 
 const lc = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
-const DAY = 86_400_000;
-const QUOTE_STAGES = new Set(["Sent Quote", "Booked Unpaid", "Booked Paid", "Event Complete"]);
+const QUOTE_STAGES = new Set(["Sent Quote", ...BOOKED_STAGES]);
 const HANDLED = new Set(["handed_off", "lost", "suppressed", "deal_created", "unsubscribed"]);
 
 /** Which console lane a prospect row is in (for attributing its events).
@@ -291,7 +290,7 @@ export function buildFacts(raw: RawData, extras: ConsoleExtras, shared: SharedSt
     for (const m of sorted.filter((x) => x.address.endsWith(`@${d}`))) mailboxId.set(m.address, `m${++mi}`);
 
   const days14: string[] = [];
-  for (let i = 13; i >= 0; i--) days14.push(etDay(new Date(nowMs - i * DAY)));
+  for (let i = 13; i >= 0; i--) days14.push(etDay(new Date(nowMs - i * DAY_MS)));
   const day14Set = new Set(days14);
 
   const mailboxes: MailboxFact[] = [];
@@ -363,7 +362,7 @@ export function buildFacts(raw: RawData, extras: ConsoleExtras, shared: SharedSt
   }));
 
   // --- week -----------------------------------------------------------------
-  const ago = (iso: string | null) => (iso ? (nowMs - new Date(iso).getTime()) / DAY : Infinity);
+  const ago = (iso: string | null) => (iso ? (nowMs - new Date(iso).getTime()) / DAY_MS : Infinity);
   const weekLane: Record<LaneKey, { replies: number; quotes: number; bookings: number }> = {
     warm: { replies: 0, quotes: 0, bookings: 0 },
     offer: { replies: 0, quotes: 0, bookings: 0 },
@@ -383,7 +382,7 @@ export function buildFacts(raw: RawData, extras: ConsoleExtras, shared: SharedSt
   for (const d of raw.deals) {
     const created = parseNaiveUtc(d.created_at);
     if (!created) continue;
-    const a = (nowMs - created.getTime()) / DAY;
+    const a = (nowMs - created.getTime()) / DAY_MS;
     if (a >= 35 || a < 0) continue;
     const isQ = QUOTE_STAGES.has(d.stage ?? "");
     const isB = BOOKED_STAGES.has(d.stage ?? "");
@@ -458,7 +457,7 @@ export function buildFacts(raw: RawData, extras: ConsoleExtras, shared: SharedSt
           }
         }
       const firstDue =
-        isUnwritten(spec) && soon > 0 ? new Date(nowMs + Math.max(0, step.waitDays - maxAge) * DAY).toISOString() : null;
+        isUnwritten(spec) && soon > 0 ? new Date(nowMs + Math.max(0, step.waitDays - maxAge) * DAY_MS).toISOString() : null;
       return {
         n: i + 1,
         label: step.subject.trim() ? shortLabel(step.subject) : `Step ${i + 1}`,

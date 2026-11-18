@@ -26,7 +26,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LaneKey } from "./facts";
-import { etDay } from "./time";
+import { DAY_MS, etDay } from "./time";
 
 export const SALES_LANES_SCHEMA = 1;
 
@@ -350,7 +350,7 @@ export function perDay7(l: SalesLane): Measure {
  * with one open deal, paid Instagram winning new customers.
  */
 export function salesLanesFixture(now: Date): unknown {
-  const day = (n: number) => etDay(new Date(now.getTime() - n * 86_400_000));
+  const day = (n: number) => etDay(new Date(now.getTime() - n * DAY_MS));
   const zero = { sent: 0, delivered: 0, opened: 0, opened_human: 0, replied: 0, deals: 0, booked: 0 };
   const money = { new_customers: 0, repeat_customers: 0, revenue_pretax: 0, spend: null, cac: null };
   const lane = (l: string, target: number | null, y: object, w: object, mtd: object, all: object) => ({

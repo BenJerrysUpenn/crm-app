@@ -32,7 +32,7 @@ import {
   type TypeFact,
 } from "@/lib/emailCampaignsPrototype/console/loop";
 import type { LoopAct } from "@/lib/emailCampaignsPrototype/console/loopActions";
-import { dateEt, dowEt, timeEt } from "@/lib/emailCampaignsPrototype/console/time";
+import { DAY_MS, addDays, dateEt, dowEt, timeEt } from "@/lib/emailCampaignsPrototype/console/time";
 import { Badge, Bullet, Glyph, SyntheticTag } from "./bits";
 
 export type LoopNav = { panel?: string; sel?: string; layer?: string; modal?: string; tab?: string; dim?: string };
@@ -46,7 +46,7 @@ const dow = (ymd: string) => dowEt(asDay(ymd));
 const pct = (x: number | null) => (x === null ? "?" : `${Math.round(x * 100)}%`);
 const r1 = (x: number | null) => (x === null ? "?" : x >= 10 ? x.toFixed(0) : x.toFixed(1));
 export const firstSentence = (s: string) => (s.match(/^.*?[.!?](\s|$)/)?.[0] ?? s).trim();
-const daysUntil = (from: string, to: string) => Math.round((new Date(`${to}T12:00:00Z`).getTime() - new Date(`${from}T12:00:00Z`).getTime()) / 86_400_000);
+const daysUntil = (from: string, to: string) => Math.round((new Date(`${to}T12:00:00Z`).getTime() - new Date(`${from}T12:00:00Z`).getTime()) / DAY_MS);
 
 export function approachName(L: LoopFacts, id: string) {
   return L.approaches[id]?.name ?? L.slots[id]?.label ?? id;
@@ -928,7 +928,7 @@ function Timeline({ L, t }: { L: LoopFacts; t: TypeFact }) {
   const W = 420;
   const LABEL = 150;
   const x = (ymd: string) => LABEL + (Math.max(0, Math.min(span, daysUntil(start, ymd))) / span) * (W - LABEL - 8);
-  const cutDay = new Date(new Date(`${start}T12:00:00Z`).getTime() + L.limits.minDaysBeforeEvent * 86_400_000).toISOString().slice(0, 10);
+  const cutDay = addDays(start, L.limits.minDaysBeforeEvent);
   const marks = [...(t.target ? [{ o: t.target, now: true }] : []), ...t.upcoming.map((o) => ({ o, now: false }))];
   const rowH = 14;
   const Ht = 18 + marks.length * rowH + 12;

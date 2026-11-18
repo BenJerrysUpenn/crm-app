@@ -3,6 +3,9 @@
 
 const ET = "America/New_York";
 
+/** One day in milliseconds. */
+export const DAY_MS = 86_400_000;
+
 const fmtParts = new Intl.DateTimeFormat("en-US", {
   timeZone: ET,
   year: "numeric",
@@ -53,7 +56,7 @@ export function businessMinutesBetween(from: Date, to: Date): number {
   let t = from.getTime();
   const end = to.getTime();
   // Guard: never walk more than 30 days.
-  const stop = Math.min(end, t + 30 * 86_400_000);
+  const stop = Math.min(end, t + 30 * DAY_MS);
   while (t < stop) {
     if (inBusiness(new Date(t))) n += 5;
     t += STEP;
@@ -90,8 +93,18 @@ export const dateEt = (d: Date | string) => fmtDate.format(typeof d === "string"
 export const dowEt = (d: Date | string) => fmtDow.format(typeof d === "string" ? new Date(d) : d);
 
 /** The calendar day `n` days after (or before, when negative) 'YYYY-MM-DD'. */
-export const addDays = (ymd: string, n: number) => new Date(new Date(`${ymd}T12:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
+export const addDays = (ymd: string, n: number) => new Date(new Date(`${ymd}T12:00:00Z`).getTime() + n * DAY_MS).toISOString().slice(0, 10);
+
+/** "YYYY-MM-DD" at "HH:MM" New York time as an ISO instant, with the real
+ * daylight-time switch (Intl), not a month rule. */
+export function etInstant(ymd: string, hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const [y, mo, d] = ymd.split("-").map(Number);
+  // Noon UTC is 7am or 8am in New York the same day, after any 2am switch.
+  const offset = 12 - etParts(new Date(Date.UTC(y, mo - 1, d, 12))).hour;
+  return new Date(Date.UTC(y, mo - 1, d, h + offset, m)).toISOString();
+}
 
 /** Whole days between two instants. */
 export const daysBetween = (a: Date | string, b: Date | string) =>
-  Math.floor((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000);
+  Math.floor((new Date(b).getTime() - new Date(a).getTime()) / DAY_MS);

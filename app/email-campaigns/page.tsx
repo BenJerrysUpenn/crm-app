@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { readFile } from "node:fs/promises";
 import TopBar from "@/components/TopBar";
 import ConsoleScreen from "@/components/emailCampaignsPrototype/console/ConsoleScreen";
-import { loadRawData } from "@/lib/emailCampaignsPrototype/load";
+import { emptyRawData, loadRawData } from "@/lib/emailCampaignsPrototype/load";
 import { sequenceRepoForRequest } from "@/lib/emailCampaignsPrototype/sequenceRepo";
 import { emptyState, type SharedState } from "@/lib/emailCampaignsPrototype/sharedSequences";
 import { loadConsoleExtras } from "@/lib/emailCampaignsPrototype/console/load";
@@ -16,6 +16,7 @@ import { loopItems, withHistory, type LoopFacts } from "@/lib/emailCampaignsProt
 import { buildLoopLive, emptyLoop, loadLoopLive } from "@/lib/emailCampaignsPrototype/console/loopLive";
 import { syntheticLoop } from "@/lib/emailCampaignsPrototype/console/loopSynthetic";
 import { syntheticData } from "@/lib/emailCampaignsPrototype/console/synthetic";
+import { DAY_MS } from "@/lib/emailCampaignsPrototype/console/time";
 import { buildSalesLanes, loadSalesLanes, salesLanesFixture, type SalesLanesData } from "@/lib/emailCampaignsPrototype/console/salesLanes";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +44,7 @@ async function devSalesLanes(param: string | string[] | undefined, now: Date): P
   if (want === "unreadable") return buildSalesLanes({ status: "unreadable", message: "permission denied for table metrics_snapshots (synthetic)" }, now);
   const file = process.env.CONSOLE_PROTO_SALES_LANES;
   const payload = want === "unrecognised" ? { schema: 2 } : file ? JSON.parse(await readFile(file, "utf8")) : salesLanesFixture(now);
-  const builtAt = want === "stale" ? new Date(now.getTime() - 2 * 86_400_000).toISOString() : now.toISOString();
+  const builtAt = want === "stale" ? new Date(now.getTime() - 2 * DAY_MS).toISOString() : now.toISOString();
   const data = buildSalesLanes({ status: "read", row: { period: "", built_at: builtAt, payload } }, now);
   return data.status === "ok" ? { ...data, synthetic: file ? `local file ${file.split("/").pop()}` : "synthetic sales_lanes fixture" } : data;
 }
@@ -104,7 +105,7 @@ export default async function EmailCampaignsPage({ searchParams }: { searchParam
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e);
       facts = buildFacts(
-        { prospects: [], deals: [], sent: [], suppressedEmails: [], blockedDomains: [], mailboxes: [] },
+        emptyRawData(),
         { mailboxes: [], sends: [], outcomes: [] },
         emptyState(),
         now,
