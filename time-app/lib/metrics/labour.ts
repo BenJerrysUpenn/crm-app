@@ -109,10 +109,11 @@ export function labourByWeek(
     const w = byWeek.get(weekOf(nyDay(p.clock_in_at)));
     if (!w) continue;
     const person = people.get(p.employee_id);
-    const rate = person?.pay_type === "salaried" ? null : person?.hourly_rate || null;
+    const salaried = person?.pay_type === "salaried";
+    const rate = person?.hourly_rate || null;
     for (const [kind, hours] of Object.entries(punchWork({ ...p, clock_out_at: p.clock_out_at }, shifts, unpunched, marketingDeals)) as [Work, number][]) {
       w[`${kind}Hours`] += hours;
-      if (person?.pay_type === "salaried") w.salariedHours += hours;
+      if (salaried) w.salariedHours += hours;
       else if (rate == null) w.noRateHours += hours;
       else w[`${kind}HourlyCost`] += hours * rate;
     }
