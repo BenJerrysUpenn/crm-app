@@ -260,7 +260,7 @@ const lastYearNeed = (day: string) => `no in-store sales on file for ${longDay(d
 /** Days of recent sales the delivery share is taken over, and how many of them must have delivery on file. */
 export const DELIVERY_SHARE_DAYS = 28;
 export const DELIVERY_SHARE_MIN_DAYS = 14;
-export const NO_DELIVERY_SHARE = "delivery sales on file for at least 14 of the last 28 days";
+export const NO_DELIVERY_SHARE = `delivery sales on file for at least ${DELIVERY_SHARE_MIN_DAYS} of the last ${DELIVERY_SHARE_DAYS} days`;
 
 /**
  * Delivery as a share of in-store sales over `rows` (the last four weeks of
