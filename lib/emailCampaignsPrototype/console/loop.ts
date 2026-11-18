@@ -23,7 +23,7 @@ export type ApproachFact = {
   brief: string;
   createdBy: string;
   createdAt: string;
-  /** Round 4: where the idea came from. "human" is an email people sent
+  /** Where the idea came from. "human" is an email people sent
    * before the loop (its sends are the starting data); "research" came from
    * Alina's reading; "loop" is the loop's own idea. */
   origin: "human" | "research" | "loop";
@@ -76,7 +76,7 @@ export type TypeFact = {
   sentThisWeek: number;
   ready: number;
   held: { reason: string; n: number }[];
-  /** Emailed, but with a changed ask. Empty since 2026-11-16: small groups are not emailed. */
+  /** Emailed, but with a changed ask. Always empty: small groups are not emailed. */
   adjusted: { reason: string; n: number }[];
   /** Per-type reads of each approach: diagnostic only, too few to decide. */
   arms: ArmFact[];
@@ -291,8 +291,7 @@ export const SOURCE_WORD: Record<string, string> = {
 };
 
 /** Under this many replies an approach's range spans more than three times
- * its rate, so it is drawn gray and judged by nothing (round 4: replaces the
- * round 3 placeholder of 150 sends, which was not derived from anything). */
+ * its rate, so it is drawn gray and judged by nothing. */
 export const EARLY_REPLIES = 5;
 export const isEarly = (a: ArmFact) => a.reply.k < EARLY_REPLIES;
 

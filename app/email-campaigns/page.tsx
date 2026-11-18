@@ -20,13 +20,12 @@ import { buildSalesLanes, loadSalesLanes, salesLanesFixture, type SalesLanesData
 export const dynamic = "force-dynamic";
 
 // /email-campaigns: the one-screen console for the weekly email loop
-// (bj-finance #811 spec, #964 loop). Alina, 2026-11-17: "yes build, but you
-// can go all the way with it, rather than having read only".
+// (bj-finance #811 spec, #964 loop).
 //
 // Reads as the signed-in manager (RLS `(select is_manager())`; the loop
 // tables through supabase/crm/014). Writes only through
 // /api/email-campaigns/loop: approve an approach, hold or release one email,
-// pause or resume the loop. The hand-run tiers' old screen is at
+// pause or resume the loop. The hand-run tiers' screen is at
 // /email-campaigns/classic.
 //
 // Local dev only: CONSOLE_PROTO_SYNTHETIC=1 renders a synthetic fixture with

@@ -300,7 +300,7 @@ Local dev: `CONSOLE_PROTO_SYNTHETIC=1` renders a synthetic fixture with no login
 only), with a scenario bar for the attention rules. `CONSOLE_PROTO_LOOP_ROWS` may name a JSON dump
 of real loop rows kept outside this repo; it runs through the live builder (`loopLive.ts`).
 
-The hand-run tiers, sequences and contacts moved to `/email-campaigns/classic`.
+The hand-run tiers, sequences and contacts live at `/email-campaigns/classic`.
 
 ## Email campaigns sequence editor (crm/013)
 The sequence editor on `/email-campaigns/classic` saves steps, and each lane's signature and footer, to

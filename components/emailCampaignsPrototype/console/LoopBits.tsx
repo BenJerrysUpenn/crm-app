@@ -5,11 +5,11 @@
 // its charts and its panels. Gray at rest; colour only through badges.
 // Every action button is a prototype and does nothing.
 //
-// Round 4 (Alina's review, 2026-11-15): the header is one row of pills that
-// never wraps or scrolls; the hand-run lanes are gone (their sends are the
-// loop's starting data); tests are pooled across types; send time is a test;
-// a judge reads every email whole; approaches carry their purpose, evidence
-// and stop rule; one email has a button bar that walks the filtered list.
+// The header is one row of pills that never wraps or scrolls; the hand-run
+// lanes are not drawn (their sends are the loop's starting data); tests are
+// pooled across types; send time is a test; a judge reads every email whole;
+// approaches carry their purpose, evidence and stop rule; one email has a
+// button bar that walks the filtered list.
 
 import { useMemo, useState, type ReactNode } from "react";
 import type { AttentionItem, Level, Rollup } from "@/lib/emailCampaignsPrototype/console/attention";

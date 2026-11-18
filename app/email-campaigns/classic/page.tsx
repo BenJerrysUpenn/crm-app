@@ -9,8 +9,7 @@ import { emptyState, type SharedState } from "@/lib/emailCampaignsPrototype/shar
 
 export const dynamic = "force-dynamic";
 
-// /email-campaigns/classic (was /email-campaigns until the loop console
-// took that address, 2026-11-17): the outreach tiers (Cold, Warm, Offer), their categories,
+// /email-campaigns/classic: the outreach tiers (Cold, Warm, Offer), their categories,
 // sequences and sending capacity. Read-only: the page reads as the signed-in
 // manager (RLS `(select is_manager())`) and computes every tier/category/
 // bucket in lib/emailCampaignsPrototype/model.ts. The sequence editor's shared

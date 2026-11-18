@@ -1,5 +1,5 @@
 // PROTOTYPE (bj-finance #811 rounds 3 and 4), throwaway. A synthetic week of
-// the weekly email loop. Round 4 (Alina's review, 2026-11-15):
+// the weekly email loop:
 //   - the emails people sent by hand are the starting data: the holiday
 //     letter and Cold Pilot A are the baselines, the $100 Holiday Gift is an
 //     approach in the loop, the wedding follow-up is retired. Their counts are
