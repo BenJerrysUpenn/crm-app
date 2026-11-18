@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildFacts } from "@/lib/emailCampaignsPrototype/console/facts";
-import { attentionItems } from "@/lib/emailCampaignsPrototype/console/attention";
+import { attentionItems, consoleItems } from "@/lib/emailCampaignsPrototype/console/attention";
 import { syntheticData } from "@/lib/emailCampaignsPrototype/console/synthetic";
 import { emptyState } from "@/lib/emailCampaignsPrototype/sharedSequences";
 import {
@@ -137,6 +137,18 @@ describe("the badges the sales numbers raise", () => {
     expect(stale.map((i) => [i.rule, i.level])).toEqual([["sales_not_current", "caution"]]);
     expect(stale[0].title).toBe("Sales numbers were last built Nov 11");
     expect(sales({ status: "unreadable", message: "permission denied" }).map((i) => i.title)).toEqual(["Cannot read the sales numbers"]);
+  });
+
+  it("on the console, a lane-named alert and an open offer's deals stay, on the sales panel", () => {
+    // The console drops the hand-run lanes; the sales numbers' own items must not go with them.
+    const onConsole = consoleItems(itemsWith(read(salesLanesFixture(NOW)))).filter(
+      (i) => i.rule === "sales_alert" || i.rule === "offer_deal_open",
+    );
+    expect(onConsole.map((i) => [i.rule, i.path[0], i.home])).toEqual([
+      ["sales_alert", "sales", { kind: "sales" }],
+      ["offer_deal_open", "sales", { kind: "sales" }],
+    ]);
+    expect(onConsole.every((i) => i.fixes.includes("Open the sales numbers"))).toBe(true);
   });
 
   it("a stopped mailbox's item says what it sent yesterday against its lane's daily target", () => {
