@@ -148,7 +148,7 @@ documentation_map:
     docs: [README.md]
   - paths: ["components/ReferralPanel.tsx", "lib/referralCredit.ts"]
     docs: [README.md]
-  - paths: ["app/email-campaigns/**", "app/api/email-campaigns/**", "lib/emailCampaignsPrototype/**", "supabase/crm/013*.sql", "supabase/crm/014*.sql"]
+  - paths: ["app/email-campaigns/**", "app/api/email-campaigns/**", "lib/emailCampaignsPrototype/**", "components/emailCampaignsPrototype/**", "supabase/crm/013*.sql", "supabase/crm/014*.sql"]
     docs: [README.md]
 
 deploy_notes: >-
