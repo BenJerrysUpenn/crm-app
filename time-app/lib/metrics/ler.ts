@@ -4,12 +4,12 @@
 //
 // The owners are not paid, so LER leaves owner pay out (Alina, 2026-11-18):
 // one line, with a switch on the card that puts it in at the house rate,
-// Alex $630 + Alina $846 = $1,476 a week (WEEKLY-01, Resolved), $6,396 a
-// month (x 52 / 12).
+// $1,476 a week for the two owners (WEEKLY-01, Resolved), $6,396 a month
+// (x 52 / 12).
 
 import { round2 } from "./round.ts";
 
-export const OWNER_COMP_WEEKLY = 630 + 846;
+export const OWNER_COMP_WEEKLY = 1476;
 export const OWNER_COMP_MONTHLY = Math.round((OWNER_COMP_WEEKLY * 52) / 12);
 
 export const LER_TARGET = 2;

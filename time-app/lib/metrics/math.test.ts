@@ -111,7 +111,7 @@ test("pace with no target says so rather than dividing by zero", () => {
 
 // ---- LER ---------------------------------------------------------------------------
 
-test("owner comp at the house rate: $630 + $846 a week, $6,396 a month", () => {
+test("owner comp at the house rate: $1,476 a week, $6,396 a month", () => {
   assert.equal(OWNER_COMP_WEEKLY, 1476);
   assert.equal(OWNER_COMP_MONTHLY, 6396); // 1476 x 52 / 12
 });

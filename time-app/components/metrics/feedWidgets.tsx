@@ -92,8 +92,8 @@ function OwnerPaySwitch({ on, set, per }: { on: boolean; set: (v: boolean) => vo
 const lerDetail = (perWeek: boolean) => (
   <p>
     LER = gross profit / labor. Owner pay is left out, since the owners are not paid; the switch adds it at $
-    {(perWeek ? OWNER_COMP_WEEKLY : OWNER_COMP_MONTHLY).toLocaleString()} a {perWeek ? "week" : "month"} (Alex $630 + Alina $846 a
-    week). Target {LER_TARGET.toFixed(1)}; under {LER_FLOOR.toFixed(1)} the business is not viable.
+    {(perWeek ? OWNER_COMP_WEEKLY : OWNER_COMP_MONTHLY).toLocaleString()} a {perWeek ? "week" : "month"}, the house rate for the two
+    owners. Target {LER_TARGET.toFixed(1)}; under {LER_FLOOR.toFixed(1)} the business is not viable.
   </p>
 );
 
