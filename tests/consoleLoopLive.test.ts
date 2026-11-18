@@ -344,3 +344,16 @@ describe("reloadUrl", () => {
     expect(reloadUrl(`${BASE}?panel=loop&dim=1`)).toBe(`${BASE}?panel=loop&dim=1`);
   });
 });
+
+describe("test start dates", () => {
+  it("are days, which the panels' date formatter reads (a timestamp crashed every test panel, 2026-11-18)", () => {
+    const L = buildLoopLive(rows(), ctx, NOW);
+    for (const t of L.tests) expect(t.started).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe("reloadUrl and the add-step form", () => {
+  it("closes the add-step form with the layer, as every other navigation does", () => {
+    expect(reloadUrl("https://crm.example.test/email-campaigns?panel=lane%3Awarm&layer=editlane&add=step")).toBe("https://crm.example.test/email-campaigns?panel=lane%3Awarm");
+  });
+});

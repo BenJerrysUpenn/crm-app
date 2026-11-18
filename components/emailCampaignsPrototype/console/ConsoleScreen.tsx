@@ -35,6 +35,7 @@ import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCam
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
 import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
+import { NAV_KEYS, navQuery, type Nav } from "@/lib/emailCampaignsPrototype/console/nav";
 import { reloadUrl, saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import {
   ApproachBody,
@@ -66,8 +67,6 @@ type Props = {
 
 // --- URL state ----------------------------------------------------------------
 
-type Nav = { panel?: string; sel?: string; layer?: string; add?: string; modal?: string; tab?: string; dim?: string };
-const NAV_KEYS: (keyof Nav)[] = ["panel", "sel", "layer", "add", "modal", "tab", "dim"];
 
 function homeToNav(h: Home): Nav {
   switch (h.kind) {
@@ -108,12 +107,7 @@ function useNav() {
   }
   const href = useCallback(
     (n: Nav) => {
-      const q = new URLSearchParams(sp.toString());
-      // The add-step form only lives inside Edit lane.
-      if (n.layer !== "editlane") n = { ...n, add: undefined };
-      for (const k of NAV_KEYS) q.delete(k);
-      for (const k of NAV_KEYS) if (n[k]) q.set(k, n[k]!);
-      const s = q.toString();
+      const s = navQuery(new URLSearchParams(sp.toString()), n).toString();
       return s ? `${pathname}?${s}` : pathname;
     },
     [sp, pathname],

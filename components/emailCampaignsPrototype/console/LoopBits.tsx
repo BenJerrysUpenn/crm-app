@@ -38,8 +38,12 @@ import { Badge, Bullet, Glyph, SyntheticTag } from "./bits";
 export type LoopNav = { panel?: string; sel?: string; layer?: string; modal?: string; tab?: string; dim?: string };
 type Go = (n: LoopNav) => void;
 
-const day = (ymd: string) => dateEt(`${ymd}T17:00:00Z`);
-const dow = (ymd: string) => dowEt(`${ymd}T17:00:00Z`);
+// A loop date is a day ("YYYY-MM-DD") or a timestamp; both read as that day
+// at noon Eastern, so a timestamp cannot make an invalid date (2026-11-18:
+// a test's start, a timestamp, crashed every test panel).
+const asDay = (x: string) => `${x.slice(0, 10)}T17:00:00Z`;
+const day = (ymd: string) => dateEt(asDay(ymd));
+const dow = (ymd: string) => dowEt(asDay(ymd));
 const pct = (x: number | null) => (x === null ? "?" : `${Math.round(x * 100)}%`);
 const r1 = (x: number | null) => (x === null ? "?" : x >= 10 ? x.toFixed(0) : x.toFixed(1));
 export const firstSentence = (s: string) => (s.match(/^.*?[.!?](\s|$)/)?.[0] ?? s).trim();

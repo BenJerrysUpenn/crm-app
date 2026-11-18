@@ -2,6 +2,8 @@
 // route (app/api/email-campaigns/loop) takes them. Each one is a database
 // function from supabase/crm/014 run as the signed-in manager.
 
+import { navFromParams, navQuery, withFormsClosed } from "./nav";
+
 export type LoopAction =
   | { action: "approve"; approach: string }
   | { action: "hold"; draft: number; reason: string }
@@ -68,7 +70,7 @@ export function doneWords(a: LoopAction): string {
  * would keep showing its Approve buttons. */
 export function reloadUrl(href: string): string {
   const u = new URL(href);
-  u.searchParams.delete("modal");
-  u.searchParams.delete("layer");
+  const q = navQuery(u.searchParams, withFormsClosed(navFromParams(u.searchParams)));
+  u.search = q.toString();
   return u.toString();
 }
