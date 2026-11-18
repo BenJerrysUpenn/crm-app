@@ -583,9 +583,37 @@ describe("console history depth", () => {
 });
 
 describe("a human try", () => {
-  it("says it was scheduled by hand, not drawn", () => {
+  const emailPanel = (over: Record<string, unknown>) => {
+    const L = buildLoopLive(
+      rows({
+        drafts: [draft(1, "holiday_letter", "planned", over)],
+        sequences: [{ id: 1, occasion_id: "holiday_party_season", event_date: "2026-12-12", date_basis: "occasion", date_source: "occasion_calendar", date_confidence: null, planned_steps: 1 }] as LiveRows["sequences"],
+      }),
+      ctx,
+      NOW,
+    );
+    return words(createElement(EmailBody, { ...panel(L), d: L.drafts[0] }));
+  };
+
+  it("says in the email panel it was scheduled by hand, not drawn", () => {
+    const text = emailPanel({ assigned_by: "human" });
+    expect(text).toContain("A human try: scheduled by hand for this day, in your approved words, sent as written.");
+    expect(text).not.toContain("Drawn by how each approach is doing.");
+  });
+
+  it("keeps the baseline's and the drawn emails' reasons", () => {
+    expect(emailPanel({ assigned_by: "baseline_quota" })).toContain("The baseline's share of the day.");
+    expect(emailPanel({ assigned_by: "thompson" })).toContain("Drawn by how each approach is doing.");
+  });
+
+  it("keeps who assigned it as human", () => {
     const L = buildLoopLive(rows({ drafts: [draft(1, "holiday_letter", "planned", { assigned_by: "human" })] }), ctx, NOW);
-    expect(L.drafts[0].pick).toMatch(/^A human try/);
     expect(L.drafts[0].assignedBy).toBe("human");
+  });
+
+  it("previews every {sender_first} as the coordinator who sends it", () => {
+    const text = emailPanel({ body: "Warm wishes,\n{sender_first}\nP.S. Reply to {sender_first} directly." });
+    expect(text).toContain("Warm wishes, (the coordinator who sends it) P.S. Reply to (the coordinator who sends it) directly.");
+    expect(text).not.toContain("{sender_first}");
   });
 });
