@@ -619,11 +619,35 @@ describe("a human try", () => {
 });
 
 describe("emails planned for a later week", () => {
-  it("are not this week's backlog or waiting count", () => {
-    const later = Array.from({ length: 200 }, (_, i) => draft(500 + i, "holiday_letter", "planned", { send_on: "2026-12-08", assigned_by: "human" }));
-    const L = buildLoopLive(rows({ drafts: [draft(1, "holiday_letter", "sent", { done_at: "2026-11-17T15:30:00Z" }), ...later] }), ctx, NOW);
+  // The loop week of NOW runs Monday 16 to Sunday 22 November; Monday 23 is next week's.
+  const sentToday = draft(1, "holiday_letter", "sent", { done_at: "2026-11-17T15:30:00Z" });
+  const on = (from: number, n: number, send_on: string) =>
+    Array.from({ length: n }, (_, i) => draft(from + i, "holiday_letter", "planned", { send_on, assigned_by: "human" }));
+
+  it("are not counted as waiting to send this week", () => {
+    const L = buildLoopLive(rows({ drafts: [sentToday, ...on(500, 200, "2026-12-08")] }), ctx, NOW);
     expect(L.volume.warm.ready).toBe(0);
     expect(L.types.find((t) => t.key === "warm:corporate")!.ready).toBe(0);
+  });
+
+  it("leave last week's carried-over and Sunday's emails waiting, and only next Monday's out", () => {
+    const L = buildLoopLive(
+      rows({ drafts: [sentToday, ...on(100, 1, "2026-11-13"), ...on(200, 1, "2026-11-22"), ...on(300, 1, "2026-11-23")] }),
+      ctx,
+      NOW,
+    );
+    expect(L.volume.warm.ready).toBe(2);
+    expect(L.types.find((t) => t.key === "warm:corporate")!.ready).toBe(2);
+  });
+
+  it("raise no backlog caution however many there are", () => {
+    const L = buildLoopLive(rows({ drafts: [sentToday, ...on(500, 200, "2026-12-08")] }), ctx, NOW);
     expect(loopItems(L).some((i) => i.id === "loop:backlog")).toBe(false);
+  });
+
+  it("leave the backlog counting only this week's emails, up to Sunday", () => {
+    // Tuesday 3pm: Wednesday to Friday left, 20 a day of room.
+    const L = buildLoopLive(rows({ drafts: [sentToday, ...on(100, 61, "2026-11-22"), ...on(500, 200, "2026-11-23")] }), ctx, NOW);
+    expect(loopItems(L).find((i) => i.id === "loop:backlog")?.title).toBe("61 emails waiting, room for about 60 by Friday");
   });
 });
