@@ -11,9 +11,9 @@
 //              mailbox, which the loop never sends from. Anything else is not
 //              loop room.
 
-export const LOOP_WARM_DOMAIN = "news.benjerryphilly.com";
-export const LOOP_COLD_DOMAIN = "phillyicecreamcatering.com";
-export const LOOP_COLD_OWNER = `alina@${LOOP_COLD_DOMAIN}`;
+const LOOP_WARM_DOMAIN = "news.benjerryphilly.com";
+const LOOP_COLD_DOMAIN = "phillyicecreamcatering.com";
+const LOOP_COLD_OWNER = `alina@${LOOP_COLD_DOMAIN}`;
 
 export function handLane(domain: string): "warm" | "cold" {
   return domain.toLowerCase().includes("benjerryphilly") ? "warm" : "cold";
