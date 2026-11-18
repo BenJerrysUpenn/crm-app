@@ -2,13 +2,14 @@
 // five writes (loopActions.ts). Pins that waiting-for-approval and held
 // emails are told apart, that test counts come from what happened after each
 // sent email, that a run without recorded limits says so instead of showing
-// zeros, and that the API refuses anything but the five actions. Invented
+// zeros, that the API refuses anything but the five actions, and that a
+// save reloads to the same place with its dialog closed. Invented
 // people and figures; crm-app is public.
 
 import { describe, expect, it } from "vitest";
 import { buildLoopLive, emptyLoop, limitsOf, outcomesOf, type LiveRows } from "@/lib/emailCampaignsPrototype/console/loopLive";
 import { loopItems } from "@/lib/emailCampaignsPrototype/console/loop";
-import { doneWords, rpcFor, saveOutcome } from "@/lib/emailCampaignsPrototype/console/loopActions";
+import { doneWords, reloadUrl, rpcFor, saveOutcome } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import type { OutcomeEvent } from "@/lib/emailCampaignsPrototype/console/load";
 
 // Tuesday 17 Nov 2026, 3pm in New York.
@@ -324,13 +325,22 @@ describe("consoleItems", () => {
   });
 });
 
-import { reloadUrl } from "@/lib/emailCampaignsPrototype/console/loopActions";
-
+// Where the page reloads to after a save (so every panel redraws from the
+// database): the same place, with the dialog or form that saved closed.
 describe("reloadUrl", () => {
-  it("keeps the panel and email, and closes the dialog or form that saved", () => {
-    expect(reloadUrl("https://crm.example.test/email-campaigns?panel=emails&sel=email%3A165&modal=approve%3Aparty_first&tab=a%3Aparty_first")).toBe(
-      "https://crm.example.test/email-campaigns?panel=emails&sel=email%3A165&tab=a%3Aparty_first",
+  const BASE = "https://crm.example.test/email-campaigns";
+
+  it("closes the approve dialog and keeps the panel, email and tab", () => {
+    expect(reloadUrl(`${BASE}?panel=emails&sel=email%3A165&modal=approve%3Aparty_first&tab=a%3Aparty_first`)).toBe(
+      `${BASE}?panel=emails&sel=email%3A165&tab=a%3Aparty_first`,
     );
-    expect(reloadUrl("https://crm.example.test/email-campaigns?panel=emails&sel=email%3A7&layer=flag")).toBe("https://crm.example.test/email-campaigns?panel=emails&sel=email%3A7");
+  });
+
+  it("closes the hold form and keeps the panel and email", () => {
+    expect(reloadUrl(`${BASE}?panel=emails&sel=email%3A7&layer=flag`)).toBe(`${BASE}?panel=emails&sel=email%3A7`);
+  });
+
+  it("leaves a place with nothing open exactly as it was, filter included", () => {
+    expect(reloadUrl(`${BASE}?panel=loop&dim=1`)).toBe(`${BASE}?panel=loop&dim=1`);
   });
 });
