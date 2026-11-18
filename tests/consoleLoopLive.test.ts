@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { buildLoopLive, emptyLoop, limitsOf, outcomesOf, type LiveRows } from "@/lib/emailCampaignsPrototype/console/loopLive";
 import { loopItems } from "@/lib/emailCampaignsPrototype/console/loop";
 import { doneWords, reloadUrl, rpcFor, saveOutcome } from "@/lib/emailCampaignsPrototype/console/loopActions";
+import { navQuery } from "@/lib/emailCampaignsPrototype/console/nav";
 import type { OutcomeEvent } from "@/lib/emailCampaignsPrototype/console/load";
 
 // Tuesday 17 Nov 2026, 3pm in New York.
@@ -340,20 +341,39 @@ describe("reloadUrl", () => {
     expect(reloadUrl(`${BASE}?panel=emails&sel=email%3A7&layer=flag`)).toBe(`${BASE}?panel=emails&sel=email%3A7`);
   });
 
+  it("closes the add-step form with the Edit lane layer", () => {
+    expect(reloadUrl(`${BASE}?panel=lane%3Awarm&layer=editlane&add=step`)).toBe(`${BASE}?panel=lane%3Awarm`);
+  });
+
   it("leaves a place with nothing open exactly as it was, filter included", () => {
     expect(reloadUrl(`${BASE}?panel=loop&dim=1`)).toBe(`${BASE}?panel=loop&dim=1`);
   });
 });
 
-describe("test start dates", () => {
-  it("are days, which the panels' date formatter reads (a timestamp crashed every test panel, 2026-11-18)", () => {
-    const L = buildLoopLive(rows(), ctx, NOW);
-    for (const t of L.tests) expect(t.started).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+// Every console navigation builds its query string with navQuery.
+describe("navQuery", () => {
+  const q = (s: string) => new URLSearchParams(s);
+
+  it("keeps the add-step form open inside Edit lane", () => {
+    expect(navQuery(q(""), { panel: "lane:warm", layer: "editlane", add: "step" }).toString()).toBe("panel=lane%3Awarm&layer=editlane&add=step");
+  });
+
+  it("drops the add-step form when the layer is anything but Edit lane", () => {
+    expect(navQuery(q(""), { panel: "lane:warm", layer: "flag", add: "step" }).toString()).toBe("panel=lane%3Awarm&layer=flag");
+  });
+
+  it("replaces the old place and keeps query keys that are not console state", () => {
+    expect(navQuery(q("scenario=quiet&panel=loop&modal=pause"), { panel: "emails" }).toString()).toBe("scenario=quiet&panel=emails");
   });
 });
 
-describe("reloadUrl and the add-step form", () => {
-  it("closes the add-step form with the layer, as every other navigation does", () => {
-    expect(reloadUrl("https://crm.example.test/email-campaigns?panel=lane%3Awarm&layer=editlane&add=step")).toBe("https://crm.example.test/email-campaigns?panel=lane%3Awarm");
+describe("test start dates", () => {
+  it("are the day each test began, which the panels' date formatter reads (a timestamp crashed every test panel, 2026-11-18)", () => {
+    const L = buildLoopLive(rows(), ctx, NOW);
+    expect(Object.fromEntries(L.tests.map((t) => [t.id, t.started]))).toEqual({
+      warm_first_email: "2026-11-15",
+      cold_first_email: "2026-11-15",
+      send_time: "2026-11-16",
+    });
   });
 });
