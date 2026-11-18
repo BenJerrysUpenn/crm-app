@@ -311,6 +311,10 @@ sequences (crm/013) or of the loop's tables is said in a notice at the top, neve
 Which lane a mailbox belongs to is decided only in `console/mailboxLanes.ts`: `handLane` for the
 mailbox panels, `loopLane` for the loop sender's own mailboxes.
 
+The console's own levels (panel, email, layer) are history entries whose `history.state.consoleDepth` counts how many
+levels deep the entry is; Esc goes `history.back()` while it is above 0, else replaces the entry with the parent
+(`useNav` in `ConsoleScreen.tsx`). Anything that must not add a level (the email arrows) navigates with `replace`.
+
 ## Email campaigns sequence editor (crm/013)
 The sequence editor on `/email-campaigns/classic` saves steps, and each lane's signature and footer, to
 the shared copy in Supabase: `supabase/crm/013_email_campaign_sequences.sql` (apply by hand in
