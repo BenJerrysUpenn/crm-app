@@ -35,7 +35,7 @@ import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCam
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
 import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
-import { NAV_KEYS, navQuery, type Nav } from "@/lib/emailCampaignsPrototype/console/nav";
+import { NAV_KEYS, navFromParams, navQuery, type Nav } from "@/lib/emailCampaignsPrototype/console/nav";
 import { reloadUrl, saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import {
   ApproachBody,
@@ -100,11 +100,7 @@ function useNav() {
   const sp = useSearchParams();
   const pathname = usePathname();
   const pushed = useRef(0);
-  const nav: Nav = {};
-  for (const k of NAV_KEYS) {
-    const v = sp.get(k);
-    if (v) nav[k] = v;
-  }
+  const nav = navFromParams(sp);
   const href = useCallback(
     (n: Nav) => {
       const s = navQuery(new URLSearchParams(sp.toString()), n).toString();
