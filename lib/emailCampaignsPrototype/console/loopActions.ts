@@ -63,9 +63,9 @@ export function doneWords(a: LoopAction): string {
 
 /** Where the page reloads to after a save: the same panel and email, with
  * the dialog or form that made the save closed. A full reload, because the
- * console moves between panels with history.pushState and router.refresh()
- * then redraws the data the page first loaded with (seen 2026-11-18: an
- * approved approach still showed its Approve buttons until a manual reload). */
+ * console moves between panels with history.pushState, so router.refresh()
+ * would redraw the data the page first loaded with and a saved approach
+ * would keep showing its Approve buttons. */
 export function reloadUrl(href: string): string {
   const u = new URL(href);
   u.searchParams.delete("modal");
