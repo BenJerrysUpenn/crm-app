@@ -4,7 +4,7 @@
 // into these facts in loopLive.ts; the synthetic week is loopSynthetic.ts.
 
 import type { AttentionItem } from "./attention";
-import { dateEt, etDay, etParts, isWeekday } from "./time";
+import { addDays, dateEt, etDay, etParts, isWeekday } from "./time";
 
 export type Tier = "warm" | "cold" | "offer";
 
@@ -592,10 +592,8 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
  * weekday, the coming Monday at the weekend (the run plans the week ahead). */
 export function loopWeekStart(now: Date): string {
   const p = etParts(now);
-  const d = new Date(`${p.ymd}T12:00:00Z`);
   const dow = p.weekday; // 0 Sunday .. 6 Saturday
-  const shift = dow === 0 ? 1 : dow === 6 ? 2 : 1 - dow;
-  return new Date(d.getTime() + shift * 86_400_000).toISOString().slice(0, 10);
+  return addDays(p.ymd, dow === 0 ? 1 : dow === 6 ? 2 : 1 - dow);
 }
 
 export const todayEt = (now: Date) => etDay(now);

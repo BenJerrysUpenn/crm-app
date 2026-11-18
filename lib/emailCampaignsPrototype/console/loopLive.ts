@@ -36,6 +36,7 @@ import {
   type TypeFact,
 } from "./loop";
 import { SLOTS } from "./loopStatic";
+import { addDays } from "./time";
 
 // ---------------------------------------------------------------------------
 // Rows
@@ -133,7 +134,6 @@ export type LiveRows = {
 export type LiveInputs = { status: "unreadable"; message: string } | { status: "empty" } | { status: "read"; rows: LiveRows };
 
 const DAY = 86_400_000;
-const addDays = (ymd: string, n: number) => new Date(new Date(`${ymd}T12:00:00Z`).getTime() + n * DAY).toISOString().slice(0, 10);
 
 /** Reads the loop. "unreadable" before crm/014 gives managers read access;
  * "empty" before the loop has logged a run. */

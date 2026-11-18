@@ -89,6 +89,9 @@ export const timeEt = (d: Date | string) => fmtTime.format(typeof d === "string"
 export const dateEt = (d: Date | string) => fmtDate.format(typeof d === "string" ? new Date(d) : d);
 export const dowEt = (d: Date | string) => fmtDow.format(typeof d === "string" ? new Date(d) : d);
 
+/** The calendar day `n` days after (or before, when negative) 'YYYY-MM-DD'. */
+export const addDays = (ymd: string, n: number) => new Date(new Date(`${ymd}T12:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
+
 /** Whole days between two instants. */
 export const daysBetween = (a: Date | string, b: Date | string) =>
   Math.floor((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000);

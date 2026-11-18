@@ -35,9 +35,9 @@ import {
   type TypeFact,
 } from "./loop";
 import { E, SLOTS } from "./loopStatic";
+import { addDays } from "./time";
 
 const TAG = "synthetic loop week (nothing has run live yet)";
-const DAY = 86_400_000;
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -47,7 +47,6 @@ function rng(seed: number) {
   };
 }
 
-const addDays = (ymd: string, n: number) => new Date(new Date(`${ymd}T12:00:00Z`).getTime() + n * DAY).toISOString().slice(0, 10);
 /** 'YYYY-MM-DD' at hh:mm New York time (EST in winter), as ISO. */
 const etAt = (ymd: string, h: number, m = 0) => new Date(`${ymd}T${String(h + 5).padStart(2, "0")}:${String(m).padStart(2, "0")}:00Z`).toISOString();
 
