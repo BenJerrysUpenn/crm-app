@@ -718,7 +718,7 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
       {nav.panel ? (
         <SidePanel f={f} loop={L} items={items} nav={nav} go={go} pop={pop} href={href} say={say} act={act} dirty={dirty} escape={escape} />
       ) : null}
-      {nav.modal ? <ConfirmModal f={f} loop={L} nav={nav} pop={pop} say={say} act={act} /> : null}
+      {nav.modal ? <ConfirmModal f={f} loop={L} nav={nav} pop={pop} act={act} /> : null}
       {palette ? <Palette f={f} loop={L} onClose={() => setPalette(false)} go={(n) => { setPalette(false); go(n); }} /> : null}
       {msg ? (
         <div role="status" className="fixed bottom-20 left-1/2 z-[70] -translate-x-1/2 rounded bg-fuchsia-950 px-3 py-2 text-xs text-fuchsia-100 shadow-lg">
@@ -1634,7 +1634,7 @@ function ReplyBody(p: PanelProps & { r: Facts["replies"][number] }) {
   );
 }
 
-function ConfirmModal({ f, loop: L, nav, pop, act }: { f: Facts; loop: LoopFacts; nav: Nav; pop: () => void; say: (s: string) => void; act: LoopAct }) {
+function ConfirmModal({ f, loop: L, nav, pop, act }: { f: Facts; loop: LoopFacts; nav: Nav; pop: () => void; act: LoopAct }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [why, setWhy] = useState("");
   const [busy, setBusy] = useState(false);
