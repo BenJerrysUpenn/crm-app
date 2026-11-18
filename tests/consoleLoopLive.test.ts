@@ -305,6 +305,7 @@ describe("mailbox lanes", () => {
     expect(handLane("benjerryphilly.com")).toBe("warm");
     expect(handLane("news.benjerryphilly.com")).toBe("warm");
     expect(handLane("phillyicecreamcatering.com")).toBe("cold");
+    expect(handLane("News.BenJerryPhilly.com")).toBe("warm");
   });
 });
 
