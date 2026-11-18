@@ -23,13 +23,16 @@ export const runtime = "nodejs";
 //       whose mail a scanner touched — so consent is the button press, which
 //       is the owners' ruling.
 // POST  /offers/<token>  the button. Verifies the token, then one RPC
-//       (supabase/crm/007_offers_opt_in.sql) records the consent row, sets
-//       the opt-in on the prospect and logs an 'opted_in' event, in one
-//       transaction. A yes after an opt-out is a real yes (owners' ruling
-//       2026-09-27): the same transaction lifts the suppression and records
-//       what it lifted, and the person sees the same confirmation as anyone
-//       else. It writes nothing on a repeat press, and refuses only a 'dead'
-//       (test or invalid) row, which is a 404 like any other bad link.
+//       (outreach_offers_opt_in, supabase/crm/009_offers_opt_in_signup_form.sql;
+//       crm/007 creates it) records the consent row, sets the opt-in on the
+//       prospect and logs an 'opted_in' event, in one transaction. A yes after
+//       an opt-out is a real yes (owners' ruling 2026-09-27): the same
+//       transaction lifts the suppression and records what it lifted, and the
+//       person sees the same confirmation as anyone else. It writes nothing on
+//       a repeat press (a dated explicit_yes or signup_form opt-in, not opted
+//       out since; an undated one is re-recorded), and
+//       refuses only a 'dead' (test or invalid) row, which is a 404 like any
+//       other bad link.
 //
 // Mirrors app/api/unsubscribe/[token]/route.ts on purpose: the service-role
 // client (the person is not a CRM user; the token is the authorisation), a
@@ -66,6 +69,12 @@ function notFound(): NextResponse {
   return text("Not found.\n", 404);
 }
 
+/** Identical for a failed lookup, a failed RPC, and an outcome the route
+ *  cannot confirm. */
+function failed(): NextResponse {
+  return text("Offers sign-up failed.\n", 500);
+}
+
 type Verified = { parsed: ParsedToken; email: string };
 
 /** Decode the token, look the prospect up, recompute the MAC over the stored
@@ -90,7 +99,7 @@ async function verify(
     .eq("id", parsed.prospectId)
     .maybeSingle();
 
-  if (error) return { ok: false, response: text("Offers sign-up failed.\n", 500) };
+  if (error) return { ok: false, response: failed() };
   const email = typeof data?.email === "string" ? data.email.trim() : "";
   if (!email) return { ok: false, response: notFound() };
   if (!verifyOffersToken(parsed, email, secret)) return { ok: false, response: notFound() };
@@ -155,15 +164,20 @@ export async function POST(
     p_user_agent: userAgent || null,
   });
 
-  if (error) return text("Offers sign-up failed.\n", 500);
+  if (error) return failed();
 
   const outcome = (data ?? {}) as OptInResult;
   // 'dead' is the only refusal left: a test or invalid row. Nobody real is
   // behind it, so it answers like any other link that leads nowhere.
   if (outcome.refused || !outcome.email_present) return notFound();
 
-  // A repeat press shows the date they first said yes, which is the date the
-  // stored proof carries.
-  const at = outcome.opted_in_at ? new Date(outcome.opted_in_at) : new Date();
+  // Every outcome that reaches here carries a date: the 'already' branch
+  // requires opt_in_at IS NOT NULL (crm/009), and the write path sets now().
+  // A success with no date is a broken invariant between the RPC and this
+  // route, not a person to confirm, so fail loudly rather than fabricate
+  // today's date (CODING_STANDARDS.md:10). The date shown is the one the
+  // stored proof carries — for a repeat, the date they first said yes.
+  if (!outcome.opted_in_at) return failed();
+  const at = new Date(outcome.opted_in_at);
   return html(offersSignedUpHtml(at, result.value.email));
 }
