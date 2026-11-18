@@ -313,7 +313,8 @@ mailbox panels, `loopLane` for the loop sender's own mailboxes.
 
 The console's own levels (panel, email, layer) are history entries whose `history.state.consoleDepth` counts how many
 levels deep the entry is; Esc goes `history.back()` while it is above 0, else replaces the entry with the parent
-(`useNav` in `ConsoleScreen.tsx`). Anything that must not add a level (the email arrows) navigates with `replace`.
+(`depthOf`, `nextState`, `popAction` in `lib/emailCampaignsPrototype/console/nav.ts`, applied by `useNav` in
+`ConsoleScreen.tsx`). Anything that must not add a level (the email arrows) navigates with `replace`.
 
 ## Email campaigns sequence editor (crm/013)
 The sequence editor on `/email-campaigns/classic` saves steps, and each lane's signature and footer, to
