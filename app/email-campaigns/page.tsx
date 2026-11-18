@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { readFile } from "node:fs/promises";
@@ -45,6 +46,11 @@ async function devSalesLanes(param: string | string[] | undefined, now: Date): P
   const builtAt = want === "stale" ? new Date(now.getTime() - 2 * 86_400_000).toISOString() : now.toISOString();
   const data = buildSalesLanes({ status: "read", row: { period: "", built_at: builtAt, payload } }, now);
   return data.status === "ok" ? { ...data, synthetic: file ? `local file ${file.split("/").pop()}` : "synthetic sales_lanes fixture" } : data;
+}
+
+/** A gray notice above the console: something it could not read. */
+function Notice({ children }: { children: ReactNode }) {
+  return <div className="mx-4 mt-3 rounded-md border border-dashed border-slate-500 bg-slate-900 p-2 text-xs text-slate-300">◌ {children}</div>;
 }
 
 export default async function EmailCampaignsPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
@@ -125,14 +131,8 @@ export default async function EmailCampaignsPage({ searchParams }: { searchParam
           <div className="m-4 rounded-md border border-dashed border-slate-500 bg-slate-900 p-3 text-sm text-slate-300">◌ No data. Could not load outreach data: {error}</div>
         ) : (
           <>
-            {L.unavailable ? (
-              <div className="mx-4 mt-3 rounded-md border border-dashed border-slate-500 bg-slate-900 p-2 text-xs text-slate-300">◌ {L.unavailable}</div>
-            ) : null}
-            {sharedError ? (
-              <div className="mx-4 mt-3 rounded-md border border-dashed border-slate-500 bg-slate-900 p-2 text-xs text-slate-300">
-                ◌ Could not read the saved sequences, so step counts use the original copy: {sharedError}
-              </div>
-            ) : null}
+            {L.unavailable ? <Notice>{L.unavailable}</Notice> : null}
+            {sharedError ? <Notice>Could not read the saved sequences, so step counts use the original copy: {sharedError}</Notice> : null}
             <ConsoleScreen facts={f} loop={L} items={items} idle={idle} scenario={scenario} source={synthetic ? "synthetic" : "real"} />
           </>
         )}
