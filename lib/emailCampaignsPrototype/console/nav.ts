@@ -28,8 +28,9 @@ export function navQuery(base: URLSearchParams, n: Nav): URLSearchParams {
 export const withFormsClosed = (n: Nav): Nav => ({ ...n, modal: undefined, layer: undefined, add: undefined });
 
 /** How many console levels deep a history entry is. It rides in
- * history.state, so the browser's own Back and Forward keep it right (a
- * counter in the component drifted on Back, and Esc then left the console). */
+ * history.state, so the browser's own Back and Forward keep it right; a
+ * counter held in the component would not follow them, and Esc would leave
+ * the console. */
 export const depthOf = (state: unknown): number => {
   const d = (state as { consoleDepth?: unknown } | null)?.consoleDepth;
   return typeof d === "number" && d > 0 ? d : 0;
