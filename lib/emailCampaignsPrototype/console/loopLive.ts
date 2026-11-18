@@ -550,7 +550,7 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
       question: QUESTION[tier],
       arms,
       weekly: weekTier.length,
-      started: arms.map((a) => a.since).sort()[0] ?? weekStart,
+      started: (arms.map((a) => a.since).sort()[0] ?? weekStart).slice(0, 10),
       why: QUESTION_WHY[tier],
     });
   }
@@ -571,7 +571,7 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
       question: "When should an email land?",
       arms,
       weekly: thisWeek.length,
-      started: arms[0].since,
+      started: arms[0].since.slice(0, 10),
       why: "The same emails at different hours, across every type.",
     });
   }

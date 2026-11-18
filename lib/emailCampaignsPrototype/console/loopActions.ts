@@ -2,6 +2,8 @@
 // route (app/api/email-campaigns/loop) takes them. Each one is a database
 // function from supabase/crm/014 run as the signed-in manager.
 
+import { navFromParams, navQuery, withFormsClosed } from "./nav";
+
 export type LoopAction =
   | { action: "approve"; approach: string }
   | { action: "hold"; draft: number; reason: string }
@@ -59,4 +61,16 @@ export function doneWords(a: LoopAction): string {
     case "resume":
       return "Resumed. The sender picks up at its next send time.";
   }
+}
+
+/** Where the page reloads to after a save: the same panel and email, with
+ * the dialog or form that made the save closed. A full reload, because the
+ * console moves between panels with history.pushState, so router.refresh()
+ * would redraw the data the page first loaded with and a saved approach
+ * would keep showing its Approve buttons. */
+export function reloadUrl(href: string): string {
+  const u = new URL(href);
+  const q = navQuery(u.searchParams, withFormsClosed(navFromParams(u.searchParams)));
+  u.search = q.toString();
+  return u.toString();
 }

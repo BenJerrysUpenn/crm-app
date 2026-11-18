@@ -2,13 +2,15 @@
 // five writes (loopActions.ts). Pins that waiting-for-approval and held
 // emails are told apart, that test counts come from what happened after each
 // sent email, that a run without recorded limits says so instead of showing
-// zeros, and that the API refuses anything but the five actions. Invented
+// zeros, that the API refuses anything but the five actions, and that a
+// save reloads to the same place with its dialog closed. Invented
 // people and figures; crm-app is public.
 
 import { describe, expect, it } from "vitest";
 import { buildLoopLive, emptyLoop, limitsOf, outcomesOf, type LiveRows } from "@/lib/emailCampaignsPrototype/console/loopLive";
 import { loopItems } from "@/lib/emailCampaignsPrototype/console/loop";
-import { doneWords, rpcFor, saveOutcome } from "@/lib/emailCampaignsPrototype/console/loopActions";
+import { doneWords, reloadUrl, rpcFor, saveOutcome } from "@/lib/emailCampaignsPrototype/console/loopActions";
+import { navQuery } from "@/lib/emailCampaignsPrototype/console/nav";
 import type { OutcomeEvent } from "@/lib/emailCampaignsPrototype/console/load";
 
 // Tuesday 17 Nov 2026, 3pm in New York.
@@ -321,5 +323,57 @@ describe("consoleItems", () => {
     expect(out.map((i) => i.id)).toEqual(["a", "c"]);
     expect(out[0].path).toEqual(["sales", "cold", "sales"]);
     expect(out[0].home).toEqual({ kind: "sales" });
+  });
+});
+
+// Where the page reloads to after a save (so every panel redraws from the
+// database): the same place, with the dialog or form that saved closed.
+describe("reloadUrl", () => {
+  const BASE = "https://crm.example.test/email-campaigns";
+
+  it("closes the approve dialog and keeps the panel, email and tab", () => {
+    expect(reloadUrl(`${BASE}?panel=emails&sel=email%3A165&modal=approve%3Aparty_first&tab=a%3Aparty_first`)).toBe(
+      `${BASE}?panel=emails&sel=email%3A165&tab=a%3Aparty_first`,
+    );
+  });
+
+  it("closes the hold form and keeps the panel and email", () => {
+    expect(reloadUrl(`${BASE}?panel=emails&sel=email%3A7&layer=flag`)).toBe(`${BASE}?panel=emails&sel=email%3A7`);
+  });
+
+  it("closes the add-step form with the Edit lane layer", () => {
+    expect(reloadUrl(`${BASE}?panel=lane%3Awarm&layer=editlane&add=step`)).toBe(`${BASE}?panel=lane%3Awarm`);
+  });
+
+  it("leaves a place with nothing open exactly as it was, filter included", () => {
+    expect(reloadUrl(`${BASE}?panel=loop&dim=1`)).toBe(`${BASE}?panel=loop&dim=1`);
+  });
+});
+
+// Every console navigation builds its query string with navQuery.
+describe("navQuery", () => {
+  const q = (s: string) => new URLSearchParams(s);
+
+  it("keeps the add-step form open inside Edit lane", () => {
+    expect(navQuery(q(""), { panel: "lane:warm", layer: "editlane", add: "step" }).toString()).toBe("panel=lane%3Awarm&layer=editlane&add=step");
+  });
+
+  it("drops the add-step form when the layer is anything but Edit lane", () => {
+    expect(navQuery(q(""), { panel: "lane:warm", layer: "flag", add: "step" }).toString()).toBe("panel=lane%3Awarm&layer=flag");
+  });
+
+  it("replaces the old place and keeps query keys that are not console state", () => {
+    expect(navQuery(q("scenario=quiet&panel=loop&modal=pause"), { panel: "emails" }).toString()).toBe("scenario=quiet&panel=emails");
+  });
+});
+
+describe("test start dates", () => {
+  it("are the day each test began, which the panels' date formatter reads (a timestamp crashed every test panel, 2026-11-18)", () => {
+    const L = buildLoopLive(rows(), ctx, NOW);
+    expect(Object.fromEntries(L.tests.map((t) => [t.id, t.started]))).toEqual({
+      warm_first_email: "2026-11-15",
+      cold_first_email: "2026-11-15",
+      send_time: "2026-11-16",
+    });
   });
 });

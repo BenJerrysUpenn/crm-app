@@ -292,7 +292,9 @@ policies in `supabase/crm/014_email_loop_console.sql`, and the newest `sales_lan
 `metrics_snapshots` (see "Metrics page tables"; unreadable or absent, the screen says so). It writes only through
 `/api/email-campaigns/loop`, which calls one of five SECURITY DEFINER functions from the same
 migration: approve an approach, hold or release one email, pause or resume the loop. Each checks
-`is_manager()` and stamps the signed-in email; none sends anything or changes a limit. crm/014
+`is_manager()` and stamps the signed-in email; none sends anything or changes a limit. A saved write reloads the page
+(`reloadUrl` in `console/loopActions.ts`: same panel and email, dialog and task layer closed) so every panel
+redraws from the database; the saved toast crosses the reload in sessionStorage. crm/014
 needs Catering-Manager `outreach/migrations/022_loop_console.sql` first, and is applied AFTER this
 app's commit shows Vercel success on main (until then the console says the loop is not readable).
 `_verify.sql` checks it; `_down.sql` drops the policies and functions only.

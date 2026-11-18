@@ -6,8 +6,9 @@
 // inside it, and a confirm modal. Panel state is in the URL query string
 // (history.pushState, so opening a panel does not refetch the page).
 // Writes go through /api/email-campaigns/loop only (approve, hold, release,
-// pause, resume); a button with nothing behind it is not drawn. No
-// localStorage, no sessionStorage.
+// pause, resume); a button with nothing behind it is not drawn. A save
+// reloads the page; sessionStorage carries only its toast across that reload.
+// No localStorage.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -34,7 +35,8 @@ import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCam
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
 import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
-import { saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
+import { NAV_KEYS, navFromParams, navQuery, type Nav } from "@/lib/emailCampaignsPrototype/console/nav";
+import { reloadUrl, saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import {
   ApproachBody,
   EmailBody,
@@ -65,8 +67,6 @@ type Props = {
 
 // --- URL state ----------------------------------------------------------------
 
-type Nav = { panel?: string; sel?: string; layer?: string; add?: string; modal?: string; tab?: string; dim?: string };
-const NAV_KEYS: (keyof Nav)[] = ["panel", "sel", "layer", "add", "modal", "tab", "dim"];
 
 function homeToNav(h: Home): Nav {
   switch (h.kind) {
@@ -100,19 +100,10 @@ function useNav() {
   const sp = useSearchParams();
   const pathname = usePathname();
   const pushed = useRef(0);
-  const nav: Nav = {};
-  for (const k of NAV_KEYS) {
-    const v = sp.get(k);
-    if (v) nav[k] = v;
-  }
+  const nav = navFromParams(sp);
   const href = useCallback(
     (n: Nav) => {
-      const q = new URLSearchParams(sp.toString());
-      // The add-step form only lives inside Edit lane.
-      if (n.layer !== "editlane") n = { ...n, add: undefined };
-      for (const k of NAV_KEYS) q.delete(k);
-      for (const k of NAV_KEYS) if (n[k]) q.set(k, n[k]!);
-      const s = q.toString();
+      const s = navQuery(new URLSearchParams(sp.toString()), n).toString();
       return s ? `${pathname}?${s}` : pathname;
     },
     [sp, pathname],
@@ -141,6 +132,11 @@ function useNav() {
 
 // --- action feedback ------------------------------------------------------------
 
+/** A toast kept for the next page load (a save reloads the page) is carried
+ * in sessionStorage: a per-viewer convenience only; if storage is unavailable
+ * the toast is lost and nothing else changes. */
+const SAVED_TOAST_KEY = "email-campaigns:saved-toast";
+
 function useToast() {
   const [msg, setMsg] = useState<string | null>(null);
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -149,7 +145,26 @@ function useToast() {
     if (t.current) clearTimeout(t.current);
     t.current = setTimeout(() => setMsg(null), 4000);
   }, []);
-  return { msg, say };
+  /** Say this on the next page load instead of now. */
+  const sayAfterReload = useCallback((what: string) => {
+    try {
+      window.sessionStorage.setItem(SAVED_TOAST_KEY, what);
+    } catch {
+      /* the toast is a convenience */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      const w = window.sessionStorage.getItem(SAVED_TOAST_KEY);
+      if (w) {
+        window.sessionStorage.removeItem(SAVED_TOAST_KEY);
+        say(w);
+      }
+    } catch {
+      /* the toast is a convenience */
+    }
+  }, [say]);
+  return { msg, say, sayAfterReload };
 }
 
 /** A button that does something. One with nothing behind it yet (no handler,
@@ -220,23 +235,28 @@ function Popover({ pop, onClose }: { pop: Pop; onClose: () => void }) {
 
 export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario, source }: Props) {
   const { nav, go, pop, href } = useNav();
-  const { msg, say } = useToast();
-  const router = useRouter();
+  const { msg, say, sayAfterReload } = useToast();
   const act: LoopAct = useCallback(
     async (a) => {
       try {
         const r = await fetch("/api/email-campaigns/loop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a) });
         const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
         const out = saveOutcome(a, r, j);
-        say(out.words);
-        if (out.saved) router.refresh();
-        return out.saved;
+        if (!out.saved) {
+          say(out.words);
+          return false;
+        }
+        // Reload in place so every panel redraws from the database; the
+        // promise never settles, so the button stays on "Saving…" until then.
+        sayAfterReload(out.words);
+        window.location.replace(reloadUrl(window.location.href));
+        return await new Promise<boolean>(() => undefined);
       } catch (e) {
         say(`Not saved: ${e instanceof Error ? e.message : String(e)}`);
         return false;
       }
     },
-    [say, router],
+    [say, sayAfterReload],
   );
   const [popover, setPopover] = useState<Pop | null>(null);
   const [acked, setAcked] = useState(false);
