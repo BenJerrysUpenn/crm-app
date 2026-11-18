@@ -117,6 +117,12 @@ test("punchWork: an unlinked punch over two unpunched work shifts takes each ove
   // Linked to an in-store shift: in-store.
   const scoop = shift(22, "sam", 6, 14, 18, "Scooper");
   assert.deepEqual(punchWork(punch("sam", 6, 14, 18, 22), new Map([[22, scoop]]), unpunched, new Set()), { inStore: 4 });
+  // Two unpunched work shifts that overlap each other (14:00-17:00 and 15:00-18:00, 6h of shift between them):
+  // the 4h punch is split among them but is never counted as more than its 4 hours.
+  const overlapping = [shift(23, "sam", 6, 14, 17, "Catering"), shift(24, "sam", 6, 15, 18, "Marketing")];
+  const split = punchWork(punch("sam", 6, 14, 18), new Map(overlapping.map((s) => [s.id, s])), overlapping, new Set());
+  assert.equal((split.catering ?? 0) + (split.marketing ?? 0) + (split.inStore ?? 0), 4);
+  assert.equal(split.inStore, undefined, "all of it overlaps the work shifts: none in-store");
 });
 
 test("salaried staff and people with no rate on catering or marketing work: hours counted as that work, never costed", () => {
