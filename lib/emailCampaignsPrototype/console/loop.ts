@@ -665,9 +665,13 @@ export function withHistory(L: LoopFacts, lanes: SalesLaneLike[] | null, tag?: s
     const s = lanes.find((x) => x.lane === h.lane)?.sinceStart;
     return { id: h.id, name: h.name, lane: h.lane, status: h.status, becomes: h.becomes, sent: s?.sent ?? null, replied: s?.replied ?? null, deals: s?.deals ?? null, booked: s?.booked ?? null, synthetic: tag };
   });
+  // Each hand-sent history counts once: in the first approach test that has
+  // that approach (tests run warm, cold, offer), never in two at once.
+  const folded = new Set<string>();
   const tests = L.tests.map((t) => {
     const arms = t.arms.map((a) => {
-      const h = t.factor === "approach" ? history.find((x) => x.id === a.approachId) : undefined;
+      const h = t.factor === "approach" && !folded.has(a.approachId) ? history.find((x) => x.id === a.approachId) : undefined;
+      if (h) folded.add(a.approachId);
       if (!h || h.sent === null) return { ...a };
       const n = a.sends + h.sent;
       return {

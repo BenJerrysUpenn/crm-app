@@ -36,7 +36,7 @@ import { dateEt, dowEt, timeEt } from "@/lib/emailCampaignsPrototype/console/tim
 import { Badge, Bullet, Glyph, SyntheticTag } from "./bits";
 
 export type LoopNav = { panel?: string; sel?: string; layer?: string; modal?: string; tab?: string; dim?: string };
-type Go = (n: LoopNav) => void;
+type Go = (n: LoopNav, mode?: "push" | "replace") => void;
 
 // A loop date is a day ("YYYY-MM-DD") or a timestamp; both read as that day
 // at noon Eastern, so a timestamp cannot make an invalid date.
@@ -188,9 +188,12 @@ function Forest({ rows, metric }: { rows: { label: string; a: ArmFact }[]; metri
   );
   const W = 200;
   const x = (v: number | null) => 2 + (Math.min(v ?? 0, scale) / scale) * (W - 4);
+  // The strip stretches to its column (viewBox, no fixed width) so the chart
+  // fits a phone panel; the dot is an HTML mark so it stays round.
+  const grid = "grid grid-cols-[minmax(0,96px)_minmax(0,1fr)_auto] gap-2";
   return (
     <div className="space-y-1">
-      <div className="grid grid-cols-[110px_200px_1fr] items-end gap-2 text-[10px] text-slate-500">
+      <div className={`${grid} items-end text-[10px] text-slate-500`}>
         <span />
         <span className="flex justify-between">
           <span>0</span>
@@ -199,23 +202,30 @@ function Forest({ rows, metric }: { rows: { label: string; a: ArmFact }[]; metri
         </span>
         <span>chance of best</span>
       </div>
-      {rows.map(({ label, a }) => {
+      {rows.map(({ label, a }, i) => {
         const r = a[metric];
         const early = isEarly(a);
         const base = a.verdict === "baseline";
         return (
-          <div key={label} className={`grid grid-cols-[110px_200px_1fr] items-center gap-2 text-xs ${a.status === "retired" ? "opacity-50" : ""}`}>
+          <div key={`${i}:${label}`} className={`${grid} items-center text-xs ${a.status === "retired" ? "opacity-50" : ""}`}>
             <span className="truncate text-slate-300" title={label}>
               {label}
             </span>
-            <svg width={W} height={14} role="img" aria-label={`${label}: ${r.k} of ${r.n}, ${r1(r.per1000)} per 1,000, range ${r1(r.lo)} to ${r1(r.hi)}`}>
-              <line x1={2} x2={W - 2} y1={7} y2={7} className="stroke-slate-800" />
-              {r.n ? <line x1={x(r.lo)} x2={x(r.hi)} y1={7} y2={7} className={early ? "stroke-slate-700" : "stroke-slate-400"} strokeWidth={2} /> : null}
-              {(r.hi ?? 0) > scale ? <path d={`M ${W - 5} 4 l 4 3 l -4 3`} className="fill-slate-500" /> : null}
-              {r.n ? <circle cx={x(r.per1000)} cy={7} r={3.5} className={base ? "fill-slate-900 stroke-slate-200" : early ? "fill-slate-500" : "fill-slate-100"} strokeWidth={base ? 1.4 : 0} /> : null}
-            </svg>
+            <span className="relative block h-[14px]" role="img" aria-label={`${label}: ${r.k} of ${r.n}, ${r1(r.per1000)} per 1,000, range ${r1(r.lo)} to ${r1(r.hi)}`}>
+              <svg viewBox={`0 0 ${W} 14`} preserveAspectRatio="none" className="absolute inset-0 h-full w-full" aria-hidden>
+                <line x1={2} x2={W - 2} y1={7} y2={7} className="stroke-slate-800" vectorEffect="non-scaling-stroke" />
+                {r.n ? <line x1={x(r.lo)} x2={x(r.hi)} y1={7} y2={7} className={early ? "stroke-slate-700" : "stroke-slate-400"} strokeWidth={2} vectorEffect="non-scaling-stroke" /> : null}
+              </svg>
+              {(r.hi ?? 0) > scale ? <span className="absolute right-0 top-[1px] text-[9px] leading-none text-slate-500">›</span> : null}
+              {r.n ? (
+                <span
+                  className={`absolute top-1/2 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full ${base ? "border border-slate-200 bg-slate-900" : early ? "bg-slate-500" : "bg-slate-100"}`}
+                  style={{ left: `${(x(r.per1000) / W) * 100}%` }}
+                />
+              ) : null}
+            </span>
             <span className="flex items-center gap-1">
-              <svg width={60} height={8} aria-hidden>
+              <svg width={60} height={8} aria-hidden className="hidden sm:block">
                 <rect width={60} height={8} className="fill-slate-800" />
                 <rect width={60 * (a.best ?? 0)} height={8} className="fill-slate-400" />
               </svg>
@@ -253,6 +263,15 @@ function ShowNumbers({ children, label = "Show numbers" }: { children: ReactNode
   );
 }
 
+const count = (n: number | null, one: string, many: string) => (n === null ? `? ${many}` : `${n.toLocaleString()} ${n === 1 ? one : many}`);
+/** An occasion id in words: this type's target or upcoming entry by name, else the id spaced. */
+const occasionName = (L: LoopFacts, type: string, id: string) => {
+  const t = L.types.find((x) => x.key === type);
+  const o = [t?.target, ...(t?.upcoming ?? [])].find((x) => x?.id === id);
+  return o?.name ?? id.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+};
+/** A tier in the one or two words a chart row has room for. */
+const tierShort = (tier: TestFact["tier"]) => (tier === "cold" ? "New to us" : tier === "offer" ? "Offer" : "Past customers");
 const rateLine = (r: RateFact) => `${r.k} of ${r.n} · ${r1(r.per1000)} per 1,000 (${r1(r.lo)} to ${r1(r.hi)})`;
 
 function Evidence({ list }: { list: EvidenceFact[] }) {
@@ -415,14 +434,18 @@ function StartedCard({ L, d, go }: { L: LoopFacts; d: LoopFacts["runs"][number][
         <span className="text-slate-500">{a.origin === "loop" ? "the loop's own idea" : a.origin === "research" ? "from your research list" : "sent by hand before"}</span>
       </p>
       <p className="mt-1 text-slate-300">{d.reason}</p>
-      <p className="mt-1">
-        <span className="text-slate-500">Meant to </span>
-        <span className="text-slate-300">{a.purpose.charAt(0).toLowerCase() + a.purpose.slice(1)}</span>
-      </p>
-      <p className="mt-1">
-        <span className="text-slate-500">Stop it if </span>
-        <span className="text-slate-300">{a.stopIf.charAt(0).toLowerCase() + a.stopIf.slice(1)}</span>
-      </p>
+      {a.purpose ? (
+        <p className="mt-1">
+          <span className="text-slate-500">Meant to </span>
+          <span className="text-slate-300">{a.purpose.charAt(0).toLowerCase() + a.purpose.slice(1)}</span>
+        </p>
+      ) : null}
+      {a.stopIf ? (
+        <p className="mt-1">
+          <span className="text-slate-500">Stop it if </span>
+          <span className="text-slate-300">{a.stopIf.charAt(0).toLowerCase() + a.stopIf.slice(1)}</span>
+        </p>
+      ) : null}
       <div className="mt-1.5">
         <Evidence list={a.evidence} />
       </div>
@@ -476,6 +499,7 @@ export function WeekBody(p: PanelBits) {
             </>
           ) : null}
           <H>Also decided</H>
+          {other.length ? null : <p className="text-xs text-slate-500">Nothing else this week.</p>}
           <ul className="space-y-1">
             {other.map((d, i) => (
               <li key={i}>
@@ -507,6 +531,7 @@ export function WeekBody(p: PanelBits) {
         </div>
       ))}
       <H>Earlier weeks</H>
+      {L.runs.some((r) => r.weekStart !== run?.weekStart) ? null : <p className="text-xs text-slate-500">None yet: this is the loop's first week.</p>}
       <ul className="space-y-2">
         {L.runs
           .filter((r) => r.weekStart !== run?.weekStart)
@@ -570,12 +595,14 @@ export function EmailsBody(p: PanelBits) {
       <div className="mt-2 flex flex-wrap gap-2">
         <select aria-label="Customer type" value={f.type} onChange={(e) => set("type", e.target.value)} className={sel}>
           <option value="">Every type</option>
-          {L.types.map((t) => (
-            <option key={t.key} value={t.key}>
-              {t.tier === "cold" ? "Cold: " : ""}
-              {t.label}
-            </option>
-          ))}
+          {L.types
+            .filter((t) => t.key === f.type || L.drafts.some((d) => d.type === t.key))
+            .map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.tier === "cold" ? "Cold: " : t.tier === "offer" ? "Offer: " : ""}
+                {t.label}
+              </option>
+            ))}
         </select>
         <select aria-label="Approach" value={f.appr} onChange={(e) => set("appr", e.target.value)} className={sel}>
           <option value="">Every approach</option>
@@ -628,7 +655,7 @@ export function EmailsBody(p: PanelBits) {
                   <button
                     type="button"
                     onClick={() => go({ panel: "emails", sel: `email:${x.id}`, tab: nav.tab })}
-                    className="grid w-full grid-cols-[14px_40px_minmax(0,130px)_1fr] items-baseline gap-2 border-t border-slate-800 py-1 text-left text-xs hover:bg-slate-800/60"
+                    className="grid w-full grid-cols-[14px_52px_minmax(0,130px)_1fr] items-baseline gap-2 border-t border-slate-800 py-1 text-left text-xs hover:bg-slate-800/60"
                   >
                     <span className="text-slate-500">{x.status === "sent" ? "✓" : x.status === "held" ? "‖" : x.status === "skipped" ? "–" : x.waitingApproval ? "◷" : x.judge.verdict === "rewritten" ? "↻" : ""}</span>
                     <span className="tabular-nums text-slate-500">{timeEt(x.sendAt)}</span>
@@ -659,7 +686,8 @@ function EmailBar(p: PanelBits & { d: DraftFact }) {
   const { L, d, go, nav } = p;
   const list = filtered(L, nav.tab);
   const i = list.findIndex((x) => x.id === d.id);
-  const to = (j: number) => (list[j] ? () => go({ ...nav, sel: `email:${list[j].id}`, layer: undefined }) : undefined);
+  // Stepping replaces the history entry, so Esc and Back go up to the list.
+  const to = (j: number) => (list[j] ? () => go({ ...nav, sel: `email:${list[j].id}`, layer: undefined }, "replace") : undefined);
   const prev = to(i - 1);
   const next = to(i + 1);
   const f = parseFilter(nav.tab);
@@ -796,7 +824,7 @@ export function EmailBody(p: PanelBits & { d: DraftFact }) {
         {d.person.company} · {t?.label ?? typeLabel(d.type)} · {d.why.relationship}
       </p.Row>
       <p.Row k="Aimed at">
-        {d.why.occasion ?? "no occasion"} on {day(d.why.eventDate)} ({away} days after this email
+        {d.why.occasion ? occasionName(L, d.type, d.why.occasion) : "no occasion"} on {day(d.why.eventDate)} ({away} days after this email
         {away < L.limits.minDaysBeforeEvent ? <span className="text-red-400"> · under your {L.limits.minDaysBeforeEvent}-day limit</span> : null})
       </p.Row>
       <p.Row k="Date from">
@@ -845,7 +873,7 @@ export function TestBody(p: PanelBits & { t: TestFact }) {
         {w === null ? "Nothing to call: no challenger is live." : w === Infinity || w > 26 ? "Not this season at this volume." : `In ${weeksWord(w)}, if one is twice as good as ${approachName(L, base?.approachId ?? "")}.`}{" "}
         <span className="text-slate-400">
           {base && base.reply.n >= 1000
-            ? `${approachName(L, base.approachId)} carries ${base.reply.n.toLocaleString()} emails of history, so its rate is known and a challenger only has to prove itself.`
+            ? `${approachName(L, base.approachId)} has ${base.reply.n.toLocaleString()} emails behind it (what was sent by hand before the loop, plus the loop's own), so its rate is known and a challenger only has to prove itself.`
             : "The baseline has little history, so both sides have to fill in."}{" "}
           A smaller difference takes four times as long; one this small is not worth chasing at our volume.
         </span>
@@ -947,7 +975,7 @@ export function TypeBody(p: PanelBits & { t: TypeFact }) {
         {t.label} <span className="font-normal text-slate-500">· {TIER_WORD[t.tier]}</span> <SyntheticTag what={L.synthetic} />
       </p>
       <p className="text-xs text-slate-400">
-        {t.emailsThisWeek} emails this week · {t.ready} people ready ·{" "}
+        {t.emailsThisWeek} emails this week · {t.ready} waiting to send ·{" "}
         <button type="button" onClick={() => go({ panel: "emails", tab: `t:${t.key}` })} className="underline-offset-2 hover:underline">
           read them
         </button>
@@ -963,11 +991,11 @@ export function TypeBody(p: PanelBits & { t: TypeFact }) {
       <p className="mb-1 text-xs text-slate-400">
         {test ? (
           <>
-            They take part in{" "}
+            They are part of the test{" "}
             <button type="button" onClick={() => go({ panel: `test:${test.id}` })} className="underline-offset-2 hover:underline">
-              {test.question.toLowerCase().replace(/\?$/, "")}
-            </button>
-            . {t.emailsThisWeek} a week is too few to settle anything for this type alone, so this is a read, not a verdict. It shows if they answer differently from everyone else.
+              “{test.question}”
+            </button>{" "}
+            {t.emailsThisWeek} a week is too few to settle anything for this type alone, so this is a read, not a verdict. It shows if they answer differently from everyone else.
           </>
         ) : null}
       </p>
@@ -1005,8 +1033,10 @@ export function ApproachBody(p: PanelBits & { id: string }) {
   const { L, id, go } = p;
   const a = L.approaches[id];
   const [metric, setMetric] = useState<Metric>("reply");
-  const inTests = L.tests.flatMap((t) => t.arms.filter((x) => x.approachId === id).map((x) => ({ label: t.tier === "cold" ? "New to us" : "Past customers", a: x })));
-  const byType = L.types.flatMap((t) => t.arms.filter((x) => x.approachId === id).map((x) => ({ label: t.label, a: x })));
+  const inTests = L.tests.flatMap((t) => t.arms.filter((x) => x.approachId === id).map((x) => ({ label: t.factor === "send time" ? "Send time" : tierShort(t.tier), a: x })));
+  const byType = L.types.flatMap((t) =>
+    t.arms.filter((x) => x.approachId === id).map((x) => ({ key: t.key, label: `${tierShort(t.tier)}: ${t.label}`, a: x })),
+  );
   const history = L.runs.flatMap((r) => r.decisions.filter((d) => d.approachId === id).map((d) => ({ week: r.weekStart, d })));
   const hist = L.history.find((h) => h.id === id);
   const samples = useMemo(() => {
@@ -1026,7 +1056,7 @@ export function ApproachBody(p: PanelBits & { id: string }) {
       {a.approvedAt === undefined ? null : a.approvedAt ? (
         <p className="mt-1 text-xs text-slate-500">
           Approved {dateEt(a.approvedAt)}
-          {a.approvedBy ? ` by ${a.approvedBy}` : ""}.
+          {a.approvedBy ? (a.approvedBy.includes("@") ? ` by ${a.approvedBy}` : `: ${a.approvedBy}`) : ""}.
         </p>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-amber-500/60 p-2 text-xs">
@@ -1046,7 +1076,7 @@ export function ApproachBody(p: PanelBits & { id: string }) {
       <Evidence list={a.evidence} />
       {hist ? (
         <p className="mt-1 text-xs text-slate-400">
-          Before the loop: {hist.sent?.toLocaleString() ?? "?"} sent, {hist.replied ?? "?"} replies, {hist.deals ?? "?"} leads, {hist.booked ?? "?"} booked. <SyntheticTag what={hist.synthetic} />
+          Before the loop: {hist.sent?.toLocaleString() ?? "?"} sent, {count(hist.replied, "reply", "replies")}, {count(hist.deals, "lead", "leads")}, {hist.booked ?? "?"} booked. <SyntheticTag what={hist.synthetic} />
         </p>
       ) : null}
       <H>How it is doing</H>
@@ -1054,8 +1084,8 @@ export function ApproachBody(p: PanelBits & { id: string }) {
       {inTests.length ? <Forest rows={inTests} metric={metric} /> : <p className="text-xs text-slate-500">Not in a test.</p>}
       <ShowNumbers label="By customer type">
         {byType.map((r) => (
-          <div key={r.label}>
-            {r.label}: replies {rateLine(r.a.reply)} · leads {rateLine(r.a.lead)}
+          <div key={r.key}>
+            {r.label}: {r.a.reply.n ? `replies ${rateLine(r.a.reply)} · leads ${rateLine(r.a.lead)}` : "no sends yet"}
           </div>
         ))}
       </ShowNumbers>
@@ -1113,7 +1143,7 @@ export function HistoryBody(p: PanelBits) {
                 <rect width={(140 * (h.sent ?? 0)) / max} height={8} className={h.status === "retired" ? "fill-slate-600" : "fill-slate-400"} />
               </svg>
               <span className="tabular-nums text-slate-300">
-                {h.sent === null ? "no data" : `${h.sent.toLocaleString()} sent · ${h.replied ?? "?"} replies · ${h.deals ?? "?"} leads · ${h.booked ?? "?"} booked`}
+                {h.sent === null ? "no data" : `${h.sent.toLocaleString()} sent · ${count(h.replied, "reply", "replies")} · ${count(h.deals, "lead", "leads")} · ${h.booked ?? "?"} booked`}
               </span>
             </div>
             <p className="mt-0.5 text-slate-400">{h.becomes}</p>

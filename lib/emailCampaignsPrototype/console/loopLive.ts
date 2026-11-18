@@ -443,6 +443,8 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
       held: d.status === "held" ? { at: d.held_at ?? "", by: d.held_by ?? "", reason: d.held_reason ?? "" } : null,
     };
   });
+  /** Waiting to send: planned or held, not yet sent or skipped. */
+  const toSend = (d: DraftFact) => d.status === "planned" || d.status === "held";
   const thisWeek = drafts.filter((d) => d.sendOn >= weekStart && d.sendOn < weekEnd);
 
   // What happened after each sent email.
@@ -508,7 +510,7 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
       upcoming: arr(occ.upcoming).map(occasionOf).filter((x): x is OccasionFact => !!x),
       emailsThisWeek: mine.length,
       sentThisWeek: mine.filter((d) => d.status === "sent").length,
-      ready: 0,
+      ready: drafts.filter((d) => d.type === key && toSend(d)).length,
       held: [
         ...[...waitingBy.entries()].map(([id, n]) => ({ reason: `waiting for your approval of ${approaches[id]?.name ?? id}`, n })),
         ...(heldN ? [{ reason: "held by you", n: heldN }] : []),
@@ -582,7 +584,7 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
   const capDay = (n: number) => (limitsRow ? Math.min(n, limitsRow.dailyCap) : n);
   const warmDay = capDay(allowance((m) => loopLane(m.address) === "warm"));
   const coldDay = limitsRow && !limitsRow.coldEnabled ? 0 : capDay(allowance((m) => loopLane(m.address) === "cold"));
-  const waitingTier = (t: Tier) => drafts.filter((d) => (d.status === "planned" || d.status === "held") && tierOf(d.type) === t).length;
+  const waitingTier = (t: Tier) => drafts.filter((d) => toSend(d) && tierOf(d.type) === t).length;
 
   // Research: today's LinkedIn pages and any halt still standing.
   const todayViews = rows.views.filter((v) => v.kind === "view" && todayEt(new Date(v.viewed_at)) === today).length;
