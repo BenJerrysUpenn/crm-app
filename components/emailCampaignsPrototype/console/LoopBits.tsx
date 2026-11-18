@@ -39,8 +39,7 @@ export type LoopNav = { panel?: string; sel?: string; layer?: string; modal?: st
 type Go = (n: LoopNav) => void;
 
 // A loop date is a day ("YYYY-MM-DD") or a timestamp; both read as that day
-// at noon Eastern, so a timestamp cannot make an invalid date (2026-11-18:
-// a test's start, a timestamp, crashed every test panel).
+// at noon Eastern, so a timestamp cannot make an invalid date.
 const asDay = (x: string) => `${x.slice(0, 10)}T17:00:00Z`;
 const day = (ymd: string) => dateEt(asDay(ymd));
 const dow = (ymd: string) => dowEt(asDay(ymd));
