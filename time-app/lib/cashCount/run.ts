@@ -1,6 +1,6 @@
 // The cash count reminders in Slack #cash-count, one pass. The bj-box job
 // (scripts/cash-count-reminders.ts at the crm-app root, through cli.ts) runs
-// it every 5 minutes from a systemd timer (Software-Factory droplet/). Who and
+// it every 5 minutes from a systemd timer (withers-ventures-home droplet/). Who and
 // when: plan.ts. The words: message.ts, written by Claude Code on the owner's
 // subscription (claudeCli.ts). The database: store.ts.
 //

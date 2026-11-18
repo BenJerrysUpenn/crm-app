@@ -1,5 +1,5 @@
 // The cake order packing reminders as a command (crm-app #142), for the
-// 5-minute bj-cake-order-reminders.timer on bj-box (Software-Factory
+// 5-minute bj-cake-order-reminders.timer on bj-box (withers-ventures-home
 // droplet/). It follows the cash count reminders (lib/cashCount/cli.ts):
 // scripts/cake-order-reminders.ts wires it to Postgres (lib/cakeOrdersPg.ts),
 // the mailbox (mail.ts), Slack (slack.ts) and Claude Code

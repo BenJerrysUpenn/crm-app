@@ -2,7 +2,7 @@
 // after they clock in and the closer just after closing to post the cash
 // counts, and nudges once in the thread if nobody has posted 30 minutes
 // later. Runs every 5 minutes from bj-cash-count-reminders.timer on bj-box
-// (Software-Factory droplet/). Each message is written by Claude Code on the
+// (withers-ventures-home droplet/). Each message is written by Claude Code on the
 // owner's subscription; any failure there sends the plain message.
 // All logic lives in time-app/lib/cashCount/; this file only wires it to the process.
 //

@@ -1,7 +1,7 @@
 // Schedule coverage reminder (bj-finance #709): emails the owners every open
 // store hour and booked catering event in the two Sun–Sat weeks it checks that
 // nobody is scheduled for. Runs every day at
-// noon ET from bj-coverage-reminder.timer on bj-box (Software-Factory
+// noon ET from bj-coverage-reminder.timer on bj-box (withers-ventures-home
 // droplet/, bj-finance #753).
 // All logic lives in lib/; this file only wires it to the process.
 //

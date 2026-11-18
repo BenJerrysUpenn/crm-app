@@ -1,7 +1,7 @@
 // The cake order packing reminders in Slack #cake-orders-and-ideas, one pass.
 // The bj-box job (scripts/cake-order-reminders.ts at the crm-app root,
 // through cli.ts) runs it every 5 minutes from a systemd timer
-// (Software-Factory droplet/). The orders: Olo's per-order email, read from
+// (withers-ventures-home droplet/). The orders: Olo's per-order email, read from
 // the mailbox (mail.ts) and parsed (oloEmail.ts). Who and when: plan.ts. The
 // words: message.ts, written by Claude Code on the owner's subscription
 // (lib/cashCount/claudeCli.ts). The database: store.ts.
