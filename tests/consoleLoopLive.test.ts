@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildLoopLive, emptyLoop, limitsOf, outcomesOf, type LiveRows } from "@/lib/emailCampaignsPrototype/console/loopLive";
-import { loopItems } from "@/lib/emailCampaignsPrototype/console/loop";
+import { loopItems, withHistory } from "@/lib/emailCampaignsPrototype/console/loop";
 import { doneWords, reloadUrl, rpcFor, saveOutcome } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import { navQuery } from "@/lib/emailCampaignsPrototype/console/nav";
 import type { OutcomeEvent } from "@/lib/emailCampaignsPrototype/console/load";
@@ -378,11 +378,8 @@ describe("test start dates", () => {
   });
 });
 
-// --- bugs the test swarm confirmed, 2026-11-18
-import { withHistory } from "@/lib/emailCampaignsPrototype/console/loop";
-
-describe("swarm fixes", () => {
-  it("counts a hand-sent history in one test only", () => {
+describe("withHistory", () => {
+  it("counts a hand-sent history in one test only, the first that has its approach", () => {
     const L = buildLoopLive(
       rows({ arms: [...rows().arms, { customer_type: "offer:corporate", approach_id: "holiday_letter", status: "live", since: "2026-11-15T00:00:00Z", reason: "offer" }] }),
       ctx,
@@ -393,7 +390,10 @@ describe("swarm fixes", () => {
     expect(sends("warm_first_email")).toBe(1002);
     expect(sends("offer_first_email")).toBe(0);
   });
-  it("gives each type its own count of emails waiting to send", () => {
+});
+
+describe("customer types", () => {
+  it("each count their own planned and held emails as waiting to send", () => {
     const L = buildLoopLive(rows(), ctx, NOW);
     expect(L.types.find((t) => t.key === "warm:corporate")!.ready).toBe(4);
     expect(L.types.find((t) => t.key === "cold:office_manager")!.ready).toBe(1);
