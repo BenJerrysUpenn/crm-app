@@ -10,7 +10,7 @@ import { emptyState, type SharedState } from "@/lib/emailCampaignsPrototype/shar
 import { loadConsoleExtras } from "@/lib/emailCampaignsPrototype/console/load";
 import { buildFacts } from "@/lib/emailCampaignsPrototype/console/facts";
 import { LEVEL_RANK, attentionItems, idleItems } from "@/lib/emailCampaignsPrototype/console/attention";
-import { applyLoopScenario, applyScenario, parseScenario } from "@/lib/emailCampaignsPrototype/console/scenarios";
+import { applyLoopScenario, applyScenario, consoleSynthetic, parseScenario } from "@/lib/emailCampaignsPrototype/console/scenarios";
 import { loopItems, withHistory, type LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
 import { buildLoopLive, emptyLoop, loadLoopLive } from "@/lib/emailCampaignsPrototype/console/loopLive";
 import { syntheticLoop } from "@/lib/emailCampaignsPrototype/console/loopSynthetic";
@@ -50,7 +50,7 @@ async function devSalesLanes(param: string | string[] | undefined, now: Date): P
 
 export default async function EmailCampaignsPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const now = new Date();
-  const synthetic = process.env.NODE_ENV === "development" && process.env.CONSOLE_PROTO_SYNTHETIC === "1";
+  const synthetic = consoleSynthetic();
   const scenario = synthetic ? parseScenario(searchParams.scenario) : "none";
 
   let email = "synthetic fixture (no login)";

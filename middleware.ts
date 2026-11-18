@@ -2,6 +2,7 @@ import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server
 import { updateSession } from "@/lib/supabase/middleware";
 import { isPfPath, isGateExempt } from "@/lib/roles";
 import { handleShortLinkRequest, isShortLinkHost } from "@/lib/shortLinks";
+import { consoleSynthetic } from "@/lib/emailCampaignsPrototype/console/scenarios";
 
 // Personal-finance pages live on their own subdomain (same Vercel project,
 // host-routed) — mirroring how crm./time. split off this repo.
@@ -54,13 +55,9 @@ export async function middleware(request: NextRequest, event?: NextFetchEvent) {
     return NextResponse.next();
   }
   // The Email campaigns console renders a synthetic fixture with no login in
-  // local dev only, when CONSOLE_PROTO_SYNTHETIC=1. Production and previews
-  // keep the normal gate (NODE_ENV is never "development" there).
-  if (
-    process.env.NODE_ENV === "development" &&
-    process.env.CONSOLE_PROTO_SYNTHETIC === "1" &&
-    pathname === "/email-campaigns"
-  ) {
+  // local dev only (consoleSynthetic). Production and previews keep the
+  // normal gate.
+  if (consoleSynthetic() && pathname === "/email-campaigns") {
     return NextResponse.next();
   }
   const isPfRoute = isPfPath(pathname);

@@ -9,6 +9,11 @@ import type { Facts } from "./facts";
 import type { LoopFacts } from "./loop";
 import { minusBusinessMinutes } from "./time";
 
+/** Local dev only: the console renders the synthetic fixture with no login
+ * when CONSOLE_PROTO_SYNTHETIC=1. Never in production or previews (NODE_ENV
+ * is never "development" there). The page and middleware.ts both ask this. */
+export const consoleSynthetic = () => process.env.NODE_ENV === "development" && process.env.CONSOLE_PROTO_SYNTHETIC === "1";
+
 export type ScenarioKey = "none" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H";
 export const SCENARIOS: { key: ScenarioKey; label: string }[] = [
   { key: "none", label: "Real data only" },
