@@ -1,5 +1,5 @@
 // The cash count reminders as a command (crm-app #129), for the 5-minute
-// bj-cash-count-reminders.timer on bj-box (Software-Factory droplet/). It
+// bj-cash-count-reminders.timer on bj-box (withers-ventures-home droplet/). It
 // follows the schedule coverage reminder (lib/coverageReminderCli.ts at the
 // crm-app root): scripts/cash-count-reminders.ts wires it to Postgres
 // (lib/cashCountPg.ts), Slack (slack.ts) and Claude Code (claudeCli.ts); the

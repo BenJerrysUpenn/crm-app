@@ -3,7 +3,7 @@
 // a store punch to pack it (or, if nobody is in, 30 minutes after the first
 // clock-in), and replies once in the thread if it is not marked packed 60
 // minutes later. Runs every 5 minutes from bj-cake-order-reminders.timer on
-// bj-box (Software-Factory droplet/). Each message is written by Claude Code
+// bj-box (withers-ventures-home droplet/). Each message is written by Claude Code
 // on the owner's subscription; any failure there sends the plain message.
 // All logic lives in time-app/lib/cakeOrders/; this file only wires it to the process.
 //

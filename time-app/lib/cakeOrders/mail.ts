@@ -9,7 +9,7 @@
 //
 // No library: a TLS socket to imap.gmail.com:993 and five commands (LOGIN,
 // LIST, EXAMINE, UID SEARCH with Gmail's X-GM-RAW, UID FETCH, then LOGOUT).
-// The box installs only tsx and postgres for crm-app (Software-Factory
+// The box installs only tsx and postgres for crm-app (withers-ventures-home
 // droplet/crmcli.sh), and the coverage reminder sends Gmail the same way
 // (lib/gmailSend.ts). It searches "All Mail" (the mailbox flagged \All), so
 // a filter that skips the inbox does not hide an order.

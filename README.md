@@ -677,7 +677,7 @@ availability answers 503 with a message.
   uses `weeklyRowApplies`. Null means open-ended: every row saved before migration 48.
 
 ## Cash count reminders in Slack (droplet command, crm-app #129)
-Every 5 minutes on bj-box (`bj-cash-count-reminders.timer`, Software-Factory `droplet/`), reminds
+Every 5 minutes on bj-box (`bj-cash-count-reminders.timer`, withers-ventures-home `droplet/`), reminds
 staff in Slack #cash-count to post the cash counts: the opener once they clock in, one closer just
 after closing (of several on the clock, the one on the closing shift, else the latest clock-in;
 nobody on the clock, the scheduled closer), and that same person once more in the reminder's thread
@@ -711,7 +711,7 @@ migration 51 missing, or a failed step; each printed), 2 = bad argument or no `D
 Neither token is ever printed or put on a command line.
 
 ## Cake order packing reminders in Slack (droplet command, crm-app #142)
-Every 5 minutes on bj-box (`bj-cake-order-reminders.timer`, Software-Factory `droplet/`), reads
+Every 5 minutes on bj-box (`bj-cake-order-reminders.timer`, withers-ventures-home `droplet/`), reads
 Olo's per-order email and, for each custom cake order, @mentions everyone on a store punch in Slack
 #cake-orders-and-ideas, asking them to pack it and react or reply when done; under that line the
 post shows only the customer's name (the owner, 2026-11-04: the cake is on the tablet and the wall). Nobody clocked in when the email arrives: the post waits until 30 minutes after the
@@ -804,7 +804,7 @@ or `DATABASE_URL` missing. Every failure (database read, recipient lookup,
 Gmail send) is also emailed to the fixed failure address with the subject
 "Coverage reminder could not run"; a dry run only prints that it would. Reads
 run in a read-only transaction. Where it runs: bj-box, from
-`bj-coverage-reminder.timer` (Software-Factory `droplet/systemd/`).
+`bj-coverage-reminder.timer` (withers-ventures-home `droplet/systemd/`).
 
 ## Event on a shift (time app)
 A shift added on the Schedule page says which event it is for through
@@ -921,7 +921,7 @@ missing. The dry run runs in a read-only transaction and EXPLAINs each insert it
 would make.
 
 Where it runs: on Alina's Mac, from a clean checkout of `main` at
-`~/systems/crm-app` (the same `~/systems/` convention as the catering
+`~/prod/crm-app` (the same `~/prod/` convention as the catering
 automations), never from a dev clone or the Google Drive. This is the only
 thing that runs from that checkout. It is separate from Vercel, which serves
 the web app, and from the droplet's checkout of this repo, which runs only the
