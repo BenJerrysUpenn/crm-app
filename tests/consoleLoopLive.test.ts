@@ -581,3 +581,11 @@ describe("console history depth", () => {
     for (const s of [null, undefined, {}, { consoleDepth: "2" }, { consoleDepth: -1 }]) expect(depthOf(s)).toBe(0);
   });
 });
+
+describe("a human try", () => {
+  it("says it was scheduled by hand, not drawn", () => {
+    const L = buildLoopLive(rows({ drafts: [draft(1, "holiday_letter", "planned", { assigned_by: "human" })] }), ctx, NOW);
+    expect(L.drafts[0].pick).toMatch(/^A human try/);
+    expect(L.drafts[0].assignedBy).toBe("human");
+  });
+});

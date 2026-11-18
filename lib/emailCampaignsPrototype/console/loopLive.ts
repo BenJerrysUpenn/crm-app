@@ -437,7 +437,12 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
       slot,
       sendAt: etInstant(d.send_on, SLOT_TIME[slot] ?? "10:30"),
       judge: { verdict: "pass", note: d.judge_note ?? "Passed the judge; it left no note." },
-      pick: d.assigned_by === "baseline_quota" ? "The baseline's share of the day." : "Drawn by how each approach is doing.",
+      pick:
+        d.assigned_by === "human"
+          ? "A human try: scheduled by hand for this day, in your approved words, sent as written."
+          : d.assigned_by === "baseline_quota"
+            ? "The baseline's share of the day."
+            : "Drawn by how each approach is doing.",
       waitingApproval: waiting,
       sentAt: d.status === "sent" ? d.done_at : null,
       held: d.status === "held" ? { at: d.held_at ?? "", by: d.held_by ?? "", reason: d.held_reason ?? "" } : null,

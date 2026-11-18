@@ -120,7 +120,8 @@ export type DraftFact = {
   planned: number;
   type: string;
   approachId: string;
-  assignedBy: "baseline_quota" | "thompson";
+  /** "human": a person scheduled it on a date she chose, in her words (a human try). */
+  assignedBy: "baseline_quota" | "thompson" | "human";
   subject: string;
   body: string;
   status: "planned" | "sent" | "skipped" | "held";
