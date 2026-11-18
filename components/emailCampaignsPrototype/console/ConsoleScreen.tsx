@@ -117,8 +117,8 @@ function useNav() {
       // "Dim the rest" survives drilling unless a call sets it.
       if (!("dim" in n)) n = { ...n, dim: dimNow };
       // How many console levels deep this entry is rides in history.state, so
-      // the browser's own Back and Forward keep it right (a counter here
-      // drifted on Back, and Esc then left the console).
+      // the browser's own Back and Forward keep it right and Esc never leaves
+      // the console.
       const depth = consoleDepth();
       if (mode === "push") window.history.pushState({ consoleDepth: depth + 1 }, "", href(n));
       else window.history.replaceState({ consoleDepth: depth }, "", href(n));
