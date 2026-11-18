@@ -6,8 +6,9 @@
 // inside it, and a confirm modal. Panel state is in the URL query string
 // (history.pushState, so opening a panel does not refetch the page).
 // Writes go through /api/email-campaigns/loop only (approve, hold, release,
-// pause, resume); a button with nothing behind it is not drawn. No
-// localStorage, no sessionStorage.
+// pause, resume); a button with nothing behind it is not drawn. A save
+// reloads the page; sessionStorage carries only its toast across that reload.
+// No localStorage.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
