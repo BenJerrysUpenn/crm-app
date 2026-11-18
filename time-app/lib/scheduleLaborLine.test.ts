@@ -90,6 +90,9 @@ function labor(over: Partial<ScheduleLaborInput> = {}): ScheduleLaborLoad {
       { month: "2029-09-01", source: "seller", in_store: 10_000 },
     ], []),
     inStoreByDay: new Map(DATES.map((d) => [addDays(d, -364), 1_000])),
+    // No delivery last year, and none lately: the target is in-store's alone unless a test says otherwise.
+    deliveryByDay: new Map(),
+    deliveryShare: { value: 0, needs: [] },
     marketingDeals: new Set(),
     ...over,
   });
@@ -150,6 +153,18 @@ test("the labor block shows no total hours, no separators and no warnings when t
   assert.doesNotMatch(all, /12\.0h/, "the 12h board total (hourly + salaried) is not shown");
   assert.doesNotMatch(all, /Not in the \$|Hourly labor \$ missing|incomplete/);
   for (const line of weekLines) assert.doesNotMatch(line, /[:·/]/, "no ': ' or ' · ' separators: cells do the spacing");
+});
+
+test("last year's delivery raises the target: on file for a day, else in-store x the recent delivery share", () => {
+  // Monday last year had 200 of delivery on file; the other six days use a 10% share: 100 each.
+  // Target: (7 x 1,000 + 200 + 6 x 100) x 1.1 x 0.2 = $1,716, / 15 = 114.4h.
+  const { weekLines } = laborLine(renderBoard(labor({ deliveryByDay: new Map([[addDays(DATES[1], -364), 200]]), deliveryShare: { value: 0.1, needs: [] } })));
+  assert.deepEqual(weekLines, ["Target Hourly Labor | 114.4h | $1,716", "Scheduled Hourly Labor | 8.0h | $80"]);
+});
+
+test("with no recent delivery share, a day with no delivery on file leaves the target missing", () => {
+  const { weekLines } = laborLine(renderBoard(labor({ deliveryShare: { value: null, needs: ["delivery sales on file for at least 14 of the last 28 days"] } })));
+  assert.deepEqual(weekLines[0], "Target Hourly Labor | missing | missing");
 });
 
 test("a higher-paid person moves the scheduled $, not the target", () => {

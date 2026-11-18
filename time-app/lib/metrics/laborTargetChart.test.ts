@@ -15,13 +15,14 @@ const pct = (v: number | null) => ({ value: v, needs: v == null ? ["Total payrol
 
 function wk(start: string, end: string, over: Partial<LaborTargetWeek> = {}): LaborTargetWeek {
   return {
-    start, end, available: true, why: [], sales: 4_000, hours: 60, wages: 900, premium: 0, solo: 0, cateringHours: 0, cateringOffset: 0, marketingHours: 0, marketingOffset: 0,
-    taxesWc: 100, actual: 1_000, actualPct: 0.25, allInGoalPct: pct(0.2), targetPct: pct(0.2), targetDollars: 800, varianceDollars: 200, varianceHours: 10, ...over,
+    start, end, available: true, why: [], sales: 4_000, inStoreSales: 3_400, deliverySales: 400, cateringSales: 200, hours: 60, hourlyHours: 60,
+    hourly: 1_000, salaried: 0, cateringHours: 0, cateringCost: 0, marketingHours: 0, marketingOffset: 0,
+    actual: 1_000, actualPct: 0.25, goalPct: pct(0.2), targetPct: pct(0.2), targetDollars: 800, varianceDollars: 200, varianceHours: 10, ...over,
   };
 }
 
 const NA: Partial<LaborTargetWeek> = {
-  available: false, why: ["hourly payroll on file for 3 of 7 days"], hours: null, wages: null, premium: null, solo: null, taxesWc: null,
+  available: false, why: ["hourly payroll on file for 3 of 7 days"], hours: null, hourlyHours: null, hourly: null, salaried: null,
   actual: null, actualPct: null, targetDollars: null, varianceDollars: null, varianceHours: null,
 };
 

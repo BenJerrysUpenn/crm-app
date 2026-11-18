@@ -60,6 +60,19 @@ function capRowsPerRequestOf(table: string, cap = 1000) {
   }) as typeof fetch;
 }
 
+/** Days before today (Oct 10) with sales on file, newest first from Oct 9: 1,000 in-store and `delivery`. */
+function recent(n: number, delivery: string | null, from = "2030-10-09") {
+  return Array.from({ length: n }, (_, k) => {
+    const d = new Date(`${from}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - k);
+    return { day: d.toISOString().slice(0, 10), in_store: "1000.00", delivery, basis: "booked", source: "square" };
+  });
+}
+/** Replace the seeded recent days with `rows`. */
+function setRecent(rows: ReturnType<typeof recent>) {
+  db.tables.sales_daily_in_store = [...(db.tables.sales_daily_in_store as { day: string }[]).filter((r) => r.day < "2030-01-01"), ...rows];
+}
+
 const quote = (id: number) => ({ id, stage: "Sent Quote", payment_status: null, event_date: "2030-10-14", created_at: "2030-09-01", subtotal_pretax: "100", total_with_tax: null, amount_paid: null, company: "Invented Quote", source: "form", archived: 0, labor_hours: 1, staff_count: 1 });
 
 beforeEach(() => {
@@ -89,11 +102,14 @@ beforeEach(() => {
       { month: "2030-09-01", source: "qbo", in_store: "11000.00" },
       { month: "2029-09-01", source: "seller", in_store: "10000.00" },
     ],
-    // Sunday and Monday of the same week 52 weeks earlier.
+    // Sunday and Monday of the same week 52 weeks earlier: the previous owner's books, no delivery on file.
+    // Then the 28 days before today (Sep 12 to Oct 9): delivery on file at 0, a delivery share of 0, so
+    // projected sales are last year's in-store unless a test changes them.
     sales_daily_in_store: [
-      { day: "2029-10-14", in_store: "1000.00", basis: "booked", source: "seller" },
-      { day: "2029-10-15", in_store: "1000.00", basis: "booked", source: "seller" },
-      { day: "2029-10-22", in_store: "9999.00", basis: "booked", source: "seller" },
+      { day: "2029-10-14", in_store: "1000.00", delivery: null, basis: "booked", source: "seller" },
+      { day: "2029-10-15", in_store: "1000.00", delivery: null, basis: "booked", source: "seller" },
+      { day: "2029-10-22", in_store: "9999.00", delivery: null, basis: "booked", source: "seller" },
+      ...recent(28, "0.00"),
     ],
     deals: [
       // Booked: 2 crew billed 4h each = 8 crew hours. The labor line never reads it; the Labor Hours Planning card's bookings do.
@@ -122,7 +138,7 @@ test("a manager's week: last year's same weekdays, the board's goal, and an inac
   assert.deepEqual(load.problems, []);
   assert.equal(labor.boardEmpty, false);
   assert.equal(labor.days[0].lastYearInStore.value, 1_000);
-  assert.ok(Math.abs((labor.days[1].projectedSales.value ?? 0) - 1_100) < 1e-6, "in-store only: the deal's $ is not in it");
+  assert.ok(Math.abs((labor.days[1].projectedSales.value ?? 0) - 1_100) < 1e-6, "in-store and delivery (none lately): the deal's $ is not in it");
   assert.ok(Math.abs((labor.days[1].targetHours.value ?? 0) - 220 / 15) < 1e-6, "1,100 x 20% / an average of 15; the booked deal's 8 billed crew hours are not added");
   assert.equal(labor.days[2].targetHours.value, null, "no last-year Tuesday on file");
   assert.equal(labor.labor.wages, 60, "5h at the inactive person's 12");
@@ -173,8 +189,74 @@ test("when last year's daily sales cannot be read the line says so and every day
   const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
   assert.ok(load.ready);
   assert.ok(load.problems.some((p) => p.startsWith("Last year's daily sales could not be read: ")), load.problems.join(" | "));
+  assert.ok(load.problems.some((p) => p.startsWith("Recent daily sales could not be read, so last year's delivery is not known: ")), load.problems.join(" | "));
   assert.equal(load.labor.days[0].lastYearInStore.value, null);
   assert.equal(load.labor.days[0].targetHours.value, null);
+});
+
+// ---- Delivery (Alina, 2026-11-18): last year's delivery is in projected sales ----
+
+test("a last-year day with delivery on file adds it, read from the last-year query's delivery column", async () => {
+  returnOnlySelectedColumnsOf("sales_daily_in_store");
+  (db.tables.sales_daily_in_store as Record<string, unknown>[]).find((r) => r.day === "2029-10-15")!.delivery = "200.00";
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, []);
+  assert.equal(load.labor.days[1].lastYearDelivery.value, 200);
+  assert.ok(Math.abs((load.labor.days[1].projectedSales.value ?? 0) - 1_320) < 1e-6, "(1,000 + 200) x 1.1");
+  // Sunday has none on file: in-store x the recent share, 0 here.
+  assert.equal(load.labor.days[0].lastYearDelivery.value, 0);
+});
+
+test("a last-year day with no delivery on file uses the share over the 28 days before today", async () => {
+  returnOnlySelectedColumnsOf("sales_daily_in_store");
+  // 100 of delivery on 1,000 in-store each of the 28 days: 10%. Today, and the day before the 28, are not read.
+  setRecent([...recent(28, "100.00"), { ...recent(1, "9000.00", "2030-10-10")[0] }, { ...recent(1, "9000.00", "2030-09-11")[0] }]);
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, []);
+  assert.ok(Math.abs((load.labor.days[0].lastYearDelivery.value ?? 0) - 100) < 1e-6);
+  assert.ok(Math.abs((load.labor.days[0].projectedSales.value ?? 0) - 1_210) < 1e-6, "(1,000 + 1,000 x 10%) x 1.1");
+  assert.ok(Math.abs((load.labor.days[0].targetHours.value ?? 0) - 242 / 15) < 1e-6);
+});
+
+test("for a past week the share is the 28 days before the week, not before today", async () => {
+  // The week of Sep 29 is over by Oct 10: its share ends Sep 28. Sep 1-28 at 20%; Sep 29-Oct 9 at 90%, not read.
+  setRecent([...recent(28, "200.00", "2030-09-28"), ...recent(11, "900.00")]);
+  db.tables.sales_daily_in_store.push({ day: "2029-09-30", in_store: "1000.00", delivery: null, basis: "booked", source: "seller" });
+  const load = await loadScheduleLabor(createClient(), { weekStart: "2030-09-29", today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.ok(Math.abs((load.labor.days[0].lastYearDelivery.value ?? 0) - 200) < 1e-6, "1,000 x 20%");
+});
+
+test("with delivery on file for under 14 of the recent days, a day without its own delivery has no target and says so", async () => {
+  // All 28 days on file, but only 13 with delivery: the other 15 are from before migration 61.
+  setRecent(recent(28, null).map((r, k) => (k < 13 ? { ...r, delivery: "100.00" } : r)));
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, [], "a short history is not a read failure");
+  assert.equal(load.labor.days[0].targetHours.value, null);
+  assert.equal(load.labor.days[0].short, "no delivery share");
+  assert.ok(load.labor.target.hours.needs.includes("delivery sales on file for at least 14 of the last 28 days"), load.labor.target.hours.needs.join(" | "));
+});
+
+test("when only the recent daily sales cannot be read the line says so, and a day without its own delivery has no target", async () => {
+  // Refuse the second read of the table: the 28 days before today.
+  const project = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    if (url.pathname === "/rest/v1/sales_daily_in_store" && url.searchParams.getAll("day").includes("gte.2030-09-12")) {
+      return Response.json({ code: "42501", details: null, hint: null, message: "permission denied" }, { status: 403 });
+    }
+    return project(request);
+  }) as typeof fetch;
+  (db.tables.sales_daily_in_store as Record<string, unknown>[]).find((r) => r.day === "2029-10-15")!.delivery = "200.00";
+  const load = await loadScheduleLabor(createClient(), { weekStart: WEEK, today: TODAY, shifts: [], employees: ACTIVE, shiftTypes: [] });
+  assert.ok(load.ready);
+  assert.deepEqual(load.problems, ["Recent daily sales could not be read, so last year's delivery is not known: permission denied"]);
+  assert.equal(load.labor.days[0].targetHours.value, null);
+  assert.ok(Math.abs((load.labor.days[1].projectedSales.value ?? 0) - 1_320) < 1e-6, "Monday has its own delivery on file");
 });
 
 test("a booked deal missing its billed crew hours never makes the line missing: the line reads no quote", async () => {

@@ -1,5 +1,6 @@
 // The Metrics page's arithmetic (bj-finance #671, rulings 2026-10-10):
-// pace against the $600K seasonal target, LER paid and unpaid, and catering
+// pace against the $600K seasonal target, LER without owner pay and with it
+// (2026-11-18), Sunday-to-Saturday weeks, and catering
 // counted by event date. Each rule is pinned here before it is drawn on the
 // page (Alina's test-first rule for metric math).
 //
@@ -10,7 +11,7 @@ import assert from "node:assert/strict";
 
 import { monthProgress, targetFor, type SalesTargetRow } from "./targets.ts";
 import { TEST_TARGETS } from "./targets.fixture.ts";
-import { ler, lerPair, OWNER_COMP_WEEKLY, OWNER_COMP_MONTHLY } from "./ler.ts";
+import { ler, lerBoth, OWNER_COMP_WEEKLY, OWNER_COMP_MONTHLY } from "./ler.ts";
 import { arSummary, bookedEvidence, cateringByDay, cateringValue, isBooked, type DealRow } from "./catering.ts";
 import { addDays, daysInMonth, lastWeeks, weekOf } from "./dates.ts";
 
@@ -115,24 +116,29 @@ test("owner comp at the house rate: $630 + $846 a week, $6,396 a month", () => {
   assert.equal(OWNER_COMP_MONTHLY, 6396); // 1476 x 52 / 12
 });
 
-test("LER = gross profit / (wages + employer tax + owner comp)", () => {
-  assert.equal(ler({ grossProfit: 20_000, wages: 8_000, employerTax: 800, ownerComp: 1_200 }), 2);
-  assert.equal(ler({ grossProfit: 0, wages: 1, employerTax: 0, ownerComp: 0 }), 0);
+test("LER = gross profit / labor, owner pay left out unless asked for", () => {
+  assert.equal(ler({ grossProfit: 20_000, labour: 10_000 }), 2);
+  assert.equal(ler({ grossProfit: 20_000, labour: 8_800, ownerComp: 1_200 }), 2);
+  assert.equal(ler({ grossProfit: 0, labour: 1 }), 0);
 });
 
-test("LER paid and unpaid differ only by owner comp", () => {
-  const monthly = lerPair({ grossProfit: 32_134.56, wages: 15_000, employerTax: 1_300 }, "month");
-  assert.equal(monthly.paid, 1.42); // 32,134.56 / 22,696
-  assert.equal(monthly.unpaid, 1.97); // 32,134.56 / 16,300
-  const weekly = lerPair({ grossProfit: 6_000, wages: 2_500, employerTax: 224 }, "week");
-  assert.equal(weekly.paid, 1.43); // 6,000 / 4,200
-  assert.equal(weekly.unpaid, 2.2); // 6,000 / 2,724
+test("LER without owner pay and with it differ only by the owner pay for the period", () => {
+  const monthly = lerBoth(32_134.56, 16_300, "month");
+  assert.equal(monthly.ler, 1.97); // 32,134.56 / 16,300
+  assert.equal(monthly.withOwnerPay, 1.42); // 32,134.56 / (16,300 + 6,396)
+  const weekly = lerBoth(6_000, 2_724, "week");
+  assert.equal(weekly.ler, 2.2); // 6,000 / 2,724
+  assert.equal(weekly.withOwnerPay, 1.43); // 6,000 / (2,724 + 1,476)
 });
 
 test("LER with no labour cost or a missing input is unknown, never infinite", () => {
-  assert.equal(ler({ grossProfit: 100, wages: 0, employerTax: 0, ownerComp: 0 }), null);
-  assert.equal(ler({ grossProfit: null, wages: 100, employerTax: 0, ownerComp: 0 }), null);
-  assert.equal(lerPair({ grossProfit: 100, wages: null, employerTax: 0 }, "week").paid, null);
+  assert.equal(ler({ grossProfit: 100, labour: 0 }), null);
+  assert.equal(ler({ grossProfit: null, labour: 100 }), null);
+  assert.equal(ler({ grossProfit: 100, labour: null }), null);
+  assert.deepEqual(lerBoth(100, null, "week"), { ler: null, withOwnerPay: null });
+  assert.deepEqual(lerBoth(null, 100, "month"), { ler: null, withOwnerPay: null });
+  // No labour of its own, owner pay alone: still no LER without it, one with it.
+  assert.deepEqual(lerBoth(2_952, 0, "week"), { ler: null, withOwnerPay: 2 });
 });
 
 // ---- catering by event date ---------------------------------------------------------
