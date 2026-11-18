@@ -60,7 +60,6 @@ export function emptyLabourWeek(week: string): LabourWeek {
   };
 }
 
-const KEY = { inStore: "inStore", catering: "catering", marketing: "marketing" } as const;
 const ms = (iso: string) => new Date(iso).getTime();
 
 /** Hours of a punch by the work they were: its shift's work, or, with no shift, by overlap with the person's unpunched work shifts. */
@@ -72,7 +71,7 @@ export function punchWork(
 ): Partial<Record<Work, number>> {
   const hours = spanHours(p.clock_in_at, p.clock_out_at);
   const linked = p.shift_id != null ? shifts.get(p.shift_id) : undefined;
-  if (linked) return { [workKind(linked, marketingDeals) ?? KEY.inStore]: hours };
+  if (linked) return { [workKind(linked, marketingDeals) ?? "inStore"]: hours };
   const out: Partial<Record<Work, number>> = {};
   let worked = 0;
   const [a, b] = [ms(p.clock_in_at), ms(p.clock_out_at)];
