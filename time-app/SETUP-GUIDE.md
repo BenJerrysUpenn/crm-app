@@ -298,7 +298,8 @@ message the person yourself.
    (after `migration_37.sql`). It adds the queue and the once-a-day record.
    `supabase/migration_48.sql` (after `migration_47.sql`) adds the Removed
    lines, the schedulers' availability email and weekly repeat-until dates
-   below.
+   below. Its availability claim fails on every run until
+   `supabase/migration_55.sql` (after `migration_54.sql`) is also run.
 2. Nothing else to schedule: the summary rides the `missed-clockins` check
    (Part 8). It goes out on that check's first run at or after 8pm, once per
    person per day. If the check does not run between 8pm and midnight (the Mac
