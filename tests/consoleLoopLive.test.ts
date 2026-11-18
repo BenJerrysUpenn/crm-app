@@ -3,10 +3,15 @@
 // emails are told apart, that test counts come from what happened after each
 // sent email, that a run without recorded limits says so instead of showing
 // zeros, that the API refuses anything but the five actions, and that a
-// save reloads to the same place with its dialog closed. Invented
-// people and figures; crm-app is public.
+// save reloads to the same place with its dialog closed. Also renders the
+// loop panels (LoopBits) on those facts to pin what staff read there.
+// Invented people and figures; crm-app is public.
 
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { ApproachBody, EmailBody, EmailsBody, TypeBody, WeekBody } from "@/components/emailCampaignsPrototype/console/LoopBits";
+import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
 import { buildLoopLive, emptyLoop, limitsOf, outcomesOf, type LiveRows } from "@/lib/emailCampaignsPrototype/console/loopLive";
 import { loopItems, withHistory } from "@/lib/emailCampaignsPrototype/console/loop";
 import { doneWords, reloadUrl, rpcFor, saveOutcome } from "@/lib/emailCampaignsPrototype/console/loopActions";
@@ -397,5 +402,144 @@ describe("customer types", () => {
     const L = buildLoopLive(rows(), ctx, NOW);
     expect(L.types.find((t) => t.key === "warm:corporate")!.ready).toBe(4);
     expect(L.types.find((t) => t.key === "cold:office_manager")!.ready).toBe(1);
+  });
+});
+
+// --- the loop panels, rendered as staff read them ---------------------------
+
+const panel = (L: LoopFacts) => ({
+  L,
+  items: [],
+  nav: {},
+  go: () => {},
+  say: () => {},
+  Proto: (p: { label: string }) => p.label,
+  act: async () => true,
+  Row: (p: { k: string; children: ReactNode }) => createElement("p", null, `${p.k}: `, p.children),
+  Alerts: () => null,
+});
+// The panel as text: tags dropped, entities read, whitespace squeezed.
+const words = (el: Parameters<typeof renderToStaticMarkup>[0]) =>
+  renderToStaticMarkup(el).replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/\s+/g, " ");
+
+const OFFER_ARM = { customer_type: "offer:corporate", approach_id: "holiday_letter", status: "live" as const, since: "2026-11-15T00:00:00Z", reason: "offer" };
+
+describe("type panel", () => {
+  it("says how many of the type's emails wait to send", () => {
+    const L = buildLoopLive(rows(), ctx, NOW);
+    expect(words(createElement(TypeBody, { ...panel(L), t: L.types.find((t) => t.key === "warm:corporate")! }))).toContain("4 waiting to send");
+  });
+});
+
+describe("week panel", () => {
+  it("says so when nothing but starts was decided and there is no earlier week", () => {
+    const text = words(createElement(WeekBody, panel(buildLoopLive(rows(), ctx, NOW))));
+    expect(text).toContain("Also decided Nothing else this week.");
+    expect(text).toContain("Earlier weeks None yet: this is the loop's first week.");
+  });
+  it("lists the other decisions and the earlier weeks instead when there are some", () => {
+    const [run] = rows().runs;
+    const L = buildLoopLive(
+      rows({
+        runs: [
+          { ...run, decisions: { retire: [["warm:corporate", "party_first", "Too few replies"]] } },
+          { ...run, week_start: "2026-11-09", created_at: "2026-11-09T04:15:00Z", memo: "First week went out." },
+        ],
+      }),
+      ctx,
+      NOW,
+    );
+    const text = words(createElement(WeekBody, panel(L)));
+    expect(text).toContain("Set aside “Party first”");
+    expect(text).not.toContain("Nothing else this week.");
+    expect(text).toContain("Week of Nov 9");
+    expect(text).not.toContain("None yet");
+  });
+  it("shows a started approach's purpose only when it has one, and no empty stop rule", () => {
+    const [run] = rows().runs;
+    const started = (purpose: string) =>
+      words(
+        createElement(
+          WeekBody,
+          panel(
+            buildLoopLive(
+              rows({
+                runs: [{ ...run, decisions: { new_approaches: [{ id: "party_first", customer_types: ["warm:corporate"], why_tried: "Parties book early" }] } }],
+                approaches: [...rows().approaches.filter((a) => a.id !== "party_first"), approach("party_first", { purpose })],
+              }),
+              ctx,
+              NOW,
+            ),
+          ),
+        ),
+      );
+    expect(started("Get a reply")).toContain("Meant to get a reply");
+    expect(started("")).not.toContain("Meant to");
+    expect(started("Get a reply")).not.toContain("Stop it if");
+  });
+});
+
+describe("emails panel", () => {
+  it("offers only the types that have emails in its type filter, offer types marked", () => {
+    const L = buildLoopLive(
+      rows({
+        arms: [...rows().arms, OFFER_ARM, { customer_type: "warm:exec_admin", approach_id: "holiday_letter", status: "live" as const, since: "2026-11-15T00:00:00Z", reason: "baseline" }],
+        drafts: [...rows().drafts, draft(8, "holiday_letter", "planned", { customer_type: "offer:corporate" })],
+      }),
+      ctx,
+      NOW,
+    );
+    expect(L.types.some((t) => t.key === "warm:exec_admin")).toBe(true);
+    const select = renderToStaticMarkup(createElement(EmailsBody, panel(L))).match(/<select aria-label="Customer type".*?<\/select>/)![0];
+    expect([...select.matchAll(/<option[^>]*>(.*?)<\/option>/g)].map((m) => m[1].replace(/<!-- -->/g, ""))).toEqual(["Every type", "Cold: Office managers", "Offer: Companies", "Companies"]);
+  });
+});
+
+describe("email panel", () => {
+  const aimedAt = (occasion_id: string) => {
+    const L = buildLoopLive(
+      rows({
+        // A name unlike its id, so reading the name and spelling out the id differ.
+        runs: [{ ...rows().runs[0], occasions: { "warm:corporate": { target: { id: "holiday_party_season", name: "Office holiday parties", aim: "2026-12-12" }, upcoming: [] } } }],
+        sequences: [{ id: 2, occasion_id, event_date: "2026-12-12", date_basis: "occasion", date_source: "occasion_calendar", date_confidence: null, planned_steps: 1 }] as LiveRows["sequences"],
+      }),
+      ctx,
+      NOW,
+    );
+    return words(createElement(EmailBody, { ...panel(L), d: L.drafts.find((d) => d.id === "2")! })).match(/Aimed at: [^(]*/)![0].trim();
+  };
+  it("names the occasion it is aimed at, not its id", () => {
+    expect(aimedAt("holiday_party_season")).toBe("Aimed at: Office holiday parties on Dec 12");
+  });
+  it("spells out an occasion the type does not list", () => {
+    expect(aimedAt("spring_fling")).toBe("Aimed at: Spring fling on Dec 12");
+  });
+});
+
+describe("approach panel", () => {
+  const H = (replied: number) =>
+    withHistory(
+      buildLoopLive(rows({ arms: [...rows().arms, OFFER_ARM] }), ctx, NOW),
+      [{ lane: "warm", sinceStart: { sent: 1000, replied, deals: replied, booked: 0 } }],
+    );
+  const body = (L: LoopFacts, id = "holiday_letter") => words(createElement(ApproachBody, { ...panel(L), id }));
+
+  it("counts one reply and one lead in the singular, more in the plural", () => {
+    expect(body(H(1))).toContain("Before the loop: 1,000 sent, 1 reply, 1 lead, 0 booked.");
+    expect(body(H(30))).toContain("Before the loop: 1,000 sent, 30 replies, 30 leads, 0 booked.");
+  });
+  it("names its row in each test by that test's tier", () => {
+    // The chart rows carry their label as a title; the offer test once read "Past customers" too.
+    const titles = [...renderToStaticMarkup(createElement(ApproachBody, { ...panel(H(1)), id: "holiday_letter" })).matchAll(/<span class="truncate[^"]*" title="([^"]*)"/g)].map((m) => m[1]);
+    expect(titles).toEqual(["Past customers", "Offer"]);
+  });
+  it("says who approved it: a person by address, the loop by name", () => {
+    expect(body(H(1))).toContain("Approved Nov 14: loop.");
+    const L = buildLoopLive(
+      rows({ approaches: [...rows().approaches.filter((a) => a.id !== "cold_pilot_a"), approach("cold_pilot_a", { approved_at: "2026-11-15T00:00:00Z", approved_by: "owner@example.test" })] }),
+      ctx,
+      NOW,
+    );
+    expect(body(L, "cold_pilot_a")).toContain("Approved Nov 14 by owner@example.test.");
   });
 });
