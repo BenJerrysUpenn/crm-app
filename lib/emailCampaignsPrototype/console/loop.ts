@@ -1,13 +1,8 @@
 // PROTOTYPE (bj-finance #811 round 3, #964), throwaway. The weekly email
-// loop as the console sees it: types, the real reader, and the loop's
-// bubble-up rules (spec 10.4, L1 to L8). Pure functions apart from the reader.
-// Read only: the reader uses the signed-in manager's client, like load.ts.
-//
-// The loop tables have row security on and no read policy yet (spec 10.5),
-// and nothing has run live, so the reader returns "unreadable" or "empty"
-// today and the page shows the synthetic week (loopSynthetic.ts) instead.
+// loop as the console sees it: types, words and the loop's bubble-up rules
+// (spec 10.4, L1 to L8). Pure functions. The live tables are read and turned
+// into these facts in loopLive.ts; the synthetic week is loopSynthetic.ts.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AttentionItem } from "./attention";
 import { dateEt, etDay, etParts, isWeekday } from "./time";
 
@@ -590,58 +585,8 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
 }
 
 // ---------------------------------------------------------------------------
-// The real reader (read only, signed-in manager)
+// The loop's week
 // ---------------------------------------------------------------------------
-
-export type LoopInputs =
-  | { status: "unreadable"; message: string }
-  | { status: "empty" }
-  | { status: "read"; rows: LoopRows };
-
-export type LoopRows = {
-  runs: { week_start: string; created_at: string; memo: string; decisions: unknown; score: unknown; digest_sent_at: string | null }[];
-  arms: { customer_type: string; approach_id: string; status: ArmFact["status"]; since: string; reason: string }[];
-  approaches: { id: string; family: string; opener: string; structure: string; ask_type: string; length_band: ApproachFact["length"]; is_baseline: boolean; brief: string; created_by: string; created_at: string }[];
-  drafts: { id: number; sequence_id: number; prospect_id: number; touch: number; send_on: string; customer_type: string; approach_id: string; assigned_by: DraftFact["assignedBy"]; subject: string; body: string; status: "planned" | "sent" | "skipped"; skip_reason: string | null }[];
-  sequences: { id: number; occasion_id: string | null; event_date: string; date_basis: DraftFact["why"]["basis"]; date_source: string; date_confidence: number | null; planned_steps: number }[];
-};
-
-export async function loadLoop(supabase: SupabaseClient, weekStart: string): Promise<LoopInputs> {
-  const runs = await supabase
-    .from("outreach_loop_runs")
-    .select("week_start,created_at,memo,decisions,score,digest_sent_at")
-    .order("week_start", { ascending: false })
-    .limit(12);
-  if (runs.error) return { status: "unreadable", message: runs.error.message };
-  if (!runs.data?.length) return { status: "empty" };
-  const weekEnd = new Date(new Date(`${weekStart}T12:00:00Z`).getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
-  const [arms, approaches, drafts, sequences] = await Promise.all([
-    supabase.from("outreach_loop_arms").select("customer_type,approach_id,status,since,reason"),
-    supabase.from("outreach_loop_approaches").select("id,family,opener,structure,ask_type,length_band,is_baseline,brief,created_by,created_at"),
-    supabase
-      .from("outreach_loop_drafts")
-      .select("id,sequence_id,prospect_id,touch,send_on,customer_type,approach_id,assigned_by,subject,body,status,skip_reason")
-      .gte("send_on", weekStart)
-      .lt("send_on", weekEnd)
-      .order("send_on"),
-    supabase
-      .from("outreach_loop_sequences")
-      .select("id,occasion_id,event_date,date_basis,date_source,date_confidence,planned_steps")
-      .eq("status", "live"),
-  ]);
-  const err = arms.error ?? approaches.error ?? drafts.error ?? sequences.error;
-  if (err) return { status: "unreadable", message: err.message };
-  return {
-    status: "read",
-    rows: {
-      runs: runs.data as LoopRows["runs"],
-      arms: (arms.data ?? []) as LoopRows["arms"],
-      approaches: (approaches.data ?? []) as LoopRows["approaches"],
-      drafts: (drafts.data ?? []) as LoopRows["drafts"],
-      sequences: (sequences.data ?? []) as LoopRows["sequences"],
-    },
-  };
-}
 
 /** The Monday that starts the loop's current week: this week's Monday on a
  * weekday, the coming Monday at the weekend (the run plans the week ahead). */
@@ -654,171 +599,6 @@ export function loopWeekStart(now: Date): string {
 }
 
 export const todayEt = (now: Date) => etDay(now);
-
-const obj = (x: unknown): Record<string, unknown> => (x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
-const arr = (x: unknown): unknown[] => (Array.isArray(x) ? x : []);
-
-function rateOf(block: unknown): RateFact {
-  const b = obj(block);
-  const nums = obj(b.numbers);
-  const range = arr(b.range) as number[];
-  return {
-    k: Number(nums.successes ?? 0),
-    n: Number(nums.sends ?? 0),
-    per1000: typeof b.per_1000 === "number" ? b.per_1000 : null,
-    lo: typeof range[0] === "number" ? range[0] : null,
-    hi: typeof range[1] === "number" ? range[1] : null,
-  };
-}
-
-function runOf(r: LoopRows["runs"][number], planned: number): RunFact {
-  const d = obj(r.decisions);
-  const pairs = (key: string, kind: DecisionFact["kind"]) =>
-    arr(d[key]).map((x) => {
-      const [type, approachId, reason] = arr(x) as string[];
-      return { kind, type: type ?? null, approachId: approachId ?? "", reason: reason ?? "" };
-    });
-  const added = arr(d.new_approaches).map((x) => {
-    const a = obj(x);
-    return { kind: "add" as const, type: (arr(a.customer_types)[0] as string) ?? null, approachId: String(a.id ?? ""), reason: String(a.brief ?? "") };
-  });
-  return {
-    weekStart: r.week_start,
-    createdAt: r.created_at,
-    check: { ok: true, text: "The run logged, so its startup check passed." },
-    memo: r.memo,
-    decisions: [...added, ...pairs("retire", "retire"), ...pairs("reopen", "reopen")],
-    asks: arr(d.asks).map((x, i) => ({ id: String(i), text: String(x), answered: false })),
-    approvedAt: null,
-    digestSentAt: r.digest_sent_at,
-    planned,
-  };
-}
-
-/** Real loop rows into facts. Limits, occasions, research, notes and volume
- * are not in the database yet (spec 10.5): `fill` supplies them, marked. */
-export function buildLoop(
-  rows: LoopRows,
-  people: Map<number, { name: string | null; company: string | null; email: string | null }>,
-  now: Date,
-  fill: LoopFacts,
-): LoopFacts {
-  const weekStart = loopWeekStart(now);
-  const today = todayEt(now);
-  const thisRun = rows.runs.find((r) => r.week_start === weekStart) ?? null;
-  const seq = new Map(rows.sequences.map((s) => [s.id, s]));
-  const drafts: DraftFact[] = rows.drafts.map((d) => {
-    const p = people.get(d.prospect_id);
-    const s = seq.get(d.sequence_id);
-    return {
-      id: String(d.id),
-      sendOn: d.send_on,
-      touch: d.touch,
-      planned: s?.planned_steps ?? d.touch,
-      type: d.customer_type,
-      approachId: d.approach_id,
-      assignedBy: d.assigned_by,
-      subject: d.subject,
-      body: d.body,
-      status: d.status,
-      skipReason: d.skip_reason,
-      mailbox: "",
-      person: { name: p?.name ?? `Prospect ${d.prospect_id}`, company: p?.company ?? "", email: p?.email ?? "" },
-      why: {
-        relationship: d.customer_type.split(":")[0],
-        occasion: s?.occasion_id ?? null,
-        eventDate: s?.event_date ?? "",
-        basis: s?.date_basis ?? "occasion",
-        source: s?.date_source ?? "occasion_calendar",
-        confidence: s?.date_confidence ?? null,
-        evidence: null,
-      },
-      prior: [],
-      slot: "late_morning",
-      sendAt: `${d.send_on}T15:00:00Z`,
-      judge: { verdict: "pass", note: "No judge record yet (spec 10.5)." },
-      pick: d.assigned_by === "baseline_quota" ? "The baseline's share." : "The daily draw.",
-    };
-  });
-  const score = obj(obj(thisRun?.score ?? rows.runs[0]?.score).types);
-  const keys = [...new Set([...rows.arms.map((a) => a.customer_type), ...Object.keys(score)])].sort();
-  const types: TypeFact[] = keys.map((key) => {
-    const scored = arr(score[key]).map(obj);
-    const mine = drafts.filter((d) => d.type === key);
-    return {
-      key,
-      tier: tierOf(key),
-      label: typeLabel(key),
-      target: null,
-      upcoming: [],
-      emailsThisWeek: mine.length,
-      sentThisWeek: mine.filter((d) => d.status === "sent").length,
-      ready: 0,
-      held: [],
-      adjusted: [],
-      mostly: null,
-      arms: rows.arms
-        .filter((a) => a.customer_type === key)
-        .map((a) => {
-          const sc = scored.find((x) => x.approach_id === a.approach_id) ?? {};
-          const rates = obj(sc.rates);
-          const lead = rateOf(rates.lead);
-          return {
-            approachId: a.approach_id,
-            status: a.status,
-            since: a.since,
-            reason: a.reason,
-            sends: lead.n,
-            reply: rateOf(rates.human_reply),
-            lead,
-            booking: rateOf(rates.booking),
-            best: typeof obj(sc.chance_best).lead === "number" ? (obj(sc.chance_best).lead as number) : null,
-            verdict: (sc.verdict as Verdict) ?? "learning",
-            emailsThisWeek: mine.filter((d) => d.approachId === a.approach_id).length,
-          };
-        }),
-    };
-  });
-  const approaches: Record<string, ApproachFact> = Object.fromEntries(
-    rows.approaches.map((a) => [
-      a.id,
-      {
-        id: a.id,
-        name: a.id.replace(/_/g, " "),
-        family: a.family,
-        opener: a.opener,
-        structure: a.structure,
-        ask: a.ask_type,
-        length: a.length_band,
-        baseline: a.is_baseline,
-        brief: a.brief,
-        createdBy: a.created_by,
-        createdAt: a.created_at,
-        origin: a.created_by.startsWith("human") ? "human" : "loop",
-        purpose: "",
-        whyTried: a.brief,
-        fitsWith: "",
-        stopIf: "",
-        evidence: [],
-        slots: [],
-      } satisfies ApproachFact,
-    ]),
-  );
-  const runs = rows.runs.map((r) => runOf(r, r.week_start === weekStart ? drafts.length : 0));
-  return {
-    ...fill,
-    synthetic: `${fill.synthetic ? "limits, occasions, research, notes and volume are synthetic; " : ""}loop runs, approaches and emails are real`,
-    now: now.toISOString(),
-    today,
-    weekStart,
-    run: runs.find((r) => r.weekStart === weekStart) ?? null,
-    runs,
-    types,
-    approaches,
-    drafts,
-    flagged: [],
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Round 4: chance of best, and the starting data from what people sent
