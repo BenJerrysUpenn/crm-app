@@ -9,7 +9,7 @@ import { sequenceRepoForRequest } from "@/lib/emailCampaignsPrototype/sequenceRe
 import { emptyState, type SharedState } from "@/lib/emailCampaignsPrototype/sharedSequences";
 import { loadConsoleExtras } from "@/lib/emailCampaignsPrototype/console/load";
 import { buildFacts } from "@/lib/emailCampaignsPrototype/console/facts";
-import { LEVEL_RANK, attentionItems, idleItems } from "@/lib/emailCampaignsPrototype/console/attention";
+import { LEVEL_RANK, attentionItems, consoleItems, idleItems } from "@/lib/emailCampaignsPrototype/console/attention";
 import { applyLoopScenario, applyScenario, consoleSynthetic, parseScenario } from "@/lib/emailCampaignsPrototype/console/scenarios";
 import { loopItems, withHistory, type LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
 import { buildLoopLive, emptyLoop, loadLoopLive } from "@/lib/emailCampaignsPrototype/console/loopLive";
@@ -53,6 +53,7 @@ export default async function EmailCampaignsPage({ searchParams }: { searchParam
   const scenario = synthetic ? parseScenario(searchParams.scenario) : "none";
 
   let email = "synthetic fixture (no login)";
+  let sharedError: string | null = null;
   let error: string | null = null;
   let facts;
   let loop: LoopFacts;
@@ -79,8 +80,9 @@ export default async function EmailCampaignsPage({ searchParams }: { searchParam
     try {
       const ctx = await sequenceRepoForRequest();
       if (ctx) shared = await ctx.repo.load();
-    } catch {
-      /* the seeds stand in, as on the classic screen */
+    } catch (e: unknown) {
+      // Said on screen, as the classic screen does; the seeds stand in meanwhile.
+      sharedError = e instanceof Error ? e.message : String(e);
     }
     try {
       const [raw, extras, sales, loopIn] = await Promise.all([loadRawData(supabase), loadConsoleExtras(supabase, now), loadSalesLanes(supabase), loadLoopLive(supabase, now)]);
@@ -112,8 +114,7 @@ export default async function EmailCampaignsPage({ searchParams }: { searchParam
   const sales = f.sales.status === "ok" ? f.sales : null;
   loop = withHistory(loop, sales ? sales.snapshot.lanes : null, sales?.synthetic);
   const L = applyLoopScenario(loop, scenario);
-  // The hand-run lanes are off this screen (the classic screen has them), so their rules are too.
-  const items = [...loopItems(L), ...attentionItems(f).filter((i) => i.path[0] !== "lanes")].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level]);
+  const items = [...loopItems(L), ...consoleItems(attentionItems(f))].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level]);
   const idle = idleItems(f);
 
   return (
@@ -126,6 +127,11 @@ export default async function EmailCampaignsPage({ searchParams }: { searchParam
           <>
             {L.unavailable ? (
               <div className="mx-4 mt-3 rounded-md border border-dashed border-slate-500 bg-slate-900 p-2 text-xs text-slate-300">◌ {L.unavailable}</div>
+            ) : null}
+            {sharedError ? (
+              <div className="mx-4 mt-3 rounded-md border border-dashed border-slate-500 bg-slate-900 p-2 text-xs text-slate-300">
+                ◌ Could not read the saved sequences, so step counts use the original copy: {sharedError}
+              </div>
             ) : null}
             <ConsoleScreen facts={f} loop={L} items={items} idle={idle} scenario={scenario} source={synthetic ? "synthetic" : "real"} />
           </>

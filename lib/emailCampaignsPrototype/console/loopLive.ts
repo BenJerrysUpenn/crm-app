@@ -11,7 +11,7 @@
 // numbers snapshot.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DealRow } from "../model";
+import { BOOKED_STAGES, type DealRow } from "../model";
 import type { MailboxFull, OutcomeEvent, SendEvent } from "./load";
 import {
   chanceBest,
@@ -36,7 +36,8 @@ import {
   type TypeFact,
 } from "./loop";
 import { SLOTS } from "./loopStatic";
-import { addDays } from "./time";
+import { loopLane } from "./mailboxLanes";
+import { addDays, etParts } from "./time";
 
 // ---------------------------------------------------------------------------
 // Rows
@@ -284,12 +285,14 @@ const QUESTION_WHY: Record<Tier, string> = {
 
 const SLOT_TIME: Record<string, string> = Object.fromEntries(SLOTS.map((s) => [s.id, s.at]));
 
-/** "YYYY-MM-DD" at "HH:MM" Eastern as an ISO instant (EST/EDT by month). */
-function etInstant(ymd: string, hhmm: string): string {
+/** "YYYY-MM-DD" at "HH:MM" New York time as an ISO instant, with the real
+ * daylight-time switch (Intl), not a month rule. */
+export function etInstant(ymd: string, hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number);
-  const month = Number(ymd.slice(5, 7));
-  const offset = month >= 4 && month <= 10 ? 4 : 5; // close enough for a send time label
-  return new Date(Date.UTC(Number(ymd.slice(0, 4)), month - 1, Number(ymd.slice(8, 10)), h + offset, m)).toISOString();
+  const [y, mo, d] = ymd.split("-").map(Number);
+  // Noon UTC is 7am or 8am in New York the same day, after any 2am switch.
+  const offset = 12 - etParts(new Date(Date.UTC(y, mo - 1, d, 12))).hour;
+  return new Date(Date.UTC(y, mo - 1, d, h + offset, m)).toISOString();
 }
 
 // ---------------------------------------------------------------------------
@@ -306,13 +309,12 @@ export function outcomesOf(
   deals: Pick<DealRow, "contact_email" | "stage" | "created_at">[],
   emailOf: Map<number, string>,
 ): Outcome[] {
-  const BOOKED = new Set(["Event Complete", "Booked Paid", "Booked Unpaid"]);
   const byProspect = new Map<number, OutcomeEvent[]>();
   for (const o of outcomes) byProspect.set(o.prospect_id, [...(byProspect.get(o.prospect_id) ?? []), o]);
   const bookedAt = new Map<string, string[]>();
   for (const d of deals) {
     const e = d.contact_email?.trim().toLowerCase();
-    if (!e || !d.stage || !BOOKED.has(d.stage) || !d.created_at) continue;
+    if (!e || !d.stage || !BOOKED_STAGES.has(d.stage) || !d.created_at) continue;
     bookedAt.set(e, [...(bookedAt.get(e) ?? []), d.created_at]);
   }
   return sent.map((s) => {
@@ -353,9 +355,6 @@ export type LiveContext = {
   mailboxes: MailboxFull[];
 };
 
-const WARM_DOMAIN = "@news.benjerryphilly.com";
-const COLD_DOMAIN = "@phillyicecreamcatering.com";
-const COLD_OWNER = "alina@phillyicecreamcatering.com";
 
 function runOf(r: RunRow, planned: number): RunFact {
   const d = obj(r.decisions);
@@ -581,8 +580,8 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
   const allowance = (pick: (m: MailboxFull) => boolean) =>
     ctx.mailboxes.filter((m) => pick(m) && !m.frozen).reduce((t, m) => t + (m.daily_allowance ?? 0), 0);
   const capDay = (n: number) => (limitsRow ? Math.min(n, limitsRow.dailyCap) : n);
-  const warmDay = capDay(allowance((m) => m.address.endsWith(WARM_DOMAIN)));
-  const coldDay = limitsRow && !limitsRow.coldEnabled ? 0 : capDay(allowance((m) => m.address.endsWith(COLD_DOMAIN) && m.address !== COLD_OWNER));
+  const warmDay = capDay(allowance((m) => loopLane(m.address) === "warm"));
+  const coldDay = limitsRow && !limitsRow.coldEnabled ? 0 : capDay(allowance((m) => loopLane(m.address) === "cold"));
   const waitingTier = (t: Tier) => drafts.filter((d) => (d.status === "planned" || d.status === "held") && tierOf(d.type) === t).length;
 
   // Research: today's LinkedIn pages and any halt still standing.

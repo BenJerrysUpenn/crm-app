@@ -350,3 +350,17 @@ export function affectedBy(items: AttentionItem[], home: Home): AttentionItem[] 
   const same = (a: Home, b: Home) => JSON.stringify(a) === JSON.stringify(b);
   return items.filter((i) => i.affects.some((h) => same(h, home)));
 }
+
+/** What the console shows of the hand-run attention items. The hand-run
+ * lanes are off the console (the classic screen has them), so their mailbox
+ * and step rules go; but the sales numbers' own items (a publisher alert, an
+ * offer deal left open) still matter, so one homed on a lane is re-homed on
+ * the sales panel instead of being dropped. */
+export function consoleItems(items: AttentionItem[]): AttentionItem[] {
+  const SALES_RULES = new Set<AttentionItem["rule"]>(["sales_alert", "sales_not_current", "offer_deal_open"]);
+  return items.flatMap((i) => {
+    if (i.path[0] !== "lanes") return [i];
+    if (!SALES_RULES.has(i.rule)) return [];
+    return [{ ...i, path: ["sales", ...i.path.slice(1)], pathLabel: `Sales numbers › ${i.area}`, home: { kind: "sales" } as Home, fixes: ["Open the sales numbers"] }];
+  });
+}

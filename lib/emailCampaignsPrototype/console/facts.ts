@@ -8,6 +8,7 @@
 // is 'wedding' (the wedding sender's list), counted against the wedding
 // sequence. Badges are NOT computed here: attention.ts does that, in one place.
 
+import { handLane } from "./mailboxLanes";
 import {
   DEFAULT_CADENCE,
   categorySteps,
@@ -27,6 +28,7 @@ import {
   type StepSpec,
   type TierKey,
 } from "../model";
+import { BOOKED_STAGES } from "../model";
 import { stepSpec, type SequenceDoc } from "../sequences";
 import { resolveSequence, type SharedState } from "../sharedSequences";
 import { parseNaiveUtc } from "@/lib/dateFormat";
@@ -169,7 +171,6 @@ export type Facts = {
 const lc = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 const DAY = 86_400_000;
 const QUOTE_STAGES = new Set(["Sent Quote", "Booked Unpaid", "Booked Paid", "Event Complete"]);
-const BOOKED_STAGES = new Set(["Booked Unpaid", "Booked Paid", "Event Complete"]);
 const HANDLED = new Set(["handed_off", "lost", "suppressed", "deal_created", "unsubscribed"]);
 
 /** Which console lane a prospect row is in (for attributing its events).
@@ -296,7 +297,7 @@ export function buildFacts(raw: RawData, extras: ConsoleExtras, shared: SharedSt
   const mailboxes: MailboxFact[] = [];
   for (const d of domainNames) {
     for (const m of sorted.filter((x) => x.address.endsWith(`@${d}`))) {
-      const isCold = !d.includes("benjerryphilly");
+      const isCold = handLane(d) === "cold";
       const mine = extras.sends.filter((s) => lc(s.mailbox) === lc(m.address));
       const realSends = mine.filter((s) => !s.apollo);
       const byDay = new Map<string, number>();
@@ -351,7 +352,7 @@ export function buildFacts(raw: RawData, extras: ConsoleExtras, shared: SharedSt
   const domains: DomainFact[] = domainNames.map((d) => ({
     id: domainId.get(d)!,
     domain: d,
-    lane: d.includes("benjerryphilly") ? "warm" : "cold",
+    lane: handLane(d),
     mailboxIds: mailboxes.filter((m) => m.domainId === domainId.get(d)).map((m) => m.id),
     // Nothing records seed tests or blocklist checks yet (spec 9.14: the
     // checks table round 1 proposed). Until it exists: No data.

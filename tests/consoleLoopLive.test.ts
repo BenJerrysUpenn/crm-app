@@ -277,3 +277,48 @@ describe("saveOutcome", () => {
     expect(saveOutcome(resume, answer(false, false, "Bad Gateway"), {})).toEqual({ saved: false, words: "Not saved: Bad Gateway" });
   });
 });
+
+// --- review answers (PR 160): one mailbox rule each, the real DST switch,
+// and lane-named sales items kept on the console's sales panel.
+import { etInstant } from "@/lib/emailCampaignsPrototype/console/loopLive";
+import { handLane, loopLane } from "@/lib/emailCampaignsPrototype/console/mailboxLanes";
+import { consoleItems, type AttentionItem } from "@/lib/emailCampaignsPrototype/console/attention";
+
+describe("etInstant", () => {
+  it("follows New York's real daylight-time switch, not the month", () => {
+    // Daylight time 2026: 8 March to 1 November.
+    expect(etInstant("2026-03-06", "10:30")).toBe("2026-03-06T15:30:00.000Z");
+    expect(etInstant("2026-03-09", "10:30")).toBe("2026-03-09T14:30:00.000Z");
+    expect(etInstant("2026-10-30", "15:00")).toBe("2026-10-30T19:00:00.000Z");
+    expect(etInstant("2026-11-02", "15:00")).toBe("2026-11-02T20:00:00.000Z");
+  });
+});
+
+describe("mailbox lanes", () => {
+  it("names the loop's own mailboxes as the sender does, owner left out", () => {
+    expect(loopLane("jake@news.benjerryphilly.com")).toBe("warm");
+    expect(loopLane("Alana@PhillyIceCreamCatering.com")).toBe("cold");
+    expect(loopLane("alina@phillyicecreamcatering.com")).toBeNull();
+    expect(loopLane("catering@benjerryphilly.com")).toBeNull();
+  });
+  it("puts every benjerryphilly domain in the warm hand-run lane", () => {
+    expect(handLane("benjerryphilly.com")).toBe("warm");
+    expect(handLane("news.benjerryphilly.com")).toBe("warm");
+    expect(handLane("phillyicecreamcatering.com")).toBe("cold");
+  });
+});
+
+describe("consoleItems", () => {
+  const base = { level: "warning", area: "Cold", pathLabel: "Lanes › Cold", openedAt: null, stale: false, fixes: ["x"], affects: [], detail: "" } as const;
+  it("keeps a lane-named sales alert on the sales panel and drops the lane's own rules", () => {
+    const items = [
+      { ...base, id: "a", rule: "sales_alert", title: "Cold sent 0", path: ["lanes", "cold", "sales"], home: { kind: "lane", lane: "cold" } },
+      { ...base, id: "b", rule: "step_no_copy", title: "Step 2", path: ["lanes", "cold", "step:2"], home: { kind: "lane", lane: "cold" } },
+      { ...base, id: "c", rule: "reply_aging", title: "Reply", path: ["replies"], home: { kind: "reply", id: "1" } },
+    ] as unknown as AttentionItem[];
+    const out = consoleItems(items);
+    expect(out.map((i) => i.id)).toEqual(["a", "c"]);
+    expect(out[0].path).toEqual(["sales", "cold", "sales"]);
+    expect(out[0].home).toEqual({ kind: "sales" });
+  });
+});
