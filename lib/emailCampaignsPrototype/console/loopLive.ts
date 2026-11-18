@@ -449,7 +449,10 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
     };
   });
   /** Waiting to send: planned or held, not yet sent or skipped. */
-  const toSend = (d: DraftFact) => d.status === "planned" || d.status === "held";
+  // Waiting to send THIS week: planned or held and due by the week's end (an
+  // email planned for a later week, such as the Holiday Gift's 8 December
+  // email 2, is not this week's backlog).
+  const toSend = (d: DraftFact) => (d.status === "planned" || d.status === "held") && d.sendOn < weekEnd;
   const thisWeek = drafts.filter((d) => d.sendOn >= weekStart && d.sendOn < weekEnd);
 
   // What happened after each sent email.

@@ -617,3 +617,13 @@ describe("a human try", () => {
     expect(text).not.toContain("{sender_first}");
   });
 });
+
+describe("emails planned for a later week", () => {
+  it("are not this week's backlog or waiting count", () => {
+    const later = Array.from({ length: 200 }, (_, i) => draft(500 + i, "holiday_letter", "planned", { send_on: "2026-12-08", assigned_by: "human" }));
+    const L = buildLoopLive(rows({ drafts: [draft(1, "holiday_letter", "sent", { done_at: "2026-11-17T15:30:00Z" }), ...later] }), ctx, NOW);
+    expect(L.volume.warm.ready).toBe(0);
+    expect(L.types.find((t) => t.key === "warm:corporate")!.ready).toBe(0);
+    expect(loopItems(L).some((i) => i.id === "loop:backlog")).toBe(false);
+  });
+});

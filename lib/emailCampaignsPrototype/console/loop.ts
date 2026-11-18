@@ -463,7 +463,9 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
 
   // L3b More planned than the mailboxes can send by Friday.
   if (knowsSends && !L.paused && L.volume.roomPerWeek > 0) {
-    const waiting = planned.filter((d) => !d.waitingApproval).length;
+    // Only what is due by this week's end: a later week's emails are not backlog.
+    const weekEnd = new Date(new Date(`${L.weekStart}T12:00:00Z`).getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+    const waiting = planned.filter((d) => !d.waitingApproval && d.sendOn < weekEnd).length;
     const dow = et.weekday; // 0 Sunday .. 6 Saturday
     const daysLeft = dow === 0 || dow === 6 ? 5 : Math.max(0, 5 - dow + (et.hour < 15 ? 1 : 0));
     const room = Math.round((L.volume.roomPerWeek / 5) * daysLeft);
