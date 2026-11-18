@@ -60,3 +60,20 @@ export function doneWords(a: LoopAction): string {
       return "Resumed. The sender picks up at its next send time.";
   }
 }
+
+/** Where the page reloads to after a save: the same panel and email, with
+ * the dialog or form that made the save closed. A full reload, because the
+ * console moves between panels with history.pushState and router.refresh()
+ * then redraws the data the page first loaded with (seen 2026-11-18: an
+ * approved approach still showed its Approve buttons until a manual reload). */
+export function reloadUrl(href: string): string {
+  const u = new URL(href);
+  u.searchParams.delete("modal");
+  u.searchParams.delete("layer");
+  return u.toString();
+}
+
+/** The saved-toast is carried across that reload in sessionStorage: a
+ * per-viewer convenience only; if storage is unavailable the toast is lost
+ * and nothing else changes. */
+export const SAVED_TOAST_KEY = "email-campaigns:saved-toast";

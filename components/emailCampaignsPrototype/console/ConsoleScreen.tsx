@@ -34,7 +34,7 @@ import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCam
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
 import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
-import { saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
+import { SAVED_TOAST_KEY, reloadUrl, saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import {
   ApproachBody,
   EmailBody,
@@ -221,23 +221,43 @@ function Popover({ pop, onClose }: { pop: Pop; onClose: () => void }) {
 export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario, source }: Props) {
   const { nav, go, pop, href } = useNav();
   const { msg, say } = useToast();
-  const router = useRouter();
   const act: LoopAct = useCallback(
     async (a) => {
       try {
         const r = await fetch("/api/email-campaigns/loop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a) });
         const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
         const out = saveOutcome(a, r, j);
-        say(out.words);
-        if (out.saved) router.refresh();
-        return out.saved;
+        if (!out.saved) {
+          say(out.words);
+          return false;
+        }
+        // Reload in place so every panel redraws from the database; the
+        // promise never settles, so the button stays on "Saving…" until then.
+        try {
+          window.sessionStorage.setItem(SAVED_TOAST_KEY, out.words);
+        } catch {
+          /* the toast is a convenience */
+        }
+        window.location.replace(reloadUrl(window.location.href));
+        return await new Promise<boolean>(() => undefined);
       } catch (e) {
         say(`Not saved: ${e instanceof Error ? e.message : String(e)}`);
         return false;
       }
     },
-    [say, router],
+    [say],
   );
+  useEffect(() => {
+    try {
+      const w = window.sessionStorage.getItem(SAVED_TOAST_KEY);
+      if (w) {
+        window.sessionStorage.removeItem(SAVED_TOAST_KEY);
+        say(w);
+      }
+    } catch {
+      /* the toast is a convenience */
+    }
+  }, [say]);
   const [popover, setPopover] = useState<Pop | null>(null);
   const [acked, setAcked] = useState(false);
   const [palette, setPalette] = useState(false);

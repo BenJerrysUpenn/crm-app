@@ -323,3 +323,14 @@ describe("consoleItems", () => {
     expect(out[0].home).toEqual({ kind: "sales" });
   });
 });
+
+import { reloadUrl } from "@/lib/emailCampaignsPrototype/console/loopActions";
+
+describe("reloadUrl", () => {
+  it("keeps the panel and email, and closes the dialog or form that saved", () => {
+    expect(reloadUrl("https://crm.example.test/email-campaigns?panel=emails&sel=email%3A165&modal=approve%3Aparty_first&tab=a%3Aparty_first")).toBe(
+      "https://crm.example.test/email-campaigns?panel=emails&sel=email%3A165&tab=a%3Aparty_first",
+    );
+    expect(reloadUrl("https://crm.example.test/email-campaigns?panel=emails&sel=email%3A7&layer=flag")).toBe("https://crm.example.test/email-campaigns?panel=emails&sel=email%3A7");
+  });
+});
