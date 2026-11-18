@@ -11,7 +11,7 @@
 //     role on a signed-in user's behalf;
 //   * the one earlier exemption (one-click unsubscribe) is unchanged.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 
 // The real gate talks to Supabase. Stand in for it with what it does to an
@@ -132,6 +132,41 @@ describe("the open and click tracking endpoints", () => {
     ["the bare /api/t path", "/api/t"],
     ["a path that only starts with /api/t", "/api/tracking-admin"],
   ])("still gates %s", async (_label, path) => {
+    const response = await middleware(get(path));
+
+    expect(response.status).toBe(307);
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/login");
+    expect(gate.calls).toEqual([path]);
+  });
+});
+
+describe("the Email campaigns console's synthetic fixture (local dev only)", () => {
+  // CONSOLE_PROTO_SYNTHETIC=1 renders a fixture with no login on a developer's
+  // machine. Production and previews never run with NODE_ENV development, so
+  // there the flag must change nothing; and it opens one page, never the
+  // writes or the classic screen with real data.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("lets /email-campaigns through without the login gate in development with the flag set", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("CONSOLE_PROTO_SYNTHETIC", "1");
+    const response = await middleware(get("/email-campaigns"));
+
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(gate.calls).toEqual([]);
+  });
+
+  it.each([
+    ["the console in production, even with the flag set", "production", "1", "/email-campaigns"],
+    ["the console in development without the flag", "development", "", "/email-campaigns"],
+    ["the loop's write route, even in development with the flag", "development", "1", "/api/email-campaigns/loop"],
+    ["the classic screen, even in development with the flag", "development", "1", "/email-campaigns/classic"],
+  ])("still gates %s", async (_label, nodeEnv, flag, path) => {
+    vi.stubEnv("NODE_ENV", nodeEnv);
+    vi.stubEnv("CONSOLE_PROTO_SYNTHETIC", flag);
     const response = await middleware(get(path));
 
     expect(response.status).toBe(307);

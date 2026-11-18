@@ -2,6 +2,7 @@ import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server
 import { updateSession } from "@/lib/supabase/middleware";
 import { isPfPath, isGateExempt } from "@/lib/roles";
 import { handleShortLinkRequest, isShortLinkHost } from "@/lib/shortLinks";
+import { consoleSynthetic } from "@/lib/emailCampaignsPrototype/console/scenarios";
 
 // Personal-finance pages live on their own subdomain (same Vercel project,
 // host-routed) — mirroring how crm./time. split off this repo.
@@ -51,6 +52,12 @@ export async function middleware(request: NextRequest, event?: NextFetchEvent) {
   // /api/deals/:id/booked-shifts, stays behind the login. The route itself
   // requires CRON_SECRET and answers 503 when it is unset (lib/cronAuth.ts).
   if (pathname === CRON_CATERING_SHIFTS) {
+    return NextResponse.next();
+  }
+  // The Email campaigns console renders a synthetic fixture with no login in
+  // local dev only (consoleSynthetic). Production and previews keep the
+  // normal gate.
+  if (consoleSynthetic() && pathname === "/email-campaigns") {
     return NextResponse.next();
   }
   const isPfRoute = isPfPath(pathname);

@@ -303,7 +303,7 @@ const COLD_LABELS: Record<string, string> = {
   coworking: "Coworking",
 };
 
-const BOOKED_STAGES = new Set(["Event Complete", "Booked Paid", "Booked Unpaid"]);
+export const BOOKED_STAGES = new Set(["Event Complete", "Booked Paid", "Booked Unpaid"]);
 
 // --- helpers used by the client too -----------------------------------------
 

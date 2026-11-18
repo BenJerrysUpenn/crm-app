@@ -284,8 +284,33 @@ mirroring Catering-Manager `modules/quote.py` `discount_line_label`), with the o
 kept after the names when the Short-notice surcharge field is also set. Removing the last
 line stores NULL. Apply migration 028 before deploying the drawer.
 
+## Email campaigns console (crm/014)
+`/email-campaigns` is the one-screen console for the weekly email loop (bj-finance #964; spec
+bj-finance #811). It reads the loop's tables in Catering-Manager (`outreach_loop_*`,
+`outreach_event_estimates`, `outreach_research_views`) as the signed-in manager, through the read
+policies in `supabase/crm/014_email_loop_console.sql`, and the newest `sales_lanes` row of
+`metrics_snapshots` (see "Metrics page tables"; unreadable or absent, the screen says so). It writes only through
+`/api/email-campaigns/loop`, which calls one of five SECURITY DEFINER functions from the same
+migration: approve an approach, hold or release one email, pause or resume the loop. Each checks
+`is_manager()` and stamps the signed-in email; none sends anything or changes a limit. crm/014
+needs Catering-Manager `outreach/migrations/022_loop_console.sql` first, and is applied AFTER this
+app's commit shows Vercel success on main (until then the console says the loop is not readable).
+`_verify.sql` checks it; `_down.sql` drops the policies and functions only.
+
+Local dev: `CONSOLE_PROTO_SYNTHETIC=1` renders a synthetic fixture with no login (development
+only), with a scenario bar for the attention rules. `CONSOLE_PROTO_LOOP_ROWS` may name a JSON dump
+of real loop rows kept outside this repo; it runs through the live builder (`loopLive.ts`). `CONSOLE_PROTO_SALES_LANES` may name a JSON `sales_lanes` payload, and `?sales=empty|stale|unrecognised|unreadable` shows each state.
+
+The hand-run tiers, sequences and contacts live at `/email-campaigns/classic`. The console draws only the loop and the
+sales numbers: of the hand-run attention items it drops the mailbox and step rules, but re-homes
+the sales ones (`sales_alert`, `sales_not_current`, `offer_deal_open`) on the sales panel
+(`consoleItems` in `lib/emailCampaignsPrototype/console/attention.ts`). A failed read of the shared
+sequences (crm/013) or of the loop's tables is said in a notice at the top, never drawn as empty.
+Which lane a mailbox belongs to is decided only in `console/mailboxLanes.ts`: `handLane` for the
+mailbox panels, `loopLane` for the loop sender's own mailboxes.
+
 ## Email campaigns sequence editor (crm/013)
-The sequence editor on `/email-campaigns` saves steps, and each lane's signature and footer, to
+The sequence editor on `/email-campaigns/classic` saves steps, and each lane's signature and footer, to
 the shared copy in Supabase: `supabase/crm/013_email_campaign_sequences.sql` (apply by hand in
 the SQL editor BEFORE deploying the app that reads it; `_verify.sql` checks it, `_down.sql`
 reverses it and drops every saved sequence). A sequence or lane with no row shows its seed in
