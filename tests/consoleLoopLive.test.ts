@@ -377,3 +377,25 @@ describe("test start dates", () => {
     });
   });
 });
+
+// --- bugs the test swarm confirmed, 2026-11-18
+import { withHistory } from "@/lib/emailCampaignsPrototype/console/loop";
+
+describe("swarm fixes", () => {
+  it("counts a hand-sent history in one test only", () => {
+    const L = buildLoopLive(
+      rows({ arms: [...rows().arms, { customer_type: "offer:corporate", approach_id: "holiday_letter", status: "live", since: "2026-11-15T00:00:00Z", reason: "offer" }] }),
+      ctx,
+      NOW,
+    );
+    const H = withHistory(L, [{ lane: "warm", sinceStart: { sent: 1000, replied: 30, deals: 10, booked: 3 } }]);
+    const sends = (id: string) => H.tests.find((t) => t.id === id)!.arms.find((a) => a.approachId === "holiday_letter")!.sends;
+    expect(sends("warm_first_email")).toBe(1002);
+    expect(sends("offer_first_email")).toBe(0);
+  });
+  it("gives each type its own count of emails waiting to send", () => {
+    const L = buildLoopLive(rows(), ctx, NOW);
+    expect(L.types.find((t) => t.key === "warm:corporate")!.ready).toBe(4);
+    expect(L.types.find((t) => t.key === "cold:office_manager")!.ready).toBe(1);
+  });
+});

@@ -508,7 +508,7 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
       upcoming: arr(occ.upcoming).map(occasionOf).filter((x): x is OccasionFact => !!x),
       emailsThisWeek: mine.length,
       sentThisWeek: mine.filter((d) => d.status === "sent").length,
-      ready: 0,
+      ready: drafts.filter((d) => d.type === key && (d.status === "planned" || d.status === "held")).length,
       held: [
         ...[...waitingBy.entries()].map(([id, n]) => ({ reason: `waiting for your approval of ${approaches[id]?.name ?? id}`, n })),
         ...(heldN ? [{ reason: "held by you", n: heldN }] : []),

@@ -99,7 +99,6 @@ function parentOf(n: Nav): Nav {
 function useNav() {
   const sp = useSearchParams();
   const pathname = usePathname();
-  const pushed = useRef(0);
   const nav = navFromParams(sp);
   const href = useCallback(
     (n: Nav) => {
@@ -114,18 +113,19 @@ function useNav() {
     (n: Nav, mode: "push" | "replace" = "push") => {
       // "Dim the rest" survives drilling unless a call sets it.
       if (!("dim" in n)) n = { ...n, dim: dimNow };
-      if (mode === "push") {
-        window.history.pushState(null, "", href(n));
-        pushed.current++;
-      } else window.history.replaceState(null, "", href(n));
+      // How many console levels deep this entry is rides in history.state, so
+      // the browser's own Back and Forward keep it right (a counter here
+      // drifted on Back, and Esc then left the console).
+      const depth = Number((window.history.state as { consoleDepth?: number } | null)?.consoleDepth ?? 0);
+      if (mode === "push") window.history.pushState({ consoleDepth: depth + 1 }, "", href(n));
+      else window.history.replaceState({ consoleDepth: depth }, "", href(n));
     },
     [href, dimNow],
   );
   const pop = useCallback(() => {
-    if (pushed.current > 0) {
-      pushed.current--;
-      window.history.back();
-    } else window.history.replaceState(null, "", href(parentOf(nav)));
+    const depth = Number((window.history.state as { consoleDepth?: number } | null)?.consoleDepth ?? 0);
+    if (depth > 0) window.history.back();
+    else window.history.replaceState({ consoleDepth: 0 }, "", href(parentOf(nav)));
   }, [href, nav]);
   return { nav, go, pop, href };
 }
@@ -194,19 +194,23 @@ function Popover({ pop, onClose }: { pop: Pop; onClose: () => void }) {
   useEffect(() => {
     setPhone(window.innerWidth < 640);
     const down = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      // A press on the pill that opened it is left to the pill, which toggles.
+      const r = pop.rect;
+      const onPill = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (ref.current && !ref.current.contains(e.target as Node) && !onPill) onClose();
     };
     const t = setTimeout(() => document.addEventListener("mousedown", down), 0);
     return () => {
       clearTimeout(t);
       document.removeEventListener("mousedown", down);
     };
-  }, [onClose]);
+  }, [onClose, pop.rect]);
   const style = phone
     ? undefined
     : {
         top: Math.min(pop.rect.bottom + 6, window.innerHeight - 80),
         left: Math.max(8, Math.min(pop.rect.left, window.innerWidth - 400)),
+        maxHeight: window.innerHeight - Math.min(pop.rect.bottom + 6, window.innerHeight - 80) - 8,
       };
   return (
     <div
@@ -217,7 +221,7 @@ function Popover({ pop, onClose }: { pop: Pop; onClose: () => void }) {
       className={
         phone
           ? "fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-auto rounded-t-xl border-t border-slate-600 bg-slate-900 p-4 shadow-2xl"
-          : "fixed z-50 w-[380px] max-w-[calc(100vw-16px)] rounded-md border border-slate-600 bg-slate-900 p-3 shadow-2xl"
+          : "fixed z-50 w-[380px] max-w-[calc(100vw-16px)] overflow-auto rounded-md border border-slate-600 bg-slate-900 p-3 shadow-2xl"
       }
     >
       <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-200">
@@ -507,8 +511,8 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
             <div className="space-y-1.5">
               {c.nodata ? (
                 <p>
-                  <Glyph mark="nodata" /> No data. Nothing records {c.kind === "seed" ? "seed tests" : "blocklist checks"} yet: it needs the small checks
-                  table the spec lists as a prerequisite (section 9.14). Due every {c.everyDays} day{c.everyDays > 1 ? "s" : ""} once it exists.
+                  <Glyph mark="nodata" /> No data. Nothing records {c.kind === "seed" ? "seed tests" : "blocklist checks"} yet: nothing stores those
+                  results yet. Due every {c.everyDays} day{c.everyDays > 1 ? "s" : ""} once it exists.
                 </p>
               ) : (
                 <>
@@ -621,7 +625,7 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
     <div className={`relative pb-24 text-slate-200 ${panelOpen ? "sm:pr-[480px]" : ""}`}>
       <div className="mx-auto max-w-[1280px] px-4 py-3">
         {/* ① TOOLBAR (round 4): one row of pills; labels drop to icons on narrow screens, never wraps or scrolls */}
-        <section aria-label="Toolbar" className={`flex flex-nowrap items-center gap-1.5 overflow-hidden ${panelOpen ? "[&_.pill-label]:!hidden" : ""}`}>
+        <section aria-label="Toolbar" className={`flex flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] sm:overflow-hidden ${panelOpen ? "[&_.pill-label]:!hidden" : ""}`}>
           {pill}
           <Pill
             icon="reply"
@@ -920,6 +924,7 @@ function Palette({ f, loop: L, onClose, go }: { f: Facts; loop: LoopFacts; onClo
           className="w-full rounded bg-slate-800 px-2 py-1.5 text-sm text-slate-100 outline-none"
         />
         <ul className="mt-1 max-h-72 overflow-auto text-sm">
+          {shown.length ? null : <li className="px-2 py-1 text-slate-500">Nothing matches.</li>}
           {shown.map((e) => (
             <li key={e.label}>
               <button type="button" onClick={() => go(e.nav)} className="w-full rounded px-2 py-1 text-left text-slate-300 hover:bg-slate-800">
@@ -961,12 +966,19 @@ function AlertBlock({ items, say, onFix, go }: { items: AttentionItem[]; say: (s
           </p>
           <p className="text-xs text-slate-300">{i.detail}</p>
           {i.openedAt ? <p className="text-xs text-slate-500">since {dowEt(i.openedAt)}, {timeEt(i.openedAt)}{i.stale ? " · stale: fix the cause or the rule" : ""}</p> : null}
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-slate-500">Fix</span>
-            {i.fixes.map((fx) => (
-              <ProtoButton key={fx} label={fx} say={say} onClick={onFix?.(fx) ?? (go ? () => go(homeToNav(i.home)) : undefined)} />
-            ))}
-          </div>
+          {(() => {
+            // Only fixes with something behind them are drawn, and the
+            // "Fix" label only when at least one is.
+            const fixes = i.fixes.map((fx) => ({ fx, run: onFix?.(fx) ?? (go ? () => go(homeToNav(i.home)) : undefined) })).filter((x) => x.run);
+            return fixes.length ? (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-slate-500">Fix</span>
+                {fixes.map(({ fx, run }) => (
+                  <ProtoButton key={fx} label={fx} say={say} onClick={run} />
+                ))}
+              </div>
+            ) : null;
+          })()}
         </div>
       ))}
     </div>
@@ -1084,7 +1096,7 @@ function SidePanel(p: PanelProps) {
     } else if (kind === "test") {
       const t = L.tests.find((x) => x.id === id);
       if (t) {
-        crumbs.push(loopCrumb, { label: t.factor === "send time" ? "Send time" : t.tier === "cold" ? "Cold first email" : "Warm first email", nav: base });
+        crumbs.push(loopCrumb, { label: t.factor === "send time" ? "Send time" : t.tier === "cold" ? "Cold first email" : t.tier === "offer" ? "Offer email" : "Warm first email", nav: base });
         body = <TestBody {...bits} t={t} />;
       }
     } else if (kind === "history") {
