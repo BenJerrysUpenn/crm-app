@@ -61,6 +61,8 @@ export type BoardResults = {
   salesTotal: Derived;
   cogsDollars: Derived;
   totalPayroll: Derived;
+  /** The total payroll target as a share of sales: every wage, salaried and hourly, with taxes and comp (Labor vs target compares against it, Alina 2026-11-18). */
+  payrollTargetPct: Derived;
   /** COGS plus payroll at their targets, in dollars and as a share. */
   primeDollars: Derived;
   primeShare: Derived;
@@ -166,7 +168,7 @@ export function computeBoard(i: BoardInputs): BoardResults {
   const allTaxesWcPct = from([allTaxesWc, salesTotal], (t, s) => (s > 0 ? t / s : null));
 
   return {
-    salesTotal, cogsDollars, totalPayroll, primeDollars, primeShare, salaried, salaries, fixedTaxesWc, fixedPayroll,
+    salesTotal, cogsDollars, totalPayroll, payrollTargetPct: payrollPct, primeDollars, primeShare, salaried, salaries, fixedTaxesWc, fixedPayroll,
     hourlyLoad, hourlyPool, hourlyDollars, hourlyLoadDollars, hourlyGoalPct, hourlyAllInPct, allTaxesWc, allTaxesWcPct,
   };
 }

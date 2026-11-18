@@ -11,9 +11,16 @@
 //                            + open in-store shifts at the average active
 //                              hourly rate.
 //                            Salaried and overhead staff are left out.
-//   Day projected sales      = last year's in-store sales on the same weekday
-//                              52 weeks earlier x trend factor. IN-STORE ONLY:
-//                              catering bookings never feed projected sales.
+//   Day projected sales      = (last year's in-store + delivery sales on the
+//                              same weekday 52 weeks earlier) x trend factor.
+//                              Delivery counts because the scoopers make
+//                              those orders (Alina, 2026-11-18). Last year's
+//                              delivery is that day's own figure when on file
+//                              (migration 61), else last year's in-store x
+//                              the delivery share of the last four weeks
+//                              (deliveryShare): the previous owner's books
+//                              have no daily delivery. Catering bookings
+//                              never feed projected sales.
 //   Target $                 = projected sales x the hourly goal in force that day.
 //   Target hours             = target $ / average rate of ACTIVE hourly staff
 //                              who are not overhead.
@@ -140,6 +147,10 @@ export type ScheduleLaborInput = {
   trend: Trend;
   /** In-store sales by day for the days on file (last year's days are looked up here). */
   inStoreByDay: Map<string, number>;
+  /** Delivery sales by day, for the days that have it on file. */
+  deliveryByDay: Map<string, number>;
+  /** Delivery as a share of in-store sales lately (deliveryShare): stands in for a last-year day with no delivery on file. */
+  deliveryShare: Derived;
   /** The ids of the marketing deals (isMarketingDeal) among the week's shifts' deals. */
   marketingDeals: ReadonlySet<number>;
   /** The week's dates the store is closed. None given: every day is open. */
@@ -154,8 +165,10 @@ export type DayLabor = {
   closed: boolean;
   scheduledHours: number;
   lastYearInStore: Derived;
+  /** That day's delivery on file, else its in-store x the recent delivery share. */
+  lastYearDelivery: Derived;
   trendedInStore: Derived;
-  /** In-store only: catering bookings never feed it. Zero on a closed day. */
+  /** In-store and delivery: catering bookings never feed it. Zero on a closed day. */
   projectedSales: Derived;
   hourlyGoal: Derived;
   targetDollars: Derived;
@@ -244,11 +257,28 @@ export const MISSING = {
 
 const lastYearNeed = (day: string) => `no in-store sales on file for ${longDay(day)}`;
 
+/** Days of recent sales the delivery share is taken over, and how many of them must have delivery on file. */
+export const DELIVERY_SHARE_DAYS = 28;
+export const DELIVERY_SHARE_MIN_DAYS = 14;
+export const NO_DELIVERY_SHARE = "delivery sales on file for at least 14 of the last 28 days";
+
+/**
+ * Delivery as a share of in-store sales over `rows` (the last four weeks of
+ * public.sales_daily_in_store), counting only the days with delivery on file.
+ */
+export function deliveryShare(rows: { in_store: number; delivery: number | null }[]): Derived {
+  const days = rows.filter((r) => r.delivery != null);
+  const inStore = days.reduce((a, r) => a + r.in_store, 0);
+  if (days.length < DELIVERY_SHARE_MIN_DAYS || !(inStore > 0)) return missing(NO_DELIVERY_SHARE);
+  return known(days.reduce((a, r) => a + r.delivery!, 0) / inStore);
+}
+
 /** One or two words for a day header, from the first thing its target needs. */
-function shortReason(d: Pick<DayLabor, "hourlyGoal" | "lastYearInStore" | "trendedInStore" | "targetHours">): string | null {
+function shortReason(d: Pick<DayLabor, "hourlyGoal" | "lastYearInStore" | "lastYearDelivery" | "trendedInStore" | "targetHours">): string | null {
   if (d.targetHours.value != null) return null;
   if (d.hourlyGoal.needs.length) return "board not set";
   if (d.lastYearInStore.needs.length) return "no last-year sales";
+  if (d.lastYearDelivery.needs.length) return "no delivery share";
   if (d.trendedInStore.needs.length) return "no trend";
   return "no average rate";
 }
@@ -383,15 +413,21 @@ export function scheduleLabor(input: ScheduleLaborInput): ScheduleLabor {
     const closed = input.closedDays?.has(date) ?? false;
     const ly = input.inStoreByDay.get(lastYearDay);
     const lastYearInStore = ly == null ? missing(lastYearNeed(lastYearDay)) : known(ly);
+    const lyDelivery = input.deliveryByDay.get(lastYearDay);
+    const lastYearDelivery = lyDelivery != null ? known(lyDelivery) : both(lastYearInStore, input.deliveryShare, (a, d) => a * d);
     const trendedInStore = both(lastYearInStore, input.trend.factor, (a, t) => a * t);
-    const projectedSales = closed ? known(0) : trendedInStore;
+    const trendedDelivery = both(lastYearDelivery, input.trend.factor, (a, t) => a * t);
+    const projectedSales = closed ? known(0) : both(trendedInStore, trendedDelivery, (a, d) => a + d);
     const board = boardOn(date, settings, input.salaries, input.salaried);
     const hourlyGoal: Derived = board.hourlyGoalPct.value == null
       ? missing(...board.hourlyGoalPct.needs.map((n) => (n === "sales above zero" ? "a sales estimate above zero" : n)))
       : board.hourlyGoalPct;
     const targetDollars = both(projectedSales, hourlyGoal, (s, g) => s * g);
     const targetHours = both(targetDollars, avgRate, (d, r) => (r > 0 ? d / r : null));
-    const day = { date, lastYearDay, closed, scheduledHours, lastYearInStore, trendedInStore, projectedSales, hourlyGoal, targetDollars, targetHours, short: null as string | null };
+    const day = {
+      date, lastYearDay, closed, scheduledHours, lastYearInStore, lastYearDelivery, trendedInStore, projectedSales, hourlyGoal, targetDollars, targetHours,
+      short: null as string | null,
+    };
     day.short = shortReason(day);
     return day;
   });

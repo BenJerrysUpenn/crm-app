@@ -12,7 +12,7 @@ import { monthProgress, targetFor, type SalesTargetRow } from "./targets.ts";
 import { TEST_TARGETS } from "./targets.fixture.ts";
 import { ler, lerPair, OWNER_COMP_WEEKLY, OWNER_COMP_MONTHLY } from "./ler.ts";
 import { arSummary, bookedEvidence, cateringByDay, cateringValue, isBooked, type DealRow } from "./catering.ts";
-import { addDays, daysInMonth, lastWeeks, mondayOf } from "./dates.ts";
+import { addDays, daysInMonth, lastWeeks, weekOf } from "./dates.ts";
 
 // ---- targets and pace -----------------------------------------------------------
 
@@ -244,11 +244,11 @@ test("AR: a booked deal with no total is named as missing, never given a balance
 
 // ---- dates ----------------------------------------------------------------------------------
 
-test("weeks run Monday to Sunday", () => {
-  assert.equal(mondayOf("2026-10-10"), "2026-10-05"); // a Saturday
-  assert.equal(mondayOf("2026-10-11"), "2026-10-05"); // a Sunday
-  assert.equal(mondayOf("2026-10-12"), "2026-10-12");
-  assert.deepEqual(lastWeeks("2026-10-10", 3), ["2026-09-21", "2026-09-28", "2026-10-05"]);
+test("weeks run Sunday to Saturday, as the schedule runs them", () => {
+  assert.equal(weekOf("2026-10-10"), "2026-10-04"); // a Saturday
+  assert.equal(weekOf("2026-10-11"), "2026-10-11"); // a Sunday
+  assert.equal(weekOf("2026-10-12"), "2026-10-11"); // a Monday
+  assert.deepEqual(lastWeeks("2026-10-10", 3), ["2026-09-20", "2026-09-27", "2026-10-04"]);
   assert.equal(daysInMonth("2028-02-10"), 29);
   assert.equal(addDays("2026-12-31", 1), "2027-01-01");
 });

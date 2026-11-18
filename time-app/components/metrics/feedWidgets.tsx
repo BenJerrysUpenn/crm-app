@@ -2,15 +2,17 @@
 
 // The Metrics widgets whose numbers come from the bj-finance finance feed
 // (bj-finance #671 phase 2; public.metrics_snapshots, migration 40): cash on
-// hand, weekly LER and the last closed month. Each says plainly what it is
-// waiting for until the feed has published it.
+// hand, weekly LER and the last closed month. Weekly LER takes its sales and
+// labor from Labor vs target and only the trailing COGS % from the feed. Each
+// says plainly what it is waiting for until the feed has published it.
 
+import { useState } from "react";
 import Chart, { formatValue } from "./Chart";
 import { Method, Note, Tile, Tiles, WaitingOnFeed } from "./parts";
 import type { MetricsData } from "@/lib/metrics/load";
 import type { WidgetSettings } from "@/lib/metrics/widgets";
 import { closedMonthTiles, weeklyLer } from "@/lib/metrics/feed";
-import { addDays, lastWeeks, mondayOf, monthLabel, shortDay } from "@/lib/metrics/dates";
+import { addDays, monthLabel, shortDay } from "@/lib/metrics/dates";
 import { lastN, periodCount } from "@/lib/metrics/series";
 import { LER_FLOOR, LER_TARGET, OWNER_COMP_MONTHLY, OWNER_COMP_WEEKLY } from "@/lib/metrics/ler";
 
@@ -77,49 +79,68 @@ export function CashWidget({ data, settings }: { data: MetricsData; settings: Wi
 
 // ---- Weekly LER --------------------------------------------------------------------------
 
+/** The card's owner-pay switch: off by default (the owners are not paid), on adds the house rate. */
+function OwnerPaySwitch({ on, set, per }: { on: boolean; set: (v: boolean) => void; per: string }) {
+  return (
+    <label className="mt-2 inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+      <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} className="h-4 w-4" />
+      Include owner pay ({per})
+    </label>
+  );
+}
+
+const lerDetail = (perWeek: boolean) => (
+  <p>
+    LER = gross profit / labor. Owner pay is left out, since the owners are not paid; the switch adds it at $
+    {(perWeek ? OWNER_COMP_WEEKLY : OWNER_COMP_MONTHLY).toLocaleString()} a {perWeek ? "week" : "month"} (Alex $630 + Alina $846 a
+    week). Target {LER_TARGET.toFixed(1)}; under {LER_FLOOR.toFixed(1)} the business is not viable.
+  </p>
+);
+
 export function LerWidget({ data, settings }: { data: MetricsData; settings: WidgetSettings }) {
+  const [ownerPay, setOwnerPay] = useState(false);
   const detail = (
     <>
+      {lerDetail(true)}
       <p>
-        LER = gross profit / (wages + employer tax + owner comp). Paid uses owner comp at ${OWNER_COMP_WEEKLY.toLocaleString()} a week (Alex
-        $630 + Alina $846); unpaid uses $0, since the owners are not paid yet. Target {LER_TARGET.toFixed(1)}; under {LER_FLOOR.toFixed(1)} the
-        business is not viable.
-      </p>
-      <p>
-        Weekly gross profit is an estimate: the week&rsquo;s sales (in-store, delivery and concessions from the feed, catering by event
-        date) times one less the COGS % of the last three closed months. Wages include the salaried GM.
+        Weeks run Sunday to Saturday, the same weeks as Labor vs target. Sales and labor are that card&rsquo;s: in-store, delivery and
+        catering sales (plus concessions when the feed has them); all labor with employer taxes and workers&rsquo; comp, hourly and
+        salaried, marketing work included. Weekly gross profit is an estimate: sales times one less the COGS % of the last three
+        closed months.
       </p>
     </>
   );
-  const gap = feedGap(data);
   const daily = data.feed.status === "ok" ? data.feed.daily : null;
-  if (gap || !daily) return <WaitingOnFeed what={`${gap ?? "No daily publish yet."} Weekly LER appears here, paid and unpaid.`} detail={detail} />;
-  const missing = [daily.wages_by_week.length === 0 && "weekly wages", daily.cogs_pct_trailing == null && "the trailing COGS %"].filter(Boolean);
-  if (missing.length)
-    return <WaitingOnFeed what={`The feed is publishing, but not ${missing.join(" or ")} yet, so weekly LER cannot be worked out.`} detail={detail} />;
-  // Complete weeks only: the week in progress has no wages yet.
-  const weeks = lastN(lastWeeks(data.today, 14).filter((w) => w !== mondayOf(data.today)), periodCount(settings.period));
-  const rows = weeklyLer(daily, data.catering?.byDay ?? {}, weeks);
-  const last = [...rows].reverse().find((r) => r.paid != null);
+  const cogs = daily?.cogs_pct_trailing ?? null;
+  if (!data.laborTarget) return <WaitingOnFeed what="Weekly LER needs the Labor vs target numbers, which could not be read." detail={detail} />;
+  if (cogs == null) return <WaitingOnFeed what={`${feedGap(data) ?? "The feed has not published the trailing COGS % yet."} Weekly LER needs it.`} detail={detail} />;
+  const over = data.laborTarget.weeks.filter((w) => w.end < data.today);
+  const rows = weeklyLer(lastN(over, periodCount(settings.period)), cogs, daily);
+  const value = (r: (typeof rows)[number]) => (ownerPay ? r.withOwnerPay : r.ler);
+  const last = [...rows].reverse().find((r) => value(r) != null);
   return (
     <div>
       <Tiles>
-        <Tile label="LER paid, last week with wages" value={ratio(last?.paid)} sub={last ? `week of ${shortDay(last.week)}` : undefined} />
-        <Tile label="LER unpaid" value={ratio(last?.unpaid)} sub="owner comp $0" />
+        <Tile label="LER, last full week" value={ratio(last ? value(last) : null)} sub={last ? `week of ${shortDay(last.week)}` : undefined} />
         <Tile label="Sales that week" value={money(last?.sales)} />
-        <Tile label="Gross profit (estimate)" value={money(last?.grossProfit)} sub={`COGS ${pct(daily.cogs_pct_trailing)}`} />
+        <Tile label="Gross profit (estimate)" value={money(last?.grossProfit)} sub={`COGS ${pct(cogs)}`} />
+        <Tile
+          label="Labor that week"
+          value={money(last?.labour == null ? null : last.labour + (ownerPay ? OWNER_COMP_WEEKLY : 0))}
+          sub={ownerPay ? "owner pay included" : "owner pay left out"}
+        />
       </Tiles>
       <Chart
-        title="Weekly LER, paid and unpaid owner comp, against the 2.0 target"
+        title={`Weekly LER${ownerPay ? " with owner pay" : ""}, against the 2.0 target`}
         labels={rows.map((r) => shortDay(r.week))}
         series={[
-          { label: "LER paid", values: rows.map((r) => r.paid), color: "in_store", type: "line" },
-          { label: "LER unpaid", values: rows.map((r) => r.unpaid), color: "orange", type: "line" },
+          { label: "LER", values: rows.map(value), color: "in_store", type: "line" },
           { label: "Target 2.0", values: rows.map(() => LER_TARGET), color: "target", type: "line", dashed: true },
         ]}
         format="ratio"
         tableLabel="Week of"
       />
+      <OwnerPaySwitch on={ownerPay} set={setOwnerPay} per={`$${OWNER_COMP_WEEKLY.toLocaleString()} a week`} />
       {builtNote(data)}
       <Method>{detail}</Method>
     </div>
@@ -129,11 +150,13 @@ export function LerWidget({ data, settings }: { data: MetricsData; settings: Wid
 // ---- Last closed month ----------------------------------------------------------------------
 
 export function ClosedMonthWidget({ data, settings }: { data: MetricsData; settings: WidgetSettings }) {
+  const [ownerPay, setOwnerPay] = useState(false);
   const detail = (
-    <p>
-      From the month close in QBO. Pre-tax profit is set against 5, 10 and 15% of revenue. Monthly LER uses owner comp at $
-      {OWNER_COMP_MONTHLY.toLocaleString()} a month for paid and $0 for unpaid. COGS % = cost of goods / revenue.
-    </p>
+    <>
+      <p>From the month close in QBO. Pre-tax profit is set against 5, 10 and 15% of revenue. COGS % = cost of goods / revenue.</p>
+      {lerDetail(false)}
+      <p>Monthly labor is QBO&rsquo;s wages and payroll taxes for the month, by pay date.</p>
+    </>
   );
   const gap = feedGap(data);
   const months = data.feed.status === "ok" ? data.feed.closedMonths : [];
@@ -147,7 +170,11 @@ export function ClosedMonthWidget({ data, settings }: { data: MetricsData; setti
     <div>
       <Tiles>
         <Tile label={`Pre-tax profit, ${monthLabel(m.month)}`} value={money(m.pre_tax_profit)} sub={`${pct(t.preTaxPct)} of revenue`} />
-        <Tile label="LER paid / unpaid" value={`${ratio(t.lerPaid)} / ${ratio(t.lerUnpaid)}`} sub={`target ${LER_TARGET.toFixed(1)}`} />
+        <Tile
+          label={ownerPay ? "LER, owner pay included" : "LER"}
+          value={ratio(ownerPay ? t.lerWithOwnerPay : t.ler)}
+          sub={`target ${LER_TARGET.toFixed(1)}`}
+        />
         <Tile label="COGS %" value={pct(t.cogsPct)} sub={`${money(m.cogs)} of ${money(m.revenue)}`} />
         <Tile
           label="Rolling 12 months"
@@ -167,11 +194,10 @@ export function ClosedMonthWidget({ data, settings }: { data: MetricsData; setti
         />
         <Chart
           heading="Monthly LER"
-          title="Monthly LER, paid and unpaid owner comp"
+          title={`Monthly LER${ownerPay ? " with owner pay" : ""}, against the 2.0 target`}
           labels={shown.map((x) => monthLabel(x.month))}
           series={[
-            { label: "LER paid", values: tiles.map((x) => x.lerPaid), color: "in_store", type: "line" },
-            { label: "LER unpaid", values: tiles.map((x) => x.lerUnpaid), color: "orange", type: "line" },
+            { label: "LER", values: tiles.map((x) => (ownerPay ? x.lerWithOwnerPay : x.ler)), color: "in_store", type: "line" },
             { label: "Target 2.0", values: tiles.map(() => LER_TARGET), color: "target", type: "line", dashed: true },
           ]}
           format="ratio"
@@ -179,6 +205,7 @@ export function ClosedMonthWidget({ data, settings }: { data: MetricsData; setti
           tableLabel="Month"
         />
       </div>
+      <OwnerPaySwitch on={ownerPay} set={setOwnerPay} per={`$${OWNER_COMP_MONTHLY.toLocaleString()} a month`} />
       <Method>{detail}</Method>
     </div>
   );

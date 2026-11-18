@@ -14,7 +14,7 @@
 //                     future event). Recent months are still open: quotes
 //                     not yet decided count as not booked.
 
-import { mondayOf, monthStart, nyDay } from "./dates.ts";
+import { weekOf, monthStart, nyDay } from "./dates.ts";
 import { CLOSED_STAGES, QUOTED_STAGES, createdDay, isBooked, type DealRow } from "./catering.ts";
 import { round3 } from "./round.ts";
 
@@ -33,7 +33,7 @@ export function leadsByWeek(deals: DealRow[], weeks: string[]): LeadWeek[] {
     if (d.archived) continue;
     const day = createdDay(d);
     if (!day) continue;
-    const row = rows.get(mondayOf(day));
+    const row = rows.get(weekOf(day));
     if (!row) continue;
     row.total++;
     row[leadSource(d)]++;
@@ -47,7 +47,7 @@ export type OutreachWeek = { week: string; sent: number; replied: number };
 export function outreachByWeek(events: OutreachEventRow[], weeks: string[]): OutreachWeek[] {
   const rows = new Map(weeks.map((w) => [w, { week: w, sent: 0, replied: 0 }]));
   for (const e of events) {
-    const row = rows.get(mondayOf(nyDay(e.occurred_at)));
+    const row = rows.get(weekOf(nyDay(e.occurred_at)));
     if (!row) continue;
     if (e.event === "sequenced") row.sent++;
     else if (e.event === "replied") row.replied++;

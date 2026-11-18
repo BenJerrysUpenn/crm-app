@@ -12,7 +12,7 @@ import { arSummary, type DealRow } from "./catering.ts";
 import type { PersonRow } from "./labour.ts";
 import { round2 } from "./round.ts";
 
-export type ShiftRow = { id: number; employee_id: string | null; starts_at: string; ends_at: string; deal_id: number | null };
+export type ShiftRow = { id: number; employee_id: string | null; starts_at: string; ends_at: string; position: string | null; deal_id: number | null };
 
 export type ForwardDay = { day: string; cateringIn: number; scheduledWages: number };
 

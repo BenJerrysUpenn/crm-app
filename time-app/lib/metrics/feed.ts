@@ -27,8 +27,9 @@
 // A payload that does not match is refused (null) and the page says "feed
 // format not recognised"; it is never read as zeros.
 
-import { addDays, mondayOf, monthStart } from "./dates.ts";
-import { lerPair } from "./ler.ts";
+import { addDays, monthStart } from "./dates.ts";
+import { lerBoth } from "./ler.ts";
+import type { LaborTargetWeek } from "./laborTarget.ts";
 import type { SalesTargetRow } from "./targets.ts";
 import type { StreamDaily } from "./series.ts";
 
@@ -170,50 +171,43 @@ export function feedSales(d: DailySnapshot, targets: SalesTargetRow[]): StreamDa
   return anyConcessions ? { in_store, concessions } : { in_store };
 }
 
-export type LerWeek = { week: string; sales: number; grossProfit: number | null; wages: number | null; employerTax: number | null; paid: number | null; unpaid: number | null };
+export type LerWeek = {
+  week: string;
+  /** In-store + delivery + catering + concessions. */
+  sales: number | null;
+  grossProfit: number | null;
+  /** All labor all-in, marketing work included: the whole business's labor. */
+  labour: number | null;
+  ler: number | null;
+  withOwnerPay: number | null;
+};
 
 /**
- * Weekly LER (WEEKLY-01 section 3): the week's sales (feed in-store, delivery
- * and concessions, plus catering by event date) times (1 - trailing COGS %),
- * an estimate because COGS is only known at the month close, over the week's
- * wages and employer tax from the feed, plus owner comp for "paid".
+ * Weekly LER (WEEKLY-01 section 3) on the Sunday-to-Saturday weeks Labor vs
+ * target counts: the week's sales (in-store, delivery and catering as that
+ * card counts them, plus concessions from the feed when it has them) times
+ * (1 - trailing COGS %), an estimate because COGS is only known at the month
+ * close, over the week's labor from that card with marketing work put back.
+ * A week that card cannot count has no LER.
  */
-export function weeklyLer(d: DailySnapshot, cateringByDay: Record<string, number>, weeks: string[]): LerWeek[] {
-  const feed = new Map<string, number>();
-  for (const r of d.sales_by_day) {
-    const w = mondayOf(r.date);
-    feed.set(w, (feed.get(w) ?? 0) + r.in_store + r.delivery + (r.concessions ?? 0));
-  }
-  for (const [dy, v] of Object.entries(cateringByDay)) {
-    const w = mondayOf(dy);
-    if (weeks.includes(w)) feed.set(w, (feed.get(w) ?? 0) + v);
-  }
-  const wages = new Map(d.wages_by_week.map((w) => [w.week_start, w]));
-  return weeks.map((week) => {
-    const sales = cents(feed.get(week) ?? 0);
-    const w = wages.get(week);
-    const grossProfit = d.cogs_pct_trailing == null ? null : cents(sales * (1 - d.cogs_pct_trailing));
-    const pair = w ? lerPair({ grossProfit, wages: w.wages, employerTax: w.employer_tax }, "week") : { paid: null, unpaid: null };
-    return { week, sales, grossProfit, wages: w?.wages ?? null, employerTax: w?.employer_tax ?? null, ...pair };
+export function weeklyLer(weeks: LaborTargetWeek[], cogsPct: number | null, d: DailySnapshot | null): LerWeek[] {
+  const concessions = new Map((d?.sales_by_day ?? []).map((r) => [r.date, r.concessions ?? 0]));
+  return weeks.map((w) => {
+    const days = Array.from({ length: 7 }, (_, i) => addDays(w.start, i));
+    const sales = w.sales == null ? null : cents(w.sales + days.reduce((a, x) => a + (concessions.get(x) ?? 0), 0));
+    const grossProfit = sales == null || cogsPct == null ? null : cents(sales * (1 - cogsPct));
+    const labour = w.actual == null || w.marketingOffset == null ? null : cents(w.actual + w.marketingOffset);
+    return { week: w.start, sales, grossProfit, labour, ...lerBoth(grossProfit, labour, "week") };
   });
 }
 
 export function closedMonthTiles(m: ClosedMonth) {
-  const pair = lerPair({ grossProfit: m.gross_profit, wages: m.wages, employerTax: m.employer_tax }, "month");
+  const both = lerBoth(m.gross_profit, m.wages + m.employer_tax, "month");
   return {
-    lerPaid: pair.paid,
-    lerUnpaid: pair.unpaid,
+    ler: both.ler,
+    lerWithOwnerPay: both.withOwnerPay,
     cogsPct: m.revenue > 0 ? ratio(m.cogs / m.revenue) : null,
     preTaxPct: m.revenue > 0 ? ratio(m.pre_tax_profit / m.revenue) : null,
     rollingPct: m.rolling_12 && m.rolling_12.revenue > 0 ? ratio(m.rolling_12.pre_tax_profit / m.rolling_12.revenue) : null,
   };
-}
-
-/** Feed sales (in-store with delivery) for each week, for sales per scooper-hour. */
-export function feedInStoreByWeek(d: DailySnapshot, weeks: string[]): (number | null)[] {
-  const first = new Map<string, number>();
-  const covered = new Set(d.sales_by_day.map((r) => r.date));
-  for (const r of d.sales_by_day) first.set(mondayOf(r.date), (first.get(mondayOf(r.date)) ?? 0) + r.in_store + r.delivery);
-  // A week counts only when the feed covers all seven of its days.
-  return weeks.map((w) => (Array.from({ length: 7 }, (_, i) => addDays(w, i)).every((x) => covered.has(x)) ? cents(first.get(w) ?? 0) : null));
 }
