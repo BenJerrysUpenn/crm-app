@@ -15,7 +15,7 @@ import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
 import { buildLoopLive, emptyLoop, limitsOf, outcomesOf, type LiveRows } from "@/lib/emailCampaignsPrototype/console/loopLive";
 import { loopItems, withHistory } from "@/lib/emailCampaignsPrototype/console/loop";
 import { doneWords, reloadUrl, rpcFor, saveOutcome } from "@/lib/emailCampaignsPrototype/console/loopActions";
-import { navQuery } from "@/lib/emailCampaignsPrototype/console/nav";
+import { depthOf, navQuery, nextState, popAction } from "@/lib/emailCampaignsPrototype/console/nav";
 import type { OutcomeEvent } from "@/lib/emailCampaignsPrototype/console/load";
 
 // Tuesday 17 Nov 2026, 3pm in New York.
@@ -543,8 +543,6 @@ describe("approach panel", () => {
     expect(body(L, "cold_pilot_a")).toContain("Approved Nov 14 by owner@example.test.");
   });
 });
-
-import { depthOf, nextState, popAction } from "@/lib/emailCampaignsPrototype/console/nav";
 
 describe("console history depth", () => {
   // Simulates the browser's history stack: each entry keeps the state the
