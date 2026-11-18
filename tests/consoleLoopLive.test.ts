@@ -287,7 +287,7 @@ describe("saveOutcome", () => {
 
 // --- review answers (PR 160): one mailbox rule each, the real DST switch,
 // and lane-named sales items kept on the console's sales panel.
-import { etInstant } from "@/lib/emailCampaignsPrototype/console/loopLive";
+import { etInstant } from "@/lib/emailCampaignsPrototype/console/time";
 import { handLane, loopLane } from "@/lib/emailCampaignsPrototype/console/mailboxLanes";
 import { consoleItems, type AttentionItem } from "@/lib/emailCampaignsPrototype/console/attention";
 

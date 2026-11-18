@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import TopBar from "@/components/TopBar";
 import EmailCampaignsPrototype from "@/components/emailCampaignsPrototype/EmailCampaignsPrototype";
-import { loadRawData } from "@/lib/emailCampaignsPrototype/load";
+import { emptyRawData, loadRawData } from "@/lib/emailCampaignsPrototype/load";
 import { compute, type RawData } from "@/lib/emailCampaignsPrototype/model";
 import { sequenceRepoForRequest } from "@/lib/emailCampaignsPrototype/sequenceRepo";
 import { emptyState, type SharedState } from "@/lib/emailCampaignsPrototype/sharedSequences";
@@ -34,7 +34,7 @@ export default async function EmailCampaignsClassicPage() {
     }
   } catch (e: unknown) {
     error = e instanceof Error ? e.message : String(e);
-    raw = { prospects: [], deals: [], sent: [], suppressedEmails: [], blockedDomains: [], mailboxes: [] };
+    raw = emptyRawData();
   }
   const payload = compute(raw, new Date());
 

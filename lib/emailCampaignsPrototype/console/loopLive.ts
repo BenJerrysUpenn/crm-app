@@ -37,7 +37,7 @@ import {
 } from "./loop";
 import { SLOTS } from "./loopStatic";
 import { loopLane } from "./mailboxLanes";
-import { addDays, etParts } from "./time";
+import { DAY_MS, addDays, etInstant } from "./time";
 
 // ---------------------------------------------------------------------------
 // Rows
@@ -134,8 +134,6 @@ export type LiveRows = {
 
 export type LiveInputs = { status: "unreadable"; message: string } | { status: "empty" } | { status: "read"; rows: LiveRows };
 
-const DAY = 86_400_000;
-
 /** Reads the loop. "unreadable" before crm/014 gives managers read access;
  * "empty" before the loop has logged a run. */
 export async function loadLoopLive(supabase: SupabaseClient, now: Date): Promise<LiveInputs> {
@@ -143,7 +141,7 @@ export async function loadLoopLive(supabase: SupabaseClient, now: Date): Promise
   const runs = await supabase.from("outreach_loop_runs").select("*").order("week_start", { ascending: false }).limit(12);
   if (runs.error) return { status: "unreadable", message: runs.error.message };
   if (!runs.data?.length) return { status: "empty" };
-  const since = new Date(now.getTime() - 2 * DAY).toISOString();
+  const since = new Date(now.getTime() - 2 * DAY_MS).toISOString();
   const [arms, approaches, drafts, sent, sequences, controls, views, estimates] = await Promise.all([
     supabase.from("outreach_loop_arms").select("customer_type,approach_id,status,since,reason"),
     supabase.from("outreach_loop_approaches").select("*"),
@@ -285,16 +283,6 @@ const QUESTION_WHY: Record<Tier, string> = {
 
 const SLOT_TIME: Record<string, string> = Object.fromEntries(SLOTS.map((s) => [s.id, s.at]));
 
-/** "YYYY-MM-DD" at "HH:MM" New York time as an ISO instant, with the real
- * daylight-time switch (Intl), not a month rule. */
-export function etInstant(ymd: string, hhmm: string): string {
-  const [h, m] = hhmm.split(":").map(Number);
-  const [y, mo, d] = ymd.split("-").map(Number);
-  // Noon UTC is 7am or 8am in New York the same day, after any 2am switch.
-  const offset = 12 - etParts(new Date(Date.UTC(y, mo - 1, d, 12))).hour;
-  return new Date(Date.UTC(y, mo - 1, d, h + offset, m)).toISOString();
-}
-
 // ---------------------------------------------------------------------------
 // What happened after each sent email
 // ---------------------------------------------------------------------------
@@ -354,7 +342,6 @@ export type LiveContext = {
   deals: Pick<DealRow, "contact_email" | "stage" | "created_at">[];
   mailboxes: MailboxFull[];
 };
-
 
 function runOf(r: RunRow, planned: number): RunFact {
   const d = obj(r.decisions);
@@ -611,8 +598,8 @@ export function buildLoopLive(rows: LiveRows, ctx: LiveContext, now: Date): Loop
     n: drafts.filter((d) => d.waitingApproval && d.approachId === id).length,
   }));
   const c = rows.controls;
-  const unsubWeek = ctx.outcomes.filter((o) => o.event === "unsubscribed" && o.at >= new Date(now.getTime() - 7 * DAY).toISOString()).length;
-  const sentWeek = rows.sent.filter((s) => (s.done_at ?? "") >= new Date(now.getTime() - 7 * DAY).toISOString()).length;
+  const unsubWeek = ctx.outcomes.filter((o) => o.event === "unsubscribed" && o.at >= new Date(now.getTime() - 7 * DAY_MS).toISOString()).length;
+  const sentWeek = rows.sent.filter((s) => (s.done_at ?? "") >= new Date(now.getTime() - 7 * DAY_MS).toISOString()).length;
 
   return {
     now: now.toISOString(),

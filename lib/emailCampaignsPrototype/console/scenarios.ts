@@ -7,7 +7,7 @@
 
 import type { Facts } from "./facts";
 import type { LoopFacts } from "./loop";
-import { minusBusinessMinutes } from "./time";
+import { DAY_MS, minusBusinessMinutes } from "./time";
 
 /** Local dev only: the console renders the synthetic fixture with no login
  * when CONSOLE_PROTO_SYNTHETIC=1. Never in production or previews (NODE_ENV
@@ -33,7 +33,6 @@ export const parseScenario = (s: string | string[] | undefined): ScenarioKey => 
 };
 
 const TAG = "synthetic (scenario switch)";
-const DAY = 86_400_000;
 
 export function applyScenario(base: Facts, key: ScenarioKey): Facts {
   if (key === "none") return base;
@@ -80,7 +79,7 @@ export function applyScenario(base: Facts, key: ScenarioKey): Facts {
     const l = f.lanes.find((x) => x.key === "wedding");
     const s = l?.steps.find((x) => !x.written);
     if (s && s.due) {
-      s.due = { soon: 14, later: 17, firstDue: new Date(now.getTime() + 3 * DAY).toISOString() };
+      s.due = { soon: 14, later: 17, firstDue: new Date(now.getTime() + 3 * DAY_MS).toISOString() };
       s.synthetic = TAG;
     }
   }
@@ -91,7 +90,7 @@ export function applyScenario(base: Facts, key: ScenarioKey): Facts {
     const c = d?.checks.find((x) => x.kind === "seed");
     if (c) {
       c.nodata = false;
-      c.lastRunAt = new Date(now.getTime() - 15 * DAY).toISOString();
+      c.lastRunAt = new Date(now.getTime() - 15 * DAY_MS).toISOString();
       c.result = "Gmail 9 of 10 inbox · Microsoft 7 of 10 · Yahoo 10 of 10";
       c.synthetic = TAG;
     }

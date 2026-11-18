@@ -30,7 +30,7 @@ import {
   type StepFact,
 } from "@/lib/emailCampaignsPrototype/console/facts";
 import { SCENARIOS, type ScenarioKey } from "@/lib/emailCampaignsPrototype/console/scenarios";
-import { businessMinutesBetween, dateEt, dowEt, etDay as etDayOf, fmtAge, timeEt } from "@/lib/emailCampaignsPrototype/console/time";
+import { businessMinutesBetween, dateEt, daysBetween, dowEt, etDay as etDayOf, fmtAge, timeEt } from "@/lib/emailCampaignsPrototype/console/time";
 import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCampaignsPrototype/model";
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
@@ -494,7 +494,7 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
   const checkChip = (domainId: string, c: Facts["domains"][number]["checks"][number]) => {
     const r = rollup(items, ["sending", domainId, `check:${c.kind}`]);
     const d = dom(domainId)!;
-    const age = c.lastRunAt ? Math.floor((nowMs - new Date(c.lastRunAt).getTime()) / 86_400_000) : null;
+    const age = c.lastRunAt ? daysBetween(c.lastRunAt, new Date(nowMs)) : null;
     return (
       <button
         key={c.kind}

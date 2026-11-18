@@ -7,6 +7,7 @@
 // addresses, no contact emails are read here.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { DAY_MS } from "./time";
 
 export type MailboxFull = {
   address: string;
@@ -66,7 +67,7 @@ const OUTCOME_EVENTS = ["replied", "handed_off", "lost", "suppressed", "deal_cre
 /** Reads the last `days` days of sends, every outcome event (a few hundred
  * rows, so step reply counts are all-time), and every mailbox. */
 export async function loadConsoleExtras(supabase: SupabaseClient, now: Date, days = 35): Promise<ConsoleExtras> {
-  const since = new Date(now.getTime() - days * 86_400_000).toISOString();
+  const since = new Date(now.getTime() - days * DAY_MS).toISOString();
   const [mb, sends, outcomes] = await Promise.all([
     supabase
       .from("outreach_mailboxes")

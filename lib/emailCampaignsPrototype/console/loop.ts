@@ -4,7 +4,7 @@
 // into these facts in loopLive.ts; the synthetic week is loopSynthetic.ts.
 
 import type { AttentionItem } from "./attention";
-import { addDays, dateEt, etDay, etParts, isWeekday } from "./time";
+import { DAY_MS, addDays, dateEt, etDay, etParts, isWeekday } from "./time";
 
 export type Tier = "warm" | "cold" | "offer";
 
@@ -545,7 +545,7 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
     );
 
   // L7 Personal notes owed.
-  const owed = L.notes.filter((n) => !n.noteSentAt && (now.getTime() - new Date(n.since).getTime()) / 86_400_000 >= NOTE_DAYS);
+  const owed = L.notes.filter((n) => !n.noteSentAt && (now.getTime() - new Date(n.since).getTime()) / DAY_MS >= NOTE_DAYS);
   if (owed.length)
     out.push(
       item({

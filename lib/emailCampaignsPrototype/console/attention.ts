@@ -16,7 +16,7 @@ import {
   type Facts,
   type LaneKey,
 } from "./facts";
-import { businessMinutesBetween, dateEt, dowEt, etParts, fmtAge, isWeekday } from "./time";
+import { businessMinutesBetween, dateEt, daysBetween, dowEt, etParts, fmtAge, isWeekday } from "./time";
 import { alertLane, offerName, salesFor, salesMailbox } from "./salesLanes";
 
 export type Level = "warning" | "caution" | "ready";
@@ -189,7 +189,7 @@ export function attentionItems(f: Facts): AttentionItem[] {
   for (const d of f.domains) {
     for (const c of d.checks) {
       if (c.nodata) continue;
-      const age = c.lastRunAt ? Math.floor((now.getTime() - new Date(c.lastRunAt).getTime()) / 86_400_000) : null;
+      const age = c.lastRunAt ? daysBetween(c.lastRunAt, now) : null;
       if (age !== null && age <= c.everyDays) continue;
       items.push({
         id: `check:${d.id}:${c.kind}`,
