@@ -270,6 +270,8 @@ const occasionName = (L: LoopFacts, type: string, id: string) => {
   const o = [t?.target, ...(t?.upcoming ?? [])].find((x) => x?.id === id);
   return o?.name ?? id.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 };
+/** A tier in the one or two words a chart row has room for. */
+const tierShort = (tier: TestFact["tier"]) => (tier === "cold" ? "New to us" : tier === "offer" ? "Offer" : "Past customers");
 const rateLine = (r: RateFact) => `${r.k} of ${r.n} · ${r1(r.per1000)} per 1,000 (${r1(r.lo)} to ${r1(r.hi)})`;
 
 function Evidence({ list }: { list: EvidenceFact[] }) {
@@ -1031,9 +1033,9 @@ export function ApproachBody(p: PanelBits & { id: string }) {
   const { L, id, go } = p;
   const a = L.approaches[id];
   const [metric, setMetric] = useState<Metric>("reply");
-  const inTests = L.tests.flatMap((t) => t.arms.filter((x) => x.approachId === id).map((x) => ({ label: t.factor === "send time" ? "Send time" : t.tier === "cold" ? "New to us" : t.tier === "offer" ? "Offer" : "Past customers", a: x })));
+  const inTests = L.tests.flatMap((t) => t.arms.filter((x) => x.approachId === id).map((x) => ({ label: t.factor === "send time" ? "Send time" : tierShort(t.tier), a: x })));
   const byType = L.types.flatMap((t) =>
-    t.arms.filter((x) => x.approachId === id).map((x) => ({ key: t.key, label: `${t.tier === "cold" ? "New to us" : t.tier === "offer" ? "Offer" : "Past customers"}: ${t.label}`, a: x })),
+    t.arms.filter((x) => x.approachId === id).map((x) => ({ key: t.key, label: `${tierShort(t.tier)}: ${t.label}`, a: x })),
   );
   const history = L.runs.flatMap((r) => r.decisions.filter((d) => d.approachId === id).map((d) => ({ week: r.weekStart, d })));
   const hist = L.history.find((h) => h.id === id);
