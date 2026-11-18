@@ -1,12 +1,13 @@
 "use client";
 
-// THROWAWAY PROTOTYPE (bj-finance #811): the one-screen Email campaigns
-// console, Layout A of the round 2 spec ("Keep one screen dark until
-// something matters"). One screen; detail lives in popovers, one non-modal
-// side panel with a breadcrumb, one task layer inside it, and a confirm modal.
-// Panel state is in the URL query string (history.pushState, so opening a
-// panel does not refetch the page). Every action is marked PROTOTYPE and does
-// nothing: no writes, no localStorage, no sessionStorage.
+// The one-screen Email campaigns console (bj-finance #811 spec, Layout A:
+// "Keep one screen dark until something matters"). One screen; detail lives
+// in popovers, one non-modal side panel with a breadcrumb, one task layer
+// inside it, and a confirm modal. Panel state is in the URL query string
+// (history.pushState, so opening a panel does not refetch the page).
+// Writes go through /api/email-campaigns/loop only (approve, hold, release,
+// pause, resume); a button with nothing behind it is not drawn. No
+// localStorage, no sessionStorage.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -33,6 +34,7 @@ import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCam
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
 import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
+import { doneWords, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import {
   ApproachBody,
   EmailBody,
@@ -137,31 +139,32 @@ function useNav() {
   return { nav, go, pop, href };
 }
 
-// --- prototype action feedback --------------------------------------------------
+// --- action feedback ------------------------------------------------------------
 
-function useProtoToast() {
+function useToast() {
   const [msg, setMsg] = useState<string | null>(null);
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
   const say = useCallback((what: string) => {
-    setMsg(`PROTOTYPE: "${what}" does nothing here. Nothing was saved or sent.`);
+    setMsg(what);
     if (t.current) clearTimeout(t.current);
-    t.current = setTimeout(() => setMsg(null), 3200);
+    t.current = setTimeout(() => setMsg(null), 4000);
   }, []);
   return { msg, say };
 }
 
-function ProtoButton({ label, onClick, say, primary, proto }: { label: string; onClick?: () => void; say: (s: string) => void; primary?: boolean; proto?: boolean }) {
+/** A button that does something. One with nothing behind it yet (no handler,
+ * or marked `proto`: a form with nowhere to save) is not drawn at all. */
+function ProtoButton({ label, onClick, primary, proto }: { label: string; onClick?: () => void; say?: (s: string) => void; primary?: boolean; proto?: boolean }) {
+  if (!onClick || proto) return null;
   return (
     <button
       type="button"
-      onClick={() => (onClick ? onClick() : say(label))}
-      title={onClick && !proto ? undefined : "Prototype: does nothing"}
+      onClick={onClick}
       className={`rounded border px-2 py-1 text-xs ${
         primary ? "border-slate-300 bg-slate-200 text-slate-900 hover:bg-white" : "border-slate-600 text-slate-200 hover:bg-slate-800"
       }`}
     >
       {label}
-      {onClick && !proto ? null : <span className={`ml-1 text-[9px] uppercase tracking-wide ${primary ? "text-fuchsia-700" : "text-fuchsia-300"}`}>proto</span>}
     </button>
   );
 }
@@ -217,7 +220,29 @@ function Popover({ pop, onClose }: { pop: Pop; onClose: () => void }) {
 
 export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario, source }: Props) {
   const { nav, go, pop, href } = useNav();
-  const { msg, say } = useProtoToast();
+  const { msg, say } = useToast();
+  const router = useRouter();
+  const act: LoopAct = useCallback(
+    async (a) => {
+      try {
+        const r = await fetch("/api/email-campaigns/loop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a) });
+        const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        // Only the route's own {ok: true} counts: a lapsed login is answered
+        // by a redirect to the sign-in page, which is a 200 too.
+        if (!r.ok || r.redirected || j.ok !== true) {
+          say(`Not saved: ${j.error ?? (r.redirected ? "you are signed out. Sign in again and retry." : r.statusText || "no answer from the server")}`);
+          return false;
+        }
+        say(doneWords(a));
+        router.refresh();
+        return true;
+      } catch (e) {
+        say(`Not saved: ${e instanceof Error ? e.message : String(e)}`);
+        return false;
+      }
+    },
+    [say, router],
+  );
   const [popover, setPopover] = useState<Pop | null>(null);
   const [acked, setAcked] = useState(false);
   const [palette, setPalette] = useState(false);
@@ -487,6 +512,7 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
                 <ProtoButton
                   label="Record new result"
                   say={say}
+                  proto
                   onClick={() => {
                     setPopover(null);
                     go({ ...nav, panel: `domain:${domainId}`, sel: `check:${c.kind}`, layer: "record" });
@@ -695,16 +721,16 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
 
       {popover ? <Popover pop={popover} onClose={closePop} /> : null}
       {nav.panel ? (
-        <SidePanel f={f} loop={L} items={items} nav={nav} go={go} pop={pop} href={href} say={say} dirty={dirty} escape={escape} />
+        <SidePanel f={f} loop={L} items={items} nav={nav} go={go} pop={pop} href={href} say={say} act={act} dirty={dirty} escape={escape} />
       ) : null}
-      {nav.modal ? <ConfirmModal f={f} loop={L} nav={nav} pop={pop} say={say} /> : null}
+      {nav.modal ? <ConfirmModal f={f} loop={L} nav={nav} pop={pop} say={say} act={act} /> : null}
       {palette ? <Palette f={f} loop={L} onClose={() => setPalette(false)} go={(n) => { setPalette(false); go(n); }} /> : null}
       {msg ? (
         <div role="status" className="fixed bottom-20 left-1/2 z-[70] -translate-x-1/2 rounded bg-fuchsia-950 px-3 py-2 text-xs text-fuchsia-100 shadow-lg">
           {msg}
         </div>
       ) : null}
-      <ScenarioBar scenario={scenario} source={source} />
+      {source === "synthetic" ? <ScenarioBar scenario={scenario} source={source} /> : null}
     </div>
   );
 }
@@ -903,11 +929,12 @@ type PanelProps = {
   pop: () => void;
   href: (n: Nav) => string;
   say: (s: string) => void;
+  act: LoopAct;
   dirty: React.MutableRefObject<boolean>;
   escape: () => void;
 };
 
-function AlertBlock({ items, say, onFix }: { items: AttentionItem[]; say: (s: string) => void; onFix?: (fix: string) => (() => void) | undefined }) {
+function AlertBlock({ items, say, onFix, go }: { items: AttentionItem[]; say: (s: string) => void; onFix?: (fix: string) => (() => void) | undefined; go?: (n: Nav) => void }) {
   if (!items.length) return null;
   return (
     <div className="space-y-2">
@@ -922,7 +949,7 @@ function AlertBlock({ items, say, onFix }: { items: AttentionItem[]; say: (s: st
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-slate-500">Fix</span>
             {i.fixes.map((fx) => (
-              <ProtoButton key={fx} label={fx} say={say} onClick={onFix?.(fx)} />
+              <ProtoButton key={fx} label={fx} say={say} onClick={onFix?.(fx) ?? (go ? () => go(homeToNav(i.home)) : undefined)} />
             ))}
           </div>
         </div>
@@ -1002,9 +1029,10 @@ function SidePanel(p: PanelProps) {
       nav,
       go,
       say: p.say,
-      Proto: (b: { label: string; onClick?: () => void; primary?: boolean }) => <ProtoButton key={b.label} {...b} say={p.say} proto />,
+      Proto: (b: { label: string; onClick?: () => void; primary?: boolean }) => <ProtoButton key={b.label} {...b} say={p.say} />,
+      act: p.act,
       Row,
-      Alerts: ({ items }: { items: AttentionItem[] }) => <AlertBlock items={items} say={p.say} />,
+      Alerts: ({ items }: { items: AttentionItem[] }) => <AlertBlock items={items} say={p.say} go={go} />,
     };
     const loopCrumb = { label: "The loop", nav: null };
     if (kind === "week") {
@@ -1016,7 +1044,7 @@ function SidePanel(p: PanelProps) {
       const d = sk === "email" ? L.drafts.find((x) => x.id === sid) : undefined;
       if (d) {
         crumbs.push({ label: d.person.name, nav: { ...base, sel: nav.sel, tab: nav.tab } });
-        if (nav.layer === "flag") crumbs.push({ label: "Flag", nav: null });
+        if (nav.layer === "flag") crumbs.push({ label: "Hold", nav: null });
         body = <EmailBody {...bits} d={d} />;
       } else body = <EmailsBody {...bits} />;
     } else if (kind === "type") {
@@ -1262,7 +1290,7 @@ function CheckBody(p: PanelProps & { domainId: string; c: Facts["domains"][numbe
           <Row k="Due">every {c.everyDays} days</Row>
         </>
       )}
-      <ProtoButton label="Record new result" say={say} onClick={() => go({ ...nav, layer: "record" })} />
+      <ProtoButton label="Record new result" say={say} proto onClick={() => go({ ...nav, layer: "record" })} />
     </div>
   );
 }
@@ -1474,7 +1502,7 @@ function StepBody(p: PanelProps & { l: LaneFact; s: StepFact }) {
         title={`Write step ${s.n} · ${l.label}`}
         saveLabel="Save draft"
         onSave={() => say("Save draft")}
-        extra={<ProtoButton label="Set live…" say={say} onClick={() => go({ ...nav, modal: "live" })} />}
+        extra={<ProtoButton label="Set live…" say={say} proto onClick={() => go({ ...nav, modal: "live" })} />}
       >
         <p className="text-xs text-slate-500">PROTOTYPE: nothing is saved. A saved draft would keep the badge and add &quot;draft&quot;; only Set live clears it.</p>
         <label className="block text-xs text-slate-500">
@@ -1524,8 +1552,8 @@ function StepBody(p: PanelProps & { l: LaneFact; s: StepFact }) {
         <Row k="Keys">{s.keys.join(", ")}</Row>
       </div>
       <div className="flex flex-wrap gap-2">
-        <ProtoButton label={s.written ? "Edit" : `Write step ${s.n}`} say={say} onClick={() => go({ ...nav, layer: "edit" })} />
-        {!s.written ? <ProtoButton label="Set live…" say={say} onClick={() => go({ ...nav, modal: "live" })} /> : null}
+        <ProtoButton label={s.written ? "Edit" : `Write step ${s.n}`} say={say} proto onClick={() => go({ ...nav, layer: "edit" })} />
+        {!s.written ? <ProtoButton label="Set live…" say={say} proto onClick={() => go({ ...nav, modal: "live" })} /> : null}
       </div>
     </div>
   );
@@ -1600,7 +1628,7 @@ function ReplyBody(p: PanelProps & { r: Facts["replies"][number] }) {
       <Row k="Thread">{r.example ? <>&quot;{r.example}&quot; (example) <SyntheticTag what={r.synthetic} /></> : <NoData>thread text not read by the prototype</NoData>}</Row>
       {!mine.length ? (
         <div className="flex flex-wrap gap-2">
-          <ProtoButton label="Reply" say={say} onClick={() => go({ ...nav, layer: "reply" })} />
+          <ProtoButton label="Reply" say={say} proto onClick={() => go({ ...nav, layer: "reply" })} />
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
@@ -1611,57 +1639,74 @@ function ReplyBody(p: PanelProps & { r: Facts["replies"][number] }) {
   );
 }
 
-function ConfirmModal({ f, loop: L, nav, pop, say }: { f: Facts; loop: LoopFacts; nav: Nav; pop: () => void; say: (s: string) => void }) {
+function ConfirmModal({ f, loop: L, nav, pop, act }: { f: Facts; loop: LoopFacts; nav: Nav; pop: () => void; say: (s: string) => void; act: LoopAct }) {
   const ref = useRef<HTMLButtonElement>(null);
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
   useEffect(() => ref.current?.focus(), []);
   let title = "Confirm";
   let text = "";
+  let action: LoopAction | null = null;
+  let asksWhy = false;
   const [kind, id] = (nav.panel ?? "").split(":");
   if (nav.modal === "move" && kind === "mailbox") {
     const m = f.mailboxes.find((x) => x.id === id);
-    // Healthy boxes in the same lane, most room left today first.
-    const others = f.mailboxes
-      .filter((x) => x.id !== m?.id && x.lane === m?.lane && !x.frozen && x.sentToday !== null)
-      .sort((a, b) => b.cap - (b.sentToday ?? 0) - (a.cap - (a.sentToday ?? 0)));
-    const n = m?.waiting?.reduce((s, w) => s + w.n, 0) ?? 0;
-    title = `Move ${n || "queued"} sends?`;
-    text = `Move ${n || "the queued"} sends from ${m?.short} to ${others.slice(0, 2).map((o) => o.short).join(" and ")}? They go out today within those caps.`;
-  } else if (nav.modal === "approve") {
-    const planned = L.drafts.filter((d) => d.status === "planned");
-    const byType = [...new Set(planned.map((d) => d.type))].length;
-    title = `Approve ${planned.length} emails?`;
-    text = `${planned.length} emails to ${byType} customer types send ${L.weekStart.slice(5)} to the end of the week, 10am each sending day, within your daily cap of ${L.limits.dailyCap}. Held emails stay held. Sent emails cannot be called back.`;
+    title = "Move queued sends";
+    text = `Moving ${m?.short ?? "this mailbox"}'s queue is not something the console can do yet. The sender spreads each day's emails across the healthy mailboxes on its own.`;
+  } else if (nav.modal?.startsWith("approve:")) {
+    const approach = nav.modal.slice(8);
+    const a = L.approaches[approach];
+    const n = L.drafts.filter((d) => d.waitingApproval && d.approachId === approach).length;
+    title = `Approve “${a?.name ?? approach}”?`;
+    text = `Its ${n} waiting email${n === 1 ? "" : "s"} go out in their next send times, and the loop may keep using it in later weeks. Sent emails cannot be called back. Any email you held stays held.`;
+    if (a && !a.approvedAt) action = { action: "approve", approach };
   } else if (nav.modal === "pause") {
     title = L.paused ? "Resume the loop?" : "Pause the loop?";
     text = L.paused
-      ? "The daily sender starts again at its next run. Emails whose event is now under two weeks away are skipped, not sent late."
-      : "Every loop send stops until you resume. This week's emails stay planned; replies, research and the Monday run carry on. Hand-run lanes are not touched.";
+      ? "The sender starts again at its next send time. Emails whose event is now under two weeks away are skipped, not sent late."
+      : "Every loop email stops until you resume. This week's emails stay planned; replies, research and the Monday run carry on.";
+    action = L.paused ? { action: "resume" } : { action: "pause", reason: why };
+    asksWhy = !L.paused;
   } else if (nav.modal === "live") {
     const [, n] = (nav.sel ?? "").split(":");
-    title = `Set step ${n} live?`;
-    text = `Send step ${n} to the people due it, from their due date.`;
+    title = `Set step ${n} live`;
+    text = "Hand-run lane steps are set live from the old screen, not here.";
   }
+  const go = async () => {
+    if (!action) return pop();
+    setBusy(true);
+    const ok = await act(asksWhy ? { action: "pause", reason: why } : action);
+    setBusy(false);
+    if (ok) pop();
+  };
   return (
     <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/60" role="presentation">
       <div role="dialog" aria-modal="true" aria-label={title} className="w-[420px] max-w-[calc(100vw-32px)] rounded-md border border-slate-600 bg-slate-900 p-4">
         <p className="text-sm font-semibold text-slate-100">{title}</p>
         <p className="mt-1 text-xs text-slate-300">{text}</p>
-        <p className="mt-2 text-[11px] text-fuchsia-300">PROTOTYPE: confirming does nothing.</p>
+        {asksWhy ? (
+          <input
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+            placeholder="Why (optional, shows on the screen)"
+            className="mt-2 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100"
+          />
+        ) : null}
         <div className="mt-3 flex justify-end gap-2">
           <button type="button" onClick={pop} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">
-            Cancel
+            {action ? "Cancel" : "Close"}
           </button>
-          <button
-            ref={ref}
-            type="button"
-            onClick={() => {
-              say(title);
-              pop();
-            }}
-            className="rounded bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-900 hover:bg-white"
-          >
-            Confirm <span className="text-[9px] uppercase text-fuchsia-700">proto</span>
-          </button>
+          {action ? (
+            <button
+              ref={ref}
+              type="button"
+              disabled={busy}
+              onClick={go}
+              className="rounded bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-900 hover:bg-white disabled:opacity-50"
+            >
+              {busy ? "Saving…" : nav.modal?.startsWith("approve:") ? "Approve" : L.paused ? "Resume" : "Pause"}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

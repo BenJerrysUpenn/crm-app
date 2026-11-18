@@ -21,7 +21,7 @@ export default function RecipientPageFrames({
     <div className="min-h-screen bg-slate-950 px-3 py-4 sm:px-6">
       <div className="mx-auto max-w-5xl space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Link href="/email-campaigns" className="text-xs text-slate-400 hover:text-slate-200">
+          <Link href="/email-campaigns/classic" className="text-xs text-slate-400 hover:text-slate-200">
             ← Email campaigns
           </Link>
           <span className="text-slate-700">/</span>

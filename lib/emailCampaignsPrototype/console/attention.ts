@@ -53,7 +53,8 @@ export type AttentionItem = {
     | "loop_unsub_pause"
     | "loop_asks"
     | "loop_notes_owed"
-    | "loop_flagged";
+    | "loop_flagged"
+    | "loop_backlog";
   level: Level;
   /** The pill's area word ("■ 2 · Sending"). */
   area: string;

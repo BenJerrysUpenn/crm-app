@@ -43,6 +43,9 @@ export type ApproachFact = {
   evidence: EvidenceFact[];
   /** Only sent in these send-time slots (empty: any). */
   slots: string[];
+  /** Its emails send only once a person approved it (021). Null: waiting. */
+  approvedAt?: string | null;
+  approvedBy?: string | null;
 };
 
 export type EvidenceFact = { source: string; url: string | null; finding: string };
@@ -146,6 +149,12 @@ export type DraftFact = {
   judge: { verdict: "pass" | "rewritten" | "held"; note: string };
   /** Why this approach for this person, in a sentence. */
   pick: string;
+  /** Planned, but its approach is not approved yet, so it waits. */
+  waitingApproval?: boolean;
+  /** When it went out (live data only). */
+  sentAt?: string | null;
+  /** Held from the console: who, when and why (022). */
+  held?: { at: string; by: string; reason: string } | null;
 };
 
 export type DecisionFact = { kind: "add" | "retire" | "crown" | "reopen" | "hold"; type: string | null; approachId: string; reason: string };
@@ -201,6 +210,12 @@ export type NoteFact = { name: string; company: string; why: string; since: stri
 export type LoopFacts = {
   /** Set when any of this is not real data. */
   synthetic?: string;
+  /** Set when the loop could not be read at all, in words. */
+  unavailable?: string;
+  /** False when the run did not record the limits it ran under. */
+  limitsRecorded?: boolean;
+  /** Approaches whose planned emails wait for approval, with how many. */
+  approvals?: { approachId: string; n: number }[];
   now: string;
   today: string;
   weekStart: string;
@@ -248,6 +263,15 @@ const TYPE_WORDS: Record<string, string> = {
   wedding: "Couples",
   wedding_trade: "Wedding planners",
   unknown: "Unlabelled",
+  uncategorised: "Not sorted yet",
+  // Past customers and enquirers, by what they booked or asked about.
+  corporate: "Companies",
+  school: "Schools",
+  community: "Community groups",
+  family: "Families",
+  no_deal: "Enquired, never booked",
+  past_booker: "Booked before",
+  other: "Everyone else",
 };
 
 export const typeLabel = (key: string) => TYPE_WORDS[key.split(":")[1] ?? key] ?? key;
@@ -350,7 +374,7 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
         title: "Weekly run stopped at its check",
         detail: `${L.run.check.text} Nothing is planned for this week, so nothing sends.`,
         openedAt: L.run.createdAt,
-        fixes: ["Open the run log"],
+        fixes: ["Open the week"],
         synthetic: tag,
       }),
     );
@@ -366,7 +390,7 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
         home: { kind: "panel", panel: "week" },
         title: `No weekly run for the week of ${dateEt(`${L.weekStart}T17:00:00Z`)}`,
         detail: "The weekly run has not logged this week. Sends wait for a run, so nothing new goes out.",
-        fixes: ["Open the run log"],
+        fixes: ["Open the week"],
         synthetic: tag,
       }),
     );
@@ -396,10 +420,34 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
     );
   }
 
-  // L3 Sender did not send.
+  // L2b Approaches waiting for approval (021): their emails do not send.
+  for (const a of L.approvals ?? []) {
+    const name = L.approaches[a.approachId]?.name ?? a.approachId;
+    out.push(
+      item({
+        id: `loop:approve:${a.approachId}`,
+        rule: "loop_week_approval",
+        level: "caution",
+        area: "Loop",
+        path: ["loop", `approach:${a.approachId}`],
+        pathLabel: `Loop › Approaches › ${name}`,
+        home: { kind: "panel", panel: `approach:${a.approachId}` },
+        title: `${a.n} email${a.n === 1 ? "" : "s"} wait for your approval of “${name}”`,
+        detail: "A new approach sends nothing until you approve it. Read a few of its emails, then approve it or leave it waiting.",
+        fixes: ["Read and approve"],
+        synthetic: tag,
+      }),
+    );
+  }
+
+  // L3 Sender did not send. With live data, only when nothing at all went
+  // out today: emails still waiting while others went out is volume (L3b).
   const approved = !L.gate || !!L.run?.approvedAt;
-  if (approved && !L.paused && isWeekday(now) && et.hour >= SENDER_DUE_HOUR) {
-    const late = planned.filter((d) => d.sendOn <= L.today);
+  const knowsSends = L.drafts.some((d) => d.sentAt !== undefined);
+  const sentToday = L.drafts.filter((d) => d.status === "sent" && d.sentAt && etDay(new Date(d.sentAt)) === L.today).length;
+  if (approved && !L.paused && isWeekday(now) && et.hour >= SENDER_DUE_HOUR && !(knowsSends && sentToday > 0)) {
+    // The 3pm slot is not due until 3pm, so only earlier days count for it.
+    const late = planned.filter((d) => !d.waitingApproval && (d.sendOn < L.today || (d.sendOn === L.today && d.slot !== "slump")));
     if (late.length)
       out.push(
         item({
@@ -410,9 +458,33 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
           path: ["loop", "emails"],
           pathLabel: "Loop › Emails this week",
           home: { kind: "panel", panel: "emails" },
-          title: `Sender did not send: ${late.length} emails due today still waiting`,
-          detail: "The daily sender runs at 10am. By 2pm every email due today should be sent or skipped with a reason.",
-          fixes: ["Open the sender log"],
+          title: `Sender has sent nothing today: ${late.length} emails waiting`,
+          detail: "The sender runs at 10:30, 11:40 and 3pm on weekdays. By 2pm some of today's emails should have gone out.",
+          fixes: ["Open the emails"],
+          synthetic: tag,
+        }),
+      );
+  }
+
+  // L3b More planned than the mailboxes can send by Friday.
+  if (knowsSends && !L.paused && L.volume.roomPerWeek > 0) {
+    const waiting = planned.filter((d) => !d.waitingApproval).length;
+    const dow = et.weekday; // 0 Sunday .. 6 Saturday
+    const daysLeft = dow === 0 || dow === 6 ? 5 : Math.max(0, 5 - dow + (et.hour < 15 ? 1 : 0));
+    const room = Math.round((L.volume.roomPerWeek / 5) * daysLeft);
+    if (waiting > room)
+      out.push(
+        item({
+          id: "loop:backlog",
+          rule: "loop_backlog",
+          level: "caution",
+          area: "Loop",
+          path: ["loop", "week"],
+          pathLabel: "Loop › This week",
+          home: { kind: "panel", panel: "week" },
+          title: `${waiting} emails waiting, room for about ${room} by Friday`,
+          detail: `The run planned more than the mailboxes can send (${sentToday} went out today). The rest carry to next week; more mailboxes would clear it.`,
+          fixes: ["Open the week"],
           synthetic: tag,
         }),
       );
@@ -450,7 +522,7 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
         home: { kind: "panel", panel: "limits" },
         title: `Loop paused: ${L.unsub.n} unsubscribes in ${L.unsub.sends} sends this week`,
         detail: `Over your limit of ${(L.limits.unsubPause * 100).toFixed(0)}%. The loop stays paused until you resume it.`,
-        fixes: ["Read the memo", "Resume"],
+        fixes: ["Read your limits"],
         synthetic: tag,
       }),
     );
@@ -470,7 +542,7 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
         title: `The weekly run asks you ${asks.length} thing${asks.length > 1 ? "s" : ""}`,
         detail: asks.map((a) => a.text.split("?")[0] + "?").join(" "),
         openedAt: L.run?.createdAt ?? null,
-        fixes: ["Answer each ask"],
+        fixes: ["Read the asks"],
         synthetic: tag,
       }),
     );
@@ -489,7 +561,7 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
         home: { kind: "panel", panel: "notes" },
         title: `${owed.length} personal note${owed.length > 1 ? "s" : ""} owed`,
         detail: `${owed.map((n) => n.name).join(", ")}: a complaint or refund, so they get a note from you instead of a loop email.`,
-        fixes: ["Write the note"],
+        fixes: ["Open the notes"],
         synthetic: tag,
       }),
     );
@@ -509,7 +581,7 @@ export function loopItems(L: LoopFacts): AttentionItem[] {
         home: { kind: "panel", panel: "emails", sel: `email:${d.id}` },
         title: `Flagged email to ${d.person.name} needs your won't-say line`,
         detail: "You held this email. Say what it should never say and the loop opens a PR to your limits with your words.",
-        fixes: ["Write the line"],
+        fixes: ["Open the email"],
         synthetic: tag,
       }),
     );

@@ -31,6 +31,7 @@ import {
   type TestFact,
   type TypeFact,
 } from "@/lib/emailCampaignsPrototype/console/loop";
+import type { LoopAct } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import { dateEt, dowEt, timeEt } from "@/lib/emailCampaignsPrototype/console/time";
 import { Badge, Bullet, Glyph, SyntheticTag } from "./bits";
 
@@ -335,10 +336,10 @@ export function LoopRegion({ L, items, go, fade }: { L: LoopFacts; items: Attent
           <p className="flex items-center gap-2 text-[11px] text-slate-500">
             {TIER_WORD[t]}
             <span className="text-slate-600">
-              · {L.volume[t].ready.toLocaleString()} ready · room for {L.volume[t].room} a week
+              · {L.volume[t].ready.toLocaleString()} waiting to send · room for {L.volume[t].room} a week
             </span>
           </p>
-          {rows.map((x) => {
+          {rows.filter((x) => x.emailsThisWeek > 0 || rollup(items, ["loop", `type:${x.key}`]).count > 0).map((x) => {
             const r = rollup(items, ["loop", `type:${x.key}`]);
             return (
               <button key={x.key} type="button" onClick={() => go({ panel: `type:${x.key}` })} className={`${tgrid} rounded py-[1px] text-left text-sm hover:bg-slate-900 ${fade(r.count > 0)}`}>
@@ -351,6 +352,14 @@ export function LoopRegion({ L, items, go, fade }: { L: LoopFacts; items: Attent
               </button>
             );
           })}
+          {(() => {
+            const quiet = rows.filter((x) => x.emailsThisWeek === 0 && rollup(items, ["loop", `type:${x.key}`]).count === 0);
+            return quiet.length ? (
+              <p className="pl-2 text-[11px] text-slate-600" title={quiet.map((x) => x.label).join(", ")}>
+                {quiet.length} more type{quiet.length === 1 ? "" : "s"} with no emails this week
+              </p>
+            ) : null;
+          })()}
         </div>
       ))}
     </section>
@@ -368,6 +377,7 @@ type PanelBits = {
   go: Go;
   say: (s: string) => void;
   Proto: (p: { label: string; onClick?: () => void; primary?: boolean }) => ReactNode;
+  act: LoopAct;
   Row: (p: { k: string; children: ReactNode }) => ReactNode;
   Alerts: (p: { items: AttentionItem[] }) => ReactNode;
 };
@@ -442,15 +452,11 @@ export function WeekBody(p: PanelBits) {
           {run.asks.length ? (
             <>
               <H>Asks you</H>
+              <p className="mb-1 text-xs text-slate-500">Answer in the session that runs the loop, or by replying to the Monday email. A change to a limit goes in as a PR that quotes you.</p>
               <ul className="space-y-2">
                 {run.asks.map((a) => (
                   <li key={a.id} className="rounded border border-slate-700 p-2 text-xs">
                     <p className="text-slate-200">{a.text}</p>
-                    <div className="mt-1.5 flex gap-2">
-                      {p.Proto({ label: "Yes" })}
-                      {p.Proto({ label: "Not now" })}
-                      {p.Proto({ label: "Answer in words…" })}
-                    </div>
                   </li>
                 ))}
               </ul>
@@ -588,6 +594,15 @@ export function EmailsBody(p: PanelBits) {
         </select>
         <span className="self-center text-xs text-slate-500">{shown.length} emails</span>
       </div>
+      {(L.approvals ?? []).map((a) => (
+        <div key={a.approachId} className="mt-2 flex flex-wrap items-center gap-2 rounded border border-amber-500/60 p-2 text-xs">
+          <span className="flex-1">
+            {a.n} email{a.n === 1 ? "" : "s"} use “{approachName(L, a.approachId)}”, a new approach. They wait until you approve it.
+          </span>
+          {p.Proto({ label: "Read its emails", onClick: () => go({ ...nav, tab: filterTab({ ...f, appr: a.approachId }) }) })}
+          {p.Proto({ label: "Approve…", primary: true, onClick: () => go({ ...nav, modal: `approve:${a.approachId}` }) })}
+        </div>
+      ))}
       {L.gate && L.run && !L.run.approvedAt ? (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-slate-700 p-2 text-xs">
           <span className="flex-1">Nothing sends until you approve. Hold any single email first, or approve them one by one.</span>
@@ -612,7 +627,7 @@ export function EmailsBody(p: PanelBits) {
                     onClick={() => go({ panel: "emails", sel: `email:${x.id}`, tab: nav.tab })}
                     className="grid w-full grid-cols-[14px_40px_minmax(0,130px)_1fr] items-baseline gap-2 border-t border-slate-800 py-1 text-left text-xs hover:bg-slate-800/60"
                   >
-                    <span className="text-slate-500">{x.status === "sent" ? "✓" : x.status === "held" ? "‖" : x.status === "skipped" ? "–" : x.judge.verdict === "rewritten" ? "↻" : ""}</span>
+                    <span className="text-slate-500">{x.status === "sent" ? "✓" : x.status === "held" ? "‖" : x.status === "skipped" ? "–" : x.waitingApproval ? "◷" : x.judge.verdict === "rewritten" ? "↻" : ""}</span>
                     <span className="tabular-nums text-slate-500">{timeEt(x.sendAt)}</span>
                     <span className="truncate text-slate-200">{x.person.name}</span>
                     <span className="truncate text-slate-400">
@@ -630,7 +645,7 @@ export function EmailsBody(p: PanelBits) {
           </div>
         );
       })}
-      <p className="mt-2 text-[10px] text-slate-600">✓ sent · ‖ held · ↻ the judge had it rewritten</p>
+      <p className="mt-2 text-[10px] text-slate-600">✓ sent · ‖ held by you · – skipped · ◷ waiting for your approval of its approach</p>
     </div>
   );
 }
@@ -656,31 +671,68 @@ function EmailBar(p: PanelBits & { d: DraftFact }) {
       <span className="min-w-0 flex-1 truncate text-center text-[11px] text-slate-500">
         {i + 1} of {list.length} · {scope}
       </span>
+      {planned && d.waitingApproval ? (
+        <button
+          type="button"
+          className={`${btn} border-slate-300 bg-slate-200 font-semibold text-slate-950 hover:bg-white`}
+          onClick={() => go({ ...nav, modal: `approve:${d.approachId}` })}
+        >
+          Approve approach…
+        </button>
+      ) : null}
       {planned ? (
-        <>
-          <button
-            type="button"
-            className={`${btn} border-slate-300 font-semibold text-slate-950 bg-slate-200 hover:bg-white`}
-            onClick={() => {
-              p.say("Prototype: approving one email does nothing here.");
-              next?.();
-            }}
-          >
-            Approve{next ? " ›" : ""}
-          </button>
-          <button type="button" className={btn} onClick={() => p.say("Prototype: holding does nothing here.")}>
-            Hold
-          </button>
-          <button type="button" className={btn} onClick={() => go({ ...nav, layer: "flag" })}>
-            Flag
-          </button>
-        </>
+        <button type="button" className={btn} onClick={() => go({ ...nav, layer: "flag" })}>
+          Hold…
+        </button>
+      ) : d.status === "held" ? (
+        <button type="button" className={btn} onClick={() => void p.act({ action: "release", draft: Number(d.id) })}>
+          Release
+        </button>
       ) : (
-        <span className="text-xs text-slate-500">{d.status === "sent" ? "Sent" : d.status === "held" ? "Held" : "Skipped"}</span>
+        <span className="text-xs text-slate-500">{d.status === "sent" ? "Sent" : "Skipped"}</span>
       )}
       <button type="button" className={btn} disabled={!next} onClick={next} aria-label="Next email">
         ›
       </button>
+    </div>
+  );
+}
+
+function HoldForm(p: PanelBits & { d: DraftFact }) {
+  const { d, go, nav } = p;
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="text-sm text-slate-300">
+      <p className="font-semibold text-slate-100">Hold this email to {d.person.name}</p>
+      <p className="mt-1 text-xs text-slate-400">
+        It will not send. The rest of the week sends as planned. Say what is wrong in your words: it is kept with the email, and you can release it later.
+      </p>
+      <textarea
+        rows={4}
+        value={why}
+        onChange={(e) => setWhy(e.target.value)}
+        className="mt-2 w-full rounded border border-slate-700 bg-slate-950 p-2 text-xs text-slate-100"
+        placeholder="What's wrong with it…"
+      />
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            const ok = await p.act({ action: "hold", draft: Number(d.id), reason: why });
+            setBusy(false);
+            if (ok) go({ ...nav, layer: undefined });
+          }}
+          className="rounded bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-900 hover:bg-white disabled:opacity-50"
+        >
+          {busy ? "Holding…" : "Hold it"}
+        </button>
+        <button type="button" onClick={() => go({ ...nav, layer: undefined })} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
@@ -690,25 +742,22 @@ export function EmailBody(p: PanelBits & { d: DraftFact }) {
   const t = L.types.find((x) => x.key === d.type);
   const away = daysUntil(d.sendOn, d.why.eventDate);
   const slot = L.slots[d.slot];
-  if (nav.layer === "flag")
-    return (
-      <div className="text-sm text-slate-300">
-        <p className="font-semibold text-slate-100">Flag this email</p>
-        <p className="mt-1 text-xs text-slate-400">
-          It is held now. Say what is wrong in your words. It goes to the judge as a case to check every email against, and, if you mean it as a hard line, to your limits by a PR that quotes you.
-        </p>
-        <textarea rows={4} className="mt-2 w-full rounded border border-slate-700 bg-slate-950 p-2 text-xs text-slate-100" placeholder="What's wrong with it…" />
-        <div className="mt-2 flex flex-wrap gap-2">
-          {p.Proto({ label: "Teach the judge", primary: true, onClick: () => go({ ...nav, layer: undefined }) })}
-          {p.Proto({ label: "Make it a hard line", onClick: () => go({ ...nav, layer: undefined }) })}
-          {p.Proto({ label: "Just hold it", onClick: () => go({ ...nav, layer: undefined }) })}
-        </div>
-      </div>
-    );
+  if (nav.layer === "flag") return <HoldForm {...p} d={d} />;
   return (
     <div className="text-sm text-slate-300">
       <EmailBar {...p} />
       <p.Alerts items={p.items.filter((i) => i.path[0] === "loop" && i.path[2] === d.id)} />
+      {d.held ? (
+        <p className="mb-2 rounded border border-slate-600 p-2 text-xs text-slate-300">
+          Held{d.held.by ? ` by ${d.held.by}` : ""}
+          {d.held.at ? ` ${dateEt(d.held.at)} ${timeEt(d.held.at)}` : ""}
+          {d.held.reason ? `: “${d.held.reason}”` : "."}
+        </p>
+      ) : d.waitingApproval ? (
+        <p className="mb-2 rounded border border-amber-500/60 p-2 text-xs text-slate-300">Waiting for your approval of “{approachName(L, d.approachId)}”. It sends in its next send time once you approve.</p>
+      ) : d.status === "skipped" && d.skipReason ? (
+        <p className="mb-2 rounded border border-slate-700 p-2 text-xs text-slate-400">Skipped: {d.skipReason}</p>
+      ) : null}
       <div className="rounded-md bg-white p-3 text-[13px] leading-relaxed text-slate-900 shadow">
         <div className="space-y-0.5 border-b border-slate-200 pb-2 text-xs text-slate-500">
           <p>
@@ -971,11 +1020,24 @@ export function ApproachBody(p: PanelBits & { id: string }) {
         {a.origin === "loop" ? "The loop's own idea" : a.origin === "research" ? "From your research list" : "Sent by hand before the loop"} · {a.createdBy}, {dateEt(a.createdAt)}
       </p>
       <p className="mt-1 text-xs text-slate-300">{a.brief}</p>
+      {a.approvedAt === undefined ? null : a.approvedAt ? (
+        <p className="mt-1 text-xs text-slate-500">
+          Approved {dateEt(a.approvedAt)}
+          {a.approvedBy ? ` by ${a.approvedBy}` : ""}.
+        </p>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-amber-500/60 p-2 text-xs">
+          <span className="flex-1 text-slate-200">
+            Waiting for your approval: {L.drafts.filter((d) => d.waitingApproval && d.approachId === id).length} emails hold until you approve it. Read the samples below first.
+          </span>
+          {p.Proto({ label: "Approve…", primary: true, onClick: () => go({ ...p.nav, modal: `approve:${id}` }) })}
+        </div>
+      )}
       <H>What it is for</H>
-      <p.Row k="Meant to">{a.purpose}</p.Row>
-      <p.Row k="Why try it">{a.whyTried}</p.Row>
-      <p.Row k="Whole email">{a.fitsWith}</p.Row>
-      <p.Row k="Stop it if">{a.stopIf}</p.Row>
+      {a.purpose ? <p.Row k="Meant to">{a.purpose}</p.Row> : null}
+      {a.whyTried ? <p.Row k="Why try it">{a.whyTried}</p.Row> : null}
+      {a.fitsWith ? <p.Row k="Whole email">{a.fitsWith}</p.Row> : null}
+      {a.stopIf ? <p.Row k="Stop it if">{a.stopIf}</p.Row> : null}
       {a.slots.length ? <p.Row k="Lands">only {a.slots.map((s) => L.slots[s]?.label.toLowerCase() ?? s).join(", ")}</p.Row> : null}
       <H>Evidence</H>
       <Evidence list={a.evidence} />
@@ -1063,20 +1125,31 @@ export function HistoryBody(p: PanelBits) {
 export function LimitsBody(p: PanelBits) {
   const { L } = p;
   const m = L.limits;
+  if (L.limitsRecorded === false)
+    return (
+      <div className="text-sm text-slate-300">
+        <p className="font-semibold text-slate-100">Your limits</p>
+        <p className="mt-1 text-xs text-slate-400">
+          This week&apos;s run started before runs recorded the limits they ran under. From next Monday&apos;s run on, this shows exactly what the loop ran under. The limits themselves live in sales/loop/limits.toml in Catering-Manager, and a change is a PR that quotes your words.
+        </p>
+      </div>
+    );
   return (
     <div className="text-sm text-slate-300">
       <p.Alerts items={p.items.filter((i) => i.path[0] === "loop" && i.path[1] === "limits")} />
       <p className="font-semibold text-slate-100">
         Your limits <SyntheticTag what={L.synthetic} />
       </p>
-      <p className="text-xs text-slate-400">Two kinds. Hard lines the loop never crosses, and suggestions it may go past when it has a reason, saying why in the memo. A change to either is a PR that quotes your words.</p>
+      <p className="text-xs text-slate-400">
+        What this week&apos;s run ran under. Two kinds: hard lines the loop never crosses, and suggestions it may go past when it has a reason, saying why in the memo. A change to either is a PR that quotes your words.
+      </p>
       <H>Sending</H>
-      <p.Row k="Warm">at most {m.dailyCap} a day</p.Row>
-      <p.Row k="Cold">{m.coldEnabled ? `on, at most ${m.coldDailyCap} a day from the cold mailboxes` : "off until you say go"}</p.Row>
+      <p.Row k="Every day">at most {m.dailyCap} loop emails across every mailbox, and no mailbox past its own allowance</p.Row>
+      <p.Row k="Cold">{m.coldEnabled ? "on, from the cold mailboxes through Apollo" : "off until you say go"}</p.Row>
       <p.Row k="Baseline">{Math.round(m.baselineShare * 100)}% of each test goes to the email we sent by hand</p.Row>
-      <p.Row k="Approaches">at most {m.maxLive} live in a test (fewer settles faster)</p.Row>
+      <p.Row k="Approaches">at most {m.maxLive} live per customer type (fewer settles faster)</p.Row>
       <p.Row k="Apollo">{m.apolloCredits ? `${m.apolloCredits} credits a week` : "no credits to spend"}</p.Row>
-      <p.Row k="Pause">every loop send stops if unsubscribes pass {Math.round(m.unsubPause * 100)}% in 7 days</p.Row>
+      <p.Row k="Pause">every loop email stops if unsubscribes pass {Math.round(m.unsubPause * 100)}% in 7 days</p.Row>
       <H>Never</H>
       <ul className="list-disc space-y-0.5 pl-4 text-xs">
         {m.never.map((s) => (
@@ -1090,17 +1163,17 @@ export function LimitsBody(p: PanelBits) {
         ))}
       </ul>
       <H>Who</H>
-      <p.Row k="Small groups">under {m.minGuests} guests last time: not emailed. The cake option comes only in your reply draft</p.Row>
+      <p.Row k="Everyone">emailed whatever their past headcount; the cake option comes only in your reply draft</p.Row>
       <p.Row k="Lost deals">held back {m.holdBackMonths} months</p.Row>
+      <p.Row k="Events">none under {m.minDaysBeforeEvent} days away (Fair Workweek)</p.Row>
       <p.Row k="Never email">{m.neverEmail ? `${m.neverEmail} addresses and domains` : "nobody listed"}</p.Row>
       <H>Offers and occasions</H>
-      <p.Row k="Offers">{m.allowedOffers.join("; ")}. Anything else waits for you.</p.Row>
+      <p.Row k="Offers">{m.allowedOffers.length ? `${m.allowedOffers.join("; ")}. Anything else waits for you.` : "none without asking you"}</p.Row>
       <p.Row k="Occasions">{m.approvedAsk.length ? m.approvedAsk.join(", ") : "only those rated a good fit; none of the 'ask' ones approved yet"}</p.Row>
       <H>Research</H>
       <p.Row k="LinkedIn">
         {m.linkedinCap} company pages a day, {m.linkedinPause}s apart, on Alex&apos;s account, read only
       </p.Row>
-      <div className="mt-3">{p.Proto({ label: "Ask for a change…" })}</div>
     </div>
   );
 }
@@ -1131,6 +1204,7 @@ export function ResearchBody(p: PanelBits) {
         </div>
       ) : null}
       <H>Event dates found</H>
+      {R.estimates.length ? null : <p className="text-xs text-slate-500">None found yet.</p>}
       <ul className="space-y-1.5">
         {R.estimates.map((e) => (
           <li key={`${e.company}${e.date}`} className="border-t border-slate-800 pt-1 text-xs">
@@ -1172,6 +1246,7 @@ export function NotesBody(p: PanelBits) {
         Personal notes <SyntheticTag what={L.synthetic} />
       </p>
       <p className="text-xs text-slate-400">People with a complaint or a refund. The loop never emails them; they hear from you.</p>
+      {L.notes.length ? null : <p className="mt-2 text-xs text-slate-500">Nobody waiting for a note.</p>}
       <ul className="mt-2 space-y-2">
         {L.notes.map((n) => (
           <li key={n.name} className="border-t border-slate-800 pt-1.5 text-xs">
