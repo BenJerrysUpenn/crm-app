@@ -34,7 +34,7 @@ import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCam
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
 import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
-import { SAVED_TOAST_KEY, reloadUrl, saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
+import { reloadUrl, saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import {
   ApproachBody,
   EmailBody,
@@ -141,6 +141,11 @@ function useNav() {
 
 // --- action feedback ------------------------------------------------------------
 
+/** A toast kept for the next page load (a save reloads the page) is carried
+ * in sessionStorage: a per-viewer convenience only; if storage is unavailable
+ * the toast is lost and nothing else changes. */
+const SAVED_TOAST_KEY = "email-campaigns:saved-toast";
+
 function useToast() {
   const [msg, setMsg] = useState<string | null>(null);
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -149,7 +154,26 @@ function useToast() {
     if (t.current) clearTimeout(t.current);
     t.current = setTimeout(() => setMsg(null), 4000);
   }, []);
-  return { msg, say };
+  /** Say this on the next page load instead of now. */
+  const sayAfterReload = useCallback((what: string) => {
+    try {
+      window.sessionStorage.setItem(SAVED_TOAST_KEY, what);
+    } catch {
+      /* the toast is a convenience */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      const w = window.sessionStorage.getItem(SAVED_TOAST_KEY);
+      if (w) {
+        window.sessionStorage.removeItem(SAVED_TOAST_KEY);
+        say(w);
+      }
+    } catch {
+      /* the toast is a convenience */
+    }
+  }, [say]);
+  return { msg, say, sayAfterReload };
 }
 
 /** A button that does something. One with nothing behind it yet (no handler,
@@ -220,7 +244,7 @@ function Popover({ pop, onClose }: { pop: Pop; onClose: () => void }) {
 
 export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario, source }: Props) {
   const { nav, go, pop, href } = useNav();
-  const { msg, say } = useToast();
+  const { msg, say, sayAfterReload } = useToast();
   const act: LoopAct = useCallback(
     async (a) => {
       try {
@@ -233,11 +257,7 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
         }
         // Reload in place so every panel redraws from the database; the
         // promise never settles, so the button stays on "Saving…" until then.
-        try {
-          window.sessionStorage.setItem(SAVED_TOAST_KEY, out.words);
-        } catch {
-          /* the toast is a convenience */
-        }
+        sayAfterReload(out.words);
         window.location.replace(reloadUrl(window.location.href));
         return await new Promise<boolean>(() => undefined);
       } catch (e) {
@@ -245,19 +265,8 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
         return false;
       }
     },
-    [say],
+    [say, sayAfterReload],
   );
-  useEffect(() => {
-    try {
-      const w = window.sessionStorage.getItem(SAVED_TOAST_KEY);
-      if (w) {
-        window.sessionStorage.removeItem(SAVED_TOAST_KEY);
-        say(w);
-      }
-    } catch {
-      /* the toast is a convenience */
-    }
-  }, [say]);
   const [popover, setPopover] = useState<Pop | null>(null);
   const [acked, setAcked] = useState(false);
   const [palette, setPalette] = useState(false);

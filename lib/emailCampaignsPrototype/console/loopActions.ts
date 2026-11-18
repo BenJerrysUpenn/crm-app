@@ -72,8 +72,3 @@ export function reloadUrl(href: string): string {
   u.searchParams.delete("layer");
   return u.toString();
 }
-
-/** The saved-toast is carried across that reload in sessionStorage: a
- * per-viewer convenience only; if storage is unavailable the toast is lost
- * and nothing else changes. */
-export const SAVED_TOAST_KEY = "email-campaigns:saved-toast";
