@@ -368,35 +368,43 @@ views in the browser's localStorage. Sales targets come only from `public.sales_
 draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
 bj-finance feed (migration 40). Labor vs target (bj-finance #696, `lib/metrics/laborTarget.ts`)
 reads `labor_daily_actuals` (migrations 46, 59 and 60), `sales_daily_in_store` (migration 41) and the control
-board's settings in force on each day. Both sides are all-in (taxes and workers' comp): the target is
-the board's `hourlyAllInPct`. **Catering never counts in the labor %** (Alina, 2026-11-16: "catering
-shouldn't be affecting the labor percent because catering revenue covers that as a separate bill"):
-the actual leaves out the catering work the clocks recorded, as paid (each day's `catering_hours` and
-`catering_wages`, migration 59, written by bj-finance `modules/labor_days.py`: When I Work lines whose
-Position is Catering before the time app, punches on Catering shifts after, each person at their own
-paid rate) and the whole catering premium. The hours a quote billed (`labor_hours` x `staff_count`) are
-not read, and nor are deals: a pickup, a drop-off or a deal with no crew on file cannot change a week or
-make it n/a. The Schedule page's labor line takes the same work out of the week on screen (see "The Schedule
-page's labor line"). **Marketing work never counts in the labor % either** (Alina, 2026-11-16: marketing work is a separate
-marketing budget and is taken out of the labor % like catering; catering and marketing are taken off at the
-hours actually worked): the actual also leaves out each day's `marketing_hours` and `marketing_wages`
-(migration 60, same writer: punches on a Marketing shift or on any shift of a marketing deal, a deal whose
-event type starts "Marketing" or whose stage is Closed Marketing Event, the part of a punch with no shift
-that overlaps the same person's unpunched marketing shift, and When I Work's Marketing position before the
-time app; each person at their own paid rate). A marketing shift's hours are never also catering hours.
-"Show numbers" lists each week's catering and marketing work taken off. Every board value is the one in force on the day, so a past week
-is judged by the board as it stood then, and fixed payroll
-counts only the people salaried that day. A Sunday-to-Saturday week shows only once it is over with all
-seven days of payroll, their catering and marketing split, and sales on file, and hours and hourly labor
-still above zero after the catering and marketing work comes off, otherwise "n/a" with the reason (for a split
-missing, how many of the 7 days are not split yet). The card covers a range of weeks
+board's settings in force on each day. All of the store's labor counts, all-in (taxes and workers' comp), against the
+whole payroll target (Alina, 2026-11-18): the actual is hourly labor plus salaried labor, the sales are in-store plus
+delivery plus catering, and the target is the board's `payroll_pct` (not the hourly goal). Hourly labor is the
+`labor_daily_actuals` wages, catering premium and solo close, **catering crews included**, less each day's
+`marketing_hours` and `marketing_wages` (migration 60, written by bj-finance `modules/labor_days.py`), plus the board's
+hourly taxes and comp rate in force on the day. **Marketing work never counts** (Alina, 2026-11-16: a separate marketing
+budget with no sales of its own): punches on a Marketing shift or on any shift of a marketing deal (event type starting
+"Marketing", or stage Closed Marketing Event), the part of a punch with no shift that overlaps the same person's
+unpunched marketing shift, and When I Work's Marketing position before the time app, each person at their own paid rate;
+a marketing shift's hours are never also catering hours. Each day's `catering_hours` and `catering_wages` (migration 59)
+stay split out so "Show numbers" can list each week's catering crew (counted) and marketing work (taken off), but they
+are not taken off the actual. Salaried labor is the board's fixed payroll in force that day (the people salaried that
+day: salary, employer taxes with caps and comp), a 365th of it a day. Sales per day: `in_store` and `delivery` from
+`sales_daily_in_store` (migrations 41 and 61: the scoopers make the delivery orders, so delivery counts) and booked
+catering deals by event date, before tax (`lib/metrics/catering.ts`). The hours a quote billed
+(`labor_hours` x `staff_count`) are not read as labor. The Schedule page's labor line is hourly only (see "The Schedule
+page's labor line"). Every board value is the one in force on the day, so a past week is judged by the board as it stood
+then. Variance hours price the variance at the week's own hourly cost per hour, since hourly hours are what the schedule
+can change. A Sunday-to-Saturday week shows only once it is over with all
+seven days of payroll, their catering and marketing split, and in-store and delivery sales on file, and hourly hours
+and hourly labor still above zero after the marketing work comes off, otherwise "n/a" with the reason (for a split
+or delivery missing, how many of the 7 days lack it). A deals read failure blanks the card, since catering sales are
+part of the sales. The card covers a range of weeks
 (`lib/metrics/weekRange.ts`), saved in the widget's settings as `from` and `to`, the Sundays of its first and last
 week, chosen from 2026-05-03 (`FIRST_LABOR_WEEK`) to the week holding today. Unset, it shows the last 8 weeks ending
 with the most recent one that is over. A view saved under the old month picker keeps its `month`, read as the weeks
 that start in it. A button per month on offer sets the range to that month's weeks by the same rule, and shows
 pressed while the range is that month. Every save of a saved view goes through `serialSaves`
 (`lib/metrics/saveQueue.ts`), one at a time per view, in the order made: a save sent around it can land out of
-order and leave the older choice saved. Tests: `npm test` in `time-app/` includes
+order and leave the older choice saved. Every card's week runs Sunday to Saturday, named by its Sunday (`weekOf` in
+`lib/metrics/dates.ts`), as the Schedule runs it. The Labour card (`lib/metrics/labour.ts`) sorts a punch into in-store,
+catering or marketing by its shift (`workKind`, the rule of the Schedule line and `labor_days.py`); a punch with no shift
+is in-store except where it overlaps the same person's unpunched catering or marketing shift. Its sales per
+scooper-hour is in-store plus delivery sales (the Labor vs target weeks) over in-store hours. LER
+(`lib/metrics/ler.ts`), weekly and monthly, leaves owner pay out and has an "Include owner pay" switch that adds the
+house rate ($1,476 a week, x 52 / 12 a month); weekly LER takes Labor vs target's sales and labor with marketing work put
+back. Tests: `npm test` in `time-app/` includes
 `lib/metrics/*.test.ts`.
 
 The Bookkeeping passes card (bj-finance #937, `lib/metrics/passHistory.ts`,
@@ -507,6 +515,12 @@ In-store excludes delivery and catering and includes online pickup orders, as th
 does. A missing day or month is unknown, not zero; weeks are grouped by the reader. Verify with
 `migration_41_verify.sql`; roll back with `migration_41_down.sql`.
 
+Migration 61 adds `sales_daily_in_store.delivery` (nullable, never negative): the day's delivery-platform net sales
+(DoorDash, Uber Eats, Grubhub) by payout date, never in `in_store`; null is not on file, not zero. Delivery counts in
+the labor sales (Alina, 2026-11-18). It only adds a column, so apply it first, after migration 60: until it is applied
+the Labor vs target read fails, and until bj-finance has written a day's delivery its week reads n/a. Verify with
+`migration_61_verify.sql`; roll back with `migration_61_down.sql`.
+
 ## Staffing forms (Withers Time, Team page)
 Apply `time-app/supabase/migration_44.sql` by hand in the Supabase SQL editor, after migration 42.
 It adds the `staff_lifecycle` records and steps behind the Team page's Add employee, Re-invite and
@@ -576,21 +590,23 @@ starting "Marketing", or stage Closed Marketing Event; never also catering) are 
 Hourly Labor, hours and $ (the catering premium with them), and never close for the solo-close bonus.
 They stay in total hours and on the grid. The line shows scheduled hours on past days too, not punches.
 A day's projected
-sales are IN-STORE ONLY: last year's in-store sales on the same weekday 52 weeks earlier
-(`sales_daily_in_store`) times the trend factor; catering bookings never feed them. A closed day
+sales are last year's in-store plus delivery sales on the same weekday 52 weeks earlier
+(`sales_daily_in_store`) times the trend factor; catering bookings never feed them. Last year's delivery is that day's
+own figure when on file (migration 61), else its in-store sales times the delivery share of the last 28 days before the
+week (or before today, for a week still ahead), which needs delivery on file for 14 of them (`deliveryShare`); without
+it the day is missing ("no delivery share"). A closed day
 (`resolveOpenWindow` in `lib/coverage.ts`: a Targets-tab closed day, a "Business closed" note, or a
-weekday the season closes, as the Labor Hours Planning card reads them) projects zero in-store sales
+weekday the season closes, as the Labor Hours Planning card reads them) projects zero sales
 and so has no target, whatever last year did. If the closed-day reads fail, the page says so and
 projects every day as open. The target $ is that times the hourly goal in force that day; its hours
-divide it by the average active hourly rate. The target is in-store only: nothing is added for booked
+divide it by the average active hourly rate. Nothing is added for booked
 catering, and no deal's quote (`labor_hours`, `staff_count`) is read, so a deal with no shifts, a pickup
 or a deal missing its quote fields cannot move the line or make it missing. The only deal read is
 which deals on the week's shifts are marketing deals; if it fails the page says so and those shifts
-count by their position. For a past week worked exactly as scheduled at the rates on the Team page,
-the line's scheduled $ over the week's sales, plus the board's taxes and comp, is the card's labor %,
-and its target the card's all-in target; the line differs where the week was not worked as scheduled,
-where pay differed from the Team page rate, and because its target uses projected (last year x trend),
-not actual, sales. The math is `lib/controlBoard/schedule.ts` (it calls `boardOn` in `board.ts`, which
+count by their position. The line is hourly labor against the hourly goal and leaves catering crews out, while Labor vs target
+counts catering crews and salaried labor against the payroll target, so the two percentages differ by design; the line also differs where
+the week was not worked as scheduled, where pay differed from the Team page rate, and because its target uses projected
+(last year x trend), not actual, sales. The math is `lib/controlBoard/schedule.ts` (it calls `boardOn` in `board.ts`, which
 runs `computeBoard`), the reads `scheduleLoad.ts`. Anything missing (nothing on the board yet, no
 last-year day on file, a partial trend month, a person with no rate) shows as missing with its reason,
 never zero, and the empty board points to the Targets tab.
