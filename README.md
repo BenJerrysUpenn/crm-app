@@ -311,6 +311,11 @@ sequences (crm/013) or of the loop's tables is said in a notice at the top, neve
 Which lane a mailbox belongs to is decided only in `console/mailboxLanes.ts`: `handLane` for the
 mailbox panels, `loopLane` for the loop sender's own mailboxes.
 
+A draft's `assigned_by` is `baseline_quota`, `thompson` or `human` (a human try: a person scheduled it by hand on a
+date she chose, in her approved words); `buildLoopLive` words the "why this email" pick from it, and any other value reads as
+drawn. `EmailBody` shows the draft body with the sender-time token `{sender_first}` replaced by "(the coordinator who
+sends it)", because the sender fills it in when sending.
+
 The console's own levels (panel, email, layer) are history entries whose `history.state.consoleDepth` counts how many
 levels deep the entry is; Esc goes `history.back()` while it is above 0, else replaces the entry with the parent
 (`depthOf`, `nextState`, `popAction` in `lib/emailCampaignsPrototype/console/nav.ts`, applied by `useNav` in

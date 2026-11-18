@@ -802,7 +802,7 @@ export function EmailBody(p: PanelBits & { d: DraftFact }) {
           </p>
         </div>
         <p className="mt-2 font-semibold">{d.subject}</p>
-        <p className="mt-2 whitespace-pre-wrap font-sans">{d.body}</p>
+        <p className="mt-2 whitespace-pre-wrap font-sans">{d.body.replaceAll("{sender_first}", "(the coordinator who sends it)")}</p>
       </div>
       <H>Why this email</H>
       <p.Row k="Judge">
