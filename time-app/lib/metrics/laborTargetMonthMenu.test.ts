@@ -45,9 +45,9 @@ after(async () => {
 /** A week on offer whose numbers are not in yet: the card names it and draws no chart. */
 function pending(start: string, end: string): LaborTargetWeek {
   return {
-    start, end, available: false, why: ["the week is not over yet"], sales: null, hours: null, wages: null, premium: null, solo: null,
-    cateringHours: null, cateringOffset: null, marketingHours: null, marketingOffset: null, taxesWc: null, actual: null, actualPct: null,
-    allInGoalPct: { value: 0.25, needs: [] }, targetPct: { value: 0.25, needs: [] }, targetDollars: null, varianceDollars: null, varianceHours: null,
+    start, end, available: false, why: ["the week is not over yet"], sales: null, inStoreSales: null, deliverySales: null, cateringSales: null,
+    hours: null, hourlyHours: null, hourly: null, salaried: null, cateringHours: null, cateringCost: null, marketingHours: null, marketingOffset: null,
+    actual: null, actualPct: null, goalPct: { value: 0.25, needs: [] }, targetPct: { value: 0.25, needs: [] }, targetDollars: null, varianceDollars: null, varianceHours: null,
   };
 }
 

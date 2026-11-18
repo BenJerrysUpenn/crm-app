@@ -1,6 +1,7 @@
 // The Labor vs target metric (bj-finance #696), pinned as the manager reads
-// it: each Sunday-to-Saturday week of a chosen month, with actual sales,
-// actual hourly labor $, actual %, target %, variance $ and variance hours.
+// it: each Sunday-to-Saturday week of a chosen month, with sales (in-store +
+// delivery + catering), all labor all-in (hourly + salaried), actual %, the
+// payroll target %, variance $ and variance hours (Alina, 2026-11-18).
 // Round invented figures so each expectation can be checked by hand; crm-app
 // is public, so nothing here is a real rate, wage or sale.
 //
@@ -9,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs } from "./laborTarget.ts";
+import { DAYS_A_YEAR, laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs, type SalesDayRow } from "./laborTarget.ts";
 import { monthWeeks } from "./weekRange.ts";
 import { addDays, eachDay } from "./dates.ts";
 import type { SalaryRow, SettingRow } from "../controlBoard/settings.ts";
@@ -24,11 +25,13 @@ let nextId = 1;
 const row = (key: string, value: number, detail: SettingRow["detail"] = {}, effective_from = "2030-01-01"): SettingRow => ({
   id: nextId++, key, value, detail, effective_from, review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: `${effective_from}T00:00:00Z`,
 });
+const salary = (id: number, profile_id: string, annual_salary: number, effective_from = "2030-01-01"): SalaryRow => ({
+  id, profile_id, annual_salary, effective_from, review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z",
+});
 
-// Sales 800,000 + 200,000; payroll 25%; taxes and comp add 25% to wages
-// (15% + 5% + 4% + $1 per $100). Nobody salaried: 250,000 / 1.25 = 200,000
-// of hourly wages, an hourly goal of 20% of sales. With the taxes and comp on
-// those wages that is 25% of sales: the target the card compares against.
+// Sales estimate 800,000 + 200,000; payroll 25%; taxes and comp add 25% to
+// wages (15% + 5% + 4% + $1 per $100). The card holds all labor to the 25%
+// payroll target itself, never the hourly goal derived from it.
 const BOARD: SettingRow[] = [
   row("sales_estimate.in_store", 800_000),
   row("sales_estimate.catering", 200_000),
@@ -62,16 +65,22 @@ const day = (d: string, over: Partial<LaborDayRow> = {}): LaborDayRow => ({
 /** inputs() with some days changed. */
 const withDays = (over: Record<string, Partial<LaborDayRow>>, more: Partial<LaborTargetInputs> = {}) =>
   inputs({ labor: inputs().labor.map((r) => (over[r.day] ? { ...r, ...over[r.day] } : r)), ...more });
+/** inputs() with some days' sales changed. */
+const withSales = (over: Record<string, Partial<SalesDayRow>>, more: Partial<LaborTargetInputs> = {}) =>
+  inputs({ sales: inputs().sales.map((r) => (over[r.day] ? { ...r, ...over[r.day] } : r)), ...more });
 
-// A week's sales of 4,800, unevenly spread, Sunday to Saturday.
-const SALES_DAY = [300, 500, 600, 700, 800, 900, 1000];
+// A week's in-store sales of 4,100, unevenly spread, Sunday to Saturday, and
+// 100 of delivery every day: 4,800 a week, 350 / 500 / 600 / 700 / 800 / 900 / 950.
+const IN_STORE_DAY = [250, 400, 500, 600, 700, 800, 850];
+const DELIVERY_DAY = 100;
 
 function inputs(over: Partial<LaborTargetInputs> = {}): LaborTargetInputs {
   const days = eachDay("2030-09-29", "2030-11-02");
   return {
     today: TODAY,
     labor: days.map((d) => day(d)),
-    sales: days.map((d) => ({ day: d, in_store: SALES_DAY[new Date(`${d}T12:00:00Z`).getUTCDay()] })),
+    sales: days.map((d) => ({ day: d, in_store: IN_STORE_DAY[new Date(`${d}T12:00:00Z`).getUTCDay()], delivery: DELIVERY_DAY })),
+    catering: {},
     settings: BOARD,
     salaries: [],
     salaried: [],
@@ -92,22 +101,24 @@ test("a month's weeks are the Sunday-to-Saturday weeks that start in it", () => 
   ]);
 });
 
-test("a complete week: actual labor with taxes and comp, against the hourly goal with its taxes and comp", () => {
+test("a complete week: all labor with taxes and comp, against the payroll target on in-store + delivery + catering sales", () => {
   const w = octWeeks(inputs()).weeks[0];
   assert.equal(w.available, true);
   assert.deepEqual(w.why, []);
   close(w.sales, 4_800);
+  close(w.inStoreSales, 4_100);
+  close(w.deliverySales, 700);
+  close(w.cateringSales, 0);
   close(w.hours, 70);
-  close(w.wages, 1_050);
-  close(w.premium, 0);
-  close(w.solo, 70);
-  close(w.taxesWc, 280); // 1,120 x 25%
+  close(w.hourlyHours, 70);
+  close(w.hourly, 1_400); // (150 + 10) x 1.25 x 7
+  close(w.salaried, 0); // nobody salaried
   close(w.actual, 1_400);
   close(w.actualPct, 1_400 / 4_800);
-  close(w.allInGoalPct.value, 0.25);
+  close(w.goalPct.value, 0.25);
   close(w.targetPct.value, 0.25);
   close(w.cateringHours, 0);
-  close(w.cateringOffset, 0);
+  close(w.cateringCost, 0);
   close(w.marketingHours, 0);
   close(w.marketingOffset, 0);
   close(w.targetDollars, 1_200);
@@ -120,6 +131,8 @@ test("a week missing a day of payroll is not available, never zero; its sales an
   const w = octWeeks(inputs({ labor })).weeks[1];
   assert.equal(w.available, false);
   assert.equal(w.hours, null);
+  assert.equal(w.hourly, null);
+  assert.equal(w.salaried, null);
   assert.equal(w.actual, null);
   assert.equal(w.actualPct, null);
   assert.equal(w.varianceDollars, null);
@@ -136,12 +149,40 @@ test("a week missing a day of sales has no sales, % or variance; its labor $ sti
   const w = octWeeks(inputs({ sales })).weeks[2];
   assert.equal(w.available, false);
   assert.equal(w.sales, null);
+  assert.equal(w.inStoreSales, null);
+  assert.equal(w.deliverySales, null);
+  assert.equal(w.cateringSales, null);
   assert.equal(w.actualPct, null);
   assert.equal(w.targetDollars, null);
   assert.equal(w.varianceDollars, null);
   close(w.actual, 1_400);
   close(w.targetPct.value, 0.25); // the same all week, so it shows without the sales
   assert.deepEqual(w.why, ["in-store sales on file for 5 of 7 days"]);
+});
+
+test("a day whose delivery is not on file makes the week's sales n/a, and says delivery, not in-store", () => {
+  const w = octWeeks(withSales({ "2030-10-14": { delivery: null }, "2030-10-18": { delivery: null } })).weeks[1];
+  assert.equal(w.available, false);
+  assert.equal(w.sales, null);
+  assert.equal(w.inStoreSales, null);
+  assert.equal(w.deliverySales, null);
+  assert.equal(w.actualPct, null);
+  assert.equal(w.varianceDollars, null);
+  close(w.actual, 1_400);
+  assert.deepEqual(w.why, ["delivery sales on file for 5 of 7 days"]);
+  // A day with no sales row at all is named as in-store; the delivery reason waits behind it.
+  const sales = withSales({ "2030-10-18": { delivery: null } }).sales.filter((r) => r.day !== "2030-10-14");
+  assert.deepEqual(octWeeks(inputs({ sales })).weeks[1].why, ["in-store sales on file for 6 of 7 days"]);
+  // The weeks around it are untouched.
+  assert.equal(octWeeks(withSales({ "2030-10-14": { delivery: null } })).weeks[0].available, true);
+});
+
+test("delivery of zero is on file, not missing", () => {
+  const zero = Object.fromEntries(eachDay("2030-10-06", "2030-10-12").map((d) => [d, { delivery: 0 }]));
+  const w = octWeeks(withSales(zero)).weeks[0];
+  assert.equal(w.available, true, w.why.join("; "));
+  close(w.deliverySales, 0);
+  close(w.sales, 4_100);
 });
 
 test("a week not over yet is not available, whatever rows it has", () => {
@@ -154,15 +195,16 @@ test("a week not over yet is not available, whatever rows it has", () => {
   assert.equal(octWeeks(inputs({ today: "2030-11-03" })).weeks[3].available, true);
 });
 
-test("each day is held to the target in force that day", () => {
-  // From Wednesday the 9th the payroll target is 20%: 200,000 / 1.25 = 160,000, a 16% goal, 20% with taxes and comp.
+test("each day is held to the payroll target in force that day", () => {
+  // From Wednesday the 9th the payroll target is 20%.
   const settings = [...BOARD, row("target.payroll_pct", 0.2, {}, "2030-10-09")];
   const w = octWeeks(inputs({ settings })).weeks[0];
-  // Sun-Tue sales 300 + 500 + 600 = 1,400 at 25%; Wed-Sat 700 + 800 + 900 + 1,000 = 3,400 at 20%.
-  close(w.targetDollars, 1_400 * 0.25 + 3_400 * 0.2);
-  close(w.targetPct.value, (1_400 * 0.25 + 3_400 * 0.2) / 4_800);
-  assert.equal(w.allInGoalPct.value, null); // not one goal all week
-  close(w.varianceDollars, 1_400 - 1_030);
+  // Sun-Tue sales 350 + 500 + 600 = 1,450 at 25%; Wed-Sat 700 + 800 + 900 + 950 = 3,350 at 20%.
+  close(w.targetDollars, 1_450 * 0.25 + 3_350 * 0.2);
+  close(w.targetPct.value, (1_450 * 0.25 + 3_350 * 0.2) / 4_800);
+  assert.equal(w.goalPct.value, null); // not one target all week
+  assert.deepEqual(w.goalPct.needs, ["the week's sales (the target changed during the week)"]);
+  close(w.varianceDollars, 1_400 - 1_032.5);
   // Without the week's sales a changing target cannot be shown as one %.
   const sales = inputs().sales.filter((r) => r.day !== "2030-10-07");
   const noSales = octWeeks(inputs({ settings, sales })).weeks[0];
@@ -170,20 +212,22 @@ test("each day is held to the target in force that day", () => {
   assert.deepEqual(noSales.targetPct.needs, ["the week's sales (the target changed during the week)"]);
 });
 
-test("taxes and comp on actual labor are the rates in force on each day", () => {
+test("taxes and comp on hourly labor are the rates in force on each day", () => {
   // From Thursday the 10th FICA is 25%: those three days carry 35%, so 160 x 1.35 = 216.
   const settings = [...BOARD, row("tax.fica", 0.25, { wage_cap: null }, "2030-10-10")];
   const w = octWeeks(inputs({ settings })).weeks[0];
-  close(w.taxesWc, 4 * 40 + 3 * 56);
+  close(w.hourly, 4 * 200 + 3 * 216);
   close(w.actual, 4 * 200 + 3 * 216);
 });
 
-test("an empty control board: the target is missing with what it needs, the actuals still show", () => {
+test("an empty control board: the target is missing with what it needs, the sales and hours still show", () => {
   const w = octWeeks(inputs({ settings: [] })).weeks[0];
   assert.equal(w.targetPct.value, null);
   assert.ok(w.targetPct.needs.includes("Total payroll target"));
-  assert.equal(w.actual, null); // the taxes and comp are board values too
-  assert.ok(w.why.includes("payroll tax and workers' comp rates not set on the control board"));
+  assert.equal(w.goalPct.value, null);
+  assert.equal(w.hourly, null); // the taxes and comp are board values too
+  assert.equal(w.actual, null);
+  assert.deepEqual(w.why, ["payroll tax and workers' comp rates not set on the control board"]);
   close(w.sales, 4_800);
   close(w.hours, 70);
 });
@@ -194,68 +238,143 @@ test("the days read: from the first week on offer to the Saturday of this week",
 });
 
 // ---------------------------------------------------------------------------
-// Rulings 2026-10-16 (Alina): all-in on both sides, and the catering offset
+// Ruling 2026-11-18 (Alina): all labor, salaried and hourly, against the
+// board's total payroll target; taxes and comp on both sides.
 // ---------------------------------------------------------------------------
 
-test("the target % is the all-in hourly goal the Targets tab derives: payroll target less fixed payroll, as a share of sales, never grossed up twice", () => {
-  // One salaried person on 50,000: fixed payroll 50,000 x 1.25 = 62,500 (no caps set).
-  // Hourly pool 250,000 - 62,500 = 187,500: an all-in hourly goal of 18.75% of sales.
-  const salaries: SalaryRow[] = [
-    { id: 1, profile_id: "s1", annual_salary: 50_000, effective_from: "2030-01-01", review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z" },
-  ];
+test("salaried labor is the board's fixed payroll, a 365th a day, and the target is the total payroll target, not the hourly goal", () => {
+  // One salaried person on 29,200: fixed payroll 29,200 x 1.25 = 36,500 a year (no caps set), 100 a day.
+  const salaries = [salary(1, "s1", 29_200)];
   const salaried = [{ id: "s1", name: "Person S" }];
   const w = octWeeks(inputs({ salaries, salaried })).weeks[0];
   const board = boardOn("2030-10-06", BOARD, salaries, salaried);
-  close(board.hourlyAllInPct.value, 0.1875);
-  close(w.allInGoalPct.value, 0.1875);
-  close(w.targetPct.value, 0.1875);
-  close(w.targetDollars, 4_800 * 0.1875);
+  close(board.fixedPayroll.value, 36_500);
+  close(board.payrollTargetPct.value, 0.25);
+  assert.ok(board.hourlyAllInPct.value! < 0.25, "the hourly goal is lower: fixed payroll comes out of it");
+  assert.equal(DAYS_A_YEAR, 365);
+  assert.equal(w.available, true, w.why.join("; "));
+  close(w.salaried, 700);
+  close(w.hourly, 1_400);
+  close(w.actual, 2_100);
+  close(w.actualPct, 2_100 / 4_800);
+  close(w.goalPct.value, 0.25);
+  close(w.targetPct.value, 0.25);
+  close(w.targetDollars, 1_200);
+  close(w.varianceDollars, 900);
+  // Variance hours are at the hourly cost per hour (1,400 / 70 = 20), not all labor's: salaried hours do not move.
+  close(w.varianceHours, 45);
+});
+
+test("salaried labor uses the board's wage caps on salaried taxes", () => {
+  // FICA capped at 10,000 of pay: 1,500 instead of 4,380 on a 29,200 salary.
+  const settings = BOARD.map((r) => (r.key === "tax.fica" ? { ...r, detail: { wage_cap: 10_000 } } : r));
+  const salaries = [salary(1, "s1", 29_200)];
+  const salaried = [{ id: "s1", name: "Person S" }];
+  const w = octWeeks(inputs({ settings, salaries, salaried })).weeks[0];
+  const fixed = 29_200 + 1_500 + 29_200 * 0.1;
+  close(boardOn("2030-10-06", settings, salaries, salaried).fixedPayroll.value, fixed);
+  close(w.salaried, (7 * fixed) / 365);
+  close(w.hourly, 1_400); // hourly wages carry the full rates, no caps
+});
+
+test("someone in fixed payroll with no salary on file makes the week's labor n/a and names what the board needs", () => {
+  const w = octWeeks(inputs({ salaried: [{ id: "s1", name: "Person S" }] })).weeks[0];
+  assert.equal(w.available, false);
+  assert.equal(w.salaried, null);
+  assert.equal(w.actual, null);
+  assert.equal(w.actualPct, null);
+  assert.equal(w.varianceDollars, null);
+  close(w.hourly, 1_400); // the hourly side still shows
+  close(w.sales, 4_800);
+  assert.deepEqual(w.why, ["salaried payroll needs Person S's salary"]);
+  // With the rates missing too, the rates are named once, not again as a salaried need.
+  const bare = octWeeks(inputs({ settings: [], salaried: [{ id: "s1", name: "Person S" }] })).weeks[0];
+  assert.deepEqual(bare.why, ["payroll tax and workers' comp rates not set on the control board"]);
+});
+
+test("a salaried person hired after the week is not in that week's labor; someone salaried then is", () => {
+  // Person S: 29,200, 100 a day all-in. Person T: 43,800 from the 20th, 150 a day all-in.
+  const salaries = [salary(1, "s1", 29_200), salary(2, "s2", 43_800, "2030-10-20")];
+  const salaried = [{ id: "s1", name: "Person S", archivedOn: "2030-10-25" }, { id: "s2", name: "Person T", archivedOn: null }];
+  const weeks = octWeeks(inputs({ salaries, salaried })).weeks;
+  assert.equal(weeks[0].available, true, weeks[0].why.join("; "));
+  close(weeks[0].salaried, 700, "only Person S");
+  // Oct 20-26: both from the 20th, Person S through the 25th, the archive day: 6 x 250 + 150.
+  close(weeks[2].salaried, 1_650, "Person S counted through the archive day, not after");
+  // After the 25th only Person T.
+  close(weeks[3].salaried, 1_050);
+  // The target is the payroll target whoever is salaried.
+  for (const w of weeks) close(w.targetPct.value, 0.25);
 });
 
 // ---------------------------------------------------------------------------
-// Ruling 2026-11-16 (Alina): "catering shouldn't be affecting the labor
-// percent because catering revenue covers that as a separate bill". What
-// comes off is the catering work the clocks recorded, as paid.
+// Ruling 2026-11-18 (Alina): catering crew work counts. Its sales count
+// (booked deals by event date), so its labor does too; this reverses the
+// 2026-11-16 exclusion.
 // ---------------------------------------------------------------------------
 
-test("the catering work recorded comes off hourly labor at what it was paid, premium and all, with that day's taxes and comp", () => {
-  // Tuesday the 8th: 4 of its 10 hours were catering, paid 60 in wages and 20 of premium.
-  // In-store pay: 1,050 + 70 solo close - 60 = 1,060; with 25% taxes and comp, 1,325.
-  const w = octWeeks(withDays({ "2030-10-08": { catering_hours: 4, catering_wages: 60, catering_premium: 20 } })).weeks[0];
+test("the catering work recorded stays in hourly labor, premium and all, with that day's taxes and comp", () => {
+  // Tuesday the 8th: 4 of its 10 hours were catering, paid 60 in wages (already in the 150) and 20 of premium.
+  // Hourly: 6 x 200 + (150 + 20 + 10) x 1.25 = 1,425. The deal booked for that day sold 500.
+  const w = octWeeks(withDays({ "2030-10-08": { catering_hours: 4, catering_wages: 60, catering_premium: 20 } }, { catering: { "2030-10-08": 500 } })).weeks[0];
   assert.equal(w.available, true, w.why.join("; "));
   close(w.hours, 70);
+  close(w.hourlyHours, 70); // catering hours are not taken off
   close(w.cateringHours, 4);
-  close(w.premium, 20);
-  close(w.cateringOffset, 100); // (60 + 20) x 1.25
-  close(w.taxesWc, 265);
-  close(w.actual, 1_325);
-  close(w.actualPct, 1_325 / 4_800);
-  close(w.targetPct.value, 0.25); // sales stay in-store only, the target is untouched
-  close(w.varianceDollars, 125);
-  close(w.varianceHours, 125 / (1_325 / 66)); // 66 in-store hours
-  // The other weeks lose nothing.
+  close(w.cateringCost, 100); // (60 + 20) x 1.25: shown, counted
+  close(w.hourly, 1_425);
+  close(w.actual, 1_425);
+  close(w.cateringSales, 500);
+  close(w.sales, 5_300);
+  close(w.actualPct, 1_425 / 5_300);
+  close(w.targetDollars, 5_300 * 0.25);
+  close(w.varianceDollars, 100);
+  close(w.varianceHours, 100 / (1_425 / 70));
+  // The other weeks gain nothing.
   close(octWeeks(withDays({ "2030-10-08": { catering_hours: 4, catering_wages: 60, catering_premium: 20 } })).weeks[1].actual, 1_400);
 });
 
-test("the catering premium is never in the actual, whatever day it was spread over", () => {
+test("the catering premium is in the actual, whatever day it was spread over", () => {
   const premiums = Object.fromEntries(eachDay("2030-10-06", "2030-10-12").map((d) => [d, { catering_premium: 6 }]));
   const w = octWeeks(withDays(premiums)).weeks[0];
-  close(w.premium, 42);
-  close(w.actual, 1_400);
-  close(w.cateringOffset, 42 * 1.25);
+  close(w.hourly, 7 * (166 * 1.25));
+  close(w.actual, 1_452.5);
+  close(w.cateringCost, 42 * 1.25);
 });
 
-test("a week's catering is what was worked, so the same week reads the same however many deals were booked or billed", () => {
-  // Nothing about deals is an input: the card has no deals to read.
-  assert.deepEqual(Object.keys(inputs()).sort(), ["labor", "salaried", "salaries", "sales", "settings", "today"]);
+test("catering sales count on their event day, held to that day's target, and never change the labor side", () => {
+  // Friday the 11th: a 1,000 event. Sunday the 13th: a 400 event, the next week's.
+  const settings = [...BOARD, row("target.payroll_pct", 0.2, {}, "2030-10-09")];
+  const weeks = octWeeks(inputs({ settings, catering: { "2030-10-11": 1_000, "2030-10-13": 400 } })).weeks;
+  close(weeks[0].cateringSales, 1_000);
+  close(weeks[0].sales, 5_800);
+  close(weeks[0].inStoreSales, 4_100);
+  close(weeks[0].targetDollars, 1_450 * 0.25 + (3_350 + 1_000) * 0.2);
+  close(weeks[0].hourly, 1_400);
+  close(weeks[1].cateringSales, 400);
+  close(weeks[1].sales, 5_200);
+  close(weeks[2].cateringSales, 0);
+});
+
+test("when catering takes up every hour paid, the week still counts: catering hours are hourly hours", () => {
+  const all = Object.fromEntries(eachDay("2030-10-06", "2030-10-12").map((d) => [d, { catering_hours: 10, catering_wages: 150 }]));
+  const w = octWeeks(withDays(all)).weeks[0];
+  assert.equal(w.available, true, w.why.join("; "));
+  close(w.hourlyHours, 70);
+  close(w.cateringHours, 70);
+  close(w.cateringCost, 7 * 150 * 1.25);
+  close(w.hourly, 1_400);
+  close(w.varianceHours, 10);
 });
 
 test("a day whose catering work is not yet split out of the payroll makes the week's labor n/a, never zero", () => {
   const w = octWeeks(withDays({ "2030-10-15": { catering_hours: null, catering_wages: null } })).weeks[1];
   assert.equal(w.available, false);
+  assert.equal(w.hourly, null);
   assert.equal(w.actual, null);
   assert.equal(w.cateringHours, null);
-  assert.equal(w.cateringOffset, null);
+  assert.equal(w.cateringCost, null);
+  assert.equal(w.hourlyHours, null);
   // The count is of the days NOT yet split: one here.
   assert.deepEqual(w.why, ["catering and marketing work not yet split out of the payroll for 1 of 7 days"]);
   close(w.sales, 4_800);
@@ -264,69 +383,30 @@ test("a day whose catering work is not yet split out of the payroll makes the we
   assert.equal(octWeeks(withDays({ "2030-10-15": { catering_hours: null, catering_wages: null } })).weeks[0].available, true);
 });
 
-test("when catering takes up every hour paid, the week is n/a and says why, never a variance in hours", () => {
-  const all = Object.fromEntries(eachDay("2030-10-06", "2030-10-12").map((d) => [d, { catering_hours: 10, catering_wages: 140 }]));
-  const w = octWeeks(withDays(all)).weeks[0];
-  assert.equal(w.available, false);
-  assert.equal(w.varianceHours, null);
-  assert.ok(w.why.includes("no in-store hours left once the catering and marketing work is taken off"), w.why.join("; "));
-});
-
-test("when the catering work leaves hourly labor at zero or less, the week is n/a and says why", () => {
-  // 1,120 of pay, 1,200 of it catering: -80, -100 all-in, with 60 in-store hours left.
-  const w = octWeeks(withDays({ "2030-10-08": { catering_hours: 10, catering_wages: 1_200 } })).weeks[0];
-  close(w.actual, -100);
-  assert.equal(w.available, false);
-  assert.equal(w.varianceHours, null);
-  assert.deepEqual(w.why, ["hourly labor is zero or less once the catering and marketing work is taken off"]);
-});
-
 // ---------------------------------------------------------------------------
-// Past weeks (bj-finance #696 fix, 2026-10-16): live, every week read n/a
-// because the premium rule, a salary and one deal's billed hours were judged
-// by today's board instead of the week's.
+// Ruling 2026-11-16 (Alina), kept 2026-11-18: marketing work is a separate
+// marketing budget with no sales of its own, taken off at the hours worked.
 // ---------------------------------------------------------------------------
 
-test("a salaried person hired after the week is not in that week's target; someone salaried then is", () => {
-  const salaries: SalaryRow[] = [
-    { id: 1, profile_id: "s1", annual_salary: 50_000, effective_from: "2030-01-01", review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z" },
-    { id: 2, profile_id: "s2", annual_salary: 70_000, effective_from: "2030-10-20", review_by: "2031-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2030-01-01T00:00:00Z" },
-  ];
-  const salaried = [{ id: "s1", name: "Person S", archivedOn: "2030-10-25" }, { id: "s2", name: "Person T", archivedOn: null }];
-  const weeks = octWeeks(inputs({ salaries, salaried })).weeks;
-  assert.equal(weeks[0].available, true, weeks[0].why.join("; "));
-  close(weeks[0].targetPct.value, 0.1875, "only Person S: 250,000 - 62,500 = 187,500");
-  // Oct 20-26: both from the 20th, Person S through the 25th, the archive day. Sunday to
-  // Friday (3,800 of sales) are held to 250,000 - 62,500 - 87,500 = 100,000, 10%;
-  // Saturday the 26th (1,000) to 250,000 - 87,500 = 162,500, 16.25%. 542.50 of 4,800.
-  close(weeks[2].targetDollars, 542.5, "Person S counted through the archive day, not after");
-  // After the 25th only Person T: the last week is 162,500 / 1,000,000 all week.
-  close(weeks[3].targetPct.value, 0.1625);
-});
-
-// ---------------------------------------------------------------------------
-// Ruling 2026-11-16 (Alina): marketing work is a separate marketing budget,
-// taken out of the labor % like catering, at the hours actually worked.
-// ---------------------------------------------------------------------------
-
-test("the marketing work recorded comes off hourly labor at what it was paid, never with the catering premium", () => {
+test("the marketing work recorded comes off hourly labor at what it was paid; catering on the same day stays in", () => {
   // Tuesday the 8th: 3 of its 10 hours were catering (paid 45, and 9 of premium), 5 were marketing (paid 75).
-  // In-store pay: 1,050 + 70 solo close - 45 - 75 = 1,000; with 25% taxes and comp, 1,250.
+  // Tuesday's hourly: (150 - 75 + 9 + 10) x 1.25 = 117.50; the week 6 x 200 + 117.50 = 1,317.50.
   const w = octWeeks(
     withDays({ "2030-10-08": { catering_hours: 3, catering_wages: 45, catering_premium: 9, marketing_hours: 5, marketing_wages: 75 } }),
   ).weeks[0];
   assert.equal(w.available, true, w.why.join("; "));
   close(w.hours, 70);
+  close(w.hourlyHours, 65); // marketing hours off, catering hours in
   close(w.cateringHours, 3);
   close(w.marketingHours, 5);
-  close(w.cateringOffset, 67.5); // (45 + 9) x 1.25
+  close(w.cateringCost, 67.5); // (45 + 9) x 1.25, counted
   close(w.marketingOffset, 93.75); // 75 x 1.25: the premium is catering's alone
-  close(w.taxesWc, 250);
-  close(w.actual, 1_250);
-  close(w.actualPct, 1_250 / 4_800);
-  close(w.targetPct.value, 0.25); // sales stay in-store only, the target is untouched
-  close(w.varianceDollars, 50);
-  close(w.varianceHours, 2.48); // 50 over, at 1,250 / 62 in-store hours = 20.16 an hour
+  close(w.hourly, 1_317.5);
+  close(w.actual, 1_317.5);
+  close(w.actualPct, 1_317.5 / 4_800);
+  close(w.targetPct.value, 0.25);
+  close(w.varianceDollars, 117.5);
+  close(w.varianceHours, 117.5 / (1_317.5 / 65));
 });
 
 test("the marketing work on a day comes off with that day's taxes and comp", () => {
@@ -336,7 +416,7 @@ test("the marketing work on a day comes off with that day's taxes and comp", () 
   const w = octWeeks(withDays({ "2030-10-11": { marketing_hours: 5, marketing_wages: 75 } }, { settings })).weeks[0];
   assert.equal(w.available, true, w.why.join("; "));
   close(w.marketingOffset, 101.25);
-  close(w.taxesWc, 301.75); // 4 x 40 + 2 x 56 + (160 - 75) x 35%
+  close(w.hourly, 1_346.75);
   close(w.actual, 1_346.75);
 });
 
@@ -353,10 +433,21 @@ test("a day whose marketing work is not yet split makes the week's labor n/a, an
   assert.deepEqual(octWeeks(withDays(none)).weeks[1].why, ["catering and marketing work not yet split out of the payroll for 7 of 7 days"]);
 });
 
-test("when catering and marketing together take up every hour paid, the week is n/a, never a variance in hours", () => {
-  const all = Object.fromEntries(eachDay("2030-10-06", "2030-10-12").map((d) => [d, { catering_hours: 4, catering_wages: 56, marketing_hours: 6, marketing_wages: 84 }]));
+test("when marketing takes up every hour paid, the week is n/a and says why, never a variance in hours", () => {
+  const all = Object.fromEntries(eachDay("2030-10-06", "2030-10-12").map((d) => [d, { marketing_hours: 10, marketing_wages: 140 }]));
   const w = octWeeks(withDays(all)).weeks[0];
   assert.equal(w.available, false);
   assert.equal(w.varianceHours, null);
-  assert.ok(w.why.includes("no in-store hours left once the catering and marketing work is taken off"), w.why.join("; "));
+  close(w.hourlyHours, 0);
+  assert.ok(w.why.includes("no hourly hours left once the marketing work is taken off"), w.why.join("; "));
+});
+
+test("when the marketing work leaves hourly labor at zero or less, the week is n/a and says why", () => {
+  // 1,120 of pay, 1,200 of it marketing: -80, -100 all-in, with 65 hourly hours left.
+  const w = octWeeks(withDays({ "2030-10-08": { marketing_hours: 5, marketing_wages: 1_200 } })).weeks[0];
+  close(w.hourly, -100);
+  close(w.hourlyHours, 65);
+  assert.equal(w.available, false);
+  assert.equal(w.varianceHours, null);
+  assert.deepEqual(w.why, ["hourly labor is zero or less once the marketing work is taken off"]);
 });

@@ -34,22 +34,27 @@ const pct = (v: number | null) => ({ value: v, needs: v == null ? ["Total payrol
 
 function wk(start: string, end: string, over: Partial<LaborTargetWeek> = {}): LaborTargetWeek {
   return {
-    start, end, available: true, why: [], sales: 4_800, hours: 70, wages: 1_050, premium: 42, solo: 28, cateringHours: 0, cateringOffset: 0, marketingHours: 0, marketingOffset: 0,
-    taxesWc: 280, actual: 1_400, actualPct: 1_400 / 4_800, allInGoalPct: pct(0.25), targetPct: pct(0.25), targetDollars: 1_200, varianceDollars: 200, varianceHours: 10, ...over,
+    start, end, available: true, why: [], sales: 4_800, inStoreSales: 3_900, deliverySales: 600, cateringSales: 300, hours: 70, hourlyHours: 70,
+    hourly: 1_050, salaried: 350, cateringHours: 0, cateringCost: 0, marketingHours: 0, marketingOffset: 0,
+    actual: 1_400, actualPct: 1_400 / 4_800, goalPct: pct(0.25), targetPct: pct(0.25), targetDollars: 1_200, varianceDollars: 200, varianceHours: 10, ...over,
   };
 }
 
-const PENDING = { available: false, why: ["the week is not over yet"], sales: null, actual: null, actualPct: null, targetDollars: null, varianceDollars: null, varianceHours: null };
+const PENDING = {
+  available: false, why: ["the week is not over yet"], sales: null, inStoreSales: null, deliverySales: null, cateringSales: null, hourly: null, salaried: null, actual: null, actualPct: null, targetDollars: null, varianceDollars: null, varianceHours: null };
 
 /** Every week on offer, oldest first: Sep 1, then Sep 29 to Nov 3 (the first part of Sep left out to keep it short). */
 const WEEKS: LaborTargetWeek[] = [
   wk("2030-09-01", "2030-09-07", { sales: 9_999 }),
   wk("2030-09-29", "2030-10-05", { sales: 6_000, actual: 1_500, actualPct: 0.25, targetDollars: 1_500, varianceDollars: 0, varianceHours: 0 }),
   wk("2030-10-06", "2030-10-12"),
-  wk("2030-10-13", "2030-10-19", { varianceDollars: -40, varianceHours: -2, cateringHours: 10, cateringOffset: 312.5, marketingHours: 6, marketingOffset: 112.5 }),
-  wk("2030-10-20", "2030-10-26", { available: false, why: ["in-store sales on file for 6 of 7 days"], sales: null, actualPct: null, targetDollars: null, varianceDollars: null, varianceHours: null }),
+  wk("2030-10-13", "2030-10-19", { varianceDollars: -40, varianceHours: -2, cateringHours: 10, cateringCost: 312.5, marketingHours: 6, marketingOffset: 112.5 }),
+  wk("2030-10-20", "2030-10-26", {
+    available: false, why: ["delivery sales on file for 6 of 7 days"], sales: null, inStoreSales: null, deliverySales: null, cateringSales: null,
+    actualPct: null, targetDollars: null, varianceDollars: null, varianceHours: null,
+  }),
   wk("2030-10-27", "2030-11-02", {
-    available: false, why: ["hourly payroll on file for 5 of 7 days"], hours: null, wages: null, premium: null, solo: null, taxesWc: null,
+    available: false, why: ["hourly payroll on file for 5 of 7 days"], hours: null, hourlyHours: null, hourly: null, salaried: null,
     actual: null, actualPct: null, varianceDollars: null, varianceHours: null,
   }),
   wk("2030-11-03", "2030-11-09", PENDING),
@@ -90,20 +95,20 @@ test("unset, the card shows the default range, and the picker offers every week 
 test("the card is a chart of actual % against the target line, over-target weeks keyed, the table behind Show numbers", () => {
   const html = render({});
   const t = text(html);
-  assert.match(html, /<canvas[^>]*role="img"[^>]*aria-label="Hourly labor all-in as a share of in-store sales, weeks of Oct 6 to Oct 27/);
-  assert.match(t, /Actual % Target %, all-in Over target/);
-  assert.match(html, /aria-expanded="false"[^>]*aria-label="Show numbers: Hourly labor all-in/);
+  assert.match(html, /<canvas[^>]*role="img"[^>]*aria-label="All labor as a share of sales, weeks of Oct 6 to Oct 27 by their Sunday, against the payroll target/);
+  assert.match(t, /Actual % Target % Over target/);
+  assert.match(html, /aria-expanded="false"[^>]*aria-label="Show numbers: All labor as a share of sales/);
   // The table is not drawn until asked for.
-  assert.doesNotMatch(t, /Week Sales Hourly labor, all-in/);
+  assert.doesNotMatch(t, /Week Sales In-store Delivery/);
 });
 
 test("the totals count complete weeks only and say how many", () => {
   const t = text(render({}));
   // Two complete weeks of four: ($1,400 + $1,400) / ($4,800 + $4,800); variance +$200 − $40.
   assert.match(t, /Actual %, complete weeks 29\.2% 2 of 4 weeks complete/);
-  assert.match(t, /Target %, all-in 25\.0% same weeks, by sales/);
-  assert.match(t, /Over target \+\$160/);
-  assert.match(t, /Variance hours \+8 h/);
+  assert.match(t, /Target % 25\.0% payroll target, same weeks/);
+  assert.match(t, /Over target \+\$160 all labor vs target \$/);
+  assert.match(t, /Variance hours \+8 h at each week.s hourly cost per hour/);
 });
 
 test("a range with no complete week says so instead of a chart, and keeps its reasons", () => {
@@ -123,19 +128,24 @@ test("a range across months covers every week in it: tiles and one muted n/a lin
   // Four complete weeks: (1,400 + 1,500 + 1,400 + 1,400) / (9,999 + 6,000 + 4,800 + 4,800).
   assert.match(t, /Actual %, complete weeks 22\.3% 4 of 7 weeks complete/);
   assert.match(t, /Over target \+\$360/);
-  assert.match(t, /Oct 20: in-store sales on file for 6 of 7 days/);
+  assert.match(t, /Oct 20: delivery sales on file for 6 of 7 days/);
   assert.match(t, /Oct 27: hourly payroll on file for 5 of 7 days/);
   assert.match(t, /Nov 3: the week is not over yet/);
   // Catering is in the table now, not under the chart.
   assert.doesNotMatch(t, /catering crew billed to clients/);
 });
 
-test("the table behind Show numbers is the week-by-week table, with the catering and the marketing work taken off as columns", () => {
+test("the table behind Show numbers is the week-by-week table: sales by stream, all labor as hourly + salaried, catering crew counted, marketing taken off", () => {
   const t = table(DEFAULT);
-  assert.match(t, /Week Sales Hourly labor, all-in Actual % Target %, all-in Variance \$ Variance hours Catering work taken off Marketing work taken off/);
-  // No catering or marketing: both columns are blank.
-  assert.match(t, /Oct 6–12 \$4,800 \$1,400 29\.2% 25\.0% \+\$200 \+10 h Oct 13/);
-  assert.match(t, /Oct 13–19 \$4,800 \$1,400 29\.2% 25\.0% −\$40 −2 h 10 h, \$313 all-in 6 h, \$113 all-in/);
+  assert.match(
+    t,
+    /Week Sales In-store Delivery Catering All labor Hourly Salaried Actual % Target % Variance \$ Variance hours Catering crew \(counted\) Marketing work taken off/,
+  );
+  // No catering crew or marketing work: both columns are blank.
+  assert.match(t, /Oct 6–12 \$4,800 \$3,900 \$600 \$300 \$1,400 \$1,050 \$350 29\.2% 25\.0% \+\$200 \+10 h Oct 13/);
+  assert.match(t, /Oct 13–19 \$4,800 \$3,900 \$600 \$300 \$1,400 \$1,050 \$350 29\.2% 25\.0% −\$40 −2 h 10 h, \$313 all-in 6 h, \$113 all-in/);
+  // A week without its delivery has no sales in any column.
+  assert.match(t, /Oct 20–26 n\/a n\/a n\/a n\/a \$1,400 \$1,050 \$350 n\/a 25\.0% n\/a n\/a/);
 });
 
 test("the marketing column stays blank for a week whose marketing hours or $ are not on file", () => {
@@ -144,24 +154,23 @@ test("the marketing column stays blank for a week whose marketing hours or $ are
     wk("2030-10-13", "2030-10-19", { marketingHours: null, marketingOffset: 112.5 }),
   ];
   const t = text(renderToStaticMarkup(React.createElement(LaborTargetTable, { weeks, range: { from: "2030-10-06", to: "2030-10-13" } })));
-  assert.match(t, /Oct 6–12 \$4,800 \$1,400 29\.2% 25\.0% \+\$200 \+10 h Oct 13–19/);
+  assert.match(t, /Oct 6–12 \$4,800 \$3,900 \$600 \$300 \$1,400 \$1,050 \$350 29\.2% 25\.0% \+\$200 \+10 h Oct 13–19/);
   assert.doesNotMatch(t, /h, \$|all-in \$|NaN|null/);
 });
 
-test("the card says marketing work comes off like catering, at the hours worked (Alina, 2026-11-16)", () => {
+test("the card says marketing work still comes off at the hours worked, with its own budget (Alina, 2026-11-16, kept 2026-11-18)", () => {
   const t = text(render({}));
-  assert.match(t, /Marketing has its own budget, so it never counts in the labor % either/);
-  assert.match(t, /less all catering and marketing work/);
-  assert.match(t, /Show numbers. lists each week.s marketing work taken off, hours and all-in \$/);
+  assert.match(t, /Marketing work \(punches on Marketing shifts and on any shift of a marketing deal\) has its own budget and no sales of its own,\s+so it is taken off at the hours worked/);
+  assert.match(t, /Show numbers. lists each week.s catering crew cost \(counted\) and marketing work \(taken off\)/);
 });
 
 test("the catering column stays blank for a week whose catering hours or $ are not on file", () => {
   const weeks = [
-    wk("2030-10-06", "2030-10-12", { cateringHours: 10, cateringOffset: null }),
-    wk("2030-10-13", "2030-10-19", { cateringHours: null, cateringOffset: 312.5 }),
+    wk("2030-10-06", "2030-10-12", { cateringHours: 10, cateringCost: null }),
+    wk("2030-10-13", "2030-10-19", { cateringHours: null, cateringCost: 312.5 }),
   ];
   const t = text(renderToStaticMarkup(React.createElement(LaborTargetTable, { weeks, range: { from: "2030-10-06", to: "2030-10-13" } })));
-  assert.match(t, /Oct 6–12 \$4,800 \$1,400 29\.2% 25\.0% \+\$200 \+10 h Oct 13–19/);
+  assert.match(t, /Oct 6–12 \$4,800 \$3,900 \$600 \$300 \$1,400 \$1,050 \$350 29\.2% 25\.0% \+\$200 \+10 h Oct 13–19/);
   assert.doesNotMatch(t, /h, \$|all-in \$|NaN|null/);
 });
 
@@ -175,7 +184,7 @@ test("with every week in range complete, nothing sits under the chart but Show n
 });
 
 test("a week without its payroll reads n/a with the reason, never $0", () => {
-  assert.match(table(DEFAULT), /Oct 27–Nov 2 \$4,800 n\/a n\/a 25\.0% n\/a n\/a/);
+  assert.match(table(DEFAULT), /Oct 27–Nov 2 \$4,800 \$3,900 \$600 \$300 n\/a n\/a n\/a n\/a 25\.0% n\/a n\/a/);
   const t = text(render({}));
   assert.match(t, /Oct 27: hourly payroll on file for 5 of 7 days/);
   assert.doesNotMatch(t, /\$0\b/);
@@ -220,22 +229,28 @@ test("a view saved under the old month picker shows that month's weeks", () => {
 
 test("when its reads fail the card says it could not load, with no picker", () => {
   const html = render({}, null);
-  assert.match(text(html), /Could not load hourly payroll, daily sales or the control board\./);
+  assert.match(text(html), /Could not load hourly payroll, daily sales, catering bookings or the control board\./);
   assert.doesNotMatch(html, /id="from-w1"/);
 });
 
-test("both sides read all-in; the catering work taken off is in the table, not a note under the chart", () => {
+test("the card holds all labor, salaried and hourly, to the total payroll target, never the hourly goal (Alina, 2026-11-18)", () => {
   const t = text(render({}));
+  assert.match(t, /The same test the Targets tab sets: everything the store pays its people, with employer taxes and workers. comp, as a\s+share of everything it sells, against the payroll target/);
+  assert.match(t, /All labor = hourly \+ salaried\./);
+  assert.match(t, /Salaried = the Targets tab.s fixed\s+payroll/);
+  assert.match(t, /Target % = the Targets tab.s total payroll target in force on each day \(25\.0% in these weeks\)/);
+  assert.match(t, /Variance hours = variance \$ at the\s+week.s own hourly cost per hour/);
+  assert.doesNotMatch(t, /all-in hourly goal/);
   assert.doesNotMatch(t, /catering crew billed to clients/);
-  assert.match(t, /Show numbers. lists each week.s catering work taken off, hours and all-in \$/);
-  assert.match(t, /all-in hourly goal/);
-  assert.match(t, /25\.0% of sales in these weeks/);
 });
 
-test("the card says catering work comes off as worked and paid, never as a quote billed it (Alina, 2026-11-16)", () => {
+test("the card says sales are in-store, delivery and catering, and that catering crews count (Alina, 2026-11-18)", () => {
   const t = text(render({}));
-  assert.match(t, /Catering is billed to the client separately, so it never counts in the labor %/);
-  assert.match(t, /The hours a quote billed are not used, so a pickup, a drop-off or a deal with no crew on file changes nothing/);
+  assert.match(t, /Sales = in-store \(register and online pickup\) \+ delivery .* \+ booked catering by\s+event date, before tax\. Delivery counts because the scoopers make those orders\./);
+  assert.match(t, /catering crews included/);
+  // The 2026-11-16 catering exclusion is gone from the method.
+  assert.doesNotMatch(t, /never counts in the labor %/);
+  assert.doesNotMatch(t, /less all catering and marketing work/);
+  assert.doesNotMatch(t, /in-store only/i);
   assert.doesNotMatch(t, /labor hours x staff count/);
-  assert.doesNotMatch(t, /billed crew hours/);
 });

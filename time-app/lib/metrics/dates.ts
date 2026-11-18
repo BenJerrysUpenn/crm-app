@@ -3,8 +3,10 @@
 // key is a calendar date, not an instant, so everything here is done in UTC
 // on purpose: no daylight-saving hour can move a day.
 //
-// Weeks run Monday to Sunday and are named by their Monday, as the payroll
-// fortnight and the bj-finance feed name them.
+// Weeks run Sunday to Saturday and are named by their Sunday, as the
+// schedule runs them: every card on the page uses the same week (Alina,
+// 2026-11-18). The payroll fortnight and the bj-finance feed's wages_by_week
+// run Monday to Sunday; nothing here reads the feed's weeks.
 
 const DAY_MS = 86_400_000;
 
@@ -42,10 +44,9 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((toUtc(b) - toUtc(a)) / DAY_MS);
 }
 
-/** The Monday of the week holding `day`. */
-export function mondayOf(day: string): string {
-  const dow = new Date(toUtc(day)).getUTCDay(); // 0 = Sunday
-  return addDays(day, dow === 0 ? -6 : 1 - dow);
+/** The Sunday of the Sunday-to-Saturday week holding `day`. */
+export function weekOf(day: string): string {
+  return addDays(day, -new Date(toUtc(day)).getUTCDay()); // 0 = Sunday
 }
 
 /** "YYYY-MM-01" for the month holding `day`. */
@@ -76,9 +77,9 @@ export function eachDay(from: string, to: string): string[] {
   return out;
 }
 
-/** The Mondays of the `n` weeks ending with the week holding `day`, oldest first. */
+/** The Sundays of the `n` weeks ending with the week holding `day`, oldest first. */
 export function lastWeeks(day: string, n: number): string[] {
-  const last = mondayOf(day);
+  const last = weekOf(day);
   return Array.from({ length: n }, (_, i) => addDays(last, -7 * (n - 1 - i)));
 }
 

@@ -1,7 +1,7 @@
 // The finance feed (bj-finance #671, migration 40): parsing what
 // bj-finance modules/metrics_publish.py publishes, and the metrics built on it
-// (weekly LER paid and unpaid, monthly LER, COGS %, sales per scooper-hour).
-// Written before the code.
+// (weekly LER on Labor vs target's weeks, monthly LER, COGS %). LER leaves
+// owner pay out; the card's switch adds it (Alina, 2026-11-18).
 //
 //   npm test
 
@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 
 import { closedMonthTiles, feedSales, parseClosedMonth, parseDaily, weeklyLer } from "./feed.ts";
 import type { SalesTargetRow } from "./targets.ts";
+import type { LaborTargetWeek } from "./laborTarget.ts";
 
 const daily = {
   schema: 1,
@@ -60,23 +61,66 @@ test("concessions null on every day means the stream is still waiting, not zero"
   assert.equal(s.in_store?.["2026-10-04"], 2050);
 });
 
-test("weekly LER: (week sales x (1 - trailing COGS %)) / (wages + employer tax + owner comp), paid and unpaid", () => {
+/** A Labor vs target week as weeklyLer reads it: its sales, all labor and the marketing taken off. */
+function week(start: string, over: Partial<LaborTargetWeek> = {}): LaborTargetWeek {
+  const end = new Date(`${start}T00:00:00Z`);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return {
+    start, end: end.toISOString().slice(0, 10), available: true, why: [], sales: 5_500, inStoreSales: 4_500, deliverySales: 500, cateringSales: 500,
+    hours: 80, hourlyHours: 75, hourly: 1_500, salaried: 500, cateringHours: 5, cateringCost: 150, marketingHours: 5, marketingOffset: 200,
+    actual: 2_000, actualPct: 2_000 / 5_500, goalPct: { value: 0.25, needs: [] }, targetPct: { value: 0.25, needs: [] }, targetDollars: 1_375,
+    varianceDollars: 625, varianceHours: 31.25, ...over,
+  };
+}
+
+test("weekly LER: Labor vs target's sales plus feed concessions, x (1 - trailing COGS %), over its labor with marketing put back", () => {
   const d = parseDaily(daily)!;
-  // Week of Sep 28: feed 1,100 + 2,550 = 3,650; catering 2,350 by event date: 6,000 sales.
-  const rows = weeklyLer(d, { "2026-09-30": 2350 }, ["2026-09-28"]);
-  assert.equal(rows[0].sales, 6000);
-  assert.equal(rows[0].grossProfit, 4500); // x 0.75, an estimate
-  assert.equal(rows[0].unpaid, 1.65); // 4,500 / 2,724
-  assert.equal(rows[0].paid, 1.07); // 4,500 / 4,200
-  // A week with no wages from the feed has no LER.
-  const none = weeklyLer(d, {}, ["2026-10-05"]);
-  assert.equal(none[0].paid, null);
-  // No trailing COGS %: no LER either.
-  const noCogs = weeklyLer({ ...d, cogs_pct_trailing: null }, {}, ["2026-09-28"]);
-  assert.equal(noCogs[0].paid, null);
+  // Week of Sunday Oct 4: 5,500 + the feed's 500 of concessions that Sunday = 6,000; labor 2,000 + 200 of marketing.
+  const [r] = weeklyLer([week("2026-10-04")], 0.25, d);
+  assert.equal(r.week, "2026-10-04");
+  assert.equal(r.sales, 6_000);
+  assert.equal(r.grossProfit, 4_500); // x 0.75, an estimate
+  assert.equal(r.labour, 2_200);
+  assert.equal(r.ler, 2.05); // 4,500 / 2,200, owner pay left out
+  assert.equal(r.withOwnerPay, 1.22); // 4,500 / (2,200 + 1,476)
+  // The week before: Sep 28's concessions are 0, so the sales are the card's alone.
+  const [before] = weeklyLer([week("2026-09-27", { sales: 4_400 })], 0.25, d);
+  assert.equal(before.sales, 4_400);
+  assert.equal(before.ler, 1.5); // 3,300 / 2,200
+  assert.equal(before.withOwnerPay, 0.9); // 3,300 / 3,676
 });
 
-test("closed month: tiles from the month close, LER paid and unpaid with owner comp $6,396 a month", () => {
+test("weekly LER without the feed counts no concessions; without the trailing COGS % it has sales but no LER", () => {
+  const [noFeed] = weeklyLer([week("2026-10-04")], 0.25, null);
+  assert.equal(noFeed.sales, 5_500);
+  assert.equal(noFeed.ler, 1.88); // 4,125 / 2,200
+  const [noCogs] = weeklyLer([week("2026-10-04")], null, parseDaily(daily));
+  assert.equal(noCogs.sales, 6_000);
+  assert.equal(noCogs.grossProfit, null);
+  assert.equal(noCogs.labour, 2_200);
+  assert.equal(noCogs.ler, null);
+  assert.equal(noCogs.withOwnerPay, null);
+});
+
+test("weekly LER of a week Labor vs target cannot count is unknown, never zero", () => {
+  const d = parseDaily(daily)!;
+  const [noSales] = weeklyLer([week("2026-10-04", { available: false, sales: null })], 0.25, d);
+  assert.equal(noSales.sales, null);
+  assert.equal(noSales.grossProfit, null);
+  assert.equal(noSales.ler, null);
+  assert.equal(noSales.withOwnerPay, null);
+  const [noLabor] = weeklyLer([week("2026-10-04", { available: false, actual: null })], 0.25, d);
+  assert.equal(noLabor.grossProfit, 4_500);
+  assert.equal(noLabor.labour, null);
+  assert.equal(noLabor.ler, null);
+  assert.equal(noLabor.withOwnerPay, null);
+  // Marketing not yet split: the labor is not known either.
+  const [unsplit] = weeklyLer([week("2026-10-04", { marketingOffset: null })], 0.25, d);
+  assert.equal(unsplit.labour, null);
+  assert.equal(unsplit.ler, null);
+});
+
+test("closed month: tiles from the month close, LER on wages + employer tax, and with owner pay at $6,396 a month", () => {
   const m = parseClosedMonth({
     schema: 1, kind: "closed_month", month: "2026-09", status: "final",
     revenue: 41234.56, revenue_by_stream: { in_store: 30000, delivery: 1500, catering: 9000, concessions: 0, other: 734.56 },
@@ -84,8 +128,8 @@ test("closed month: tiles from the month close, LER paid and unpaid with owner c
     rolling_12: { months: 12, revenue: 401234, pre_tax_profit: -12345, seller_months: 8 },
   })!;
   const t = closedMonthTiles(m);
-  assert.equal(t.lerPaid, 1.42);
-  assert.equal(t.lerUnpaid, 1.97);
+  assert.equal(t.ler, 1.97); // 32,134.56 / 16,300
+  assert.equal(t.lerWithOwnerPay, 1.42); // 32,134.56 / 22,696
   assert.equal(t.cogsPct, 0.221);
   assert.equal(t.preTaxPct, -0.043);
   assert.equal(parseClosedMonth({ schema: 1, kind: "closed_month", month: "Sept" }), null);

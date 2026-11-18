@@ -29,6 +29,8 @@ export type DealRow = {
   company: string | null;
   source: string | null;
   archived: number | null;
+  /** Read so the Labour card can tell a marketing deal's shifts (isMarketingDeal). */
+  event_type?: string | null;
 };
 
 export const BOOKED_STAGES = ["Booked Unpaid", "Booked Paid"];

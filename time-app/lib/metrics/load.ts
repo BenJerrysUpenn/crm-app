@@ -26,6 +26,7 @@ import { parseCash, parseClosedMonth, parseDaily, type ClosedMonth, type DailySn
 import { laborVsTarget, laborWindow, type LaborDayRow, type LaborTargetInputs, type LaborTargetWeek, type SalesDayRow } from "./laborTarget.ts";
 import { defaultLaborRange, laborWeekStarts, type WeekRange } from "./weekRange.ts";
 import { loadBoard } from "@/lib/controlBoard/load";
+import { isMarketingDeal } from "@/lib/controlBoard/schedule";
 import { laborHoursPlanning, type LaborPlanning } from "./laborPlanning";
 import { nyMidnight, paged } from "./supabaseReads";
 import { loadLaborPlanningRows, planningInputsFrom, type LaborPlanningRows } from "./laborPlanningLoad";
@@ -36,6 +37,13 @@ function metricsWindow(today: string): { weeks: string[]; months: string[]; from
   const weeks = lastWeeks(today, WEEKS);
   const months = lastMonths(today, MONTHS);
   return { weeks, months, from: months[0], to: monthEnd(addMonths(today, MONTHS_AHEAD)) };
+}
+
+/** Deals are read by event date from the earlier of the page's first month and Labor vs target's first week, so every week on offer has its catering sales. */
+export function dealsFrom(today: string): string {
+  const page = metricsWindow(today).from;
+  const labor = laborWindow(today).from;
+  return labor < page ? labor : page;
 }
 
 export type StageEventRow = { deal_id: number; new_value: string | null };
@@ -50,7 +58,7 @@ export type MetricsInputs = {
   outreach: OutreachEventRow[] | null;
   targets: SalesTargetRow[] | null;
   /** Labor vs target's reads: the paid hourly actuals, the daily in-store sales and the control board. */
-  laborTarget: Omit<LaborTargetInputs, "today"> | null;
+  laborTarget: Omit<LaborTargetInputs, "today" | "catering"> | null;
   /** Labor Hours Planning's reads (bj-finance #742); null when they failed (named in problems). */
   laborPlanning: LaborPlanningRows | null;
   feed: FeedInputs;
@@ -119,7 +127,7 @@ export type MetricsData = {
   problems: string[];
 };
 
-const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived";
+const DEAL_COLUMNS = "id, stage, payment_status, event_date, created_at, subtotal_pretax, total_with_tax, amount_paid, company, source, archived, event_type";
 
 export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = new Date()): Promise<MetricsInputs> {
   const today = nyToday(now);
@@ -139,7 +147,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
   const [byEvent, byCreated, stageEvents, punches, shifts, people, outreach, targets, laborTarget, laborPlanning, feed, passRuns] = await Promise.all([
     attempt("catering deals", () =>
       paged<DealRow>(() =>
-        supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", firstMonth).lte("event_date", `${lastDay}T23:59:59`).order("id"),
+        supabase.from("deals").select(DEAL_COLUMNS).gte("event_date", dealsFrom(today)).lte("event_date", `${lastDay}T23:59:59`).order("id"),
       ),
     ),
     attempt("new enquiries", () =>
@@ -165,7 +173,7 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
       paged<ShiftRow>(() =>
         supabase
           .from("shifts")
-          .select("id, employee_id, starts_at, ends_at, deal_id")
+          .select("id, employee_id, starts_at, ends_at, position, deal_id")
           .gte("starts_at", nyMidnight(addDays(firstWeek, -1)))
           .lte("starts_at", nyMidnight(addDays(today, 15)))
           .order("id"),
@@ -206,15 +214,15 @@ export async function loadMetricsInputs(supabase: SupabaseClient, now: Date = ne
 
 /**
  * Labor vs target (bj-finance #696): public.labor_daily_actuals (migration
- * 46) and public.sales_daily_in_store (migration 41) over the weeks on
- * offer, with each day's catering split (migration 59) and marketing split
- * (migration 60), and the control
+ * 46) and public.sales_daily_in_store (migration 41, with its delivery
+ * column, migration 61) over the weeks on offer, with each day's catering
+ * split (migration 59) and marketing split (migration 60), and the control
  * board's settings, salaries and fixed-payroll people (loadBoard, the same
  * reads the Targets tab makes). Any of them failing fails the card: a target
- * without its actuals, or the reverse, is not shown. Catering deals are not
- * read: the catering work comes off as the clocks recorded it.
+ * without its actuals, or the reverse, is not shown. Catering sales come
+ * from the deals the page already reads (buildMetricsData).
  */
-async function loadLaborTarget(supabase: SupabaseClient, today: string): Promise<Omit<LaborTargetInputs, "today">> {
+async function loadLaborTarget(supabase: SupabaseClient, today: string): Promise<Omit<LaborTargetInputs, "today" | "catering">> {
   const { from, to } = laborWindow(today);
   const [labor, sales, board] = await Promise.all([
     paged<Record<string, unknown>>(() =>
@@ -225,7 +233,7 @@ async function loadLaborTarget(supabase: SupabaseClient, today: string): Promise
         .lte("day", to)
         .order("day"),
     ),
-    paged<Record<string, unknown>>(() => supabase.from("sales_daily_in_store").select("day, in_store").gte("day", from).lte("day", to).order("day")),
+    paged<Record<string, unknown>>(() => supabase.from("sales_daily_in_store").select("day, in_store, delivery").gte("day", from).lte("day", to).order("day")),
     loadBoard(supabase, today),
   ]);
   if (!board.ready) throw new Error(board.reason);
@@ -243,7 +251,7 @@ async function loadLaborTarget(supabase: SupabaseClient, today: string): Promise
         marketing_wages: r.marketing_wages == null ? null : Number(r.marketing_wages),
       }),
     ),
-    sales: sales.map((r): SalesDayRow => ({ day: String(r.day), in_store: Number(r.in_store) })),
+    sales: sales.map((r): SalesDayRow => ({ day: String(r.day), in_store: Number(r.in_store), delivery: r.delivery == null ? null : Number(r.delivery) })),
     settings: board.settings,
     salaries: board.salaries,
     salaried: board.salaried,
@@ -358,8 +366,8 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
 
   let labour: MetricsData["labour"] = null;
   if (inputs.punches && inputs.shifts && inputs.people) {
-    const shiftDeal = new Map(inputs.shifts.map((s) => [s.id, s.deal_id]));
-    labour = labourByWeek(inputs.punches, shiftDeal, people, weeks);
+    const marketingDeals = new Set((deals ?? []).filter((d) => isMarketingDeal({ event_type: d.event_type ?? null, stage: d.stage })).map((d) => d.id));
+    labour = labourByWeek(inputs.punches, inputs.shifts, marketingDeals, people, weeks);
   }
 
   let forward: MetricsData["forward"] = null;
@@ -377,9 +385,14 @@ export function buildMetricsData(inputs: MetricsInputs): MetricsData {
     leads,
     outreach: inputs.outreach ? outreachByWeek(inputs.outreach, weeks) : null,
     quotes,
-    laborTarget: inputs.laborTarget
+    laborTarget:
+      inputs.laborTarget && deals
       ? {
-          weeks: laborVsTarget(laborWeekStarts(today), { today, ...inputs.laborTarget! }),
+          weeks: laborVsTarget(laborWeekStarts(today), {
+            today,
+            catering: cateringByDay(deals, laborWindow(today).from, laborWindow(today).to, today, bookedBefore).byDay,
+            ...inputs.laborTarget,
+          }),
           defaultRange: defaultLaborRange(today),
         }
       : null,

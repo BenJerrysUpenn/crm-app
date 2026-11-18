@@ -9,7 +9,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { trendFactor, type Derived, type MonthlySalesRow } from "./math.ts";
-import { addDays, isMarketingDeal, MISSING, scheduleLabor, workKind, type LaborPerson, type LaborShift, type ScheduleLaborInput } from "./schedule.ts";
+import {
+  addDays, DELIVERY_SHARE_DAYS, DELIVERY_SHARE_MIN_DAYS, deliveryShare, isMarketingDeal, MISSING, NO_DELIVERY_SHARE, scheduleLabor, workKind,
+  type LaborPerson, type LaborShift, type ScheduleLaborInput,
+} from "./schedule.ts";
 import { laborVsTarget, type LaborDayRow } from "../metrics/laborTarget.ts";
 import type { SalaryRow, SettingRow } from "./settings.ts";
 
@@ -85,6 +88,9 @@ function input(over: Partial<ScheduleLaborInput> = {}): ScheduleLaborInput {
     salaried: [],
     trend: trendFactor(TODAY, MONTHLY, []),
     inStoreByDay: lastYear(),
+    // No delivery last year and a known share of 0, so a target is in-store's alone unless a test adds delivery.
+    deliveryByDay: new Map(),
+    deliveryShare: { value: 0, needs: [] },
     marketingDeals: new Set(),
     ...over,
   };
@@ -94,11 +100,12 @@ function input(over: Partial<ScheduleLaborInput> = {}): ScheduleLaborInput {
 // Day headers: all scheduled hours / that day's target hours
 // ---------------------------------------------------------------------------
 
-test("a day's target is last year's same weekday x trend, x the hourly goal, / the average active hourly rate: in-store only", () => {
+test("a day's target is last year's same weekday (in-store + delivery, none here) x trend, x the hourly goal, / the average active hourly rate", () => {
   const l = scheduleLabor(input());
   const sun = l.days[0];
   assert.equal(sun.lastYearDay, "2029-10-14", "52 weeks earlier: the same weekday");
   close(val(sun.trendedInStore), 1_100);
+  close(val(sun.lastYearDelivery), 0);
   close(val(sun.projectedSales), 1_100);
   close(val(sun.hourlyGoal), 0.2);
   close(val(sun.targetDollars), 220);
@@ -109,11 +116,84 @@ test("a day's target is last year's same weekday x trend, x the hourly goal, / t
   assert.equal(l.boardEmpty, false);
 });
 
-test("projected sales and the target are in-store only: catering on the day never adds to them", () => {
+test("catering on the day never adds to projected sales or the target", () => {
   const l = scheduleLabor(input({ shifts: [{ ...shift("ten", "2030-10-14", "10:00", "15:00", "Catering"), deal_id: 7 }] }));
   close(val(l.days[1].projectedSales), 1_100, "1,000 x 1.1, whatever the deal is worth");
   close(val(l.days[1].targetDollars), 220);
   close(val(l.days[1].targetHours), 220 / 15);
+});
+
+// ---------------------------------------------------------------------------
+// Delivery (Alina, 2026-11-18): the scoopers make the delivery orders, so
+// last year's delivery is in projected sales. A day's own delivery when on
+// file (migration 61), else its in-store x the recent delivery share.
+// ---------------------------------------------------------------------------
+
+const SHARE_10 = { value: 0.1, needs: [] };
+
+test("a last-year day with delivery on file adds that delivery to projected sales, trended", () => {
+  // Monday last year: 1,000 in-store and 200 of delivery on file. (1,000 + 200) x 1.1 = 1,320, x 20% = 264.
+  const l = scheduleLabor(input({ deliveryByDay: new Map([[addDays(MON, -364), 200]]), deliveryShare: SHARE_10 }));
+  const mon = l.days[1];
+  close(val(mon.lastYearDelivery), 200, "the day's own figure, not the share's 100");
+  close(val(mon.trendedInStore), 1_100);
+  close(val(mon.projectedSales), 1_320);
+  close(val(mon.targetDollars), 264);
+  close(val(mon.targetHours), 264 / 15);
+  assert.equal(mon.short, null);
+});
+
+test("a last-year day with no delivery on file uses its in-store x the recent delivery share", () => {
+  // Sunday last year: 1,000 in-store, no delivery on file; 10% share: 100. (1,000 + 100) x 1.1 = 1,210.
+  const l = scheduleLabor(input({ deliveryByDay: new Map([[addDays(MON, -364), 200]]), deliveryShare: SHARE_10 }));
+  const sun = l.days[0];
+  close(val(sun.lastYearDelivery), 100);
+  close(val(sun.projectedSales), 1_210);
+  close(val(sun.targetDollars), 242);
+  // The week: six days at 1,210 and Monday at 1,320, x 20%.
+  close(val(l.target.dollars), (6 * 1_210 + 1_320) * 0.2);
+});
+
+test("with no delivery share, a day with no delivery on file has no target, names what it needs, and its header says no delivery share", () => {
+  const share = { value: null, needs: [NO_DELIVERY_SHARE] };
+  const l = scheduleLabor(input({ deliveryByDay: new Map([[addDays(MON, -364), 200]]), deliveryShare: share }));
+  const sun = l.days[0];
+  assert.equal(sun.lastYearDelivery.value, null);
+  assert.equal(sun.projectedSales.value, null);
+  assert.equal(sun.targetHours.value, null);
+  assert.deepEqual(sun.targetHours.needs, [NO_DELIVERY_SHARE]);
+  assert.equal(sun.short, "no delivery share");
+  // Monday has its own delivery on file, so it needs no share.
+  close(val(l.days[1].projectedSales), 1_320);
+  assert.equal(l.days[1].short, null);
+  assert.equal(l.target.hours.value, null, "never a week total that quietly counts the delivery as zero");
+  assert.deepEqual(l.target.hours.needs, [NO_DELIVERY_SHARE]);
+  // A day with no last-year in-store either says that first.
+  const both = scheduleLabor(input({ inStoreByDay: lastYear([addDays(DATES[0], -364)]), deliveryShare: share }));
+  assert.equal(both.days[0].short, "no last-year sales");
+  // A closed day needs no share.
+  const closed = scheduleLabor(input({ deliveryShare: share, closedDays: new Set(DATES) }));
+  close(val(closed.target.dollars), 0);
+});
+
+test("the delivery share: delivery over in-store across the recent days that have delivery on file, from 14 of the last 28", () => {
+  assert.equal(DELIVERY_SHARE_DAYS, 28);
+  assert.equal(DELIVERY_SHARE_MIN_DAYS, 14);
+  const on = (n: number, in_store = 1_000, delivery: number | null = 100) => Array.from({ length: n }, () => ({ in_store, delivery }));
+  close(val(deliveryShare(on(14))), 0.1);
+  // Days with no delivery on file are skipped on both sides: their in-store does not dilute the share.
+  close(val(deliveryShare([...on(14), ...on(14, 5_000, null)])), 0.1);
+  // Zero delivery on file is a share of 0, not missing.
+  close(val(deliveryShare(on(14, 1_000, 0))), 0);
+});
+
+test("the delivery share is missing under 14 days with delivery on file, or with no in-store sales on them", () => {
+  const on = (n: number, in_store = 1_000, delivery: number | null = 100) => Array.from({ length: n }, () => ({ in_store, delivery }));
+  assert.deepEqual(deliveryShare(on(13)), { value: null, needs: [NO_DELIVERY_SHARE] });
+  assert.deepEqual(deliveryShare([...on(13), ...on(15, 1_000, null)]), { value: null, needs: [NO_DELIVERY_SHARE] }, "nulls do not count toward the 14");
+  assert.deepEqual(deliveryShare(on(14, 0)), { value: null, needs: [NO_DELIVERY_SHARE] }, "never a share over zero in-store");
+  assert.deepEqual(deliveryShare([]), { value: null, needs: [NO_DELIVERY_SHARE] });
+  assert.equal(NO_DELIVERY_SHARE, "delivery sales on file for at least 14 of the last 28 days");
 });
 
 test("the day header counts ALL scheduled hours that day, whoever works them", () => {
@@ -400,11 +480,11 @@ test("salaried and overhead staff on catering or marketing work stay out, as eve
   assert.equal(l.hourlyHours, 0);
 });
 
-test("a past week worked exactly as scheduled reads the same on the line as on the Labor vs target card", () => {
+test("a past week worked exactly as scheduled: the line's in-store side is the Labor vs target card's, which adds the catering crew and its sales", () => {
   // Sun-Sat 2030-10-13..19. Each day: ten 12:00-17:00 in-store (5h x 10 = 50),
   // twenty 17:00-22:30 in-store (5.5h x 20 = 110, alone 4.5h out 22:30: solo 30).
   // Monday also: twenty 10:00-14:00 Catering (4h x 20 = 80, premium 1/h = 4),
-  // ten 09:00-12:00 Marketing (3h x 10 = 30). Sales as projected: 1,100 a day.
+  // ten 09:00-12:00 Marketing (3h x 10 = 30). In-store + delivery as projected: 1,100 a day.
   const shifts: LaborShift[] = [];
   for (const d of DATES) shifts.push(shift("ten", d, "12:00", "17:00"), shift("twenty", d, "17:00", "22:30"));
   shifts.push(onDeal(shift("twenty", MON, "10:00", "14:00", "Catering"), 7), shift("ten", MON, "09:00", "12:00", "Marketing"));
@@ -413,7 +493,8 @@ test("a past week worked exactly as scheduled reads the same on the line as on t
   assert.equal(line.hourlyHours, 7 * 10.5);
   close(val(line.target.dollars)!, 7 * 220, "1,100 x 20% a day");
 
-  // The same week as the card reads it, paid exactly at those rates.
+  // The same week as the card reads it, paid exactly at those rates: 1,000 in-store and 100 delivery a day,
+  // and the deal on Monday sold 600 of catering.
   const labor: LaborDayRow[] = DATES.map((day) => {
     const mon = day === MON;
     return {
@@ -422,13 +503,15 @@ test("a past week worked exactly as scheduled reads the same on the line as on t
     };
   });
   const [card] = laborVsTarget([WEEK], {
-    today: "2030-10-25", labor, sales: DATES.map((day) => ({ day, in_store: 1_100 })), settings: BOARD, salaries: [], salaried: [],
+    today: "2030-10-25", labor, sales: DATES.map((day) => ({ day, in_store: 1_000, delivery: 100 })), catering: { [MON]: 600 },
+    settings: BOARD, salaries: [], salaried: [],
   });
   assert.ok(card.available, card.why.join("; "));
-  close(card.actual!, line.labor.total * 1.25, "the card's actual is the line's $ plus 25% taxes and comp");
-  close(card.targetDollars!, val(line.target.dollars)! * 1.25, "the card's all-in target is the line's target plus the same 25%");
-  close(card.actualPct!, line.labor.total / (7 * 1_100) * 1.25, "so the same labor %, all-in");
-  close(card.hours! - card.cateringHours! - card.marketingHours!, line.hourlyHours, "and the same in-store hours");
+  close(card.inStoreSales! + card.deliverySales!, DATES.reduce((a, _, k) => a + val(line.days[k].projectedSales)!, 0), "the line's sales are the card's in-store + delivery");
+  close(card.cateringCost!, (80 + 4) * 1.25, "the catering crew, all-in");
+  close(card.actual!, line.labor.total * 1.25 + card.cateringCost!, "the card's actual is the line's $ plus 25% taxes and comp, plus the catering crew");
+  close(card.targetDollars! - card.cateringSales! * 0.25, val(line.target.dollars)! * 1.25, "with nobody salaried the payroll target is the line's hourly goal plus the same 25%");
+  close(card.hourlyHours! - card.cateringHours!, line.hourlyHours, "and the same in-store hours");
 });
 
 // ---------------------------------------------------------------------------

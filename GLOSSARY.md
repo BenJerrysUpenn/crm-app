@@ -79,15 +79,15 @@ For a week ahead, last year's Catering shift hours in the same week, leaving out
 _Avoid_: Forecast catering, catering pipeline
 
 **Labor %**:
-A past week's in-store hourly labor, all-in (wages, solo close, employer taxes and workers' comp), over its in-store sales. Catering work is never in it: catering is billed to the client separately (Alina, 2026-11-16). Marketing work is never in it either: it is a separate marketing budget (Alina, 2026-11-16). Both come off at the hours actually worked, as paid. Compared with the all-in hourly goal on the Labor vs target card. The Schedule page's labor line follows the same rule for the week on screen (Alina, 2026-11-16): Catering and Marketing shifts, and every shift on a marketing deal, are left out of scheduled hourly labor, and the target is in-store only.
+A past week's all-in labor (hourly wages, catering premium and solo close, salaried pay, employer taxes and workers' comp), over its sales: in-store, delivery and catering (Alina, 2026-11-18: the whole payroll target is the yardstick, and the scoopers make the delivery orders). Catering crews are in it. Marketing work is never in it: it is a separate marketing budget (Alina, 2026-11-16), taken off at the hours actually worked, as paid. Compared with the payroll target on the Labor vs target card. The Schedule page's labor line is narrower: scheduled hourly labor only, against the hourly goal and projected in-store plus delivery sales; it leaves out Catering and Marketing shifts, and every shift on a marketing deal.
 _Avoid_: Labor cost % (that includes salaried pay), LER
 
 **Catering work**:
-Hours staff actually worked on catering, as the clocks recorded them: When I Work's Catering position before the time app, punches on Catering shifts after (marketing deals left out). Priced at each person's own paid rate, plus the catering premium. It is what comes off the labor %, never the hours a quote billed. On the Schedule page, the scheduled Catering shifts (not on a marketing deal) are the same work, left out of the labor line.
+Hours staff actually worked on catering, as the clocks recorded them: When I Work's Catering position before the time app, punches on Catering shifts after (marketing deals left out). Priced at each person's own paid rate, plus the catering premium. It is counted in the labor %, never the hours a quote billed. On the Schedule page, the scheduled Catering shifts (not on a marketing deal) are left out of the labor line.
 _Avoid_: Catering offset, billed crew hours (those are the quote's estimate)
 
 **Marketing work**:
-Hours staff actually worked on marketing, as the clocks recorded them: punches on a Marketing shift or on any shift of a marketing deal (event type starting Marketing, or stage Closed Marketing Event), When I Work's Marketing position before the time app. Priced at each person's own paid rate. It comes off the labor % like catering work and is never also counted as catering. On the Schedule page, those same shifts, scheduled, are left out of the labor line.
+Hours staff actually worked on marketing, as the clocks recorded them: punches on a Marketing shift or on any shift of a marketing deal (event type starting Marketing, or stage Closed Marketing Event), When I Work's Marketing position before the time app. Priced at each person's own paid rate. It comes off the labor %, and is never also counted as catering. On the Schedule page, those same shifts, scheduled, are left out of the labor line.
 _Avoid_: Marketing labor (ambiguous between worked and booked), marketing booked hours (those are the days ahead)
 
 **Store-hours season**:

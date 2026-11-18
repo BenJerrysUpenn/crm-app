@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
 import { loadAppModule, startFakeSupabase, type FakeSupabase } from "../testing/fakeSupabase.ts";
 
-const { loadMetricsInputs, buildMetricsData } = await loadAppModule<typeof import("./load.ts")>("lib/metrics/load.ts");
+const { loadMetricsInputs, buildMetricsData, dealsFrom } = await loadAppModule<typeof import("./load.ts")>("lib/metrics/load.ts");
 
 const MANAGER = "00000000-0000-0000-0000-00000000000a";
 const SCOOPER = "00000000-0000-0000-0000-00000000000b";
@@ -120,7 +120,7 @@ test("before profiles has pay_type the people read is a problem, never a read wi
   );
   const data = buildMetricsData(await loadMetricsInputs(client, NOW));
   // Labor Hours Planning takes its average rate from the team. Labor vs target
-  // reads no team: its catering comes off as paid (Alina, 2026-11-16).
+  // reads no team: its labor is as paid, from the labor days.
   assert.deepEqual(data.problems, [
     "people: column profiles.pay_type does not exist",
     "labor hours planning: column profiles.pay_type does not exist",
@@ -138,7 +138,7 @@ test("a section that cannot load is null and named in problems, never zeros; the
   assert.equal(data.outreach, null);
   assert.equal(data.labour, null); // hours need the shifts to split catering from in-store
   assert.equal(data.forward, null);
-  assert.ok(data.laborTarget); // its catering comes off as paid, from the labor days, not the shifts
+  assert.ok(data.laborTarget); // its catering work is as paid, from the labor days, not the shifts
   assert.equal(data.laborPlanning, null); // booked catering is its Catering shifts
   assert.deepEqual(data.problems.map((p) => p.split(":")[0]).sort(), ["labor hours planning", "outreach", "shifts"]);
   assert.equal(data.catering?.byDay["2026-10-04"], 1000);
@@ -156,8 +156,8 @@ test("when the deals cannot load, every deal-based widget is null rather than em
   // Labor Hours Planning still draws, saying booked catering and marketing deals could not be read.
   assert.ok(data.laborPlanning?.weeks[0].notes.some((n) => n.startsWith("catering bookings could not be read")));
   assert.ok(data.laborPlanning?.weeks[0].notes.some((n) => n.startsWith("marketing deals could not be read")));
-  // Labor vs target reads no deals, so a deal read failing never makes a week n/a (Alina, 2026-11-16).
-  assert.ok(data.laborTarget?.weeks.every((w) => !w.why.some((y) => y.includes("catering bookings"))));
+  // Labor vs target counts catering sales (Alina, 2026-11-18): without the deals it cannot load, never a week without its catering.
+  assert.equal(data.laborTarget, null);
   assert.equal(data.outreach?.at(-1)?.sent, 1);
 });
 
@@ -172,12 +172,30 @@ test("a future Event Complete is flagged as suspect, until the stage history sho
   assert.equal(booked.catering?.byDay["2026-11-20"], 400);
 });
 
-test("clocked hours reach the labour widget, costed at the hourly rate", async () => {
+test("clocked hours reach the labour widget, costed at the hourly rate, in Sunday-to-Saturday weeks", async () => {
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
   const week = data.labour?.weeks.at(-1);
-  assert.equal(week?.week, "2026-10-05");
+  assert.equal(week?.week, "2026-10-04"); // the Sunday of Monday Oct 5's week
   assert.equal(week?.inStoreHours, 4);
   assert.equal(week?.inStoreHourlyCost, 60);
+});
+
+test("the labour widget splits punches by the shift's work, reading each deal's event type for marketing deals", async () => {
+  db.tables.deals.push({ ...deal({ id: 8, event_date: "2026-10-07" }), event_type: "Marketing Event" });
+  db.tables.shifts.push(
+    { id: 31, employee_id: SCOOPER, starts_at: "2026-10-06T16:00:00Z", ends_at: "2026-10-06T19:00:00Z", position: "Catering", deal_id: 1 },
+    { id: 32, employee_id: SCOOPER, starts_at: "2026-10-07T16:00:00Z", ends_at: "2026-10-07T18:00:00Z", position: "Catering", deal_id: 8 },
+  );
+  db.tables.time_entries.push(
+    { id: 2, employee_id: SCOOPER, clock_in_at: "2026-10-06T16:00:00Z", clock_out_at: "2026-10-06T19:00:00Z", shift_id: 31, status: "closed", manual: false },
+    { id: 3, employee_id: SCOOPER, clock_in_at: "2026-10-07T16:00:00Z", clock_out_at: "2026-10-07T18:00:00Z", shift_id: 32, status: "closed", manual: false },
+  );
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const week = data.labour?.weeks.at(-1);
+  assert.equal(week?.inStoreHours, 4);
+  assert.equal(week?.cateringHours, 3);
+  assert.equal(week?.marketingHours, 2, "a Catering shift on a marketing deal is marketing work");
+  assert.equal(week?.marketingHourlyCost, 30);
 });
 
 // ---- Labor vs target (bj-finance #696) ------------------------------------------------------
@@ -185,7 +203,7 @@ test("clocked hours reach the labour widget, costed at the hourly rate", async (
 const SEPT_WEEK = ["2026-09-06", "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-12"];
 
 function seedLaborTarget() {
-  // Invented: payroll 25% of 100,000; taxes and comp 25% of wages; nobody salaried. A 20% hourly goal, 25% with taxes and comp.
+  // Invented: payroll 25% of 100,000; taxes and comp 25% of wages; nobody salaried.
   const setting = (id: number, key: string, value: number, detail: Record<string, unknown> = {}) => ({
     id, key, value, detail, effective_from: "2026-01-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-01-01T00:00:00Z",
   });
@@ -199,11 +217,11 @@ function seedLaborTarget() {
     setting(7, "tax.workers_comp", 1),
   ];
   db.tables.profile_salaries = [];
-  // Each day 10 hours and 160 paid (as PostgREST sends numerics: strings), 200 with taxes and comp; sales 700 a day.
+  // Each day 10 hours and 160 paid (as PostgREST sends numerics: strings), 200 with taxes and comp; sales 600 in-store + 100 delivery a day.
   db.tables.labor_daily_actuals = SEPT_WEEK.map((day) => ({
     day, hours: "10.00", wages: "150.00", catering_premium: "0.00", solo_close: "10.00", catering_hours: "0.00", catering_wages: "0.00", marketing_hours: "0.00", marketing_wages: "0.00", period_start: "2026-08-31", period_end: "2026-09-13", source: "punches", built_by: "test", updated_at: "2026-09-15T00:00:00Z",
   }));
-  db.tables.sales_daily_in_store = SEPT_WEEK.map((day) => ({ day, in_store: "700.00", basis: "booked", source: "square" }));
+  db.tables.sales_daily_in_store = SEPT_WEEK.map((day) => ({ day, in_store: "600.00", delivery: "100.00", basis: "booked", source: "square" }));
 }
 
 test("labor vs target: every week on offer, the last 8 over by default, from the paid actuals, the daily sales and the board", async () => {
@@ -220,6 +238,11 @@ test("labor vs target: every week on offer, the last 8 over by default, from the
   const [first, second] = data.laborTarget!.weeks.slice(i, i + 2);
   assert.equal(first.available, true);
   assert.equal(first.sales, 4_900);
+  assert.equal(first.inStoreSales, 4_200);
+  assert.equal(first.deliverySales, 700);
+  assert.equal(first.cateringSales, 0);
+  assert.equal(first.hourly, 1_400);
+  assert.equal(first.salaried, 0);
   assert.equal(first.actual, 1_400);
   assert.equal(first.targetPct.value, 0.25);
   assert.equal(first.varianceDollars, 1_400 - 1_225);
@@ -235,7 +258,7 @@ function laborDay(day: string, over: Record<string, unknown>) {
   Object.assign(rows.find((r) => r.day === day)!, over);
 }
 
-test("labor vs target: the catering work recorded on a day comes off at what it was paid, premium and all, all-in", async () => {
+test("labor vs target: the catering work recorded on a day counts, premium and all, all-in", async () => {
   seedLaborTarget();
   // Invented: Tuesday the 8th, 4 of its 10 hours catering, paid 60 and 20 of premium (as PostgREST sends numerics).
   laborDay("2026-09-08", { catering_hours: "4.00", catering_wages: "60.00", catering_premium: "20.00" });
@@ -244,9 +267,9 @@ test("labor vs target: the catering work recorded on a day comes off at what it 
   const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true, first.why.join("; "));
   assert.equal(first.cateringHours, 4);
-  assert.equal(first.cateringOffset, 100);
-  assert.equal(first.actual, 1_325);
-  assert.equal(first.varianceDollars, 1_325 - 1_225);
+  assert.equal(first.cateringCost, 100);
+  assert.equal(first.actual, 1_425); // the 20 of premium x 1.25 on top; the 60 of wages was always in the 150
+  assert.equal(first.varianceDollars, 1_425 - 1_225);
 });
 
 test("labor vs target: the marketing work recorded on a day comes off at what it was paid, all-in", async () => {
@@ -272,7 +295,7 @@ test("labor vs target: a day the marketing split has not reached reads n/a, neve
   assert.deepEqual(first.why, ["catering and marketing work not yet split out of the payroll for 1 of 7 days"]);
 });
 
-test("labor vs target: booked deals never change a week, a deal with no billed crew hours or a drop-off with no crew included", async () => {
+test("labor vs target: booked deals add their sales on the event day and never the labor, a deal with no billed crew hours or a drop-off with no crew included", async () => {
   seedLaborTarget();
   db.tables.control_settings.push({
     id: 8, key: "rule.catering_premium", value: 5, detail: { cap_rate: null }, effective_from: "2026-01-01", review_by: "2027-12-31", source: "invented", method: null, recorded_by: null, recorded_at: "2026-01-01T00:00:00Z",
@@ -285,8 +308,27 @@ test("labor vs target: booked deals never change a week, a deal with no billed c
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
   const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true, first.why.join("; "));
+  assert.equal(first.cateringSales, 3_000); // 1,000 before tax each, by event date
+  assert.equal(first.sales, 7_900);
   assert.equal(first.cateringHours, 0);
   assert.equal(first.actual, 1_400);
+  assert.equal(first.targetDollars, 7_900 * 0.25);
+});
+
+test("labor vs target: a day from before migration 61 (delivery null) reads n/a for its week, never as zero delivery", async () => {
+  seedLaborTarget();
+  const rows = db.tables.sales_daily_in_store as Record<string, unknown>[];
+  rows.find((r) => r.day === "2026-09-10")!.delivery = null;
+  const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
+  const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
+  assert.equal(first.available, false);
+  assert.equal(first.sales, null);
+  assert.deepEqual(first.why, ["delivery sales on file for 6 of 7 days"]);
+});
+
+test("deals are read from the earlier of the page's first month and Labor vs target's first week", () => {
+  assert.equal(dealsFrom("2026-10-10"), "2025-11-01"); // the page's twelve months reach further back
+  assert.equal(dealsFrom("2028-06-01"), "2026-05-03"); // the first week under Withers is earlier
 });
 
 test("labor vs target: a day bj-finance has not split yet reads n/a for its week, never zero", async () => {
@@ -304,7 +346,8 @@ test("labor vs target: a day bj-finance has not split yet reads n/a for its week
 
 test("labor vs target: a week's fixed payroll is the people salaried that week, hired later out and archived later in", async () => {
   seedLaborTarget();
-  // Invented: one salaried person hired Oct 1 (their only salary row starts then), one archived Oct 1 on 10,000 a year.
+  // Invented: one salaried person hired Oct 1 (their only salary row starts then), one archived Oct 1 on 10,000 a year:
+  // 12,500 a year with taxes and comp, a 365th of it a day.
   db.tables.profiles.push(
     { id: "p-new", role: "manager", active: true, full_name: "Hired In October", hourly_rate: null, pay_type: "salaried", archived_at: null, is_overhead: false },
     { id: "p-gone", role: "manager", active: false, full_name: "Left In October", hourly_rate: null, pay_type: "salaried", archived_at: "2026-10-01T15:00:00Z", is_overhead: false },
@@ -316,8 +359,9 @@ test("labor vs target: a week's fixed payroll is the people salaried that week, 
   const data = buildMetricsData(await loadMetricsInputs(managerClient(), NOW));
   const first = data.laborTarget!.weeks.find((w) => w.start === "2026-09-06")!;
   assert.equal(first.available, true, first.why.join("; "));
-  // 25,000 of payroll target less 10,000 x 1.25 of fixed payroll = 12,500 of 100,000.
-  assert.equal(first.targetPct.value, 0.125);
+  assert.ok(Math.abs(first.salaried! - (7 * 12_500) / 365) < 1e-9, String(first.salaried));
+  assert.ok(Math.abs(first.actual! - (1_400 + (7 * 12_500) / 365)) < 1e-9, String(first.actual));
+  assert.equal(first.targetPct.value, 0.25); // the payroll target, whoever is salaried
 });
 
 test("labor vs target: when the paid actuals cannot be read the card cannot load and says so; the rest still draws", async () => {

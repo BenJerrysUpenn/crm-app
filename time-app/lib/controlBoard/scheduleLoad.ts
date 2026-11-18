@@ -19,7 +19,7 @@ import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons"
 import { BOOKED_STAGES, billedCrewHours, eventDay, isBooked, type DealRow } from "@/lib/metrics/catering";
 import { loadBoard } from "./load";
 import { trendFactor } from "./math";
-import { addDays, isMarketingDeal, scheduleLabor, type CateringBooking, type LaborPerson, type LaborShift, type ScheduleLabor } from "./schedule";
+import { addDays, DELIVERY_SHARE_DAYS, deliveryShare, isMarketingDeal, scheduleLabor, type CateringBooking, type LaborPerson, type LaborShift, type ScheduleLabor } from "./schedule";
 
 export type ScheduleLaborLoad = { ready: true; labor: ScheduleLabor; problems: string[] } | { ready: false; reason: string };
 
@@ -70,11 +70,14 @@ export async function loadScheduleLabor(
 
   const dealIds = [...new Set(week.shifts.map((s) => s.deal_id).filter((id): id is number => id != null))];
 
-  const [absentRes, lastYearRes, marketing, closedDays] = await Promise.all([
+  // The delivery share: the four weeks before the week (or before today, for a week still ahead).
+  const shareTo = addDays(trendDay, -1);
+  const [absentRes, lastYearRes, recentRes, marketing, closedDays] = await Promise.all([
     absent.length
       ? supabase.from("profiles").select(PROFILE_COLUMNS).in("id", absent)
       : Promise.resolve({ data: [], error: null }),
-    supabase.from("sales_daily_in_store").select("day, in_store").gte("day", addDays(weekStart, -364)).lte("day", addDays(weekEnd, -364)),
+    supabase.from("sales_daily_in_store").select("day, in_store, delivery").gte("day", addDays(weekStart, -364)).lte("day", addDays(weekEnd, -364)),
+    supabase.from("sales_daily_in_store").select("day, in_store, delivery").gte("day", addDays(shareTo, 1 - DELIVERY_SHARE_DAYS)).lte("day", shareTo),
     loadMarketingDeals(supabase, dealIds),
     loadClosedDays(supabase, dates),
   ]);
@@ -82,9 +85,16 @@ export async function loadScheduleLabor(
   if (absentRes.error) problems.push(`Staff on this week's shifts could not be read: ${absentRes.error.message}`);
   for (const p of (absentRes.data as ProfileLike[] | null) ?? []) people.set(p.id, laborPerson(p));
 
+  type SalesRow = { day: string; in_store: number | string; delivery: number | string | null };
   const inStoreByDay = new Map<string, number>();
+  const deliveryByDay = new Map<string, number>();
   if (lastYearRes.error) problems.push(`Last year's daily sales could not be read: ${lastYearRes.error.message}`);
-  for (const r of (lastYearRes.data as { day: string; in_store: number | string }[] | null) ?? []) inStoreByDay.set(r.day, Number(r.in_store));
+  for (const r of (lastYearRes.data as SalesRow[] | null) ?? []) {
+    inStoreByDay.set(r.day, Number(r.in_store));
+    if (r.delivery != null) deliveryByDay.set(r.day, Number(r.delivery));
+  }
+  if (recentRes.error) problems.push(`Recent daily sales could not be read, so last year's delivery is not known: ${recentRes.error.message}`);
+  const share = deliveryShare(((recentRes.data as SalesRow[] | null) ?? []).map((r) => ({ in_store: Number(r.in_store), delivery: r.delivery == null ? null : Number(r.delivery) })));
 
   if (marketing.problem) problems.push(marketing.problem);
   if (closedDays.problem) problems.push(closedDays.problem);
@@ -99,6 +109,8 @@ export async function loadScheduleLabor(
     salaried: board.salaried,
     trend: trendFactor(trendDay, board.monthly, board.daily),
     inStoreByDay,
+    deliveryByDay,
+    deliveryShare: share,
     marketingDeals: marketing.ids,
     closedDays: closedDays.closed,
   });

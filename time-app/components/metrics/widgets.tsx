@@ -11,10 +11,10 @@ import type { MetricsData } from "@/lib/metrics/load";
 import type { WidgetSettings } from "@/lib/metrics/widgets";
 import { STREAM_LABEL, type StreamFilter } from "@/lib/metrics/targets";
 import { lastN, periodCount, salesByMonth, salesMonthToDate, streamNames, type SalesStream, type StreamDaily } from "@/lib/metrics/series";
-import { daysBetween, mondayOf, monthLabel, shortDay } from "@/lib/metrics/dates";
+import { daysBetween, weekOf, monthLabel, shortDay } from "@/lib/metrics/dates";
 import { conversion, LEAD_SOURCES } from "@/lib/metrics/funnel";
-import { feedInStoreByWeek, feedSales } from "@/lib/metrics/feed";
-import { labourPct, salesPerHour } from "@/lib/metrics/labour";
+import { feedSales } from "@/lib/metrics/feed";
+import { salesPerHour, type LabourWeek } from "@/lib/metrics/labour";
 import { addDays } from "@/lib/metrics/dates";
 import { laborTargetChart } from "@/lib/metrics/laborTargetChart";
 import type { LaborTargetWeek } from "@/lib/metrics/laborTarget";
@@ -28,13 +28,13 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 const STREAM_COLOR: Record<SalesStream, Series["color"]> = { in_store: "in_store", catering: "catering", concessions: "concessions" };
 
-function weekLabel(monday: string, today: string): string {
-  return mondayOf(today) === monday ? `${shortDay(monday)} (so far)` : shortDay(monday);
+function weekLabel(sunday: string, today: string): string {
+  return weekOf(today) === sunday ? `${shortDay(sunday)} (so far)` : shortDay(sunday);
 }
 
 /** The index of the week still in progress, drawn lighter. */
 function partialWeek(weeks: { week: string }[], today: string): number[] {
-  const i = weeks.findIndex((w) => w.week === mondayOf(today));
+  const i = weeks.findIndex((w) => w.week === weekOf(today));
   return i < 0 ? [] : [i];
 }
 
@@ -284,43 +284,43 @@ export function LabourWidget({ data, settings }: { data: MetricsData; settings: 
   const l = data.labour;
   if (!l) return <CouldNotLoad what="the time clock" />;
   const weeks = lastN(l.weeks, periodCount(settings.period));
-  const full = weeks.filter((w) => w.week !== mondayOf(data.today));
+  const full = weeks.filter((w) => w.week !== weekOf(data.today));
   const last = full[full.length - 1];
   const salaried = weeks.reduce((s, w) => s + w.salariedHours, 0);
   const noRate = weeks.reduce((s, w) => s + w.noRateHours, 0);
   const labels = weeks.map((w) => weekLabel(w.week, data.today));
   const dim = partialWeek(weeks, data.today);
-  const daily = data.feed.status === "ok" ? data.feed.daily : null;
-  const storeSales = daily ? feedInStoreByWeek(daily, full.map((w) => w.week)) : full.map(() => null);
-  const perHour = full.map((w, i) => salesPerHour(storeSales[i], w.inStoreHours));
-  const wagesByWeek = new Map((daily?.wages_by_week ?? []).map((w) => [w.week_start, w.wages + w.employer_tax]));
-  const pctByWeek = full.map((w, i) => {
-    const cost = wagesByWeek.get(w.week) ?? null;
-    const catering = Object.entries(data.catering?.byDay ?? {})
-      .filter(([d]) => d >= w.week && d <= addDays(w.week, 6))
-      .reduce((s, [, v]) => s + v, 0);
-    return labourPct(cost, storeSales[i] == null ? null : storeSales[i]! + catering);
-  });
+  // In-store + delivery sales for each week: the same weeks Labor vs target counts (sales history, migrations 41 and 61).
+  const salesByWeek = new Map(
+    (data.laborTarget?.weeks ?? []).map((w) => [w.start, w.inStoreSales != null && w.deliverySales != null ? w.inStoreSales + w.deliverySales : null]),
+  );
+  const perHour = full.map((w) => salesPerHour(salesByWeek.get(w.week) ?? null, w.inStoreHours));
+  const hourly = (w: LabourWeek) => w.inStoreHourlyCost + w.cateringHourlyCost + w.marketingHourlyCost;
   return (
     <div>
       <Tiles>
         <Tile label="In-store hours, last full week" value={formatValue(last?.inStoreHours ?? null, "hours")} sub={last ? `week of ${shortDay(last.week)}` : undefined} />
-        <Tile label="Catering hours, last full week" value={formatValue(last?.cateringHours ?? null, "hours")} />
-        <Tile label="Hourly labour $, last full week" value={money(last ? last.inStoreHourlyCost + last.cateringHourlyCost : null)} sub="hourly staff only" />
+        <Tile
+          label="Catering and marketing hours"
+          value={formatValue(last ? last.cateringHours + last.marketingHours : null, "hours")}
+          sub={last ? `${formatValue(last.cateringHours, "hours")} catering, ${formatValue(last.marketingHours, "hours")} marketing` : undefined}
+        />
+        <Tile label="Hourly labour $, last full week" value={money(last ? hourly(last) : null)} sub="hourly staff only" />
         <Tile
           label="Sales per scooper-hour"
           value={perHour[perHour.length - 1] == null ? "–" : money(perHour[perHour.length - 1])}
-          sub={daily ? "last full week, in-store" : "waiting on the finance feed"}
+          sub="last full week, in-store and delivery"
         />
       </Tiles>
       <div className="space-y-4">
         <Chart
           heading="Hours clocked per week"
-          title="Clocked hours by week, in-store and catering"
+          title="Clocked hours by week: in-store, catering and marketing"
           labels={labels}
           series={[
             { label: "In-store", values: weeks.map((w) => w.inStoreHours), color: "in_store" },
             { label: "Catering", values: weeks.map((w) => w.cateringHours), color: "catering" },
+            { label: "Marketing", values: weeks.map((w) => w.marketingHours), color: "orange" },
           ]}
           format="hours"
           stacked
@@ -335,6 +335,7 @@ export function LabourWidget({ data, settings }: { data: MetricsData; settings: 
           series={[
             { label: "In-store", values: weeks.map((w) => w.inStoreHourlyCost), color: "in_store" },
             { label: "Catering", values: weeks.map((w) => w.cateringHourlyCost), color: "catering" },
+            { label: "Marketing", values: weeks.map((w) => w.marketingHourlyCost), color: "orange" },
           ]}
           format="money"
           stacked
@@ -343,42 +344,35 @@ export function LabourWidget({ data, settings }: { data: MetricsData; settings: 
           emptyText="No hourly labour cost in this period."
           tableLabel="Week of"
         />
+        <Chart
+          heading="Sales per scooper-hour"
+          title="In-store and delivery sales per clocked in-store hour, by week"
+          labels={full.map((w) => shortDay(w.week))}
+          series={[{ label: "Sales per scooper-hour", values: perHour, color: "in_store" }]}
+          format="money"
+          height={200}
+          emptyText="Sales per scooper-hour appears once a week's in-store and delivery sales are on file."
+          tableLabel="Week of"
+        />
       </div>
-      {daily && perHour.some((v) => v != null) ? (
-        <div className="grid gap-4 md:grid-cols-2 mt-4">
-          <Chart
-            heading="Sales per scooper-hour (in-store)"
-            title="In-store sales per clocked in-store hour, by week"
-            labels={full.map((w) => shortDay(w.week))}
-            series={[{ label: "Sales per scooper-hour", values: perHour, color: "in_store" }]}
-            format="money"
-            height={200}
-            tableLabel="Week of"
-          />
-          <Chart
-            heading="Labour % of sales"
-            title="Wages and employer tax as a share of sales, by week"
-            labels={full.map((w) => shortDay(w.week))}
-            series={[{ label: "Labour %", values: pctByWeek, color: "orange" }]}
-            format="pct"
-            height={200}
-            emptyText="Labour % appears when the feed publishes weekly wages."
-            tableLabel="Week of"
-          />
-        </div>
-      ) : (
-        <WaitingOnFeed what="Sales per scooper-hour (B&J benchmark $200-250 with one scooper) and labour % need in-store sales from the feed." />
-      )}
       <Method>
+        <p>
+          Weeks run Sunday to Saturday, as the schedule does, and are named by their Sunday. The lighter bar is the week in progress.
+        </p>
+        <p>
+          A punch counts by its shift: a Marketing shift or any shift on a marketing deal is marketing; otherwise a Catering shift is
+          catering; everything else is in-store. A punch with no shift is in-store, except the part that overlaps the same
+          person&rsquo;s catering or marketing shift that has no punch of its own. The Schedule page and Labor vs target use the
+          same rule.
+        </p>
         <p>
           Labour $ from the time clock is a floor, not total labour. It leaves out the salaried GM ({formatValue(salaried, "hours")} in
           this period, paid by salary), anyone with no hourly rate such as the owners ({formatValue(noRate, "hours")}), and employer tax.
+          Labor vs target has the full cost.
         </p>
-        <p>A punch counts as catering when its shift belongs to a catering deal. The lighter bar is the week in progress.</p>
         <p>
-          Sales per scooper-hour = in-store sales (with delivery) from the feed / in-store hours clocked; B&amp;J benchmark $200-250 with one
-          scooper, $400-500 with two. Labour % = the week&rsquo;s wages and employer tax from the feed, salaried GM included / the week&rsquo;s
-          sales, catering by event date.
+          Sales per scooper-hour = in-store sales (register and online pickup) + delivery sales / in-store hours clocked, the GM&rsquo;s
+          and owners&rsquo; included. B&amp;J benchmark $200-250 with one scooper, $400-500 with two.
         </p>
         {l.openPunches > 0 && <p>{plural(l.openPunches, "punch", "punches")} still open and not counted.</p>}
       </Method>
@@ -395,7 +389,7 @@ export function LeadsWidget({ data, settings }: { data: MetricsData; settings: W
   if (!data.leads) return <CouldNotLoad what="catering deals" />;
   const weeks = lastN(data.leads, periodCount(settings.period));
   const total = weeks.reduce((s, w) => s + w.total, 0);
-  const full = weeks.filter((w) => w.week !== mondayOf(data.today));
+  const full = weeks.filter((w) => w.week !== weekOf(data.today));
   return (
     <div>
       <Tiles>
@@ -511,15 +505,17 @@ const NA = <span className="text-slate-400 dark:text-slate-500">n/a</span>;
 /** The week column stays in view while a phone scrolls the table sideways. */
 const STICKY = "sticky left-0 bg-white dark:bg-slate-900";
 
-/** Work recorded and taken off a week's labor, as paid: "10 h, $313 all-in"; blank when none. */
-function takenOff(hours: number | null, offset: number | null): string {
-  if (hours == null || hours <= 0 || offset == null) return "";
-  return `${formatValue(hours, "hours")}, ${money(offset)} all-in`;
+/** Work recorded on a week, as paid: "10 h, $313 all-in"; blank when none. */
+function workCost(hours: number | null, cost: number | null): string {
+  if (hours == null || hours <= 0 || cost == null) return "";
+  return `${formatValue(hours, "hours")}, ${money(cost)} all-in`;
 }
 
 /** The card's numbers, one row per week: behind "Show numbers" under the chart. */
 export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; range: WeekRange }) {
   const cell = "py-1.5 pl-3 text-right whitespace-nowrap";
+  const plain = `${cell} text-slate-900 dark:text-slate-100`;
+  const head = "py-1 pl-3 font-medium text-right whitespace-nowrap";
   return (
     <div className="overflow-x-auto max-w-full">
       <table className="w-full text-sm tabular-nums">
@@ -527,14 +523,19 @@ export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; r
         <thead>
           <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
             <th scope="col" className={`${STICKY} py-1 pr-3 font-medium`}>Week</th>
-            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Sales</th>
-            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Hourly labor, all-in</th>
-            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Actual %</th>
-            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Target %, all-in</th>
-            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance $</th>
-            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Variance hours</th>
-            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Catering work taken off</th>
-            <th scope="col" className="py-1 pl-3 font-medium text-right whitespace-nowrap">Marketing work taken off</th>
+            <th scope="col" className={head}>Sales</th>
+            <th scope="col" className={head}>In-store</th>
+            <th scope="col" className={head}>Delivery</th>
+            <th scope="col" className={head}>Catering</th>
+            <th scope="col" className={head}>All labor</th>
+            <th scope="col" className={head}>Hourly</th>
+            <th scope="col" className={head}>Salaried</th>
+            <th scope="col" className={head}>Actual %</th>
+            <th scope="col" className={head}>Target %</th>
+            <th scope="col" className={head}>Variance $</th>
+            <th scope="col" className={head}>Variance hours</th>
+            <th scope="col" className={head}>Catering crew (counted)</th>
+            <th scope="col" className={head}>Marketing work taken off</th>
           </tr>
         </thead>
         <tbody>
@@ -546,14 +547,19 @@ export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; r
                 <th scope="row" className={`${STICKY} py-1.5 pr-3 text-left font-normal text-slate-600 dark:text-slate-300 whitespace-nowrap`}>
                   {sunSatLabel(w.start, w.end)}
                 </th>
-                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.sales == null ? NA : money(w.sales)}</td>
-                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.actual == null ? NA : money(w.actual)}</td>
-                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.actualPct == null ? NA : formatValue(w.actualPct, "pct")}</td>
-                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{w.targetPct.value == null ? NA : formatValue(w.targetPct.value, "pct")}</td>
+                <td className={plain}>{w.sales == null ? NA : money(w.sales)}</td>
+                <td className={plain}>{w.inStoreSales == null ? NA : money(w.inStoreSales)}</td>
+                <td className={plain}>{w.deliverySales == null ? NA : money(w.deliverySales)}</td>
+                <td className={plain}>{w.cateringSales == null ? NA : money(w.cateringSales)}</td>
+                <td className={plain}>{w.actual == null ? NA : money(w.actual)}</td>
+                <td className={plain}>{w.hourly == null ? NA : money(w.hourly)}</td>
+                <td className={plain}>{w.salaried == null ? NA : money(w.salaried)}</td>
+                <td className={plain}>{w.actualPct == null ? NA : formatValue(w.actualPct, "pct")}</td>
+                <td className={plain}>{w.targetPct.value == null ? NA : formatValue(w.targetPct.value, "pct")}</td>
                 <td className={`${cell} ${tone}`}>{w.varianceDollars == null ? NA : signed(w.varianceDollars, "money")}</td>
                 <td className={`${cell} ${tone}`}>{w.varianceHours == null ? NA : signed(w.varianceHours, "hours")}</td>
-                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{takenOff(w.cateringHours, w.cateringOffset)}</td>
-                <td className={`${cell} text-slate-900 dark:text-slate-100`}>{takenOff(w.marketingHours, w.marketingOffset)}</td>
+                <td className={plain}>{workCost(w.cateringHours, w.cateringCost)}</td>
+                <td className={plain}>{workCost(w.marketingHours, w.marketingOffset)}</td>
               </tr>
             );
           })}
@@ -565,10 +571,10 @@ export function LaborTargetTable({ weeks, range }: { weeks: LaborTargetWeek[]; r
 
 export function LaborTargetWidget({ data, settings }: { data: MetricsData; settings: WidgetSettings }) {
   const lt = data.laborTarget;
-  if (!lt) return <CouldNotLoad what="hourly payroll, daily sales or the control board" />;
+  if (!lt) return <CouldNotLoad what="hourly payroll, daily sales, catering bookings or the control board" />;
   const range = shownRange(settings, lt);
   const weeks = lt.weeks.filter((w) => w.start >= range.from && w.start <= range.to);
-  const goals = [...new Set(weeks.map((w) => w.allInGoalPct.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
+  const goals = [...new Set(weeks.map((w) => w.goalPct.value).filter((v): v is number => v != null).map((v) => formatValue(v, "pct")))];
   const unavailable = weeks.filter((w) => !w.available);
   const c = laborTargetChart(weeks);
   const t = c.totals;
@@ -579,21 +585,21 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
       {t.complete > 0 && (
         <Tiles>
           <Tile label="Actual %, complete weeks" value={formatValue(t.actualPct, "pct")} sub={counted} />
-          <Tile label="Target %, all-in" value={formatValue(t.targetPct, "pct")} sub="same weeks, by sales" />
+          <Tile label="Target %" value={formatValue(t.targetPct, "pct")} sub="payroll target, same weeks" />
           <Tile
             label={t.varianceDollars! > 0 ? "Over target" : t.varianceDollars! < 0 ? "Under target" : "Variance $"}
             value={signed(t.varianceDollars!, "money")}
-            sub="hourly labor vs target $"
+            sub="all labor vs target $"
           />
-          <Tile label="Variance hours" value={t.varianceHours == null ? "–" : signed(t.varianceHours, "hours")} sub="at each week's cost per hour" />
+          <Tile label="Variance hours" value={t.varianceHours == null ? "–" : signed(t.varianceHours, "hours")} sub="at each week's hourly cost per hour" />
         </Tiles>
       )}
       <Chart
-        title={`Hourly labor all-in as a share of in-store sales, weeks of ${span} by their Sunday, against the all-in target`}
+        title={`All labor as a share of sales, weeks of ${span} by their Sunday, against the payroll target`}
         labels={c.labels}
         series={[
           { label: "Actual %", values: c.actualPct, color: "in_store", highlight: { indexes: c.over, color: "serious", label: "Over target" } },
-          { label: "Target %, all-in", values: c.targetPct, color: "target", type: "line", dashed: true },
+          { label: "Target %", values: c.targetPct, color: "target", type: "line", dashed: true },
         ]}
         format="pct"
         gaps={c.gaps}
@@ -615,49 +621,43 @@ export function LaborTargetWidget({ data, settings }: { data: MetricsData; setti
       )}
       <Method>
         <p>
+          The same test the Targets tab sets: everything the store pays its people, with employer taxes and workers&rsquo; comp, as a
+          share of everything it sells, against the payroll target.
+        </p>
+        <p>
           Weeks run Sunday to Saturday and are named by their Sunday; the card covers every week from the first chosen to the last
           (until a range is chosen, the last 8 weeks that are over). Choosing a month sets the range to the weeks whose Sunday is in
-          that month. Sales are in-store sales for all seven days. A week
-          shows only once it is over and every one of its seven days has hourly payroll on file; a day missing from the payroll or the
-          sales makes that week not available. Nothing is estimated from punches or the schedule.
+          that month. A week shows only once it is over and every one of its seven days has hourly payroll and sales on file; a day
+          missing makes that week not available. Nothing is estimated from punches or the schedule.
         </p>
         <p>
-          Both sides are all-in: payroll cost with employer taxes and workers&rsquo; comp, not just wages.
+          Sales = in-store (register and online pickup) + delivery (DoorDash, Uber Eats, Grubhub, by payout date) + booked catering by
+          event date, before tax. Delivery counts because the scoopers make those orders.
         </p>
         <p>
-          Hourly labor, all-in = wages, catering premium and solo-close bonuses as QBO Payroll paid them to hourly staff (salaried and
-          overhead staff are left out), each pay period spread over its days by hours worked, less all catering and marketing work, plus employer
-          taxes and workers&rsquo; comp on the rest at the Targets tab&rsquo;s rates in force on each day (FICA, FUTA, PA UC and
-          workers&rsquo; comp, full rates, no wage caps).
+          All labor = hourly + salaried. Hourly = wages, catering premium and solo-close bonuses as QBO Payroll paid them to hourly
+          staff, catering crews included, each pay period spread over its days by hours worked, plus employer taxes and workers&rsquo;
+          comp at the Targets tab&rsquo;s rates in force on each day (full rates, no wage caps). Salaried = the Targets tab&rsquo;s fixed
+          payroll (the salaried GM&rsquo;s pay with taxes and comp) for the people salaried each day, a 365th of the year a day. The
+          owners are not paid, so they are not in it.
         </p>
         <p>
-          Catering work = the hours the clock says were worked on catering (When I Work&rsquo;s Catering position before the time app,
-          punches on Catering shifts after), each person&rsquo;s at their own paid rate, plus the whole catering premium. Catering is
-          billed to the client separately, so it never counts in the labor %; sales are in-store only, so it is out of both sides. The
-          hours a quote billed are not used, so a pickup, a drop-off or a deal with no crew on file changes nothing. A day whose
-          catering is not yet split out of the payroll makes its week not available. &ldquo;Show numbers&rdquo; lists each
-          week&rsquo;s catering work taken off, hours and all-in $.
+          Marketing work (punches on Marketing shifts and on any shift of a marketing deal) has its own budget and no sales of its own,
+          so it is taken off at the hours worked. &ldquo;Show numbers&rdquo; lists each week&rsquo;s catering crew cost (counted) and
+          marketing work (taken off).
         </p>
         <p>
-          Marketing work = the hours the clock says were worked on marketing (punches on Marketing shifts and on any shift of a
-          marketing deal, When I Work&rsquo;s Marketing position before the time app), each person&rsquo;s at their own paid rate.
-          Marketing has its own budget, so it never counts in the labor % either, and its hours are never also counted as catering.
-          A day whose marketing is not yet split out of the payroll makes its week not available. &ldquo;Show numbers&rdquo; lists
-          each week&rsquo;s marketing work taken off, hours and all-in $.
+          Target % = the Targets tab&rsquo;s total payroll target in force on each day{goals.length ? ` (${goals.join(", ")} in these weeks)` : ""}.
         </p>
         <p>
-          Target %, all-in = the Targets tab&rsquo;s all-in hourly goal in force on each day (the payroll target less fixed payroll,
-          as a share of sales{goals.length ? `: ${goals.join(", ")} of sales in these weeks` : ""}). Each day&rsquo;s sales are held to
-          that day&rsquo;s target, and fixed payroll on a day counts the people who were salaried that day.
+          Variance $ = all labor less target % x sales; above zero (red) is over target. Variance hours = variance $ at the
+          week&rsquo;s own hourly cost per hour (hourly labor / hours paid less marketing hours): the hourly hours the schedule would
+          need to lose or could add.
         </p>
         <p>
-          Variance $ = hourly labor less target % x sales; above zero (red) is over target. Variance hours = variance $ at the
-          week&rsquo;s own in-store cost per hour (hourly labor / hours paid less the catering and marketing hours worked).
-        </p>
-        <p>
-          On the chart each bar is a week&rsquo;s actual % (hourly labor, all-in / sales), red when the week is over target, and the
-          dashed line is its target %. A week marked n/a has no bar. The figures above the chart add up the complete weeks only: actual
-          % and target % are their summed dollars over their summed sales.
+          On the chart each bar is a week&rsquo;s actual %, red when the week is over target, and the dashed line is its target %. A
+          week marked n/a has no bar. The figures above the chart add up the complete weeks only: actual % and target % are their
+          summed dollars over their summed sales.
         </p>
       </Method>
     </div>
