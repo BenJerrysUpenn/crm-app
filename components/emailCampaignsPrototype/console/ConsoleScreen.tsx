@@ -208,12 +208,13 @@ function Popover({ pop, onClose }: { pop: Pop; onClose: () => void }) {
       document.removeEventListener("mousedown", down);
     };
   }, [onClose, pop.rect]);
+  const top = Math.min(pop.rect.bottom + 6, window.innerHeight - 80);
   const style = phone
     ? undefined
     : {
-        top: Math.min(pop.rect.bottom + 6, window.innerHeight - 80),
+        top,
         left: Math.max(8, Math.min(pop.rect.left, window.innerWidth - 400)),
-        maxHeight: window.innerHeight - Math.min(pop.rect.bottom + 6, window.innerHeight - 80) - 8,
+        maxHeight: window.innerHeight - top - 8,
       };
   return (
     <div
