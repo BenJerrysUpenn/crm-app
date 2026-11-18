@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { buildLoopLive, emptyLoop, limitsOf, outcomesOf, type LiveRows } from "@/lib/emailCampaignsPrototype/console/loopLive";
 import { loopItems } from "@/lib/emailCampaignsPrototype/console/loop";
-import { doneWords, rpcFor } from "@/lib/emailCampaignsPrototype/console/loopActions";
+import { doneWords, rpcFor, saveOutcome } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import type { OutcomeEvent } from "@/lib/emailCampaignsPrototype/console/load";
 
 // Tuesday 17 Nov 2026, 3pm in New York.
@@ -255,5 +255,25 @@ describe("rpcFor and doneWords", () => {
     expect(doneWords({ action: "release", draft: 1 })).toMatch(/^Released\..*goes out in its next send time/);
     expect(doneWords({ action: "pause", reason: "" })).toMatch(/^Paused\..*sends nothing until you resume/);
     expect(doneWords({ action: "resume" })).toMatch(/^Resumed\..*picks up at its next send time/);
+  });
+});
+
+describe("saveOutcome", () => {
+  const resume = { action: "resume" } as const;
+  const answer = (ok: boolean, redirected = false, statusText = "") => ({ ok, redirected, statusText });
+  it("counts an action saved only on the route's own {ok: true}", () => {
+    expect(saveOutcome(resume, answer(true), { ok: true })).toEqual({ saved: true, words: "Resumed. The sender picks up at its next send time." });
+  });
+  it("is not saved when a lapsed login answers with the sign-in page (a redirected 200)", () => {
+    expect(saveOutcome(resume, answer(true, true), {})).toEqual({ saved: false, words: "Not saved: you are signed out. Sign in again and retry." });
+  });
+  it("is not saved on a 200 that is not the route's {ok: true}", () => {
+    expect(saveOutcome(resume, answer(true), {})).toEqual({ saved: false, words: "Not saved: no answer from the server" });
+  });
+  it("says the route's own refusal when it gives one", () => {
+    expect(saveOutcome(resume, answer(false, false, "Forbidden"), { error: "permission denied" })).toEqual({ saved: false, words: "Not saved: permission denied" });
+  });
+  it("falls back to the HTTP status text when the route gives no reason", () => {
+    expect(saveOutcome(resume, answer(false, false, "Bad Gateway"), {})).toEqual({ saved: false, words: "Not saved: Bad Gateway" });
   });
 });

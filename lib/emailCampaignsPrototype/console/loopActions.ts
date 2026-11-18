@@ -32,6 +32,19 @@ export function rpcFor(body: unknown): { fn: string; args: Record<string, unknow
   }
 }
 
+/** What the route's answer to one action means: saved or not, and the
+ * toast's words. Only the route's own {ok: true} counts: a lapsed login is
+ * answered by a redirect to the sign-in page, which is a 200 too. */
+export function saveOutcome(
+  a: LoopAction,
+  r: { ok: boolean; redirected: boolean; statusText: string },
+  j: { ok?: boolean; error?: string },
+): { saved: boolean; words: string } {
+  if (!r.ok || r.redirected || j.ok !== true)
+    return { saved: false, words: `Not saved: ${j.error ?? (r.redirected ? "you are signed out. Sign in again and retry." : r.statusText || "no answer from the server")}` };
+  return { saved: true, words: doneWords(a) };
+}
+
 /** What the toast says once an action is saved. */
 export function doneWords(a: LoopAction): string {
   switch (a.action) {

@@ -34,7 +34,7 @@ import { HELD_REASON_SHORT, type HeldReason, type TierKey } from "@/lib/emailCam
 import { Badge, Bullet, FunnelIcon, Glyph, LEVEL_BORDER, LEVEL_TEXT, NoData, Rate, Spark, SyntheticTag } from "./bits";
 import { SalesBuilt, SalesLaneSection, SalesMailboxRows, SalesPanelBody, SalesSendLine, type SalesWindow } from "./SalesBits";
 import type { LoopFacts } from "@/lib/emailCampaignsPrototype/console/loop";
-import { doneWords, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
+import { saveOutcome, type LoopAct, type LoopAction } from "@/lib/emailCampaignsPrototype/console/loopActions";
 import {
   ApproachBody,
   EmailBody,
@@ -227,15 +227,10 @@ export default function ConsoleScreen({ facts: f, loop: L, items, idle, scenario
       try {
         const r = await fetch("/api/email-campaigns/loop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a) });
         const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-        // Only the route's own {ok: true} counts: a lapsed login is answered
-        // by a redirect to the sign-in page, which is a 200 too.
-        if (!r.ok || r.redirected || j.ok !== true) {
-          say(`Not saved: ${j.error ?? (r.redirected ? "you are signed out. Sign in again and retry." : r.statusText || "no answer from the server")}`);
-          return false;
-        }
-        say(doneWords(a));
-        router.refresh();
-        return true;
+        const out = saveOutcome(a, r, j);
+        say(out.words);
+        if (out.saved) router.refresh();
+        return out.saved;
       } catch (e) {
         say(`Not saved: ${e instanceof Error ? e.message : String(e)}`);
         return false;
