@@ -96,6 +96,9 @@ function parentOf(n: Nav): Nav {
   return { dim: n.dim };
 }
 
+/** How many console levels deep the current history entry is (0 when the entry has none). */
+const consoleDepth = () => Number((window.history.state as { consoleDepth?: number } | null)?.consoleDepth ?? 0);
+
 function useNav() {
   const sp = useSearchParams();
   const pathname = usePathname();
@@ -116,14 +119,14 @@ function useNav() {
       // How many console levels deep this entry is rides in history.state, so
       // the browser's own Back and Forward keep it right (a counter here
       // drifted on Back, and Esc then left the console).
-      const depth = Number((window.history.state as { consoleDepth?: number } | null)?.consoleDepth ?? 0);
+      const depth = consoleDepth();
       if (mode === "push") window.history.pushState({ consoleDepth: depth + 1 }, "", href(n));
       else window.history.replaceState({ consoleDepth: depth }, "", href(n));
     },
     [href, dimNow],
   );
   const pop = useCallback(() => {
-    const depth = Number((window.history.state as { consoleDepth?: number } | null)?.consoleDepth ?? 0);
+    const depth = consoleDepth();
     if (depth > 0) window.history.back();
     else window.history.replaceState({ consoleDepth: 0 }, "", href(parentOf(nav)));
   }, [href, nav]);
