@@ -207,15 +207,20 @@ describe("limitsOf and outcomesOf", () => {
     expect(limitsOf(null)).toBeNull();
     expect(limitsOf({})).toBeNull();
   });
-  it("matches a booking by email, case-insensitively, after the send only", () => {
+  const sentTo1 = [{ sequence_id: 1, prospect_id: 1, touch: 1, send_on: "2026-11-16", customer_type: "warm:x", approach_id: "a", subject: "s", done_at: "2026-11-16T15:00:00Z", event_id: 1 }];
+  it("matches a booking to the email's person whatever the case of either address", () => {
+    const o = outcomesOf(sentTo1, [], [{ contact_email: "p1@EXAMPLE.test", stage: "Booked Unpaid", created_at: "2026-11-17T00:00:00Z" }], new Map([[1, "P1@example.test"]]));
+    expect(o).toEqual([{ reply: false, lead: false, booking: true }]);
+  });
+  it("counts no booking made before the send, and no deal that is not booked", () => {
     const o = outcomesOf(
-      [{ sequence_id: 1, prospect_id: 1, touch: 1, send_on: "2026-11-16", customer_type: "warm:x", approach_id: "a", subject: "s", done_at: "2026-11-16T15:00:00Z", event_id: 1 }],
+      sentTo1,
       [],
       [
-        { contact_email: "p1@EXAMPLE.test", stage: "Booked Unpaid", created_at: "2026-11-10T00:00:00Z" },
+        { contact_email: "p1@example.test", stage: "Booked Unpaid", created_at: "2026-11-10T00:00:00Z" },
         { contact_email: "p1@example.test", stage: "Lead", created_at: "2026-11-17T00:00:00Z" },
       ],
-      new Map([[1, "P1@example.test"]]),
+      new Map([[1, "p1@example.test"]]),
     );
     expect(o).toEqual([{ reply: false, lead: false, booking: false }]);
   });
@@ -229,7 +234,7 @@ describe("emptyLoop", () => {
   });
 });
 
-describe("rpcFor", () => {
+describe("rpcFor and doneWords", () => {
   it("maps each of the five actions to its function", () => {
     expect(rpcFor({ action: "approve", approach: "party_first" })).toEqual({ fn: "outreach_loop_approve", args: { p_approach: "party_first" } });
     expect(rpcFor({ action: "hold", draft: 12, reason: "  Wrong name  " })).toEqual({ fn: "outreach_loop_hold", args: { p_draft: 12, p_reason: "Wrong name" } });
@@ -244,8 +249,11 @@ describe("rpcFor", () => {
     expect(rpcFor({ action: "send" })).toBeNull();
     expect(rpcFor(null)).toBeNull();
   });
-  it("has words for every action", () => {
-    for (const a of [{ action: "approve", approach: "x" }, { action: "hold", draft: 1, reason: "" }, { action: "release", draft: 1 }, { action: "pause", reason: "" }, { action: "resume" }] as const)
-      expect(doneWords(a)).toMatch(/\.$/);
+  it("tells the manager what each saved action does to the sending", () => {
+    expect(doneWords({ action: "approve", approach: "x" })).toMatch(/^Approved\..*go out in their next send times/);
+    expect(doneWords({ action: "hold", draft: 1, reason: "" })).toMatch(/^Held\..*will not send unless you release it/);
+    expect(doneWords({ action: "release", draft: 1 })).toMatch(/^Released\..*goes out in its next send time/);
+    expect(doneWords({ action: "pause", reason: "" })).toMatch(/^Paused\..*sends nothing until you resume/);
+    expect(doneWords({ action: "resume" })).toMatch(/^Resumed\..*picks up at its next send time/);
   });
 });
