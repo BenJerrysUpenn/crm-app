@@ -5,6 +5,7 @@ import { distanceMeters } from "@/lib/geo";
 import { getPendingReminders } from "@/lib/clockinReminders";
 import { NextResponse } from "next/server";
 import type { Location, TimeEntry } from "@/lib/types";
+import { isManagerRole } from "@/lib/roles";
 
 // POST { action: "in" | "out", lat, lng, accuracy }
 export async function POST(request: Request) {
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
   // the scoop shop; boxing them into the shop geofence blocks legitimate
   // clock-ins on catering days.
   const profile = await getProfile();
-  const isManager = profile?.role === "manager";
+  const isManager = isManagerRole(profile?.role);
 
   let distance: number | null = null;
   if (loc) {

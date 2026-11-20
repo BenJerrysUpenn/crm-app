@@ -1,6 +1,8 @@
 import postgres from "postgres";
+import type { CrewShift } from "@/lib/handPlacedCrew";
 import {
   BOOKED_STAGES,
+  CATERING_POSITION,
   DEAL_SHIFT_COLUMNS,
   type DealTimes,
   type ShiftRow,
@@ -12,8 +14,9 @@ import {
 // Supabase database the web routes reach through supabase-js, with a DSN from
 // the environment instead of a service-role key.
 //
-// It holds no rules. Which deals get shifts, and what those shifts say, is
-// decided in lib/cateringShifts.ts; this file only reads and writes rows.
+// It holds no rules. Which deals get shifts, who counts as placed by hand, and
+// what the shifts say are decided in lib/cateringShifts.ts and
+// lib/handPlacedCrew.ts; this file only reads and writes rows.
 
 // The postgres.js tagged-template client, or a transaction opened from it.
 type Sql = postgres.Sql | postgres.TransactionSql;
@@ -45,6 +48,24 @@ export function pgShiftStore(sql: Sql): ShiftStore {
         select 1 from public.shifts where deal_id = ${dealId} limit 1
       `;
       return rows.length > 0;
+    },
+
+    // Through to_json() like the deal query, so starts_at and ends_at arrive as
+    // the ISO strings the web routes get, not Date objects.
+    async handPlacedCateringShifts({ fromISO, toISO }) {
+      const rows = await sql<{ row: CrewShift }[]>`
+        select to_json(s) as row from (
+          select employee_id, starts_at, ends_at, position, published, deal_id
+          from public.shifts
+          where published
+            and deal_id is null
+            and employee_id is not null
+            and position like ${`%${CATERING_POSITION}%`}
+            and starts_at < ${toISO}::timestamptz
+            and ends_at > ${fromISO}::timestamptz
+        ) s
+      `;
+      return rows.map((r) => r.row);
     },
 
     async insertShiftsIgnoringDuplicates(rows: ShiftRow[]) {

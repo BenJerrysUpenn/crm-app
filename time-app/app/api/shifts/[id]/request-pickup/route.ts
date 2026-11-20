@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { notify, emailForUser } from "@/lib/notify";
+import { notifyManagers } from "@/lib/notify";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { MANAGER_ASSIGNS_ERROR, managerAssignsOnly } from "@/lib/managerAssigns";
 import { NextResponse } from "next/server";
@@ -66,24 +65,13 @@ export async function POST(
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Notify managers.
-  const admin = createAdminClient();
-  const { data: managers } = await admin
-    .from("profiles")
-    .select("id, phone")
-    .eq("role", "manager");
   const who = profile.full_name ?? "An employee";
   const when = `${fmtDate(shift.starts_at)} ${fmtTime(shift.starts_at)}–${fmtTime(shift.ends_at)}`;
   const posBit = shift.position ? " · " + shift.position : "";
-  for (const m of managers ?? []) {
-    const email = await emailForUser(m.id);
-    await notify({
-      userId: m.id,
-      type: "shift_pickup_requested",
-      title: "Shift pickup requested",
-      body: `${who} wants ${when}${posBit}. Approve or deny in Schedule.`,
-      phone: m.phone ?? null,
-      email,
-    }).catch(() => {});
-  }
+  await notifyManagers({
+    type: "shift_pickup_requested",
+    title: "Shift pickup requested",
+    body: `${who} wants ${when}${posBit}. Approve or deny in Schedule.`,
+  });
   return NextResponse.json({ ok: true });
 }

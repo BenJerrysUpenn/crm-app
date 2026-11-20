@@ -42,6 +42,7 @@ import {
 } from "@/lib/dealAutofill";
 import {
   defaultQuantityForExtra,
+  packageIncludes,
   type DealFormExtraOption,
   type DealFormOptionsResponse,
 } from "@/lib/callDesk/options";
@@ -336,18 +337,6 @@ function money(n: number): string {
     minimumFractionDigits: n % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   })}`;
-}
-
-/** One-line summary of what a package includes, from the pricing row. */
-function packageIncludes(p: DealFormOptionsResponse["packages"][number]): string {
-  const bits: string[] = [`${p.flavors_included} flavors`];
-  if (p.dry_toppings_count > 0) bits.push(`${p.dry_toppings_count} toppings`);
-  if (p.includes_waffle_cones) bits.push("waffle cones");
-  if (p.includes_sauce) bits.push("sauce");
-  if (p.includes_whipped_cream) bits.push("whipped cream");
-  if (p.includes_cookies) bits.push("cookies");
-  if (p.includes_brownies) bits.push("brownies");
-  return bits.join(" · ");
 }
 
 function extraUnitLabel(e: DealFormExtraOption): string {

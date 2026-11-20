@@ -3,8 +3,11 @@ import { notify, emailForUser } from "@/lib/notify";
 import { getSettings } from "@/lib/settings";
 import { fmtTime } from "@/lib/format";
 import { clockoutReminderDue, shiftEndForEntry } from "@/lib/clockoutReminder";
+import { sendShiftDigests } from "@/lib/shiftNotice";
+import { sendAvailabilityDigest } from "@/lib/availabilityNotice";
 import type { TimeEntry } from "@/lib/types";
 import { NextResponse } from "next/server";
+import { MANAGER_ROLES } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 // force-dynamic alone does not stop Next caching the fetches this route makes
@@ -104,7 +107,7 @@ export async function GET(request: Request) {
   const { data: managers } = await supabase
     .from("profiles")
     .select("id, phone")
-    .eq("role", "manager");
+    .in("role", MANAGER_ROLES);
 
   for (const s of shifts ?? []) {
     const startMs = new Date(s.starts_at).getTime();
@@ -229,6 +232,24 @@ export async function GET(request: Request) {
     clockoutReminded.push(entry.id);
   }
 
+  // ---- The 8pm shift summary (lib/shiftNotice.ts) ----
+  // From 20:00 New York time, each person with shifts saved since their last
+  // summary gets one email and text listing them. Once per person per day,
+  // however many ticks land after 8pm; before 8pm this does nothing.
+  const digests = await sendShiftDigests(now).catch((e: unknown) => ({
+    told: [] as string[],
+    error: e instanceof Error ? e.message : String(e),
+  }));
+
+  // ---- The schedulers' 8pm availability email (lib/availabilityNotice.ts) ----
+  // From 20:00 New York time, once a day, each scheduler gets one email
+  // listing who changed their availability since the last one, and which
+  // dates or weekdays. No changes, no email.
+  const availabilityDigest = await sendAvailabilityDigest(now).catch((e: unknown) => ({
+    told: [] as string[],
+    error: e instanceof Error ? e.message : String(e),
+  }));
+
   // Housekeeping: delete notifications older than 30 days so the bell stays tidy.
   await supabase
     .from("notifications")
@@ -242,5 +263,9 @@ export async function GET(request: Request) {
     flaggedManager: flaggedMgr,
     reminded,
     clockoutReminded,
+    shiftDigests: digests.told,
+    ...(digests.error ? { shiftDigestError: digests.error } : {}),
+    availabilityDigest: availabilityDigest.told,
+    ...(availabilityDigest.error ? { availabilityDigestError: availabilityDigest.error } : {}),
   });
 }

@@ -1,17 +1,32 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
+import { tellEmployeeAboutShift, tellEmployeeShiftRestored } from "@/lib/shiftNotice";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
+import type { ShiftWithEmployee } from "@/lib/types";
+import { planEventLink, requestedEvent, writeWithEventLink } from "@/lib/shiftEventLink";
+
+// force-dynamic alone does not stop Next caching the fetches a route makes (see
+// lib/supabase/admin.ts). The free deal_slot has to come from a live read.
+export const fetchCache = "force-no-store";
 
 // POST: create a shift (manager only). Body: employee_id, starts_at, ends_at,
-// position, notes, location_id, confirmLong.
+// position, notes, location_id, confirmLong, deal_id, restores.
 //
-// There are no drafts: every shift is written live (published = true) and an
-// assigned employee is told about it straight away. A `published` field in
-// the body, from a page loaded before drafts were removed, is ignored.
+// restores: Undo of a delete on the schedule puts the shift back with a new id
+// and names the old one here, so the person on it is told as
+// tellEmployeeShiftRestored says (lib/shiftNotice.ts).
+//
+// deal_id is the shift's event: it is checked and given a free
+// deal_slot by lib/shiftEventLink.ts. Absent or null, the shift has no event.
+//
+// There are no drafts: every shift is written live (published = true). An
+// assigned employee sees it on their bell straight away and gets it by email
+// and text in that evening's 8pm summary (lib/shiftNotice.ts). A `published`
+// field in the body, from a page loaded before drafts were removed, is ignored.
 //
 // A shift of 15+ hours is refused with 409 unless the body carries
 // confirmLong: true. Nobody works a 26-hour shift on purpose, and one reached
@@ -25,7 +40,7 @@ import { NextResponse } from "next/server";
 export async function POST(request: Request) {
   const profile = await getProfile();
   if (!profile) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  if (profile.role !== "manager")
+  if (!isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await request.json();
@@ -41,7 +56,18 @@ export async function POST(request: Request) {
   if (isLongShift(startsAt, endsAt) && body.confirmLong !== true)
     return NextResponse.json({ error: "long_shift", hours: shiftHours(startsAt, endsAt) }, { status: 409 });
 
+  const asked = requestedEvent(body);
+  if (!asked.ok) return NextResponse.json({ error: asked.error }, { status: asked.status });
+
   const supabase = createClient();
+
+  const plan = await planEventLink(supabase, {
+    requested: asked.value ?? undefined,
+    before: null,
+    startsAt,
+    position: body.position,
+  });
+  if (!plan.ok) return NextResponse.json({ error: plan.error }, { status: plan.status });
 
   if (body.employee_id && body.confirmAvailability !== true) {
     const candidate = { employee_id: String(body.employee_id), position: body.position ?? null, starts_at: startsAt, ends_at: endsAt };
@@ -54,24 +80,28 @@ export async function POST(request: Request) {
     }
   }
 
-  const { data, error } = await supabase
-    .from("shifts")
-    .insert({
-      employee_id: body.employee_id,
-      location_id: body.location_id ?? null,
-      starts_at: body.starts_at,
-      ends_at: body.ends_at,
-      position: body.position ?? null,
-      notes: body.notes ?? null,
-      published: true,
-    })
-    .select("*, profiles(id, full_name, phone)")
-    .single();
+  const { data, error } = await writeWithEventLink<ShiftWithEmployee>(supabase, plan.link, (eventFields) =>
+    supabase
+      .from("shifts")
+      .insert({
+        employee_id: body.employee_id,
+        location_id: body.location_id ?? null,
+        starts_at: body.starts_at,
+        ends_at: body.ends_at,
+        position: body.position ?? null,
+        notes: body.notes ?? null,
+        published: true,
+        ...eventFields,
+      })
+      .select("*, profiles(id, full_name, phone)")
+      .single(),
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+  const restores = Number.isInteger(body.restores) && body.restores > 0 ? (body.restores as number) : null;
   if (data && body.employee_id) {
-    const emp = (data as any).profiles;
-    await tellEmployeeAboutShift("posted", { ...data, employee_id: body.employee_id }, emp?.phone ?? null);
+    if (restores) await tellEmployeeShiftRestored(restores, { ...data, employee_id: body.employee_id });
+    else await tellEmployeeAboutShift("posted", { ...data, employee_id: body.employee_id });
   }
   return NextResponse.json({ shift: data });
 }

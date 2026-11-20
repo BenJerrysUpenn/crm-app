@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ThreadMessage } from "@/lib/types";
-import { fmtEasternDateTime } from "@/lib/dateFormat";
+import { fmtNaiveUtcDateTime } from "@/lib/dateFormat";
 
 function senderShort(s: string | null): string {
   if (!s) return "";
@@ -12,7 +12,7 @@ function senderShort(s: string | null): string {
   return at > 0 ? s.slice(0, at) : s;
 }
 
-function MessageBubble({
+export function MessageBubble({
   msg,
   prevSubject,
 }: {
@@ -36,7 +36,7 @@ function MessageBubble({
       <div className="flex items-baseline gap-2 text-[11px] text-slate-500">
         <span>{senderShort(msg.sender)}</span>
         {msg.sent_at && <span>·</span>}
-        {msg.sent_at && <span>{fmtEasternDateTime(msg.sent_at)}</span>}
+        {msg.sent_at && <span>{fmtNaiveUtcDateTime(msg.sent_at)}</span>}
       </div>
       <div
         className={`max-w-[85%] border rounded-lg px-3 py-2 ${bubbleColour} shadow-sm`}

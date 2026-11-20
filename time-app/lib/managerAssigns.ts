@@ -2,8 +2,10 @@
 //
 // The CRM writes one open shift per crew member when a catering deal is booked
 // (crm-app lib/cateringShifts.ts and lib/cateringShiftsPg.ts), and stamps each
-// with the deal's id. Nothing else writes shifts.deal_id, so it is the marker.
-// Alina, 2026-10-03: staff see these shifts on the schedule but "they should
+// with the deal's id. A manager can also link a shift to its event in the shift
+// popup (lib/shiftEventLink.ts), and the payroll page's "crew didn't punch" card
+// writes one (lib/payroll/eventShift.ts). shifts.deal_id is the marker either
+// way. Alina, 2026-10-03: staff see these shifts on the schedule but "they should
 // wait to be assigned by a manager." A manager assigns them from the schedule
 // like any other shift, and the person still gets "New shift posted".
 //

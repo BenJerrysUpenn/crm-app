@@ -2,14 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { StoreHours, StoreHoursException } from "@/lib/types";
+import type { StoreHours, StoreHoursException, StoreHoursSeason } from "@/lib/types";
 import type { Holiday } from "@/lib/holidays";
 import {
   WEEKDAY_NAMES,
   describeDay,
+  fmtStoreTime,
   toTimeInput,
   weekdaysWithoutHours,
 } from "@/lib/storeHours";
+import { storeHoursFor } from "@/lib/coverage";
+import { useUndo } from "./UndoProvider";
+import { send } from "@/lib/undo";
 
 // A calendar date rendered in the store's timezone. Noon UTC keeps the date
 // from sliding backwards in Eastern time, and the explicit timeZone keeps the
@@ -33,15 +37,19 @@ type DayDraft = { weekday: number; is_closed: boolean; opens: string; closes: st
 export default function StoreHoursAdmin({
   hours,
   exceptions,
+  seasons = [],
   holidays,
   ready,
 }: {
   hours: StoreHours[];
   exceptions: StoreHoursException[];
+  /** Store-hours seasons (migration 47): from its date, a season replaces the weekly hours. */
+  seasons?: StoreHoursSeason[];
   holidays: Holiday[];
   ready: boolean;
 }) {
   const router = useRouter();
+  const { record } = useUndo();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -83,8 +91,35 @@ export default function StoreHoursAdmin({
     body: JSON.stringify(payload),
   });
 
+  // A date's override as an undo step: put it back as the page loaded it
+  // (or back to normal hours if it had none), and Redo sets it again.
+  type DateSetting = { label: string | null; is_closed: boolean; opens: string | null; closes: string | null } | null;
+  async function setDate(date: string, to: DateSetting) {
+    if (to === null) await send(`/api/store-hours/exceptions/${date}`, "DELETE");
+    else await send("/api/store-hours/exceptions", "POST", { date, ...to });
+  }
+  function recordDate(label: string, date: string, after: DateSetting) {
+    const was = byDate.get(date);
+    const before: DateSetting = was
+      ? { label: was.label ?? null, is_closed: was.is_closed, opens: was.opens ? toTimeInput(was.opens) : null, closes: was.closes ? toTimeInput(was.closes) : null }
+      : null;
+    record({ label: `${label} ${dateLabel(date)}`, undo: () => setDate(date, before), redo: () => setDate(date, after) });
+  }
+
   async function saveWeek(days: DayDraft[]) {
-    await call(
+    const before = hours.map((h) => ({
+      weekday: h.weekday,
+      is_closed: h.is_closed,
+      opens: h.is_closed || !h.opens ? null : toTimeInput(h.opens),
+      closes: h.is_closed || !h.closes ? null : toTimeInput(h.closes),
+    }));
+    const after = days.map((d) => ({
+      weekday: d.weekday,
+      is_closed: d.is_closed,
+      opens: d.is_closed ? null : d.opens,
+      closes: d.is_closed ? null : d.closes,
+    }));
+    const ok = await call(
       "/api/store-hours",
       {
         ...json({
@@ -99,30 +134,40 @@ export default function StoreHoursAdmin({
       },
       "Store hours saved.",
     );
+    if (ok && before.length > 0) {
+      record({
+        label: "Changed the weekly store hours",
+        undo: async () => { await send("/api/store-hours", "PUT", { days: before }); },
+        redo: async () => { await send("/api/store-hours", "PUT", { days: after }); },
+      });
+    }
   }
 
   async function closeDate(date: string, label: string | null) {
-    await call(
+    const ok = await call(
       "/api/store-hours/exceptions",
       json({ date, label, is_closed: true }),
       `Closed on ${dateLabel(date)}. Nothing else changed.`,
     );
+    if (ok) recordDate("Closed", date, { label, is_closed: true, opens: null, closes: null });
   }
 
   async function specialHours(date: string, label: string | null, opens: string, closes: string) {
-    await call(
+    const ok = await call(
       "/api/store-hours/exceptions",
       json({ date, label, is_closed: false, opens, closes }),
-      `Special hours set for ${dateLabel(date)}. Nothing else changed.`,
+      `Short hours set for ${dateLabel(date)}. Nothing else changed.`,
     );
+    if (ok) recordDate("Set short hours for", date, { label, is_closed: false, opens, closes });
   }
 
   async function clearDate(date: string) {
-    await call(
+    const ok = await call(
       `/api/store-hours/exceptions/${date}`,
       { method: "DELETE" },
       `${dateLabel(date)} is back to its normal hours.`,
     );
+    if (ok) recordDate("Back to normal hours:", date, null);
   }
 
   return (
@@ -159,9 +204,11 @@ export default function StoreHoursAdmin({
             onSave={saveWeek}
           />
 
+          {seasons.length > 0 && <SeasonsList seasons={seasons} />}
+
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Holidays &amp; special days
+              Holidays &amp; closed days
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 mb-3">
               The store stays open on holidays with its normal hours unless you close one here.
@@ -176,7 +223,7 @@ export default function StoreHoursAdmin({
                   date={h.date}
                   name={h.name}
                   exception={byDate.get(h.date)}
-                  status={describeDay(hours, byDate.get(h.date), new Date(`${h.date}T12:00:00Z`).getUTCDay())}
+                  status={describeDay(hours, byDate.get(h.date), new Date(`${h.date}T12:00:00Z`).getUTCDay(), storeHoursFor(h.date, seasons))}
                   busy={busy}
                   onClose={() => closeDate(h.date, h.name)}
                   onSpecial={(o, c) => specialHours(h.date, h.name, o, c)}
@@ -202,7 +249,7 @@ export default function StoreHoursAdmin({
                       date={e.date}
                       name={e.label || "One-off"}
                       exception={e}
-                      status={describeDay(hours, e, new Date(`${e.date}T12:00:00Z`).getUTCDay())}
+                      status={describeDay(hours, e, new Date(`${e.date}T12:00:00Z`).getUTCDay(), storeHoursFor(e.date, seasons))}
                       busy={busy}
                       onClose={() => closeDate(e.date, e.label)}
                       onSpecial={(o, c) => specialHours(e.date, e.label, o, c)}
@@ -373,7 +420,7 @@ function StoreDateRow({
             disabled={busy}
             className="text-xs text-slate-500 hover:text-sky-500 disabled:opacity-50"
           >
-            {editing ? "Cancel" : exception && !exception.is_closed ? "Change hours" : "Set special hours"}
+            {editing ? "Cancel" : exception && !exception.is_closed ? "Change hours" : "Set short hours"}
           </button>
           {exception && (
             <button
@@ -488,7 +535,7 @@ function AddDateForm({
                 checked={mode === "special"}
                 onChange={() => setMode("special")}
               />
-              Special hours
+              Short hours
             </label>
             {mode === "special" && (
               <>
@@ -520,6 +567,44 @@ function AddDateForm({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// The store-hours seasons (migration 47, bj-finance #742), read-only here
+// (owners change them on the Targets tab):
+// from each season's first day its hours replace the weekly hours above for
+// the coverage checks, the coverage reminder and payroll's checks.
+function SeasonsList({ seasons }: { seasons: StoreHoursSeason[] }) {
+  const starts = [...new Set(seasons.map((s) => s.effective_from))].sort();
+  const summary = (rows: StoreHoursSeason[]) => {
+    const words = (r: StoreHoursSeason) => (r.is_closed ? "closed" : `${fmtStoreTime(r.opens)} – ${fmtStoreTime(r.closes)}`);
+    const all = new Set(rows.map(words));
+    if (rows.length === 7 && all.size === 1) return `every day ${[...all][0]}`;
+    return rows
+      .sort((a, b) => a.weekday - b.weekday)
+      .map((r) => `${WEEKDAY_NAMES[r.weekday].slice(0, 3)} ${words(r)}`)
+      .join(", ");
+  };
+  return (
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Seasons</h3>
+      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 mb-3">
+        From its first day, a season&rsquo;s hours replace the weekly hours above until the next season starts. Before the first
+        season the weekly hours apply. Owners change the seasons on the finance site&rsquo;s Targets tab.
+      </p>
+      <ul className="divide-y divide-slate-200 dark:divide-slate-800 text-sm">
+        {starts.map((from) => {
+          const rows = seasons.filter((s) => s.effective_from === from);
+          return (
+            <li key={from} className="py-2 flex flex-wrap gap-x-3">
+              <span className="font-medium text-slate-900 dark:text-slate-100">{rows[0].name}</span>
+              <span className="text-slate-600 dark:text-slate-400">from {dateLabel(from)}</span>
+              <span className="text-slate-700 dark:text-slate-300">{summary(rows)}</span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

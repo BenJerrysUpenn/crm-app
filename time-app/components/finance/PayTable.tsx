@@ -3,15 +3,18 @@
 import { Fragment, useState } from "react";
 import { fmtTime } from "@/lib/format";
 import {
-  QBO_COLUMNS,
+  PAY_TABLE_COLUMNS,
   SHEET_VERSION,
   hoursText,
   money,
+  oloEvidenceText,
   payTableBlocker,
+  premiumDetailText,
   qboCell,
   qboTotal,
   rateCell,
   requestView,
+  separatePremiumOtNote,
   wagesCell,
   whenText,
   type PaySheetJson,
@@ -121,7 +124,8 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
       return next;
     });
   const unpriced = sheet.totals.wages_unpriced ?? [];
-  const columns = QBO_COLUMNS.length + 3;
+  const separateOt = separatePremiumOtNote(sheet.totals);
+  const columns = PAY_TABLE_COLUMNS.length + 3;
 
   return (
     <div>
@@ -141,7 +145,7 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
           <thead>
             <tr className="text-[11px] uppercase tracking-wide text-slate-500 border-y border-slate-200 dark:border-slate-800">
               <th className="sticky left-0 z-10 bg-white dark:bg-slate-900 text-left font-medium px-3 py-2">Employee</th>
-              {QBO_COLUMNS.map((c) => (
+              {PAY_TABLE_COLUMNS.map((c) => (
                 <th key={c.key} className="text-right font-medium px-3 py-2 whitespace-nowrap">
                   {c.label}
                 </th>
@@ -172,7 +176,7 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
                       </button>
                       {!row.qbo_employee_id && <div className="text-[11px] text-rose-600 ml-4">no QBO id</div>}
                     </td>
-                    {QBO_COLUMNS.map((c) => (
+                    {PAY_TABLE_COLUMNS.map((c) => (
                       <td key={c.key} className="text-right px-3 py-2 whitespace-nowrap text-slate-800 dark:text-slate-200">
                         {qboCell(row, c.key)}
                       </td>
@@ -194,7 +198,7 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
           <tfoot>
             <tr className="border-t-2 border-slate-300 dark:border-slate-700 font-semibold text-slate-900 dark:text-slate-100">
               <td className="sticky left-0 z-10 bg-white dark:bg-slate-900 px-3 py-2">Total</td>
-              {QBO_COLUMNS.map((c) => (
+              {PAY_TABLE_COLUMNS.map((c) => (
                 <td key={c.key} className="text-right px-3 py-2 whitespace-nowrap">
                   {qboTotal(sheet.totals, c.key)}
                 </td>
@@ -210,6 +214,7 @@ function BuiltTable({ state }: { state: Extract<PaySheetState, { available: true
           Wages leave out {unpriced.join(", ")}: no hourly rate in Withers-time. Set it on the Team page, then rebuild.
         </div>
       )}
+      {separateOt && <div className="px-4 pt-2 text-xs text-amber-700 dark:text-amber-500">{separateOt}</div>}
 
       <SoloNights sheet={sheet} />
       <Items sheet={sheet} />
@@ -265,7 +270,7 @@ function RowEvidence({ row, sheet }: { row: SheetRow; sheet: PaySheetJson }) {
           {e.catering_events.length === 0 && <li>Catering $0.00 — no event tips this period</li>}
           <li>
             Olo {money(row.olo_cents)}
-            {row.olo_cents > 0 && ` over ${e.pastry_shifts_covered} Pastry Opener shift${e.pastry_shifts_covered === 1 ? "" : "s"}`}
+            {oloEvidenceText(row)}
           </li>
         </ul>
       </div>
@@ -285,15 +290,7 @@ function RowEvidence({ row, sheet }: { row: SheetRow; sheet: PaySheetJson }) {
       {row.catering_hours > 0 && (
         <div>
           <div className="font-semibold text-slate-900 dark:text-slate-100">Catering hours · {hoursText(row.catering_hours)}h</div>
-          <div className="mt-0.5">
-            Premium hours {hoursText(row.premium_hours)}h → {money(row.premium_cents)}
-            {row.premium_ot.map((l) => (
-              <span key={l.week_start}>
-                {" "}
-                · premium OT {l.week_start}–{l.week_end}: {money(l.cents)}
-              </span>
-            ))}
-          </div>
+          <div className="mt-0.5">{premiumDetailText(row)}</div>
         </div>
       )}
     </div>

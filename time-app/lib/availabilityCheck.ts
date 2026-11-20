@@ -20,8 +20,7 @@
 //
 // This is the one definition of "is this person available for this shift".
 // Auto-fill uses it to pick candidates, and the create/edit routes use it to
-// ask before saving. (Publish-week used it too, until drafts were removed; the
-// whole-week helpers below are kept for a week-at-once check.)
+// ask before saving. The whole-week helpers below check a week at once.
 //
 // Pure and dependency-free like lib/coverage.ts, so `node --test` runs it.
 //
@@ -57,6 +56,12 @@
 // A block spilling past midnight from the day before is judged by that day.
 // A row with no created_at applies to every date. Dated rows are unaffected.
 //
+// A weekly row also stops after its repeat_until date (migration 48, bj-finance
+// #754: "repeat until rather than repeat forever"), inclusive, read the same
+// way: a block spilling past midnight from repeat_until itself still counts on
+// the morning after. No repeat_until means open-ended, which is what rows saved
+// before the column existed stay until their person saves them again.
+//
 // Everything is America/New_York wall clock, via lib/coverage.ts.
 
 import {
@@ -71,6 +76,7 @@ import {
   uncovered,
   weekdayOf,
 } from "./coverage.ts";
+import { repeatsOn } from "./repeatUntil.ts";
 
 /** Just enough of an availability row to judge a shift by. */
 export type AvailabilityRow = {
@@ -84,6 +90,8 @@ export type AvailabilityRow = {
   preference?: "available" | "preferred" | "unavailable" | string | null;
   /** When the row was written. A weekly row does not apply before this date (New York). */
   created_at?: string | null;
+  /** The last date (New York, inclusive) a weekly row applies. Null: no end. */
+  repeat_until?: string | null;
 };
 
 /** Just enough of a shift to place it on the clock and name it. */
@@ -230,9 +238,11 @@ export function resolveDay(employeeId: string, date: string, rows: AvailabilityR
     } else if (row.weekday !== null && row.weekday !== undefined) {
       if (row.weekday === weekday) offset = 0;
       else if (row.weekday === prevWeekday) offset = -1440;
-      // Not in force yet on the date the block belongs to.
+      // Not in force yet, or no longer, on the date the block belongs to.
+      const anchor = offset === 0 ? date : prevDate;
       const since = offset === null ? null : createdOn(row);
-      if (since !== null && (offset === 0 ? date : prevDate) < since) offset = null;
+      if (since !== null && anchor < since) offset = null;
+      if (offset !== null && !repeatsOn(row.repeat_until, anchor)) offset = null;
     }
     if (offset === null) continue;
 

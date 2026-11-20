@@ -1,3 +1,5 @@
+import type { NamedDiscount } from "./namedDiscounts";
+
 export type Deal = {
   id: number;
   stage: string;
@@ -57,6 +59,26 @@ export type Deal = {
   picklist_notes: string | null;
   lead_source: string | null;
   how_did_you_hear: string | null;
+  // Channel + ad attribution, owned by Catering-Manager migration 024
+  // (bj-finance #715). Optional: absent from rows until 024 is applied.
+  source?: string | null;
+  ad_platform?: string | null;
+  ad_campaign_name?: string | null;
+  ad_name?: string | null;
+  // Winter menu, owned by Catering-Manager migration 026 (bj-finance #717).
+  // custom_menu_line: the menu the quote prints in place of the package
+  // name. price_override: per-guest price replacing the package's on every
+  // quote of the deal. Optional: absent from rows until 026 is applied.
+  custom_menu_line?: string | null;
+  price_override?: number | null;
+  // Referral Credit, owned by Catering-Manager migration 029 (bj-finance
+  // #901): the Advocate this deal is credited to. Written only by the
+  // database's referral functions. Optional: absent until 029 is applied.
+  referred_by_advocate_id?: number | null;
+  // Named discount lines, owned by Catering-Manager migration 028 (bj-finance
+  // #900): Holiday Gift and Referral Credit, see lib/namedDiscounts.ts.
+  // Optional: absent from rows until 028 is applied.
+  named_discounts?: NamedDiscount[] | null;
   created_at: string;
   updated_at: string;
 };

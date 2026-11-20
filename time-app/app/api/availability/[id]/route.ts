@@ -1,9 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { notify, emailForUser } from "@/lib/notify";
+import { notify, notifyManagers, emailForUser } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
+import { blockChange, queueAvailabilityChange } from "@/lib/availabilityNotice";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 export async function DELETE(
   _request: Request,
@@ -16,7 +17,7 @@ export async function DELETE(
   // Read the row first so we can tell if it was an approved time-off being removed.
   const { data: row } = await supabase
     .from("availability")
-    .select("specific_date, is_available, status, request_group, employee_id")
+    .select("specific_date, weekday, is_available, status, request_group, employee_id")
     .eq("id", params.id)
     .maybeSingle();
 
@@ -43,6 +44,13 @@ export async function DELETE(
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
+  // Removing one of your own availability blocks is an availability change:
+  // the schedulers hear of it on their bell now and by email at 8pm
+  // (lib/availabilityNotice.ts). Time off is not; it has its own alert below.
+  if (row && row.is_available !== false && row.employee_id === profile.id) {
+    await queueAvailabilityChange(profile, blockChange(row));
+  }
+
   // If an APPROVED time-off day was deleted, alert managers (they planned around it).
   if (row && !row.is_available && row.status === "approved") {
     const who = profile.full_name ?? "An employee";
@@ -52,22 +60,11 @@ export async function DELETE(
         : rangeStart
           ? fmtDate(rangeStart + "T12:00:00")
           : "a day";
-    const admin = createAdminClient();
-    const { data: managers } = await admin
-      .from("profiles")
-      .select("id, phone")
-      .eq("role", "manager");
-    for (const m of managers ?? []) {
-      const email = await emailForUser(m.id);
-      await notify({
-        userId: m.id,
-        type: "timeoff_cancelled",
-        title: "Approved time off cancelled",
-        body: `${who} removed their approved time off for ${when}. They're available to work again.`,
-        phone: m.phone ?? null,
-        email,
-      }).catch(() => {});
-    }
+    await notifyManagers({
+      type: "timeoff_cancelled",
+      title: "Approved time off cancelled",
+      body: `${who} removed their approved time off for ${when}. They're available to work again.`,
+    });
   }
 
   return NextResponse.json({ ok: true });
@@ -79,7 +76,7 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const { status } = await request.json();
   if (!["pending", "approved", "denied"].includes(status))

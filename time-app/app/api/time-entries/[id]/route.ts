@@ -1,13 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
 
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const body = await request.json();
   const patch: Record<string, unknown> = { manual: true };
@@ -35,10 +36,16 @@ export async function DELETE(
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const supabase = createClient();
+  const { data: before } = await supabase
+    .from("time_entries")
+    .select("id, employee_id, clock_in_at, clock_out_at")
+    .eq("id", params.id)
+    .maybeSingle();
   const { error } = await supabase.from("time_entries").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true });
+  // The punch as it was, so the screen can offer Undo (POST with restores).
+  return NextResponse.json({ ok: true, entry: before ?? null });
 }

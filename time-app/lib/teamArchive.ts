@@ -5,8 +5,9 @@
 //                coverage, reminders and the payroll roster all read it. The
 //                owners and office staff are active = false and still on the
 //                team. The Team page's On schedule checkbox sets it.
-//   archived_at  "left the team". Only the Team page reads it: an archived
-//                person is hidden from the table until "Show archived (N)".
+//   archived_at  "left the team". The Team page hides an archived person
+//                until "Show archived (N)"; the control board's fixed payroll
+//                leaves them out (lib/controlBoard/load.ts).
 //                Archive stamps it and sets active = false; Unarchive clears
 //                it and leaves active false, so the manager ticks On schedule
 //                if the person is back on the floor.

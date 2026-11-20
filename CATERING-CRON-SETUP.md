@@ -1,6 +1,6 @@
 # Set up the catering-shift reconciler on this Mac
 
-> **Superseded (2026-09-27).** The scheduled sweep runs as the local command `npm run reconcile-shifts` from `~/systems/crm-app` (see README, "Catering-shift reconciler"); the Drive `reconcile_catering_shifts.py` is retired. Since crm-app #35 the URL below is reachable again (the login gate exempts exactly `/api/cron/catering-shifts`), but **`CRON_SECRET` is now required**: with it unset on the CRM Vercel project the endpoint answers 503 and does nothing, and a wrong secret gets 401. The "no secret" option below no longer exists. Kept for reference.
+> **Superseded (2026-09-27).** The scheduled sweep runs as the local command `npm run reconcile-shifts` from `~/prod/crm-app` (see README, "Catering-shift reconciler"); the Drive `reconcile_catering_shifts.py` is retired. Since crm-app #35 the URL below is reachable again (the login gate exempts exactly `/api/cron/catering-shifts`), but **`CRON_SECRET` is now required**: with it unset on the CRM Vercel project the endpoint answers 503 and does nothing, and a wrong secret gets 401. The "no secret" option below no longer exists. Kept for reference.
 
 Hand this whole file to **Claude Code** in the Terminal on the Mac that already runs the missed-clock-in checker, and let it do the work. Goal: every 15 minutes, ping one web URL so that any booked catering deal whose picklist has been generated gets its crew draft-shifts created in the schedule app.
 

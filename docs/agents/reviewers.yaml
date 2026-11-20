@@ -14,8 +14,8 @@ architecture_ground_truth:
       created by hand under Authentication > Users with Auto Confirm User ticked — "No
       public sign-up page exists." :70-80 the stage write contract — a stage change
       writes stage, is_active (0 for the four terminal stages, else 1) and updated_at in
-      a single update via buildStagePatch in lib/dealUpdate.ts, and a move into Booked
-      Paid also sets payment_status to Deposit Paid when the row had none. :82-85 the
+      a single update via buildStagePatch in lib/dealUpdate.ts, a stage move does not
+      change payment_status, and writeStageChange appends deal_events rows. :82-85 the
       app does NOT write deals.boomerang_reason — writing it would make every stage
       change fail, and nothing in the app reads it either (bj-finance #466); the most
       directly gradeable rule in the file. :91 the board loads archived = 0 rows only.
@@ -58,6 +58,99 @@ architecture_ground_truth:
 
 documentation_reference: README.md
 
+documentation_map:
+  - paths:
+      - lib/roles.ts
+      - lib/pf/access.ts
+      - middleware.ts
+      - lib/supabase/middleware.ts
+      - app/money/page.tsx
+      - app/dial/page.tsx
+      - app/safe/page.tsx
+      - app/no-access/page.tsx
+    docs:
+      - README.md
+  - paths:
+      - app/api/call-desk/**
+    docs:
+      - docs/call-desk.md
+  - paths:
+      - time-app/supabase/migration_*.sql
+      - time-app/lib/payroll/*.ts
+    docs:
+      - docs/payroll-verify.md
+  - paths:
+      - time-app/lib/financeAccess.ts
+    docs:
+      - time-app/SETUP-GUIDE.md
+  - paths:
+      - time-app/lib/reimbursements/*.ts
+    docs:
+      - README.md
+      - GLOSSARY.md
+  - paths: ["lib/shortLinks.ts", "middleware.ts", "supabase/crm/010_short_link_clicks.sql"]
+    docs: [README.md]
+  - paths: ["time-app/lib/hosts.ts", "time-app/middleware.ts"]
+    docs: [time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/app/metrics/**", "time-app/app/api/metrics/**", "time-app/components/metrics/**", "time-app/lib/metrics/**"]
+    docs: [README.md]
+  - paths: ["time-app/supabase/migration_39*.sql", "time-app/supabase/migration_40*.sql", "time-app/supabase/migration_57*.sql"]
+    docs: [README.md]
+  - paths: ["time-app/supabase/migration_41*.sql"]
+    docs: [README.md]
+  - paths: ["time-app/lib/staffing/**", "time-app/lib/team.ts", "time-app/app/api/staffing/**", "time-app/app/api/profiles/route.ts", "time-app/components/TeamAdmin.tsx", "time-app/components/StaffingRecords.tsx", "time-app/supabase/migration_44.sql"]
+    docs: [time-app/docs/staffing.md]
+  - paths: ["time-app/supabase/migration_44.sql"]
+    docs: [README.md]
+  - paths: ["time-app/supabase/migration_43*.sql", "time-app/lib/controlBoard/**", "time-app/app/payroll/targets/**", "time-app/app/api/payroll/targets/**", "time-app/components/finance/targets/**", "time-app/components/SalaryPanel.tsx"]
+    docs: [README.md]
+  - paths: ["time-app/components/ScheduleLaborLine.tsx", "time-app/components/ScheduleBoard.tsx"]
+    docs: [README.md]
+  - paths: ["time-app/lib/controlBoard/schedule.ts", "time-app/lib/controlBoard/scheduleLoad.ts"]
+    docs: [README.md, GLOSSARY.md]
+  - paths: ["time-app/components/finance/PayTable.tsx", "time-app/components/finance/PayrollVerify.tsx"]
+    docs: [docs/payroll-verify.md]
+  - paths: ["time-app/supabase/migration_46*.sql"]
+    docs: [README.md, docs/payroll-verify.md]
+  - paths: ["time-app/supabase/migration_49*.sql", "time-app/supabase/migration_50*.sql", "time-app/supabase/migration_52*.sql", "time-app/supabase/migration_58*.sql"]
+    docs: [README.md, GLOSSARY.md, docs/payroll-verify.md]
+  - paths: ["time-app/supabase/migration_59*.sql", "time-app/supabase/migration_60*.sql", "time-app/lib/metrics/laborTarget.ts"]
+    docs: [README.md, GLOSSARY.md]
+  - paths: ["time-app/supabase/migration_47*.sql", "time-app/lib/coverage.ts", "time-app/lib/weekCoverage.ts", "time-app/lib/storeHours*.ts", "time-app/lib/localPreview.ts", "time-app/components/StoreHoursAdmin.tsx", "time-app/app/api/store-hours/**", "time-app/app/api/dev/**", "time-app/app/dev/**"]
+    docs: [README.md, GLOSSARY.md]
+  - paths: ["time-app/app/api/schedule/check-week/**", "time-app/components/CheckWeekButton.tsx"]
+    docs: [README.md]
+  - paths: ["time-app/supabase/migration_48*.sql", "time-app/lib/shiftNotice.ts", "time-app/lib/availabilityNotice.ts", "time-app/lib/repeatUntil.ts", "time-app/app/api/availability/**", "time-app/components/AvailabilityCalendar.tsx"]
+    docs: [README.md, time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/app/api/shifts/**", "time-app/lib/notify.ts", "time-app/lib/notifPrefs.ts", "time-app/lib/availabilityCheck.ts", "time-app/lib/availabilityRows.ts"]
+    docs: [README.md, time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/app/api/cron/missed-clockins/route.ts"]
+    docs: [time-app/ALEX-CRON-SETUP.md, time-app/SETUP-GUIDE.md]
+  - paths: ["lib/coverageReminder.ts", "lib/coverageReminderCli.ts", "lib/coverageReminderPg.ts", "lib/gmailSend.ts", "scripts/coverage-reminder.ts"]
+    docs: [README.md]
+  - paths: ["lib/picklistJob.ts"]
+    docs: [README.md]
+  - paths: ["components/DealDetailDrawer.tsx", "lib/winterMenu.ts", "lib/menuOptions.ts", "lib/types.ts", "lib/namedDiscounts.ts", "supabase/crm/012_winter_menu_extras*.sql"]
+    docs: [README.md]
+  - paths: ["lib/callDesk/options.ts", "components/callDesk/GenerateDealForm.tsx"]
+    docs: [docs/call-desk.md, docs/manual-deal-intake.md]
+  - paths: ["time-app/lib/cashCount/**", "time-app/lib/testing/cashCountStore.ts", "time-app/supabase/migration_51*.sql", "lib/cashCountPg.ts", "scripts/cash-count-reminders.ts"]
+    docs: [README.md, time-app/SETUP-GUIDE.md]
+  - paths: ["time-app/lib/cakeOrders/**", "time-app/lib/testing/cakeOrderStore.ts", "time-app/supabase/migration_54*.sql", "lib/cakeOrdersPg.ts", "scripts/cake-order-reminders.ts"]
+    docs: [README.md, time-app/SETUP-GUIDE.md]
+  - paths: ["lib/dateFormat.ts", "lib/boomerang.ts", "components/MessageTimeline.tsx", "lib/callLog.ts", "app/api/deals/*/calls/**"]
+    docs: [README.md]
+  - paths: ["lib/eventChange.ts", "app/api/deals/*/event-change/**", "components/EventChangeDialog.tsx"]
+    docs: [README.md]
+  - paths: ["lib/dealUpdate.ts", "components/KanbanBoard.tsx", "components/CalendarView.tsx"]
+    docs: [README.md, docs/call-desk.md]
+  - paths: ["lib/cateringShifts.ts", "lib/handPlacedCrew.ts", "time-app/lib/handPlacedCrew.ts", "time-app/lib/scheduleEvents.ts", "time-app/lib/shiftEventLink.ts", "time-app/lib/managerAssigns.ts", "time-app/app/schedule/page.tsx", "time-app/app/api/schedule/events/**"]
+    docs: [README.md]
+  - paths: ["components/ReferralPanel.tsx", "lib/referralCredit.ts"]
+    docs: [README.md]
+  - paths: ["app/email-campaigns/**", "app/api/email-campaigns/**", "lib/emailCampaignsPrototype/**", "components/emailCampaignsPrototype/**", "supabase/crm/013*.sql", "supabase/crm/014*.sql"]
+    docs: [README.md]
+
 deploy_notes: >-
   This repository deploys through Vercel previews: every branch gets a preview URL, the
   previews are SSO-gated with no CLI path, and end-to-end checks on a preview are
@@ -70,7 +163,7 @@ deploy_notes: >-
   supabase/ are applied to a hosted project, so a migration that lands is live for every
   viewer at once. A push to main also fast-forwards a CHECKOUT of this repo on the
   droplet (bj-box, ~bjservice/code/crm-app): .github/workflows/deploy-droplet.yml only
-  dispatches Software-Factory's deploy workflow. Nothing is built, installed or run from
+  dispatches withers-ventures-home's deploy workflow. Nothing is built, installed or run from
   that checkout; it is staged for the system-BOM migration, and Vercel stays production.
 
 language_notes: >-

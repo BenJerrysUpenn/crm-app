@@ -30,3 +30,43 @@ html.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
     overscroll-behavior: contain;
   }
 }
+
+/* Metrics page charts (bj-finance #671). Categorical slots from the dataviz
+   reference palette, validated for colour-blind separation on these surfaces
+   (white and slate-900): 1 blue in-store, 2 orange, 3 aqua catering,
+   4 yellow concessions, 7 violet marketing (solid for booked, a light tint of
+   it for estimated); "other" is a deliberate neutral. Target lines and text
+   stay neutral. Overdue is the status red, never used for a series, and never
+   shares a chart with the orange slot. */
+.metrics-root {
+  --m-series-1: #2a78d6;
+  --m-series-2: #eb6834;
+  --m-series-3: #1baf7a;
+  --m-series-4: #eda100;
+  --m-series-7: #6250d6;
+  --m-series-7-light: #b8b0ef;
+  --m-target: #475569;
+  --m-serious: #d03b3b;
+  --m-other: #64748b;
+  --m-good: #0ca30c;
+  --m-muted: #475569;
+  --m-text: #0f172a;
+  --m-grid: #e2e8f0;
+  --m-surface: #ffffff;
+}
+html.dark .metrics-root {
+  --m-series-1: #3987e5;
+  --m-series-2: #d95926;
+  --m-series-3: #199e70;
+  --m-series-4: #c98500;
+  --m-series-7: #9085e9;
+  --m-series-7-light: #4a4294;
+  --m-target: #cbd5e1;
+  --m-serious: #e66767;
+  --m-other: #94a3b8;
+  --m-good: #0ca30c;
+  --m-muted: #94a3b8;
+  --m-text: #f1f5f9;
+  --m-grid: #1e293b;
+  --m-surface: #0f172a;
+}

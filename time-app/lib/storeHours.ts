@@ -1,7 +1,7 @@
 // Shared validation and shaping for store hours. Pure — no Supabase, no
 // next/headers — so both the API routes and the Team page UI can import it.
 
-import type { StoreHours, StoreHoursException } from "@/lib/types";
+import type { StoreHours, StoreHoursException, StoreHoursSeason } from "@/lib/types";
 
 // Sunday-first, matching Date#getDay and the schedule board's week.
 export const WEEKDAY_NAMES = [
@@ -157,15 +157,20 @@ export function weekdaysWithoutHours(hours: StoreHours[]): number[] {
 }
 
 // A plain-English description of what one date looks like, given the weekly
-// pattern and any exception on it.
+// pattern, the season in force on it (if any) and any exception on it.
 export function describeDay(
   hours: StoreHours[],
   exception: StoreHoursException | undefined,
   weekday: number,
+  season?: StoreHoursSeason,
 ): string {
   if (exception) {
     if (exception.is_closed) return "Closed";
     return `${fmtStoreTime(exception.opens)} – ${fmtStoreTime(exception.closes)}`;
+  }
+  if (season) {
+    if (season.is_closed) return `Closed (${season.name} season)`;
+    return `Open, ${season.name} hours (${fmtStoreTime(season.opens)} – ${fmtStoreTime(season.closes)})`;
   }
   const normal = hours.find((h) => h.weekday === weekday);
   if (!normal) return "Open, normal hours (not set yet)";

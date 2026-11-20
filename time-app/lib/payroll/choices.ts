@@ -4,14 +4,17 @@
 
 import {
   CREW_PUNCH_REQUIRED_FROM,
+  OLO_AND_MARKETING_RULES_FROM,
   RULING_CHOICES,
   choicePays,
   crewPunchRequired,
+  oloAndMarketingRules,
   type SubmittalRow,
   type Finding,
   type VerifyResult,
 } from "./verify.ts";
 import { firstSubmittalDay, periodEnded, type PayWindow } from "./window.ts";
+import { isManagerRole } from "../roles.ts";
 
 /** A payee as the route found it in `profiles`, or null if the id is unknown. */
 export type PayeeProfile = { id: string; role: string | null; active: boolean } | null;
@@ -35,7 +38,7 @@ export function validateChoice(check: string, choice: string, payeeId: string | 
   }
   if (!payeeId) return "Pick the person this pays.";
   if (!payee || !payee.active) return "That person is not an active team member.";
-  if (choice === "unpunched_manager" && payee.role !== "manager") return "Pick a manager: this pays a manager who closed without punching.";
+  if (choice === "unpunched_manager" && !isManagerRole(payee.role)) return "Pick a manager: this pays a manager who closed without punching.";
   return null;
 }
 
@@ -44,8 +47,11 @@ export function validateChoice(check: string, choice: string, payeeId: string | 
  * CREW_PUNCH_REQUIRED_FROM (ruled 2026-10-05) the solo-close dropdown (1.9)
  * is not asked, because the bonus is paid from punches alone, and an event's
  * catering tip (3.5) splits by punches with no payee to pick, and stranded
- * Olo tips (3.7) wait for the bake shift's punch. Returns the refusal, or null
- * when the choice still exists.
+ * Olo tips (3.7) wait for the bake shift's punch. From the period starting
+ * OLO_AND_MARKETING_RULES_FROM (ruled 2026-11-02) nothing is stranded, because
+ * Olo tips have one payee, and a period with no bake shift is still a fix, so
+ * 3.7 is refused for those reasons. Returns the refusal, or null when the
+ * choice still exists.
  */
 export function retiredChoice(check: string, window: PayWindow): string | null {
   if (!crewPunchRequired(window)) return null;
@@ -53,6 +59,8 @@ export function retiredChoice(check: string, window: PayWindow): string | null {
     return `From ${CREW_PUNCH_REQUIRED_FROM} there is no solo-close dropdown: the $30 bonus is paid from punches alone (out at or after 10 PM, alone 4h or more). Add the missing punch instead.`;
   if (check === "3.5")
     return `From ${CREW_PUNCH_REQUIRED_FROM} a catering tip goes to whoever punched for the event: add the missing punch instead of picking a payee.`;
+  if (check === "3.7" && oloAndMarketingRules(window))
+    return `From ${OLO_AND_MARKETING_RULES_FROM} Olo tips go to the staff member who does the cakes, whether or not a bake shift was worked: there is nothing to pick. If no bake shift was worked, put the one that was on the schedule with the person's punch.`;
   if (check === "3.7")
     return `From ${CREW_PUNCH_REQUIRED_FROM} stranded Olo tips have no payee to pick: add the Pastry Opener punch on the Timesheets page, then the tips split by bake shifts.`;
   return null;

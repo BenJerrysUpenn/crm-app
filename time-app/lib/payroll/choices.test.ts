@@ -41,6 +41,10 @@ test("pay unpunched manager must name a manager", () => {
   assert.equal(validateChoice("1.9", "unpunched_manager", "m", MGR), null);
 });
 
+test("pay unpunched manager accepts an owner on the roster, as it does a manager (migration 42)", () => {
+  assert.equal(validateChoice("1.9", "unpunched_manager", "o", { id: "o", role: "owner", active: true }), null);
+});
+
 test("unknown checks and choices are refused", () => {
   assert.match(validateChoice("1.1", "void", null, null)!, /decided by rule/);
   assert.match(validateChoice("", "void", null, null)!, /That check/);
@@ -160,6 +164,18 @@ test("submitting would pay you: crewless and Olo cases only", () => {
   const night = f({ check: "1.9", key: "1.9:d", effective: { choice: "unpunched_manager", payee: { id: "me", name: "Me" }, source: "recorded" } });
   const theirs = f({ effective: { choice: "staff", payee: { id: "them", name: "Them" }, source: "default" } });
   assert.deepEqual(paysSubmitter([mine, olo, night, theirs], "me"), [mine, olo]);
+});
+
+test("from 2026-10-19 a 3.7 choice is still refused, and says the Olo tips have their payee (ruled 2026-11-02)", () => {
+  const after = payWindowEnding("2026-11-01");
+  const before = payWindowEnding("2026-10-18");
+  if (!after.ok || !before.ok) throw new Error("window");
+  assert.match(retiredChoice("3.7", after.window)!, /nothing to pick/);
+  assert.match(retiredChoice("3.7", after.window)!, /put the one that was on the schedule/);
+  assert.doesNotMatch(retiredChoice("3.7", after.window)!, /split/);
+  assert.match(retiredChoice("3.7", before.window)!, /Pastry Opener punch/);
+  assert.match(retiredChoice("3.5", after.window)!, /punch/);
+  assert.match(retiredChoice("1.9", after.window)!, /punches/);
 });
 
 test("from 2026-10-05 the solo-close dropdown, the crewless-tip picker and the stranded-Olo picker take no choice (ruled 2026-10-05)", () => {

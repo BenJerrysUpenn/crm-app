@@ -1,6 +1,6 @@
 "use client";
 
-// PROTOTYPE — Email campaigns tab (v5, v6): the tier connections panel.
+// Email campaigns tab: the tier connections panel.
 //
 // Read-only. How people move between tiers, as text and arrows, with the
 // counts the data can give today (lib/emailCampaignsPrototype/model.ts,
@@ -91,7 +91,7 @@ export default function TierConnections({ flows, tiers }: { flows: Flows; tiers:
           <span className="ml-1 text-slate-500">(opt-out)</span>
         </>
       ),
-      note: "Suppressed people are left out of every number on this page.",
+      note: "Suppressed and archived people are left out of every number on this page.",
     },
   ];
   // v6: a plain disclosure row like "How the numbers are made", directly under
@@ -99,7 +99,7 @@ export default function TierConnections({ flows, tiers }: { flows: Flows; tiers:
   return (
     <details className="text-[11px] text-slate-500">
       <summary className="cursor-pointer hover:text-slate-300">
-        Tier connections <span className="text-slate-600">· people as of now (derived); no tier history yet</span>
+        Tier connections <span className="text-slate-600">· people as of now; no tier history yet</span>
       </summary>
       <ul className="mt-1 space-y-1 pl-4 text-xs text-slate-400">
         {rows.map((r, i) => (

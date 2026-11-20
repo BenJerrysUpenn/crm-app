@@ -59,7 +59,7 @@ jobs:
     timeout-minutes: 5
 
     strategy:
-      # One routine now: the factory review pass (Software-Factory
+      # One routine now: the factory review pass (withers-ventures-home
       # docs/agents/review/PROMPT.md), which runs all four lenses itself. It
       # lives on the routine that used to be the architecture reviewer, so it
       # keeps that routine's id and token. The scar-tissue and documentation

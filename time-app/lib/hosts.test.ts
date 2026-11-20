@@ -99,6 +99,47 @@ test("finance host: finance pages, sign-in and the APIs they use are served", ()
   }
 });
 
+test("finance host: the payroll page's punch forms save through the Timesheets routes", () => {
+  // PunchFixForm: POST /api/time-entries (add a punch), PATCH /api/time-entries/:id (fix a punch).
+  // Both hosts serve them; a 404 ("Not found") here shows a manager an error on the form.
+  for (const path of ["/api/time-entries", "/api/time-entries/123"]) {
+    assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
+    assert.deepEqual(routeForHost(TIME, path, ""), { kind: "next" }, path);
+  }
+  // Only the prefix itself, not look-alikes.
+  assert.deepEqual(routeForHost(FIN, "/api/time-entriesx", ""), { kind: "not_found" });
+});
+
+test("finance host: every API the finance pages' components call is served", () => {
+  // The paths components/finance, components/metrics and SoloCloseNights fetch,
+  // as of the 2026-11-02 audit. A browser-side fetch here that the host 404s
+  // shows up to a manager as "Not found" on a form, not as a server error.
+  for (const path of [
+    "/api/time-entries", // PunchFixForm
+    "/api/time-entries/123", // PunchFixForm
+    "/api/payroll/event-punch", // PunchFixForm
+    "/api/payroll/verify", // PayrollVerify, SoloCloseNights
+    "/api/payroll/sheet", // PayrollVerify
+    "/api/payroll/submit", // PayrollVerify
+    "/api/payroll/rulings", // choiceApi
+    "/api/payroll/reimbursements/7/decide", // ReimbursementQueue
+    "/api/payroll/reimbursements/7/adjust", // ReimbursementQueue
+    "/api/payroll/reimbursements/evidence-url", // ReimbursementQueue
+    "/api/payroll/reimbursements/file", // ReimbursementQueue
+    "/api/payroll/targets", // ControlBoard
+    "/api/payroll/targets/seasons", // PlanningInputs
+    "/api/payroll/targets/concession-events", // PlanningInputs
+    "/api/payroll/targets/closed-days", // PlanningInputs
+    "/api/payroll/targets/closed-days/2026-11-26", // PlanningInputs
+    "/api/metrics/views", // viewStore
+    "/api/metrics/views/12", // viewStore
+    "/api/metrics/preferences", // viewStore
+    "/api/logout", // FinanceShell
+  ]) {
+    assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
+  }
+});
+
 test("finance host: a staff page is sent to the time host, path and query kept", () => {
   assert.deepEqual(routeForHost(FIN, "/schedule", "?week=2026-09-21"), {
     kind: "redirect",
@@ -157,4 +198,56 @@ test("timeHomeHref: absolute on the finance host, relative everywhere else", () 
   assert.equal(timeHomeHref("finance.localhost:3000"), "http://time.localhost:3000/");
   assert.equal(timeHomeHref("localhost:3000"), "/");
   assert.equal(timeHomeHref(TIME), "/");
+});
+
+// ---- Travel Reimbursements (bj-finance #210) ------------------------------------
+
+test("reimbursements: staff file them on the time site; Approvers decide them on the finance site", () => {
+  // Staff's page and APIs: the time host serves them; the finance host sends the page home and 404s the APIs.
+  assert.deepEqual(routeForHost(TIME, "/reimbursements", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(TIME, "/api/reimbursements/events", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(FIN, "/reimbursements", ""), {
+    kind: "redirect",
+    location: "https://time.withers-ventures.com/reimbursements",
+    status: 307,
+  });
+  assert.deepEqual(routeForHost(FIN, "/api/reimbursements", ""), { kind: "not_found" });
+  // The Approvers' tab and its APIs live under /payroll: the finance host's.
+  assert.deepEqual(routeForHost(FIN, "/payroll/reimbursements", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(FIN, "/api/payroll/reimbursements/7/decide", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(TIME, "/payroll/reimbursements", ""), {
+    kind: "redirect",
+    location: "https://finance.withers-ventures.com/payroll/reimbursements",
+    status: 307,
+  });
+});
+
+// ---- Targets, the control board (bj-finance #693) ---------------------------------
+
+test("targets: the finance host serves the control board and its save routes; the Team page's salary route works on the time host", () => {
+  assert.deepEqual(routeForHost(FIN, "/payroll/targets", ""), { kind: "next" });
+  assert.deepEqual(routeForHost(TIME, "/payroll/targets", ""), {
+    kind: "redirect",
+    location: "https://finance.withers-ventures.com/payroll/targets",
+    status: 307,
+  });
+  for (const path of ["/api/payroll/targets", "/api/payroll/targets/salary"]) {
+    assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
+    // The Team page (time host) posts a salary to the same route.
+    assert.deepEqual(routeForHost(TIME, path, ""), { kind: "next" }, path);
+  }
+});
+
+// ---- Metrics (bj-finance #671) --------------------------------------------------
+
+test("metrics: the finance host serves the Metrics page's APIs; the time host passes them through", () => {
+  // The Metrics page calls these on finance.withers-ventures.com, so the finance
+  // host must let them through as it does on localhost and previews.
+  for (const path of ["/api/metrics", "/api/metrics/views", "/api/metrics/views/12", "/api/metrics/preferences"]) {
+    assert.deepEqual(routeForHost(FIN, path, ""), { kind: "next" }, path);
+    assert.deepEqual(routeForHost(TIME, path, ""), { kind: "next" }, path);
+    assert.deepEqual(routeForHost("localhost:3000", path, ""), { kind: "next" }, path);
+  }
+  // Only the prefix itself, not look-alikes.
+  assert.deepEqual(routeForHost(FIN, "/api/metricsx", ""), { kind: "not_found" });
 });

@@ -1,0 +1,2 @@
+# Raw email fixtures are bytes as the mailbox gave them (CRLF, quoted-printable): never touch line endings.
+time-app/lib/cakeOrders/fixtures/*.eml -text

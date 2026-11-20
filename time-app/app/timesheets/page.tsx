@@ -5,6 +5,7 @@ import { getSettings } from "@/lib/settings";
 import TopBar from "@/components/TopBar";
 import Timesheets from "@/components/Timesheets";
 import type { Profile, TimeEntryWithEmployee } from "@/lib/types";
+import { isManagerRole } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function TimesheetsPage({
   const profile = await getProfile();
   if (!profile) redirect("/login");
   const supabase = createClient();
-  const isManager = profile.role === "manager";
+  const isManager = isManagerRole(profile.role);
 
   const today = new Date();
   const defFrom = new Date(today);

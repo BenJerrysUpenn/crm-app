@@ -282,7 +282,9 @@ emailing)**, does exactly that and nothing more:
   `Closed Lost` through the CRM's own stage-change path (`buildStagePatch` +
   `writeStageChange` in `lib/dealUpdate.ts` — the same code the Kanban board and
   the calendar use), so `is_active` stays consistent with what
-  Catering-Manager's automation expects.
+  Catering-Manager's automation expects. The move also writes its `deal_events`
+  rows; if only that history insert fails the deal is still closed and the route
+  answers 500 `Call saved and deal N closed, but its history was not saved`.
 - The row is **not** hidden. It stays on the desk with a "Lost (still emailed)"
   badge, Call now greyed with "Marked lost, reopen to call", and a **Reopen for
   calling** button that posts to `/api/call-desk/prospects/[id]/reopen`. The
@@ -292,7 +294,7 @@ emailing)**, does exactly that and nothing more:
 particular a `'suppressed'` prospect can never be revived this way. A
 do-not-call request outlives every relationship and every mis-tap.
 
-## API routes (Next.js route handlers, all require a signed-in manager)
+## API routes (Next.js route handlers, all require a signed-in manager or owner)
 
 | Method + path | Body | Effect / response |
 | --- | --- | --- |
@@ -501,7 +503,9 @@ combobox: show them as chips / radio lists on mobile):
 2. Customer profile (reference only; goes to notes) — from `deal_form_options`
 3. Event: event type* (from `deal_form_options`), event name, date*, start*,
    end*, venue name, venue address*, guest count*, outdoor? (yes/no, default no)
-4. Package* — from `pricing_packages` (name, price/guest, what's included)
+4. Package* — from `pricing_packages` (name, price/guest, what's included, summarised by
+   `packageIncludes` in `lib/callDesk/options.ts`; the Price Book has no marshmallow flag, so
+   that function adds "marshmallows" for the Hot Chocolate Float Party by name)
 5. Flavors (3 included, up to 6) — `lib/menuOptions.ts`
 6. Toppings — `lib/menuOptions.ts`
 7. Extras with quantity — from `pricing_extras`

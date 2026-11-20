@@ -29,15 +29,15 @@ const RAISED_BY_TRIGGER = "P0001";
 // case). Any manager can change a choice and submit the run."
 //
 // SUBMITTAL IS FINAL (follow-up ruling, 2026-09-22). It sends money and cannot
-// be cancelled or undone. The §6 staging script is not built, so today it
-// submits and locks the run, and the pay run is keyed in QBO by hand:
+// be cancelled or undone. It submits and locks the run; bj-finance's submit
+// chain then takes it to QBO, or, while that chain is off, it is keyed by hand:
 //   * it is refused until the pay period has ended (today > window_end, New
 //     York), and again by migration 27's trigger;
 //   * it is given once — there is no re-submittal, edit or delete, and no
 //     "stale" state: a choice for a submitted period is refused by the
 //     database, so the submittal can never fall out of date;
-//   * it is written with status 'submitted_pending_stage', the row the §6
-//     staging script will consume.
+//   * it is written with status 'submitted_pending_stage', the row bj-finance's
+//     submit chain consumes (§6).
 //
 // The run is re-verified here, on the server, and refused unless every case is
 // answered by a choice or its default and nothing needs fixing, and unless the
@@ -96,8 +96,8 @@ export async function POST(request: Request) {
   if (error?.code === RAISED_BY_TRIGGER) return NextResponse.json({ error: error.message }, { status: 409 });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  // TODO(bj-finance #519, spec §6): the QBO staging script is not built. It
-  // will consume payroll_run_submittals rows with status
-  // 'submitted_pending_stage' (this row). Nothing here starts it or touches QBO.
+  // bj-finance modules/qbo_payroll_submit.py (#213) consumes payroll_run_submittals
+  // rows with status 'submitted_pending_stage' (this row). Nothing here starts it
+  // or touches QBO.
   return NextResponse.json({ submittal: data });
 }

@@ -3,6 +3,17 @@
 Login-protected Kanban board for the catering pipeline. Reads and writes the
 `deals` table in the existing Supabase project.
 
+## This repo is public
+crm-app is the one public BenJerrysUpenn repo: Vercel Hobby deploys a private repo only
+from commits its owner authored. Treat every commit, branch, PR and issue here as published.
+
+- Never commit staff PII (names tied to pay, HR or schedule facts, contact details) or
+  Alina's personal phone number, in code, SQL, fixtures, tests, docs or commit messages.
+  Use placeholders.
+- Keys and tokens live in Vercel env vars and Supabase only (see Environment variables).
+- Real figures (hours, sales, salaries) are entered by owners into the database. Migrations
+  here are schema only.
+
 ## Stack
 - Next.js 14 (App Router) + TypeScript
 - Supabase Auth (email + password)
@@ -19,7 +30,21 @@ Set both in Vercel (Project Settings, Environment Variables). Do not commit them
 
 A `.env.example` is included as a reference. For local dev, copy it to `.env.local`.
 
+### Who gets in
+`profiles.role` decides, through `lib/roles.ts`: `manager` and `owner` reach
+the CRM, `employee` does not. An owner passes every manager gate (in the
+database too: `is_manager()` is true for owners). `profiles.active` means "on
+the schedule" and is never an access check; access ends by banning the
+login. The owner role and its guard are time-app migration 42, applied by
+hand in the Supabase SQL editor after both apps deploy (its header has the
+order; `migration_42_verify.sql` checks it, `migration_42_down.sql` reverses it).
+
 ### Personal-finance pages (`/money`, `/dial`, `/safe`)
+**Owners only** (the `owner` role). Each page reads the feed only through
+`loadPfForOwner()` in `lib/pf/access.ts`, which answers anyone else signed in
+with a 404, so the pages do not admit they exist; signed out goes to `/login`.
+The middleware's role gate still sends an employee to `/no-access`, as it does
+on every CRM path.
 These pages sit behind the same Supabase auth as the rest of the app and read
 a single JSON feed **server-side only** (never from a public path). Feed
 source is resolved in this order:
@@ -51,6 +76,25 @@ Before the sender ships the headers, Alina must:
 
 Unset, the endpoint answers `503` rather than silently dropping opt-outs.
 
+### Open and click tracking (`/api/t/o/[token]`, `/api/t/c/[token]`)
+The open pixel and click redirect for the warm and wedding outreach lanes
+(owners' ruling 2026-10-27). Signed with `UNSUBSCRIBE_SECRET`; the middleware
+lets `/api/t/` past the login gate. Contract, caveats and pinned vectors:
+**`docs/tracking.md`**.
+
+### Short links (`benjerryphilly.com`)
+When the Host is `benjerryphilly.com` or `www.benjerryphilly.com`, the
+middleware serves nothing but redirects and never reaches the login gate: a
+slug in `SHORT_LINKS` (`lib/shortLinks.ts`, one line per link) logs a row in
+`short_link_clicks` and 302s to its destination; every other path 301s to
+`https://www.benjerry.com/upenn`. On every other host those paths stay behind
+the login. `/<slug>/<code>` goes to the same place as `/<slug>`; the code is a
+per-deal code Catering-Manager mints into `short_link_codes`, and the click row
+records the code and its `deal_id`; HEAD requests and link scanners are logged
+with `is_probable_bot` true so counts can leave them out. The code lookup and the insert use
+`SUPABASE_SERVICE_ROLE_KEY` and never delay or block the redirect. Tables:
+`supabase/crm/010_short_link_clicks.sql`.
+
 ## Supabase setup required
 The web app assumes the following are already done in Supabase:
 
@@ -63,6 +107,8 @@ The web app assumes the following are already done in Supabase:
    using (true) with check (true);
    ```
 3. User accounts created by hand under Authentication, Users, with **Auto Confirm User** ticked. No public sign-up page exists.
+   **Allow new users to sign up** must be off under Authentication, Sign In / Providers: the anon key
+   ships to every browser, so with it on anyone can create an account through the Auth API.
 
 If the board later needs to read/write other tables (e.g. `quote_versions`,
 `invoices`), add the same policy for each.
@@ -76,8 +122,16 @@ update (`buildStagePatch` in `lib/dealUpdate.ts`):
    Below Min, Closed Marketing Event), else `1`
 3. `updated_at` = current ISO timestamp
 
-A move into `Booked Paid` also sets `payment_status` to `Deposit Paid` when the
-row had none.
+A stage move does not change `payment_status`. A person records payment with the
+card's deposit/paid pill or the drawer.
+
+`writeStageChange` also appends `deal_events` rows for the move (`stage`, plus
+`is_active` when it changed), in the shape Catering-Manager's `db.update_deal`
+writes, with actor `crm:<email>` and source `crm-app`. The two writes are not
+atomic: if the insert fails, the move stands and the person is told. It reads the
+row's current stage first and writes only if the stage is still that one (the
+catering sweep moves deals too); a lost race is an error, and a move to the stage
+the deal is already in writes nothing.
 
 The app does **not** write `deals.boomerang_reason`. The automatic boomerang
 follow-up was retired by bj-finance #333 and the column is dropped by
@@ -91,6 +145,29 @@ if the write fails.
 The board loads `archived = 0` rows only. Archived deals (9.5k+ historical rows)
 stay hidden. Within each column, cards sort by `event_date` ascending.
 
+## Timestamps
+Deal timestamps are text. `deals.last_outbound_at`, `created_at`, `updated_at` and
+`thread_messages.sent_at` hold UTC, mostly with no Z or offset (`2026-10-22T19:17:14`).
+`new Date()` reads a naive string as the browser's local time, so read these with
+`parseNaiveUtc` or `fmtNaiveUtcDateTime` (`lib/dateFormat.ts`), which leave a value with a
+Z or an offset as it was. Event dates and times (`YYYY-MM-DD`, `HH:MM`) are Eastern
+wall-clock. The card's days-since-last-outbound chip counts Eastern calendar days
+(`daysSince` in `lib/boomerang.ts`): "today", "1d" for yesterday.
+
+`call_logs.called_at` is naive UTC too (`lib/callLog.ts`). The drawer's Log a call and
+edit inputs hold Eastern wall-clock time in any browser; the call routes convert it to UTC
+with `parseCalledAt`, never with the server's own zone (Vercel runs in UTC). An edit sends
+`called_at` only when the time was changed, so saving untouched leaves it as stored.
+
+## Last picklist failure (deal drawer)
+On open the drawer loads the deal's latest `quote_jobs` row of kind `picklist`. If it failed
+(`status = 'error'`), a rose banner reads "Last picklist failed <Eastern time>: <reason>", so the
+reason survives closing the drawer; a picklist asked for from the drawer replaces it, and a
+success clears it. The decision, the time (`processed_at`, else `created_at`) and the removal of
+the worker's `RuntimeError: Picklist refused to render: #<n>: ` prefixes are in
+`lastPicklistFailure` (`lib/picklistJob.ts`). A picklist job's `error_message` is not also shown
+in the generic banner.
+
 ## COI panel (deal drawer)
 `components/CoiPanel.tsx` renders on deals with `coi_required = 1` and assembles the
 Hartford certificate request from the deal (`buildCoiRequest` in `lib/coi.ts`). It never
@@ -98,6 +175,167 @@ submits to The Hartford; the human sends. Its only write is `coi_sent_at` plus
 `updated_at` in one `deals` update (it never touches `stage`). A COI is urgent when
 required, unsent and the event is 0 to 14 days out (`COI_URGENT_WINDOW_DAYS`), the
 same window as Catering-Manager `revive.coi_required_unsent`.
+
+## Reschedule event and Cancel event (deal drawer)
+Two buttons on deals at Booked Unpaid, Booked Paid or Closed Marketing Event. The dialog reads
+the event and its crew from `GET /api/deals/:id/event-change`, names everyone with a shift (and,
+on a cancel, the amount paid with "any refund is done by hand in Square") before anything is
+confirmed, and `POST` makes the change. Rules and writes: `lib/eventChange.ts`. Nothing is sent
+to anyone; Alina tells the crew.
+
+- **Reschedule to a date** writes `event_date`, `event_start_time`, `event_end_time` and moves
+  every shift with `shifts.deal_id` by the distance between the old start and the new one, so
+  each keeps its offset from the event's start. A deal with no date has nothing to measure from:
+  its shifts stay where they are and the note says so.
+- **Date not set yet** clears `event_date` (the times stay) and removes the deal's shifts.
+- **Cancel** writes the stage patch for Closed Lost (`buildStagePatch`) and removes the deal's shifts.
+- All three clear `calendar_event_id` and `calendar_event_payload_hash` and, when the deal had an
+  event, insert a `delete` row in `pending_calendar_actions` (Catering-Manager's calendar queue,
+  drained by the imap_idle daemon about once a minute; a delete of an event already gone counts
+  as done). Open `create` and `patch` rows for the deal are superseded once the deal is written, so a
+  payload queued for the old date cannot run after the change. With the id cleared, the calendar reconcile (the
+  catering sweep, the daemon's backlog scan) creates a fresh event on the new date. Closed
+  Marketing Event deals are on the catering calendar like booked ones (Alina, 2026-10-27), so all
+  three stages are in Catering-Manager `CALENDAR_STAGES`. This app never calls Google.
+- A reschedule also clears the stamps made against the old date (`CLEARED_FOR_NEW_DATE`):
+  `picklist_docx_path`, `day_before_draft_sent_at` and `coi_sent_at`.
+- A reschedule that changes the start time, and every Date not set yet, clears the logistics
+  times derived from the start (`CLEARED_FOR_NEW_START`, Alina 2026-10-27): `departure_time`,
+  `arrival_time` and their `_derived` twins, so the next picklist (departure) or Recalculate
+  (both) derives them again. Both halves go: in Catering-Manager a live time that differs from its
+  twin is read as a manual override. A date-only change keeps them, since `derive_logistics`
+  never reads `event_date`. The twins arrive with Catering-Manager migration 016, applied by hand;
+  on a database without them the update is retried without the twins. Moved shifts follow the
+  event start, not `departure_time`, and the catering-shifts cron skips a deal that already has
+  shifts, so a cleared departure does not move or duplicate any shift.
+- Every change appends one line to `deals.notes` saying what moved, from what to what.
+- A shift added directly on the Schedule page has no `shifts.deal_id` until a manager links it in its popup (see "Event on a shift"). Linked, it moves or is removed like the rest of the crew. Unlinked, no change touches it.
+  The dialog names the people on unlinked ones at the event's time, Alina 2026-11-02 (`shiftsAlsoAtEvent`:
+  published, staffed, position Catering or Marketing on any event, New York time, any shift touching
+  the event). That is wider than `lib/handPlacedCrew.ts`, which the noon reminder and the shift
+  reconciler use: it counts Catering only and needs a shift covering the whole event. Display only:
+  they are not in the 409 crew check or the note, and a failed read answers 500. No date or no start
+  time shows nothing.
+
+The deal is written first, in one update guarded on its stage, date and calendar event id (a
+deal changed since the dialog read it answers 409, as does a crew that changed). A failure after
+that answers 500 naming what is left to do by hand. A cancel moves the stage first, through
+`writeStageChange`, so the move is in `deal_events` under the signed-in login like any other. The
+date, time and note writes are not logged there, like the drawer's other writes.
+
+## Winter menu (deal drawer)
+No winter package exists: a winter item is an existing package plus extras (bj-finance
+#717). `supabase/crm/012_winter_menu_extras.sql` adds the three Price Book extras (Belgian
+Waffle, Winter Dry Toppings, Winter Pourable Toppings); `lib/menuOptions.ts` lists them
+and the two topping groups, and the drawer's toppings picker offers both groups. The drawer
+also edits `deals.custom_menu_line` (printed on the quote in place of the package name) and
+`deals.price_override` (a per-guest price replacing the package's on every quote of the
+deal; blank, 0 or negative clears it). Both columns belong to Catering-Manager migration
+`026`. `winterMenuWarnings` (`lib/winterMenu.ts`) shows amber notes, and never blocks a
+save. When the deal has a winter item (Hot Chocolate Float Party, or a winter extra) it
+notes an event outside Nov 1 - Mar 31 and an empty custom menu line. For each winter
+toppings extra on the deal it notes a pick count from that group other than 3; for winter
+toppings picked without their extra it notes that nothing bills them, unless a price
+override is set. Every winter item includes whipped cream and chocolate sauce: the Hot
+Chocolate Float Party has them, and marshmallows, in the package (`PACKAGES` description and the
+call-desk chip, `packageIncludes` in `lib/callDesk/options.ts`, both name them); on a Cup or Cone Party (the Cookie and
+Brownie Sundaes, the Waffle Sundae) they are the $0 Whipped Cream and Chocolate Sauce
+extras, added by hand, and `winterMenuWarnings` does not check for them. It mirrors Catering-Manager `modules/winter_menu.py`.
+
+## Referrals (deal drawer, bj-finance #901)
+`components/ReferralPanel.tsx` shows, on every deal, who referred the customer and the customer's own
+Referral Credits if they are an Advocate (words: Catering-Manager `GLOSSARY.md`). Rulings are in
+bj-finance #899: a referral counts when the referred customer had no deal with us when they were
+referred and pays a deposit between 2026-11-07 and 2026-12-31 ET; each one earns the Advocate $100; credits stack, go on the Advocate's own unpaid events and expire
+2027-12-31; when two people claim a customer, the one the customer names wins, else the first to list
+them.
+
+Every rule and every write is in the database: the tables (`advocates`, `referral_claims`,
+`referral_credits`, `deals.referred_by_advocate_id`), the functions the panel calls through
+`supabase.rpc` (`referral_credit_check`, `referral_claim_add`, `referral_claim_link`,
+`referral_credit_confirm`, `referral_credit_apply`, `referral_credit_unapply`) and the
+`referral_credit_balances` view belong to Catering-Manager migration `029_referral_credit.sql`, applied
+by hand. RLS: managers only. Nothing is kept in the browser. A deal turning paid (the card's deposit
+pill, the drawer's Payment status, or anything else that writes `payment_status`) earns its credit
+through the migration's trigger on `deals`, so the app makes no extra call for it; the catering sweep is
+the backstop. Who referred a deal is `deals.referred_by_advocate_id`; `lead_source` (call-desk
+attribution, lane tags) is never overwritten, and becomes `'referral'` only when it was empty and a credit
+was just earned. Recording an Advocate tags them `segment = 'advocate'` on `outreach_prospects`. `lib/referralCredit.ts` holds the panel's pure
+half and the call wrappers (tests: `tests/referralCredit.test.ts`).
+
+"Use on this event" marks the credit used on that deal in the ledger and adds a `{"name": "Referral
+Credit", "amount": 100}` line to `deals.named_discounts` (bj-finance #900's migration 028), which the
+quote prints; "Undo" takes both back. Either one, once it succeeds, makes the drawer re-read the stored
+`named_discounts` and drop any unsaved edit of them (`reloadNamedDiscounts` in
+`components/DealDetailDrawer.tsx`), so a later Money save cannot write the old lines back. Before 028 is applied the ledger records the use and the panel
+says to take the $100 off by hand if the quote does not show it. When the customer names a different
+Advocate after a credit was earned, an unused credit moves to them; one already used is refused with
+a message naming both Advocates, shown in the panel, so a person decides. Until migration 029 is applied the panel says Referral Credits are not set up, so the app
+can deploy before or after it.
+
+## Named discounts (deal drawer)
+The drawer's Money section edits `deals.named_discounts` (Catering-Manager migration `028`,
+bj-finance #900): Holiday Gift and Referral Credit lines, $100 each, one JSON object per
+line (`[{"name": "Holiday Gift", "amount": 100}]`; a second Referral Credit is a second
+object). The quote job takes them off the ice cream, so the taxable subtotal and tax fall,
+and prints the names as the discount line's label in place of "Discounts or Additional
+Fees"; the drawer previews that label (`discountLineLabel` in `lib/namedDiscounts.ts`,
+mirroring Catering-Manager `modules/quote.py` `discount_line_label`), with the old words
+kept after the names when the Short-notice surcharge field is also set. Removing the last
+line stores NULL. Apply migration 028 before deploying the drawer.
+
+## Email campaigns console (crm/014)
+`/email-campaigns` is the one-screen console for the weekly email loop (bj-finance #964; spec
+bj-finance #811). It reads the loop's tables in Catering-Manager (`outreach_loop_*`,
+`outreach_event_estimates`, `outreach_research_views`) as the signed-in manager, through the read
+policies in `supabase/crm/014_email_loop_console.sql`, and the newest `sales_lanes` row of
+`metrics_snapshots` (see "Metrics page tables"; unreadable or absent, the screen says so). It writes only through
+`/api/email-campaigns/loop`, which calls one of five SECURITY DEFINER functions from the same
+migration: approve an approach, hold or release one email, pause or resume the loop. Each checks
+`is_manager()` and stamps the signed-in email; none sends anything or changes a limit. A saved write reloads the page
+(`reloadUrl` in `console/loopActions.ts`: same panel and email, dialog and task layer closed) so every panel
+redraws from the database; the saved toast crosses the reload in sessionStorage. crm/014
+needs Catering-Manager `outreach/migrations/022_loop_console.sql` first, and is applied AFTER this
+app's commit shows Vercel success on main (until then the console says the loop is not readable).
+`_verify.sql` checks it; `_down.sql` drops the policies and functions only.
+
+Local dev: `CONSOLE_PROTO_SYNTHETIC=1` renders a synthetic fixture with no login (development
+only), with a scenario bar for the attention rules. `CONSOLE_PROTO_LOOP_ROWS` may name a JSON dump
+of real loop rows kept outside this repo; it runs through the live builder (`loopLive.ts`). `CONSOLE_PROTO_SALES_LANES` may name a JSON `sales_lanes` payload, and `?sales=empty|stale|unrecognised|unreadable` shows each state.
+
+The hand-run tiers, sequences and contacts live at `/email-campaigns/classic`. The console draws only the loop and the
+sales numbers: of the hand-run attention items it drops the mailbox and step rules, but re-homes
+the sales ones (`sales_alert`, `sales_not_current`, `offer_deal_open`) on the sales panel
+(`consoleItems` in `lib/emailCampaignsPrototype/console/attention.ts`). A failed read of the shared
+sequences (crm/013) or of the loop's tables is said in a notice at the top, never drawn as empty.
+Which lane a mailbox belongs to is decided only in `console/mailboxLanes.ts`: `handLane` for the
+mailbox panels, `loopLane` for the loop sender's own mailboxes.
+
+A draft's `assigned_by` is `baseline_quota`, `thompson` or `human` (a human try: a person scheduled it by hand on a
+date she chose, in her approved words); `buildLoopLive` words the "why this email" pick from it, and any other value reads as
+drawn. `EmailBody` shows the draft body with the sender-time token `{sender_first}` replaced by "(the coordinator who
+sends it)", because the sender fills it in when sending.
+
+The console's own levels (panel, email, layer) are history entries whose `history.state.consoleDepth` counts how many
+levels deep the entry is; Esc goes `history.back()` while it is above 0, else replaces the entry with the parent
+(`depthOf`, `nextState`, `popAction` in `lib/emailCampaignsPrototype/console/nav.ts`, applied by `useNav` in
+`ConsoleScreen.tsx`). Anything that must not add a level (the email arrows) navigates with `replace`.
+
+## Email campaigns sequence editor (crm/013)
+The sequence editor on `/email-campaigns/classic` saves steps, and each lane's signature and footer, to
+the shared copy in Supabase: `supabase/crm/013_email_campaign_sequences.sql` (apply by hand in
+the SQL editor BEFORE deploying the app that reads it; `_verify.sql` checks it, `_down.sql`
+reverses it and drops every saved sequence). A sequence or lane with no row shows its seed in
+`lib/emailCampaignsPrototype/sequences.ts`; "Reset to original" deletes the row. Writes go through
+`/api/email-campaigns/sequences` as the signed-in manager. Neither Apollo nor warm_sender reads
+these tables: editing here changes nothing that is sent.
+
+Before crm/013 every edit lived in one browser's localStorage. On load the page uploads any such
+copies (`rescue` in `lib/emailCampaignsPrototype/sharedSequences.ts`): a copy whose every step has
+an empty subject and body, or one identical to its seed, is skipped; a copy for a key with no row
+becomes the row; a copy that differs from an existing row never overwrites it and is kept in
+`email_campaign_sequence_conflicts`, with a notice on the page until an owner sets `resolved_at`.
+The localStorage keys are never deleted.
 
 ## Local dev (optional)
 ```
@@ -119,12 +357,579 @@ allows 100 deployments a day across the account. To get a preview URL for a prot
 a PR, push the same commit to a `preview/<name>` branch.
 Custom domain via Vercel, Project Settings, Domains.
 
+## Metrics page (Withers Time)
+`time-app/` serves `/metrics` on the finance host (bj-finance #671), managers and owners only: the page,
+the `/api/metrics/*` routes and RLS each check it. `lib/metrics/load.ts` reads the CRM and time
+clock tables as the signed-in manager; a section that fails to read is reported in `problems`,
+never drawn as zeros. Saved views live in `public.metric_views` and `metric_preferences`
+(migration 39); until it is applied the routes answer 503 `views_not_enabled` and the page keeps
+views in the browser's localStorage. Sales targets come only from `public.sales_targets`
+(migration 39): there is no copy in the page code, and when the read fails the sales widget
+draws no target or pace and says so. Cash, in-store sales, wages and closed months wait on the
+bj-finance feed (migration 40). Labor vs target (bj-finance #696, `lib/metrics/laborTarget.ts`)
+reads `labor_daily_actuals` (migrations 46, 59 and 60), `sales_daily_in_store` (migration 41) and the control
+board's settings in force on each day. All of the store's labor counts, all-in (taxes and workers' comp), against the
+whole payroll target (Alina, 2026-11-18): the actual is hourly labor plus salaried labor, the sales are in-store plus
+delivery plus catering, and the target is the board's `payroll_pct` (not the hourly goal). Hourly labor is the
+`labor_daily_actuals` wages, catering premium and solo close, **catering crews included**, less each day's
+`marketing_hours` and `marketing_wages` (migration 60, written by bj-finance `modules/labor_days.py`), plus the board's
+hourly taxes and comp rate in force on the day. **Marketing work never counts** (Alina, 2026-11-16: a separate marketing
+budget with no sales of its own): punches on a Marketing shift or on any shift of a marketing deal (event type starting
+"Marketing", or stage Closed Marketing Event), the part of a punch with no shift that overlaps the same person's
+unpunched marketing shift, and When I Work's Marketing position before the time app, each person at their own paid rate;
+a marketing shift's hours are never also catering hours. Each day's `catering_hours` and `catering_wages` (migration 59)
+stay split out so "Show numbers" can list each week's catering crew (counted) and marketing work (taken off), but they
+are not taken off the actual. Salaried labor is the board's fixed payroll in force that day (the people salaried that
+day: salary, employer taxes with caps and comp), a 365th of it a day. Sales per day: `in_store` and `delivery` from
+`sales_daily_in_store` (migrations 41 and 61: the scoopers make the delivery orders, so delivery counts) and booked
+catering deals by event date, before tax (`lib/metrics/catering.ts`). The hours a quote billed
+(`labor_hours` x `staff_count`) are not read as labor. The Schedule page's labor line is hourly only (see "The Schedule
+page's labor line"). Every board value is the one in force on the day, so a past week is judged by the board as it stood
+then. Variance hours price the variance at the week's own hourly cost per hour, since hourly hours are what the schedule
+can change. A Sunday-to-Saturday week shows only once it is over with all
+seven days of payroll, their catering and marketing split, and in-store and delivery sales on file, and hourly hours
+and hourly labor still above zero after the marketing work comes off, otherwise "n/a" with the reason (for a split
+or delivery missing, how many of the 7 days lack it). A deals read failure blanks the card, since catering sales are
+part of the sales. The card covers a range of weeks
+(`lib/metrics/weekRange.ts`), saved in the widget's settings as `from` and `to`, the Sundays of its first and last
+week, chosen from 2026-05-03 (`FIRST_LABOR_WEEK`) to the week holding today. Unset, it shows the last 8 weeks ending
+with the most recent one that is over. A view saved under the old month picker keeps its `month`, read as the weeks
+that start in it. A button per month on offer sets the range to that month's weeks by the same rule, and shows
+pressed while the range is that month. Every save of a saved view goes through `serialSaves`
+(`lib/metrics/saveQueue.ts`), one at a time per view, in the order made: a save sent around it can land out of
+order and leave the older choice saved. Every card's week runs Sunday to Saturday, named by its Sunday (`weekOf` in
+`lib/metrics/dates.ts`), as the Schedule runs it. The Labour card (`lib/metrics/labour.ts`) sorts a punch into in-store,
+catering or marketing by its shift (`workKind`, the rule of the Schedule line and `labor_days.py`); a punch with no shift
+is in-store except where it overlaps the same person's unpunched catering or marketing shift. Its sales per
+scooper-hour is in-store plus delivery sales (the Labor vs target weeks) over in-store hours. LER
+(`lib/metrics/ler.ts`), weekly and monthly, leaves owner pay out and has an "Include owner pay" switch that adds the
+house rate ($1,476 a week, x 52 / 12 a month); weekly LER takes Labor vs target's sales and labor with marketing work put
+back. Tests: `npm test` in `time-app/` includes
+`lib/metrics/*.test.ts`.
+
+The Bookkeeping passes card (bj-finance #937, `lib/metrics/passHistory.ts`,
+`components/metrics/PassHistoryWidget.tsx`) reads `public.bookkeeping_pass_runs` (migration 56): one
+row per run of DAILY-02, DAILY-03 and WEEKLY-02, written by bj-finance `modules/pass_history.py` over
+the Mac's database connection at the end of each run. One row per day, pass and sitting (`run_label`): a re-run updates its row. Managers and
+owners read it; nothing in the app writes it. Until migration 56 is applied the card says the history is
+not set up yet. Apply `time-app/supabase/migration_56.sql` by hand in the Supabase SQL editor, after
+migration 54 and after this app deploys, then run bj-finance's `modules.pass_history backfill` once to
+import the old run logs. Verify with `migration_56_verify.sql`; roll back with `migration_56_down.sql`
+(it drops every run row; the backfill can import the old logs again, rows the passes wrote since cannot
+be recovered).
+
+## Travel Reimbursements (Withers Time)
+Staff log mileage, tolls and parking in `time-app/` at `/reimbursements`; Approvers decide
+them under `/payroll/reimbursements` on the finance host. Words: `GLOSSARY.md`. Decisions:
+`docs/adr/0001` (Receipts go to receipts@ but are never bank-matched) and `0002` (files live
+in a private Supabase Storage bucket). The lifecycle is enforced twice, in
+`time-app/lib/reimbursements/lifecycle.ts` and in the database trigger of migration 37.
+
+"Compute miles from stops" pays each leg the lower of two Routes API answers, asked for in parallel:
+(a) the leg on its own with alternative routes on, the shortest route Google returns, and (b) the leg's
+distance on Google's default route through every stop in one request (the stops as intermediates).
+Google's default route favors time and on short city trips takes the expressway, so (a) is often
+shorter; on some legs (b) is, so no leg pays more than (b). If (b)
+fails every leg pays (a); if a leg's (a) fails that leg pays (b); if both fail for a leg, staff type the
+miles. Each leg is rounded to 0.1 mi after the choice and the legs are summed. Typed miles stay and are
+preferred when staff have them. Both are for Groceries / errands only: a Catering Event pays the deal's miles (below). Every request stays on the Compute Routes Essentials SKU: at most 10
+intermediates, no traffic-aware routing, no departure time. Rules, sources and the billing triggers:
+the header of `time-app/lib/reimbursements/routeMiles.ts`.
+
+**A Catering Event trip in the staff member's own car is paid on the deal's stored round-trip miles; staff do not
+type them (owner's ruling 2026-11-16).** The form shows the miles and what they pay, read only ("Mileage for this event: 6.4 miles round
+trip, $4.64"); tolls, parking and Receipts are as before. The server ignores any mileage the browser sends for a
+Catering Event and stores `mileage_mode` `'deal'` with the deal's `round_trip_miles` to 0.1 mi
+(`lib/reimbursements/submission.ts`, `server.ts`); migration 58's trigger does the same in the database for every
+write, so a staff member's own Catering Event trip is `'deal'` even if sent straight to the API. Until the trip is
+Approved its miles follow the deal (priced from the deal on every read, `milesNow`), so miles that land later reach
+it; the Approve writes the deal's miles to the row and an Approved trip keeps them. A deal with no round-trip miles
+yet: the trip is accepted with nothing else to pay, a miles-only recalculation is queued and Approve is refused until
+the miles land (below), unless the quote charged $0 mileage, which pays 0c whatever the miles. Trips submitted before
+migration 58 with typed or destination miles: an Approved one keeps them; a Submitted or Rejected one moves to the
+deal's miles when migration 58 runs, and an Approver's Mileage Adjustment on it
+stays. Groceries / errands keep typed and destination miles. Apply `migration_58.sql` right after the app deploys:
+until it runs the database refuses `'deal'`, so staff cannot submit a Catering Event trip. Verify with
+`migration_58_verify.sql`; roll back with `migration_58_down.sql` (a `'deal'` trip becomes typed, keeping its miles).
+
+Mileage is paid at the IRS rate for the trip date (`mileage_rates`), and for a Catering Event at no more
+a mile than its quote charged the customer (owner's ruling 2026-10-29): `deal_mileage_cap()` in
+`time-app/supabase/migration_49.sql`, as `migration_50.sql` and `migration_52.sql` redefine it, reads the deal's latest
+quote (no quote, or the Uber flat fee: no cap; else a transportation subtotal of $0: 0c; else the quote's stored
+`mileage_rate`, else its transportation subtotal over the deal's round-trip miles to the half cent), and the payable
+view and `lib/reimbursements/money.ts` pay the lower of the two. A quote that is not the Uber flat fee and charged $0
+mileage, or has no mileage line, caps at 0c: it charged the customer nothing (owner's ruling 2026-10-29). The $0 is
+read before the stored rate because every quote since Catering-Manager #112 stores `mileage_rate`, a $0 one too
+(migration 52). A quote that charged mileage on a deal with no
+round-trip miles also caps at 0c, never more than charged, until the miles land; the trip is
+priced when read, so it reprices until paid. Submitting such a trip, or loading the Approver's queue, queues a
+miles recalculation for that deal: a `quote_jobs` row of kind `miles`, with the service role
+(`lib/reimbursements/milesRecalc.ts`). Catering-Manager's quote worker writes the deal's round-trip miles from the
+venue address and changes nothing else on the deal (owner's ruling 2026-10-29), unlike the CRM's Recalculate
+(`retriage`), which also redoes drive time, staffing and times. The dedupe counts both kinds, since a manager's
+Recalculate fills the miles too: none while one is pending or running, and at most one per deal an
+hour. When a miles job has finished and the deal still has none, staff and the Approver are told a manager should check the venue
+address. Meanwhile the decide route refuses Approve and Paid outside payroll
+on that trip (`decideRefusal` in `lib/reimbursements/money.ts`; the queue disables the same buttons), unless the
+trip carries a Mileage Adjustment or is a typed-miles trip with no miles; Send back, Reject and Adjust are never refused. Staff and the Approver see why a trip's miles pay $0, and tolls
+and parking are paid either way. Deploy the app, then apply migration 49, then 50, then 52 (each has `_verify.sql` and
+`_down.sql` beside it). The `miles` kind needs Catering-Manager's quote worker with `_process_miles_job`
+pulled first and its migration 027 applied, before this app deploys: an older worker would treat `miles` as a quote
+job, and before 027 the insert fails its CHECK (logged; the trip stays refused).
+
+Setup, in the `time` Vercel project:
+
+| Name | Value |
+| --- | --- |
+| `GOOGLE_MAPS_API_KEY` | Routes API key. Server-only. Unset, "compute miles from stops" answers that it is not set up and staff type the miles |
+| `RESEND_API_KEY` | Already used for notifications; it also sends the Receipts and Lyft ride reports to receipts@withers-ventures.com |
+
+Apply `time-app/supabase/migration_37.sql` by hand in the Supabase SQL editor, after
+migration 36. It creates the tables, the payroll views, and the `travel-reimbursements`
+bucket; `migration_37_verify.sql` checks it and `migration_37_down.sql` reverses it. Until
+it is applied the reimbursement routes answer 503.
+
+## Metrics page tables (Withers Time, bj-finance #671)
+Apply `time-app/supabase/migration_39.sql` (saved views, preferences, `sales_targets`), then
+`migration_40.sql` (`metrics_snapshots`, the finance feed), by hand in the Supabase SQL editor,
+after migration 38. Each has `_verify.sql` and `_down.sql` beside it. Sales targets are data:
+change them with an UPDATE in the SQL editor. Snapshots are published by bj-finance, never
+written through the API, and never updated or deleted.
+
+`migration_57.sql` lets `metrics_snapshots` take a third kind, `sales_lanes`: bj-finance's
+daily sales lane numbers (emails sent against each lane's daily target, opens, replies, deals,
+bookings, spend, mailbox health, offers, alerts), payload schema 1 like the other kinds. Apply it
+by hand in the Supabase SQL editor after migration 40, once the code that ships it shows Vercel
+success on main; until then the publisher's insert is refused by the kind check. Verify with
+`migration_57_verify.sql`; roll back with `migration_57_down.sql` (it deletes every `sales_lanes`
+snapshot, switching the keep-as-published trigger off for that delete only; turn the publisher
+off first).
+
+## Sales history tables (Withers Time, bj-finance #694)
+Apply `time-app/supabase/migration_41.sql` by hand in the Supabase SQL editor, after migration 40.
+It adds `sales_daily_in_store` (one row per day) and `sales_monthly` (one row per month and
+source, `qbo` or `seller`), the permanent sales history the labor targets read (lane bj-finance
+#692). Both are schema only: bj-finance writes every row from the Mac (its daily publisher and a
+one-time seed of the previous owner's books), never through the API, and managers read them.
+In-store excludes delivery and catering and includes online pickup orders, as the finance feed
+does. A missing day or month is unknown, not zero; weeks are grouped by the reader. Verify with
+`migration_41_verify.sql`; roll back with `migration_41_down.sql`.
+
+Migration 61 adds `sales_daily_in_store.delivery` (nullable, never negative): the day's delivery-platform net sales
+(DoorDash, Uber Eats, Grubhub) by payout date, never in `in_store`; null is not on file, not zero. Delivery counts in
+the labor sales (Alina, 2026-11-18). It only adds a column, so apply it first, after migration 60: until it is applied
+the Labor vs target read fails, and until bj-finance has written a day's delivery its week reads n/a. Verify with
+`migration_61_verify.sql`; roll back with `migration_61_down.sql`.
+
+## Staffing forms (Withers Time, Team page)
+Apply `time-app/supabase/migration_44.sql` by hand in the Supabase SQL editor, after migration 42.
+It adds the `staff_lifecycle` records and steps behind the Team page's Add employee, Re-invite and
+Offboard forms, five `profiles` columns, and `revoke_user_sessions`. Until it is applied those
+actions fail. Never delete a Withers-time user: `time_entries` cascades from `profiles`. Steps,
+API and worker contract: `time-app/docs/staffing.md`.
+
+## Control board: the Targets tab (Withers Time, bj-finance #693)
+`/payroll/targets` on the finance host is the control board: the targets the business runs to
+(COGS, total payroll and prime cost as shares of sales), the 12-month sales estimate they are
+shares of, and the rates they are built from. It is the single source for those values; code
+reads them from here rather than keeping copies (bj-finance payroll will, lane #692). Managers and
+owners see it; only an owner changes a value, in the page, the routes behind it
+(`/api/payroll/targets`, `/api/payroll/targets/salary`) and the database. A salaried person's
+annual salary is set on the Team page (owners) and feeds the board's fixed payroll. Fixed payroll
+counts everyone set to Salaried who is not overhead, on the schedule or not, on each day they were
+employed: `profiles.active` means "on the schedule", `archived_at` (its New York day is the last day
+they count) is what marks someone gone, and someone whose first salary starts after a day was not
+employed yet (`inFixedPayroll` in `board.ts`). Someone with no salary row at all still counts, as a missing salary.
+
+Every value is dated. A change is a new row, never an edit: it carries an as-of date
+(`effective_from`), a review-by date (the green / yellow within a month / red chip; nothing is
+ever sent as a reminder), where it came from and how it was worked out. The value in force on a
+day is the row with the latest `effective_from` on or before it; a same-day correction wins (later
+`recorded_at`, then higher `id`). Categories and keys are data in `time-app/lib/controlBoard/`
+(`board.ts`, `settings.ts`): a new category is new keys, not a migration. The derived numbers
+(fixed payroll, hourly dollars, the hourly goal, the trend factor) are `lib/controlBoard/math.ts`;
+a missing input shows as missing, never as zero.
+
+| Key | `value` | `detail` |
+| --- | --- | --- |
+| `sales_estimate.in_store`, `sales_estimate.catering` | dollars, next 12 months | |
+| `target.cogs_pct`, `target.payroll_pct`, `target.prime_cost_pct` | fraction of sales (0.25 = 25%) | |
+| `tax.fica`, `tax.futa`, `tax.pa_uc` | fraction of wages | `wage_cap`: dollars a year, or null for all wages |
+| `tax.workers_comp` | dollars per $100 of wages | `class_code` |
+| `rule.catering_premium` | dollars added per catering hour | `cap_rate`: dollars an hour |
+| `rule.solo_close` | dollars a qualifying night | `min_alone_hours`, `out_at_or_after` (`HH:MM`) |
+| `staffing.open_up_minutes`, `staffing.close_down_minutes` | whole minutes before opening / after closing | |
+
+The two `staffing.*` keys make staffed hours (bj-finance #742 follow-up): the open hours widened by the
+open-up minutes before and the close-down minutes after, the values in force on the date
+(`staffedWindow` in `time-app/lib/coverage.ts`). The schedule's Check week button, the coverage reminder
+and the coverage line on Labor Hours Planning measure cover against staffed hours; with a value not set
+they fall back to open hours (the button and Labor Hours Planning say so; the reminder does not). Sales projections, affordable hours and payroll verify keep open
+hours. New keys, so no migration.
+
+Reading it from the Mac (bj-finance): `select * from public.control_settings_on(date)` gives one
+row per key in force on that day, and `public.profile_salaries_on(date)` one per person.
+
+Apply `time-app/supabase/migration_43.sql` by hand in the Supabase SQL editor, after migration 42.
+Schema only: no values are in this repo, and owners enter every one on the board after it is
+applied. Until then the tab says it needs migration 43 and the Team page shows no salaries.
+
+### The Schedule page's labor line (bj-finance #695)
+The manager Schedule page (not the staff view) reads the board. The week reads as an aligned
+block, label | hours | $ with the numbers right-aligned: `Target Hourly Labor`, `Scheduled Hourly
+Labor`, and `Remaining Hourly Labor` (target minus scheduled, with a real minus sign and in red
+when either value is negative; `missing` when the target is). A week with higher-paid people shows
+a higher $ against the same target; the day headers show only the day and date. Hourly labor $ is hourly staff (`pay_type =
+'hourly'`, read strictly) at their rate on in-store shifts, plus the solo-close bonus per qualifying
+night as the board had it on that date, plus open in-store shifts at the average rate of active
+hourly staff; salaried and overhead staff are left out. **Catering work and marketing work never count
+in the labor line** (Alina, 2026-11-16: "since we're taking it out of the analytics, we should also be
+taking it out of the labor percent on the scheduler in the same way"), taken out as the Labor vs target
+card takes them out: a Catering shift, a Marketing shift, and any shift on a marketing deal (event type
+starting "Marketing", or stage Closed Marketing Event; never also catering) are left out of Scheduled
+Hourly Labor, hours and $ (the catering premium with them), and never close for the solo-close bonus.
+They stay in total hours and on the grid. The line shows scheduled hours on past days too, not punches.
+A day's projected
+sales are last year's in-store plus delivery sales on the same weekday 52 weeks earlier
+(`sales_daily_in_store`) times the trend factor; catering bookings never feed them. Last year's delivery is that day's
+own figure when on file (migration 61), else its in-store sales times the delivery share of the last 28 days before the
+week (or before today, for a week still ahead), which needs delivery on file for 14 of them (`deliveryShare`); without
+it the day is missing ("no delivery share"). A closed day
+(`resolveOpenWindow` in `lib/coverage.ts`: a Targets-tab closed day, a "Business closed" note, or a
+weekday the season closes, as the Labor Hours Planning card reads them) projects zero sales
+and so has no target, whatever last year did. If the closed-day reads fail, the page says so and
+projects every day as open. The target $ is that times the hourly goal in force that day; its hours
+divide it by the average active hourly rate. Nothing is added for booked
+catering, and no deal's quote (`labor_hours`, `staff_count`) is read, so a deal with no shifts, a pickup
+or a deal missing its quote fields cannot move the line or make it missing. The only deal read is
+which deals on the week's shifts are marketing deals; if it fails the page says so and those shifts
+count by their position. The line is hourly labor against the hourly goal and leaves catering crews out, while Labor vs target
+counts catering crews and salaried labor against the payroll target, so the two percentages differ by design; the line also differs where
+the week was not worked as scheduled, where pay differed from the Team page rate, and because its target uses projected
+(last year x trend), not actual, sales. The math is `lib/controlBoard/schedule.ts` (it calls `boardOn` in `board.ts`, which
+runs `computeBoard`), the reads `scheduleLoad.ts`. Anything missing (nothing on the board yet, no
+last-year day on file, a partial trend month, a person with no rate) shows as missing with its reason,
+never zero, and the empty board points to the Targets tab.
+Verify with `migration_43_verify.sql`; roll back with `migration_43_down.sql` (it drops every
+entered value; run it before `migration_42_down.sql`).
+
+### Overhead staff (bj-finance #692)
+`profiles.is_overhead` (migration 45, default false) marks a person whose pay is overhead, not
+part of the payroll target. An overhead person is left out of fixed payroll on the board (and so
+out of the hourly goal), out of the Schedule page's hourly labor hours and $, and out of the
+average active hourly rate behind open shifts and target hours. They stay on the schedule grid
+and in total hours. A manager sets it (an owner's row only an owner); the guard on profiles stops
+anyone else, the person included. The Team page has no control for it yet: set it in the SQL
+editor. Apply `time-app/supabase/migration_45.sql` BEFORE deploying the time app: the board's
+read of the salaried team filters on the column. Verify with `migration_45_verify.sql`; roll back
+with `migration_45_down.sql` (code first).
+
+### Hourly payroll actuals (bj-finance #721)
+Apply `time-app/supabase/migration_46.sql` by hand in the Supabase SQL editor, after migration 45.
+It adds `labor_paycheck_actuals`: one row per hourly paycheck as QBO Payroll paid it (pay period,
+pay date, the stub's name and year-to-date gross, Regular and Overtime hours and pay, catering
+premium and solo close kept apart), with `profile_id` when exactly one profile has the stub's
+name, read from the saved paystub PDFs. bj-finance writes every row of both tables from the Mac
+(`modules.labor_actuals`), never through the API; managers read them. Salaried paychecks, tips and
+reimbursements are not in it, and nor are employer taxes (a paystub does not carry them: readers
+apply the Targets tab's rates). It also adds `labor_daily_actuals`: one row per day of a pay period
+whose daily hours (When I Work timesheets before the time app, punches after) tie to the hours QBO
+paid, with the period's wages, catering premium and solo close spread over its days by hours.
+Hourly, non-overhead labor only; a period that does not tie has no days (unknown, not zero), and
+Sunday to Saturday weeks are the reader's grouping. Only the Labor vs target card (bj-finance #696) reads them; apply this
+migration before deploying that card, or it says it could not load. Verify with `migration_46_verify.sql`; roll back with
+`migration_46_down.sql`.
+
+Migration 59 adds each day's catering split to `labor_daily_actuals`: `catering_hours` (of the day's hours, those worked
+on catering) and `catering_wages` (what they cost, each person at their own paid rate), both null on a day not split yet.
+Apply it after the app that reads them deploys green; until bj-finance has split a day, its week reads n/a ("catering work
+not yet split out of the payroll"). bj-finance writes the split with each new pay period and sets it on the days already
+published with `python -m modules.labor_actuals rebuild --wiw <the When I Work exports>`, which writes a period only when it
+places every day exactly as published. Verify with `migration_59_verify.sql`; roll back with `migration_59_down.sql`.
+
+Migration 60 adds each day's marketing split beside it: `marketing_hours` and `marketing_wages`, null on a day not split
+yet, never the same hours as catering (the two together are never more than the day's hours). It only adds columns, so
+apply it BEFORE the app that reads them deploys (the card asks for both columns and says it could not load without
+them); until bj-finance has split a day, its week reads n/a. The same `rebuild` sets it on the days already published.
+Verify with `migration_60_verify.sql`; roll back with `migration_60_down.sql`.
+
+### Labor Hours Planning (bj-finance #742)
+Apply `time-app/supabase/migration_47.sql` by hand in the Supabase SQL editor, after migration 46, BEFORE
+deploying the app that reads it. Schema only (this repo is public: owners enter every hour, sales figure and
+event date). It adds `store_hours_seasons` (open hours from a first day until the next season starts, one
+row per weekday), `concession_events` (dated revisions per `event_key`, `cancelled` takes one off) and
+`catering_hours_history` (last year's raw Catering shift hours by day, `kind = 'marketing'` marking a
+marketing day; written from the Mac, never through the API). Owners write seasons and events on the Targets
+tab (`components/finance/targets/PlanningInputs.tsx`, routes under `/api/payroll/targets/`); managers set
+closed days and short hours there too, as `store_hours_exceptions` rows. Without the migration the readers
+see no seasons, events or history: every reader of `store_hours` (the schedule's coverage check, the
+coverage reminder, payroll verify, the Team page) takes the season in force on the date
+(`storeHoursFor` in `lib/coverage.ts`) and falls back to the standing `store_hours`. The Labor Hours
+Planning card on `/metrics` (`lib/metrics/laborPlanning.ts`, whose header defines every band) is
+the forward view: Labor vs target is the past, the Schedule page the present. Verify with
+`migration_47_verify.sql`; roll back with `migration_47_down.sql` (it drops every season, event and day of
+history).
+
+Local preview, before the migration is live: `LOCAL_PREVIEW=1 npm run dev` in `time-app/` serves
+`/dev/labor-hours-planning` with no sign-in, only when `NODE_ENV` is `development`
+(`previewEnabled`, `lib/localPreview.ts`). It reads production with SELECT only through `psql` on
+`DIRECT_DATABASE_URL`, and takes what migration 47 will hold from the files named by
+`LABOR_PLANNING_SEED` and `LABOR_PLANNING_HISTORY`, outside every repo; its editor saves to the seed file,
+never the database.
+
+## Schedule and availability notices (Withers Time, bj-finance #754)
+Apply `time-app/supabase/migration_48.sql` by hand in the Supabase SQL editor, after migration 47
+(`_verify.sql` and `_down.sql` beside it). Either order with the code is safe: before it, a removed
+shift or an availability change is not queued (logged; the save is made) and saving weekly
+availability answers 503 with a message.
+
+- **Staff summary** (`lib/shiftNotice.ts`): the 8pm summary's lines lead with the day,
+  `Thu, Oct 22 · New|Changed|Removed · <times>`. A shift a manager deletes or moves away from
+  someone is a `Removed` line with the times they had (the notice keeps them; the shift may be
+  gone). Not a line: a shift new to them since their last summary and taken away again, and a
+  drop they asked for (its approval tells them). `schedule_change` governs removed lines.
+- **Schedulers' availability email** (`lib/availabilityNotice.ts`): an employee's change to their
+  own availability (`/api/availability` POST and DELETE, `week`, `copy-week`, `recurring`) puts
+  an in-app row on each scheduler's bell and queues the dates or weekdays whose blocks changed in
+  `availability_notices`. The same 8pm cron claims the day's queue once
+  (`claim_availability_digest`) and emails each scheduler one list, by person. Schedulers: every
+  owner plus every active manager, not archived or banned. Off with
+  notif_prefs `availability_change` or `email`. Time-off requests, a scheduler's own changes and a
+  manager's edits to someone else's rows are left out.
+- **Repeat-until** (`lib/repeatUntil.ts`): `availability.repeat_until` is the last date, inclusive,
+  a weekly row applies. Saving a weekly block requires it (the calendar fills in three months
+  out). `resolveDay` in `lib/availabilityCheck.ts` drops a weekly row after it, so the save and
+  auto-fill checks, the schedule cells and the team grid all stop there; the personal calendar
+  uses `weeklyRowApplies`. Null means open-ended: every row saved before migration 48.
+
+## Cash count reminders in Slack (droplet command, crm-app #129)
+Every 5 minutes on bj-box (`bj-cash-count-reminders.timer`, withers-ventures-home `droplet/`), reminds
+staff in Slack #cash-count to post the cash counts: the opener once they clock in, one closer just
+after closing (of several on the clock, the one on the closing shift, else the latest clock-in;
+nobody on the clock, the scheduled closer), and that same person once more in the reminder's thread
+if nobody has posted 30 minutes later. Each message is written by Claude Code (`claude -p`,
+`claude-haiku-5-5`, no tools, hard timeout) on the owner's Claude subscription from the live "Cash
+count steps" message, validated, and replaced by a plain message on any failure. Who and when:
+`time-app/lib/cashCount/plan.ts`; one pass: `run.ts`; the words: `message.ts` and `claudeCli.ts`;
+Slack: `slack.ts`; command: `cli.ts`; reads and writes: `lib/cashCountPg.ts`; wiring:
+`scripts/cash-count-reminders.ts`.
+
+Each reminder (`open`, `close`) and its one follow-up is recorded in `cash_count_reminders`
+(migration 51) BEFORE it is posted, so it goes out once per store day; a Slack refusal removes the
+record so the next tick retries, and no answer at all keeps it. Apply
+`time-app/supabase/migration_51.sql` by hand in the Supabase SQL editor, after migration 50
+(`_verify.sql` and `_down.sql` beside it). Before it, the command posts nothing and exits 1.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project (the unit maps it from `BJ_DATABASE_URL`) |
+| Vault `slack_cash_count_bot_token` | The "Cash Count" Slack app's bot token, read at run time. Required |
+| Vault `claude_usage_token` | The owner's Claude subscription token, read at run time and passed to Claude Code as `CLAUDE_CODE_OAUTH_TOKEN` in its environment only. Missing means plain messages |
+| `CASH_COUNT_CLAUDE_BIN` | The `claude` executable (default: `claude` on `PATH`). Set in the droplet's systemd unit |
+| `CASH_COUNT_SLACK_CHANNEL`, `CASH_COUNT_RULES_TS` | Optional: move the channel and the steps message |
+
+```
+npm run cash-count-reminders -- --dry-run   # prints the plan and the Claude-written messages; posts and writes nothing
+npm run cash-count-reminders                # posts what is due
+```
+Exit 0 = ran (posted what was due, or nothing was due), 1 = a failure (database, Vault, Slack,
+migration 51 missing, or a failed step; each printed), 2 = bad argument or no `DATABASE_URL`.
+Neither token is ever printed or put on a command line.
+
+## Cake order packing reminders in Slack (droplet command, crm-app #142)
+Every 5 minutes on bj-box (`bj-cake-order-reminders.timer`, withers-ventures-home `droplet/`), reads
+Olo's per-order email and, for each custom cake order, @mentions everyone on a store punch in Slack
+#cake-orders-and-ideas, asking them to pack it and react or reply when done; under that line the
+post shows only the customer's name (the owner, 2026-11-04: the cake is on the tablet and the wall). Nobody clocked in when the email arrives: the post waits until 30 minutes after the
+first store clock-in. Not marked packed (a packed reaction such as 📦 ✅ 👍, a reply in the thread,
+or the next channel message from someone mentioned) 60 minutes later: one reply in the post's
+thread, with no second mention. Claude Code writes the words as for the cash count reminders; the
+customer's name is copied from the email by code. Who and when: `time-app/lib/cakeOrders/plan.ts`;
+one pass: `run.ts`; the email: `mail.ts` (IMAP, read only) and `oloEmail.ts` (the parser); the
+words: `message.ts`; Slack: `slack.ts`; command: `cli.ts`; reads and writes: `lib/cakeOrdersPg.ts`;
+wiring: `scripts/cake-order-reminders.ts`.
+
+**Which orders are posted: custom cakes only.** The owner's ruling, 2026-11-03: "custom cakes are
+the only ones that need to be made and tracked. named cakes get refilled from stock and don't need
+notifications". `oloEmail.ts` reads Olo's "Order Notification" email (matched on
+`X-Original-Sender: orders@olo.com`, because the group rewrites From) and posts an order only when a
+top-level item is a custom cake: its name starts with "Custom" and ends in "Cake", which on the
+store's Olo menu is "Custom Order Cake" alone (a custom cake added later still counts). The named
+cakes (Celebration Cake, the ready-made ones, the seasonal ones) are skipped as refilled from stock;
+shakes, pints and the rest as no cake; one log line each with the items and how they were paid. A
+cake flavour inside a shake does not count. Its header has the email's layout; the real emails it
+was built from are redacted in `time-app/lib/cakeOrders/fixtures/`.
+
+Each order and its one follow-up is recorded in `cake_order_reminders` (migration 54) BEFORE it is
+posted, so it goes out once; a Slack refusal removes the record so the next tick retries, and no
+answer at all keeps it. Apply `time-app/supabase/migration_54.sql` by hand in the Supabase SQL
+editor, after migration 53 (`_verify.sql` and `_down.sql` beside it). Before it, the command posts
+nothing and exits 1.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project (the unit maps it from `BJ_DATABASE_URL`) |
+| `CAKE_ORDERS_ORDER_ADDRESS` | The address Olo sends each order to. Set in the droplet's systemd unit, not in this repo. Required |
+| Vault `slack_cake_orders_bot_token` | The "Cake Orders" Slack app's bot token, read at run time. Required |
+| Vault `gmail_sender_address`, `gmail_app_password` | The mailbox the order emails reach and its Gmail app password (already in Vault), read over IMAP. Required |
+| Vault `claude_usage_token` | As for the cash count reminders. Missing means plain messages |
+| `CAKE_ORDERS_CLAUDE_BIN` | The `claude` executable (default: `claude` on `PATH`). Set in the droplet's systemd unit |
+| `CAKE_ORDERS_SLACK_CHANNEL` | Optional: move the channel |
+
+```
+npm run cake-order-reminders -- --dry-run   # prints the plan, the unread emails and the Claude-written messages; posts and writes nothing
+npm run cake-order-reminders                # posts what is due
+```
+Exit 0 = ran (posted what was due, or nothing was due), 1 = a failure (database, Vault, the
+mailbox, Slack, migration 54 missing, or a failed step; each printed), 2 = bad argument, or no
+`DATABASE_URL` or `CAKE_ORDERS_ORDER_ADDRESS`. No token or password is ever printed or put on a
+command line.
+
+## Schedule coverage reminder (droplet command)
+Every day at noon ET, emails the owners every staffed store hour (open hours
+plus the open-up and close-down minutes on the Targets tab) and every booked
+catering event in two Sun–Sat weeks that nobody is scheduled for (bj-finance
+#709, daily since #753). No gaps, no email. The two
+weeks start the Sunday after the most recent Thursday (a Thursday run counts
+itself), because the schedule is made on Wednesdays: Thursday, Friday and
+Saturday runs check the next two weeks; Sunday to Wednesday runs check the
+current week from that day on, plus the next week. Days already past are left
+out. Every run from one Thursday to the Wednesday after checks the same two
+weeks (`reminderWindow`). Store hours are judged by `checkWeekCoverage` in
+`time-app/lib/coverage.ts`, the function the schedule board's "Check week"
+button runs, so the two cannot disagree. Catering events are deals at Booked
+Paid, Booked Unpaid or Closed Marketing Event (`archived = 0`); one counts as
+covered when a published shift on it has a person, or when a manager placed
+crew by hand: a published Catering shift with a person and no `deal_id` that
+spans the whole event in New York time (or, with no end time, spans its start).
+A partial overlap does not cover, a shift linked to another deal never counts,
+and one hand-placed shift counts toward one event only, taken in time order. An
+event with no start time stays a gap. A deal with `staff_count` exactly 0 needs
+nobody (a customer pickup at the store): it is never listed and takes no
+hand-placed shift. A `staff_count` that is not set is checked like any other
+event. Crew size is not otherwise checked. Recipients are
+read from the database (`profiles` joined to `auth.users`): every owner, leaving
+out anyone archived or banned. Managers do not get this email (owner decision,
+2026-11-02). Logic: `lib/coverageReminder.ts`, with the hand-placed rule in
+`time-app/lib/handPlacedCrew.ts` (re-exported by `lib/handPlacedCrew.ts`);
+command: `lib/coverageReminderCli.ts`; reads: `lib/coverageReminderPg.ts`;
+send: `lib/gmailSend.ts`.
+
+| Name | Value |
+| --- | --- |
+| `DATABASE_URL` | Postgres DSN for the Supabase project |
+| `COVERAGE_REMINDER_FROM` | The From address. Set in the droplet's systemd unit, never in this repository |
+| `OUTREACH_GMAIL_CLIENT_ID`, `OUTREACH_GMAIL_CLIENT_SECRET`, `OUTREACH_GMAIL_REFRESH_TOKEN` | Gmail API credentials (gmail.send). SMTP is blocked on the droplet |
+
+```
+npm run coverage-reminder -- --dry-run   # prints the recipients and the email, sends nothing
+npm run coverage-reminder                # sends, only when there are gaps
+```
+Exit 0 = checked (sent, or nothing to send), 1 = a failure, 2 = bad argument
+or `DATABASE_URL` missing. Every failure (database read, recipient lookup,
+Gmail send) is also emailed to the fixed failure address with the subject
+"Coverage reminder could not run"; a dry run only prints that it would. Reads
+run in a read-only transaction. Where it runs: bj-box, from
+`bj-coverage-reminder.timer` (withers-ventures-home `droplet/systemd/`).
+
+## Event on a shift (time app)
+A shift added on the Schedule page says which event it is for through
+`shifts.deal_id`, the same column the shifts made for a booked deal carry. Managers
+and owners set it in the shift popup. The position says which events the dropdown
+lists for the shift's New York date, with `archived = 0`, plus None:
+
+| Position | Field | Deal stages listed |
+| --- | --- | --- |
+| Catering | Catering event | Booked Unpaid, Booked Paid, finished catering events |
+| Marketing | Marketing event | Closed Marketing Event, finished marketing events |
+| Any other | No dropdown | |
+
+A finished event is a deal at Event Complete, a stage both kinds end at. Which kind it
+was is payroll's own answer, from `isMarketingEvent` in
+`time-app/lib/payroll/verify.ts`: a Marketing shift linked to the deal or `event_type`
+"Marketing Event" makes it marketing, and a staffed Catering shift linked to it makes it
+catering whatever else is true. When neither says, it is listed for both positions and
+the manager picks (`finishedEventKinds` in `time-app/lib/shiftEventLink.ts`). The server
+applies the same answer on save, and refuses every other stage. So a person left
+unlinked when an event finishes can still be linked from the popup.
+
+If exactly one listed event fits, by the covers-the-whole-event rule in
+`time-app/lib/handPlacedCrew.ts`, it is preselected only when the popup was opened
+to choose an event (the badge on a shift's chip, or a shift in the "Events to choose"
+list) or for a new shift. Opened any other way, from the rest of the chip to fix the
+hours for example, an unlinked shift's dropdown stays on None with "Suggested:" and
+the event's name beside it; the suggestion writes nothing, and choosing the event
+takes a change of the dropdown. A save writes what the dropdown holds, and payroll
+reads a link as who was on the crew, so a link is always someone's choice. Two or
+more events that fit are never preselected. Nothing is written until the save. A
+date outside the week on screen is read from `GET /api/schedule/events`.
+
+Saving writes `deal_id` and the next free `deal_slot`; None clears both. Moving a
+linked Catering or Marketing shift to a date that is not its event's clears both, in
+the popup and on the server. A save that changes only the event tells nobody. A
+linked shift is one only a manager can assign (`time-app/lib/managerAssigns.ts`).
+
+A saved link stays through any save that does not change it, whatever the deal's
+stage is now. A Catering shift linked to a marketing event, or a shift whose deal has
+since closed some other way, still shows that event in its dropdown, and the manager
+can change it.
+
+A Catering or Marketing shift with a person, no `deal_id` and an event it fits gets a
+badge on the schedule: it suggests the one event, or says to choose between several.
+The count sits on an "Events to choose" button in the schedule's toolbar, which lists
+the shifts. A finished event counts for 14 days after its date, so old weeks do not
+fill up with suggestions; the dropdown has no such limit, since it lists one date. The
+badge is worked out each time the schedule loads, for the week on screen, and writes
+nothing: every link goes through the popup and a save, one shift
+at a time. Nothing records a None, so a shift saved as None that fits an event keeps
+its badge. The Marketing side of the badge is its own path in `scheduleEvents.ts`:
+the hand-placed rule stays Catering-only, so the coverage reminder and the reconciler
+count what they counted. Logic: `time-app/lib/scheduleEvents.ts` (pure) and
+`time-app/lib/shiftEventLink.ts` (reads and writes).
+
+Every shift with a `deal_id` shows its event's name on its schedule chip: the deal's
+company, else the contact's name, truncated when long. Staff see it on the shifts
+they can see, as the names already sit in those shifts' notes. Staff sessions cannot
+read `deals`, so `loadEventNames` reads through the service role, for the deal ids on
+the shifts that person was just allowed to read, and only the names reach the browser.
+
+What a link means elsewhere: payroll reads only the linked shifts with a person once
+any Catering shift on the deal has one (`time-app/lib/payroll/verify.ts`
+`eventShifts`, bj-finance `modules/tips.py` `event_crew`), so a manager links the
+whole crew by hand. A Marketing shift linked to a deal makes it a marketing event,
+exempt from the crew card (`isMarketingEvent`). The coverage reminder treats any deal
+with a person on a linked shift as staffed, whatever that shift's position.
+
+A link on a past shift is an ordinary shift write. Nothing locks it, and a pay table
+already built is not recalculated: `row_audit` records the write, the period's pay table
+line on the Finance tab says it changed after the build and asks for a rebuild, and
+Verify reads the link the next time it runs. A run with a submittal also gets a 1.15
+warning on the next run, which says to correct anything owed in QBO. A tip paid late on
+that event is split by the link as it stands when the later run builds.
+
 ## Catering-shift reconciler (local command)
 Creates the open crew shifts for booked catering deals that have a
 `departure_time` and no shifts yet. Same logic as `/api/cron/catering-shifts`
 (`reconcileShifts` in `lib/cateringShifts.ts`: cart events start 120 min
 before departure, 15h+ shifts are flagged CHECK HOURS), run straight against
 Postgres instead of over HTTP.
+
+It creates one shift per crew member nobody has placed by hand: `staff_count`
+minus the distinct people on published Catering shifts with no `deal_id` that
+cover the whole event, on slots 1..n. "Covers" is the schedule coverage
+reminder's rule, shared in `time-app/lib/handPlacedCrew.ts`: the shift starts at or before
+the event start and ends at or after the event end; no end time means it must
+run past the start; an end earlier than the start is the next day; no start time
+cannot be judged, so nobody counts. A partial overlap does not count. With the
+whole crew placed it creates nothing and remembers nothing, so if the hand-placed
+shift is removed the open shifts appear on the next sweep. The count is per deal:
+one person on a shift spanning two overlapping events skips both, and the
+reminder, which gives one shift to one event, still lists one as a gap. A failed
+read fails that deal, never reads as "nobody placed". A deal with any linked shift
+is left alone, shifts are never updated or deleted, and the reconciler never writes
+`deal_id` onto a hand-placed shift. A manager can (see "Event on a shift"
+below): that shift then counts as linked, so the deal is left alone from then on and
+no more open shifts are made for it, however many of its crew are still unlinked.
 
 | Name | Value |
 | --- | --- |
@@ -135,15 +940,18 @@ npm ci                                   # installs tsx and postgres (both runti
 npm run reconcile-shifts -- --dry-run    # read-only: reports what it would create
 npm run reconcile-shifts                 # creates the shifts
 ```
-Prints one summary line. Exit 0 = ok, 1 = the sweep or a deal failed,
-2 = bad argument or `DATABASE_URL` missing. The dry run runs in a read-only
-transaction and EXPLAINs each insert it would make.
+Prints one summary line, which names the deals that got shifts and the deals
+that failed; a deal skipped for hand-placed crew is only counted as scanned.
+Exit 0 = ok, 1 = the sweep or a deal failed, 2 = bad argument or `DATABASE_URL`
+missing. The dry run runs in a read-only transaction and EXPLAINs each insert it
+would make.
 
 Where it runs: on Alina's Mac, from a clean checkout of `main` at
-`~/systems/crm-app` (the same `~/systems/` convention as the catering
+`~/prod/crm-app` (the same `~/prod/` convention as the catering
 automations), never from a dev clone or the Google Drive. This is the only
 thing that runs from that checkout. It is separate from Vercel, which serves
-the web app, and from the droplet's checkout of this repo, which runs nothing.
+the web app, and from the droplet's checkout of this repo, which runs only the
+schedule coverage reminder above.
 
 The web routes that create the same shifts, `POST /api/deals/:id/booked-shifts`
 (signed-in) and `GET /api/cron/catering-shifts`, insert through supabase-js with

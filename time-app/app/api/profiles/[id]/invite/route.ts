@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/auth";
 import { sendInvite, siteOrigin } from "@/lib/authLinks";
+import { isManager, canEditProfile, OWNER_ONLY_EDIT } from "@/lib/roles";
 
 // POST /api/profiles/:id/invite
 // Manager-only. Resends a sign-in link to an existing team member (an invite
@@ -11,7 +12,7 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   const me = await getProfile();
-  if (!me || me.role !== "manager")
+  if (!me || !isManager(me))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const admin = createAdminClient();
@@ -21,9 +22,12 @@ export async function POST(
 
   const { data: p } = await admin
     .from("profiles")
-    .select("full_name")
+    .select("full_name, role")
     .eq("id", params.id)
     .maybeSingle();
+  // A manager does not touch an owner's account, sign-in links included.
+  if (!canEditProfile(me, p))
+    return NextResponse.json({ error: OWNER_ONLY_EDIT }, { status: 403 });
 
   const r = await sendInvite({
     email: u.user.email,

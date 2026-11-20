@@ -7,7 +7,9 @@
 // manager's own RLS. Read-only.
 
 import type { createClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingInStoreColumn } from "@/lib/storeHours";
+import { loadStoreHoursSeasons, seasonHoursRows } from "@/lib/storeHoursSeasons";
 import {
   EVENT_DEAL_STAGES,
   verifyTimesheets,
@@ -164,7 +166,7 @@ async function loadStoreHours(
 }> {
   const empty = { hours: [], exceptions: [], closedRanges: [], updatedAt: null, ready: false };
   try {
-    const [hours, exceptions, annotations] = await Promise.all([
+    const [hours, exceptions, annotations, seasons] = await Promise.all([
       supabase.from("store_hours").select("weekday, is_closed, opens, closes, updated_at"),
       supabase
         .from("store_hours_exceptions")
@@ -177,10 +179,13 @@ async function loadStoreHours(
         .eq("business_closed", true)
         .lte("start_date", window.end)
         .gte("end_date", window.start),
+      // Store-hours seasons (migration 47): the season in force on a date
+      // replaces the weekly pattern. None before the migration.
+      loadStoreHoursSeasons(supabase as unknown as SupabaseClient),
     ]);
     // Before migration 24 there is nothing to read. Check 1.8 then reports
     // every day as "hours not set" rather than silently passing.
-    if (hours.error || exceptions.error) return empty;
+    if (hours.error || exceptions.error || seasons.error) return empty;
 
     const rows = (hours.data ?? []) as (StoreHoursRow & { updated_at: string | null })[];
     const updatedAt = rows.reduce<string | null>(
@@ -188,7 +193,10 @@ async function loadStoreHours(
       null,
     );
     return {
-      hours: rows.map((r) => ({ weekday: r.weekday, is_closed: r.is_closed, opens: r.opens, closes: r.closes })),
+      hours: [
+        ...rows.map((r) => ({ weekday: r.weekday, is_closed: r.is_closed, opens: r.opens, closes: r.closes })),
+        ...seasonHoursRows(seasons.seasons),
+      ],
       exceptions: (exceptions.data ?? []) as StoreHoursException[],
       closedRanges: annotations.error ? [] : ((annotations.data ?? []) as ClosedDateRange[]),
       updatedAt,

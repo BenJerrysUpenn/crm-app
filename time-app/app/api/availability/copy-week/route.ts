@@ -1,9 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { changedKeys, queueAvailabilityChange } from "@/lib/availabilityNotice";
 import { NextResponse } from "next/server";
 
 // Copy the employee's "available" blocks from the previous week into the target
 // week. Body: { weekStart: "YYYY-MM-DD" } -> source is weekStart - 7 days.
+//
+// The target dates whose blocks changed are queued for the schedulers: on
+// their bell now, in the 8pm email (lib/availabilityNotice.ts).
 function addDays(d: string, n: number) {
   const x = new Date(d + "T00:00:00Z");
   x.setUTCDate(x.getUTCDate() + n);
@@ -31,6 +35,16 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   if (!src || src.length === 0) return NextResponse.json({ ok: true, copied: 0 });
 
+  // The target week as it stands, to tell which dates the copy changes.
+  const { data: before } = await supabase
+    .from("availability")
+    .select("specific_date, start_time, end_time, preference, is_available")
+    .eq("employee_id", profile.id)
+    .eq("is_available", true)
+    .not("specific_date", "is", null)
+    .gte("specific_date", weekStart)
+    .lt("specific_date", dstEnd);
+
   // Clear target week's available rows, then insert shifted copies.
   await supabase
     .from("availability")
@@ -52,5 +66,10 @@ export async function POST(request: Request) {
   }));
   const { error: insErr } = await supabase.from("availability").insert(rows);
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
+
+  await queueAvailabilityChange(profile, {
+    dates: changedKeys(before ?? [], rows, (r) => r.specific_date),
+    weekdays: [],
+  });
   return NextResponse.json({ ok: true, copied: rows.length });
 }

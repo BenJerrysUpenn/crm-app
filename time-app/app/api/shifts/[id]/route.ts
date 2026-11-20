@@ -1,16 +1,27 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { tellEmployeeAboutShift } from "@/lib/shiftNotice";
+import { shiftNewToThem, tellEmployeeAboutShift, tellEmployeeShiftRemoved } from "@/lib/shiftNotice";
 import { isLongShift, shiftHours } from "@/lib/shiftChecks";
 import { availabilityDateRange, checkShiftAvailability } from "@/lib/availabilityCheck";
 import { loadAvailabilityRows } from "@/lib/availabilityRows";
 import { NextResponse } from "next/server";
+import { isManager } from "@/lib/roles";
+import type { ShiftWithEmployee } from "@/lib/types";
+import { planEventLink, requestedEvent, writeWithEventLink } from "@/lib/shiftEventLink";
+
+// force-dynamic alone does not stop Next caching the fetches a route makes (see
+// lib/supabase/admin.ts). The free deal_slot has to come from a live read.
+export const fetchCache = "force-no-store";
 
 // PATCH: edit a shift (manager only). Body carries any of employee_id,
-// location_id, starts_at, ends_at, position, notes, plus confirmLong.
+// location_id, starts_at, ends_at, position, notes, plus confirmLong and
+// deal_id.
 //
 // There are no drafts: an edit always leaves the shift live (published =
-// true), whatever the body says, and the assigned employee is told.
+// true), whatever the body says, and the assigned employee is told: on their
+// bell now, by email and text in the 8pm summary (lib/shiftNotice.ts). When
+// the edit moves the shift to someone else (or leaves it open), the person who
+// had it is told it was removed, the same way.
 //
 // An edit that leaves the shift 15+ hours long is refused with 409 unless the
 // body carries confirmLong: true. The check is run against the shift as it will
@@ -23,22 +34,29 @@ import { NextResponse } from "next/server";
 // (503 "availability_unavailable" if availability cannot be read). An edit
 // that touches neither — notes, location — is not re-asked, so a
 // shift the manager already confirmed does not nag on every save.
+//
+// deal_id is the shift's event (lib/shiftEventLink.ts): an event's id links it on
+// a free deal_slot, null clears both. Without it the link stays, unless a Catering
+// or Marketing shift moved to a date that is not its event's, which clears it. An edit that changes nothing but the event tells nobody: the person's
+// shift has not changed for them.
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await request.json();
+  const asked = requestedEvent(body);
+  if (!asked.ok) return NextResponse.json({ error: asked.error }, { status: asked.status });
   const supabase = createClient();
 
   // The shift as it stands: the times the patch is applied on top of, and
   // whether it was still a draft written before drafts were removed.
   const { data: before } = await supabase
     .from("shifts")
-    .select("published, starts_at, ends_at, employee_id, position")
+    .select("published, starts_at, ends_at, employee_id, position, location_id, notes, deal_id")
     .eq("id", params.id)
     .single();
 
@@ -80,43 +98,83 @@ export async function PATCH(
     }
   }
 
+  const positionAfter = "position" in body ? body.position : before?.position;
+  const plan = await planEventLink(supabase, {
+    requested: asked.value,
+    before: before ? { deal_id: before.deal_id ?? null, starts_at: before.starts_at } : null,
+    startsAt,
+    position: positionAfter,
+  });
+  if (!plan.ok) return NextResponse.json({ error: plan.error }, { status: plan.status });
+
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), published: true };
   for (const k of ["employee_id", "location_id", "starts_at", "ends_at", "position", "notes"]) {
     if (k in body) patch[k] = body[k];
   }
 
-  const { data, error } = await supabase
-    .from("shifts")
-    .update(patch)
-    .eq("id", params.id)
-    .select("*, profiles(id, full_name, phone)")
-    .single();
+  const { data, error } = await writeWithEventLink<ShiftWithEmployee>(supabase, plan.link, (eventFields) =>
+    supabase
+      .from("shifts")
+      .update({ ...patch, ...eventFields })
+      .eq("id", params.id)
+      .select("*, profiles(id, full_name, phone)")
+      .single(),
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+  const unchanged = (k: "location_id" | "position" | "notes") => !(k in body) || (body[k] || null) === (before?.[k] || null);
+  const onlyTheEventChanged =
+    plan.link.kind !== "keep" &&
+    before?.published !== false &&
+    !whoOrWhenChanged &&
+    unchanged("location_id") &&
+    unchanged("position") &&
+    unchanged("notes");
+  if (onlyTheEventChanged) return NextResponse.json({ shift: data });
+
   // A shift that is new to this person (a leftover draft going live, or one
-  // just assigned to them) reads as a new shift, the message publishing the
-  // week used to send. Any other edit of an assigned shift is a change.
+  // just assigned to them) reads as a new shift. Any other edit of an assigned
+  // shift is a change.
   const newToThem = before?.published === false || (before?.employee_id ?? null) !== (data?.employee_id ?? null);
+  const hadIt = before?.employee_id ?? null;
+  if (before && hadIt && hadIt !== (data?.employee_id ?? null)) {
+    await tellEmployeeShiftRemoved(hadIt, {
+      id: Number(params.id),
+      starts_at: before.starts_at,
+      ends_at: before.ends_at,
+      position: before.position ?? null,
+    });
+  }
   if (newToThem && data?.employee_id) {
-    const emp = (data as any).profiles;
-    await tellEmployeeAboutShift("posted", data, emp?.phone ?? null);
+    await tellEmployeeAboutShift("posted", { ...data, employee_id: data.employee_id });
   } else if (data?.employee_id) {
     // An assigned shift was edited -> tell the employee.
-    const emp = (data as any).profiles;
-    await tellEmployeeAboutShift("changed", data, emp?.phone ?? null);
+    await tellEmployeeAboutShift("changed", { ...data, employee_id: data.employee_id });
   }
   return NextResponse.json({ shift: data });
 }
 
+// DELETE: remove a shift (manager only). The person on it, if anyone, is told
+// it was removed: on their bell now, in the 8pm summary (lib/shiftNotice.ts).
+// Returns the shift as it was, so the screen can offer Undo (POST /api/shifts
+// with restores: its id).
 export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } },
 ) {
   const profile = await getProfile();
-  if (!profile || profile.role !== "manager")
+  if (!profile || !isManager(profile))
     return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const supabase = createClient();
+  const { data: before } = await supabase
+    .from("shifts")
+    .select("id, employee_id, location_id, starts_at, ends_at, position, notes, deal_id")
+    .eq("id", params.id)
+    .maybeSingle();
+  // Asked before the delete, which takes the shift's queued notices with it.
+  const newToThem = before?.employee_id ? await shiftNewToThem(before.employee_id, before.id) : false;
   const { error } = await supabase.from("shifts").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true });
+  if (before?.employee_id) await tellEmployeeShiftRemoved(before.employee_id, before, newToThem);
+  return NextResponse.json({ ok: true, shift: before ?? null });
 }

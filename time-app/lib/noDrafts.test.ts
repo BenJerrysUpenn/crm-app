@@ -109,9 +109,10 @@ test("copy last week writes live shifts and tells each person once per shift", a
   );
   const res = await copyWeek.POST(req("POST", { weekStart: WEEK }), noParams);
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true, copied: 3 });
-
+  const body = (await res.json()) as { ok: boolean; copied: number; ids: number[] };
   const copies = db.rows("shifts").slice(3);
+  // ids: the copies, so the schedule can offer Undo.
+  assert.deepEqual(body, { ok: true, copied: 3, ids: copies.map((s) => s.id) });
   assert.equal(copies.length, 3);
   assert.ok(copies.every((s) => s.published === true));
   assert.equal(copies[0].starts_at, edt("2026-10-06", "12:00"));
@@ -123,11 +124,14 @@ test("copy last week writes live shifts and tells each person once per shift", a
   ]);
 });
 
-test("taking someone off a shift messages nobody", async () => {
+// bj-finance #754: the person taken off it is told it was removed, on their
+// bell now and in the 8pm summary (lib/shiftNotice.test.ts); nobody else is.
+test("taking someone off a shift tells only them, that it was removed", async () => {
   db.tables.shifts.push({ id: 1, employee_id: SAM, starts_at: edt("2026-10-06", "12:00"), ends_at: edt("2026-10-06", "17:00"), position: null, published: true });
   const res = await shiftById.PATCH(req("PATCH", { employee_id: null }), { params: { id: "1" } });
   assert.equal(res.status, 200);
   assert.equal(db.rows("shifts")[0].employee_id, null);
   assert.equal(db.rows("shifts")[0].published, true);
-  assert.deepEqual(notified(), []);
+  assert.deepEqual(notified(), [[SAM, "schedule_change"]]);
+  assert.equal(db.rows("notifications")[0].title, "Your shift was removed");
 });

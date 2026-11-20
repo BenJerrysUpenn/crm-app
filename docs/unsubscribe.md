@@ -8,6 +8,10 @@ click-redirect half is dropped entirely: click tracking was deliberately off on
 this lane, and a tracking redirect on a young sending domain can itself hurt
 placement. Nothing in this endpoint records a click.
 
+The owners reversed the click-tracking call on 2026-10-27; open and click
+tracking now live in their own endpoints, documented in `docs/tracking.md`.
+This endpoint still records no click.
+
 ## Why it exists
 
 `List-Unsubscribe` on the warm lane is `mailto:` only today

@@ -1,15 +1,16 @@
 "use client";
 
-// PROTOTYPE — Email campaigns tab (v4, v5): the in-CRM sequence editor.
+// Email campaigns tab: the in-CRM sequence editor.
 //
-// v5: the lane's signature and footer are editable blocks at the end of the
+// The lane's signature and footer are editable blocks at the end of the
 // timeline (one pair per lane: cold = Apollo's, warm = warm_sender's, offer =
 // empty), and the supported merge tags are shown as chips.
 //
 // Opened from a tile's sequence dots (loaded with that sequence) or from
 // "+ Add sequence" (empty, for that tier and category). One step = one email
-// = one dot on the tile. Edits persist in localStorage only: nothing here is
-// sent to Apollo, warm_sender or the database.
+// = one dot on the tile. Edits are saved to the shared copy (supabase/crm/013,
+// through the parent's onChange / onBlocksChange), so everyone sees them.
+// Nothing here is sent to Apollo or warm_sender.
 
 import { useEffect, useRef, useState } from "react";
 import { CADENCES, type Cadence, type TierPayload } from "@/lib/emailCampaignsPrototype/model";
@@ -17,6 +18,7 @@ import {
   LANES,
   MERGE_TAGS,
   dayOffsets,
+  isWrittenStep,
   splitMerge,
   type Lane,
   type LaneBlocks,
@@ -194,7 +196,7 @@ function RecipientPreview({ step, lane, blocks }: { step: SeqStep; lane: Lane; b
             {footerLines.map((line, i) =>
               lane.proposedTags.some((t) => line.includes(`{{${t}}}`)) ? (
                 <div key={i} className="rounded border border-dashed border-amber-400 bg-amber-50 px-2 py-1">
-                  <BlockLabel tone="amber">proposed footer line · not live yet</BlockLabel>
+                  <BlockLabel tone="amber">footer line not in sent emails yet</BlockLabel>
                   <div className="text-[12px] text-slate-600">
                     <Filled text={line} />
                   </div>
@@ -374,6 +376,7 @@ export default function SequenceEditor({
   blocksEdited,
   onBlocksChange,
   onBlocksReset,
+  conflicts,
   onClose,
 }: {
   target: EditorTarget;
@@ -387,6 +390,8 @@ export default function SequenceEditor({
   blocksEdited: boolean;
   onBlocksChange: (b: LaneBlocks) => void;
   onBlocksReset: () => void;
+  /** Notices for unresolved conflict records on this sequence or this lane. */
+  conflicts: string[];
   onClose: () => void;
 }) {
   const { tier, catKey, catLabel, cadence } = target;
@@ -413,7 +418,7 @@ export default function SequenceEditor({
     setSteps(next);
   };
   const remove = (i: number) => {
-    if (!window.confirm(`Delete step ${i + 1}? (Prototype: this browser only.)`)) return;
+    if (!window.confirm(`Delete step ${i + 1}? This changes the shared copy for everyone.`)) return;
     setSteps(steps.filter((_, k) => k !== i));
   };
   const add = () => {
@@ -489,7 +494,7 @@ export default function SequenceEditor({
             </dd>
             {isEveryone && tier.sequence ? (
               <>
-                <dt className="text-slate-500">Live today</dt>
+                <dt className="text-slate-500">In use</dt>
                 <dd className="text-slate-400">{tier.sequence.note}</dd>
               </>
             ) : null}
@@ -530,7 +535,7 @@ export default function SequenceEditor({
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm("Put back the original copy? Your edits in this browser are discarded.")) onReset();
+                  if (window.confirm("Put back the original copy? The shared edits are discarded for everyone.")) onReset();
                 }}
                 className="ml-auto text-xs text-slate-500 hover:text-slate-200"
               >
@@ -541,8 +546,13 @@ export default function SequenceEditor({
         </div>
 
         <div className="border-b border-amber-700/50 bg-amber-500/10 px-5 py-2 text-xs text-amber-200">
-          Prototype: edits (steps, signature and footer) are saved in this browser only and are NOT sent to
-          Apollo or the warm sender.
+          Edits here (steps, signature and footer) are saved to the shared copy, which everyone on this page sees.
+          They do not change what Apollo or the warm sender sends.
+          {conflicts.map((c) => (
+            <div key={c} className="mt-1">
+              ⚠ {c}
+            </div>
+          ))}
         </div>
 
         {/* timeline */}
@@ -551,7 +561,7 @@ export default function SequenceEditor({
             <div className="mb-4 rounded-md border border-dashed border-slate-700 px-4 py-6 text-center text-sm text-slate-400">
               No emails in this sequence yet.
               {tier.key === "offer" ? (
-                <div className="mt-1 text-xs text-slate-500">The offer lane is not built (mass email / Kit, TBD).</div>
+                <div className="mt-1 text-xs text-slate-500">Only wedding contacts in Offer are sent, through the warm lane.</div>
               ) : null}
             </div>
           ) : null}
@@ -570,6 +580,9 @@ export default function SequenceEditor({
                   </span>
                   {i > 0 ? <span className="text-[11px] text-slate-500">Day {offsets[i]}</span> : null}
                   <span className="text-[11px] text-slate-500">· Step {i + 1}: email</span>
+                  {!isWrittenStep(s) ? (
+                    <span className="text-[11px] text-amber-400/80">· copy not written yet, sent to nobody</span>
+                  ) : null}
                   {!preview && editingId !== s.id ? (
                     <span className="ml-auto flex items-center gap-0.5 text-[11px]">
                       <button
@@ -661,7 +674,7 @@ export default function SequenceEditor({
                 <button
                   type="button"
                   onClick={() => {
-                    if (window.confirm("Put back the original signature and footer? Your edits in this browser are discarded."))
+                    if (window.confirm("Put back the original signature and footer? The shared edits are discarded for everyone."))
                       onBlocksReset();
                   }}
                   className="ml-auto text-[11px] text-slate-500 hover:text-slate-200"

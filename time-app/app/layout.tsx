@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import UndoProvider from "@/components/UndoProvider";
 
 export const metadata: Metadata = {
   title: "Withers Time",
@@ -40,7 +41,7 @@ export default function RootLayout({
         />
       </head>
       <body>
-        {children}
+        <UndoProvider>{children}</UndoProvider>
         <ServiceWorkerRegister />
       </body>
     </html>

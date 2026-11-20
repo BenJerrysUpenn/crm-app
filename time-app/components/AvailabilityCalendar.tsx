@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
+import { useUndo } from "./UndoProvider";
+import { send } from "@/lib/undo";
 import type { Availability } from "@/lib/types";
+import { defaultRepeatUntil, parseRepeatUntil, shortDate, weeklyRowApplies } from "@/lib/repeatUntil";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -39,6 +42,9 @@ type Draft = {
   start: string;
   end: string;
   repeats: boolean;
+  // The last date a weekly block repeats on (lib/repeatUntil.ts). Required
+  // when it repeats; starts three months from today.
+  until: string;
   note: string;
 };
 
@@ -60,6 +66,7 @@ export default function AvailabilityCalendar({
   navView?: string;
 }) {
   const router = useRouter();
+  const { record } = useUndo();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [viewing, setViewing] = useState<Availability | null>(null);
   const [busy, setBusy] = useState(false);
@@ -70,7 +77,8 @@ export default function AvailabilityCalendar({
   function prefsFor(date: string) {
     const wd = weekdayOf(date);
     const s = specific.filter((a) => a.specific_date === date);
-    const r = recurring.filter((a) => a.weekday === wd);
+    // A weekly block stops after its repeat-until date.
+    const r = recurring.filter((a) => weeklyRowApplies(a, date, wd));
     const off = timeOff.filter((a) => a.specific_date === date);
     return { s, r, off };
   }
@@ -83,11 +91,17 @@ export default function AvailabilityCalendar({
   function openAdd(date: string) {
     if (isLocked(date)) return;
     setErr(null);
-    setDraft({ date, kind: "unavailable", allDay: false, start: "09:00", end: "17:00", repeats: false, note: "" });
+    setDraft({ date, kind: "unavailable", allDay: false, start: "09:00", end: "17:00", repeats: false, until: defaultRepeatUntil(today), note: "" });
   }
 
   async function save() {
     if (!draft) return;
+    // The server's own check (lib/repeatUntil.ts), asked here first.
+    const until = draft.repeats ? parseRepeatUntil(draft.until, today) : null;
+    if (until && !until.ok) {
+      setErr(until.error);
+      return;
+    }
     setBusy(true);
     setErr(null);
     const payload: Record<string, unknown> = {
@@ -98,8 +112,10 @@ export default function AvailabilityCalendar({
       note: draft.note || null,
       status: "approved",
     };
-    if (draft.repeats) payload.weekday = weekdayOf(draft.date);
-    else payload.specific_date = draft.date;
+    if (draft.repeats) {
+      payload.weekday = weekdayOf(draft.date);
+      payload.repeat_until = draft.until;
+    } else payload.specific_date = draft.date;
 
     const res = await fetch("/api/availability", {
       method: "POST",
@@ -115,8 +131,28 @@ export default function AvailabilityCalendar({
     router.refresh();
   }
 
-  async function del(id: number) {
-    await fetch(`/api/availability/${id}`, { method: "DELETE" });
+  // Remove, as an undo step: Undo adds the same entry back (a new id), Redo
+  // removes that one. The schedulers hear each change as they do any other.
+  async function del(row: Availability) {
+    const res = await fetch(`/api/availability/${row.id}`, { method: "DELETE" });
+    if (res.ok) {
+      const fields: Record<string, unknown> = {
+        is_available: row.is_available,
+        preference: row.preference,
+        start_time: row.start_time,
+        end_time: row.end_time,
+        note: row.note,
+        status: row.status,
+        ...(row.specific_date ? { specific_date: row.specific_date } : { weekday: row.weekday, repeat_until: row.repeat_until ?? null }),
+      };
+      const when = row.specific_date ? shortDate(row.specific_date) : `every ${DOW[row.weekday ?? 0]}`;
+      let id = row.id;
+      record({
+        label: `Removed availability, ${when}`,
+        undo: async () => { id = (await send<{ availability: Availability }>("/api/availability", "POST", fields)).availability.id; },
+        redo: async () => { await send(`/api/availability/${id}`, "DELETE"); },
+      });
+    }
     router.refresh();
   }
 
@@ -150,7 +186,7 @@ export default function AvailabilityCalendar({
         <button onClick={() => gotoMonth(1)} className="text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">›</button>
       </div>
       <p className="text-sm text-slate-600 dark:text-slate-400">
-        Click a day to add a preference. <span className="text-rose-500">✕ unavailable</span>, <span className="text-sky-500">★ prefer to work</span>, ↻ repeats weekly. Tap a chip to see it or remove it.
+        Click a day to add a preference. <span className="text-rose-500">✕ unavailable</span>, <span className="text-sky-500">★ prefer to work</span>, ↻ repeats weekly until its end date. Tap a chip to see it or remove it.
       </p>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
@@ -222,6 +258,21 @@ export default function AvailabilityCalendar({
             <input type="checkbox" checked={draft.repeats} onChange={(e) => setDraft({ ...draft, repeats: e.target.checked })} /> Repeats every {DOW[weekdayOf(draft.date)]}
           </label>
 
+          {draft.repeats && (
+            <label className="flex flex-wrap items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              Until
+              <input
+                type="date"
+                required
+                value={draft.until}
+                min={today}
+                onChange={(e) => setDraft({ ...draft, until: e.target.value })}
+                className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100"
+              />
+              <span className="text-xs text-slate-500">the last {DOW[weekdayOf(draft.date)]} it applies</span>
+            </label>
+          )}
+
           <label className="block text-xs text-slate-600 dark:text-slate-400">Note
             <input value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-900 dark:text-slate-100" />
           </label>
@@ -240,13 +291,15 @@ export default function AvailabilityCalendar({
             {viewing.preference === "unavailable" ? "Unavailable to work" : "Prefer to work"}
           </h2>
           <div className="text-sm text-slate-700 dark:text-slate-300">
-            {viewing.weekday !== null ? `Every ${DOW[viewing.weekday]}` : new Date((viewing.specific_date ?? "") + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+            {viewing.weekday !== null
+              ? `Every ${DOW[viewing.weekday]}${viewing.repeat_until ? ` until ${shortDate(viewing.repeat_until)}` : " (no end date)"}`
+              : new Date((viewing.specific_date ?? "") + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
             {" · "}
             {viewing.start_time ? `${fmtT(viewing.start_time)}–${fmtT(viewing.end_time)}` : "all day"}
           </div>
           {viewing.note && <div className="text-sm text-slate-500">{viewing.note}</div>}
           <div className="flex justify-between pt-2">
-            <button onClick={() => { del(viewing.id); setViewing(null); }} className="text-sm text-rose-500 hover:text-rose-400">Remove</button>
+            <button onClick={() => { del(viewing); setViewing(null); }} className="text-sm text-rose-500 hover:text-rose-400">Remove</button>
             <button onClick={() => setViewing(null)} className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
           </div>
         </Modal>
